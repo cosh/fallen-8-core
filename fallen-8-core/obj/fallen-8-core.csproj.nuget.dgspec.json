@@ -1,0 +1,120 @@
+{
+  "format": 1,
+  "restore": {
+    "F:\\fallen-8-core\\fallen-8-core\\fallen-8-core.csproj": {}
+  },
+  "projects": {
+    "F:\\fallen-8-core\\fallen-8-core-serializer\\fallen-8-core-serializer.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "F:\\fallen-8-core\\fallen-8-core-serializer\\fallen-8-core-serializer.csproj",
+        "projectName": "fallen-8-core-serializer",
+        "projectPath": "F:\\fallen-8-core\\fallen-8-core-serializer\\fallen-8-core-serializer.csproj",
+        "packagesPath": "C:\\Users\\cosh2\\.nuget\\packages\\",
+        "outputPath": "F:\\fallen-8-core\\fallen-8-core-serializer\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\cosh2\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "netcoreapp3.1"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "netcoreapp3.1": {
+            "targetAlias": "netcoreapp3.1",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        }
+      },
+      "frameworks": {
+        "netcoreapp3.1": {
+          "targetAlias": "netcoreapp3.1",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\6.0.100\\RuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "F:\\fallen-8-core\\fallen-8-core\\fallen-8-core.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "F:\\fallen-8-core\\fallen-8-core\\fallen-8-core.csproj",
+        "projectName": "fallen-8-core",
+        "projectPath": "F:\\fallen-8-core\\fallen-8-core\\fallen-8-core.csproj",
+        "packagesPath": "C:\\Users\\cosh2\\.nuget\\packages\\",
+        "outputPath": "F:\\fallen-8-core\\fallen-8-core\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\cosh2\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "netcoreapp3.1"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "netcoreapp3.1": {
+            "targetAlias": "netcoreapp3.1",
+            "projectReferences": {
+              "F:\\fallen-8-core\\fallen-8-core-serializer\\fallen-8-core-serializer.csproj": {
+                "projectPath": "F:\\fallen-8-core\\fallen-8-core-serializer\\fallen-8-core-serializer.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        }
+      },
+      "frameworks": {
+        "netcoreapp3.1": {
+          "targetAlias": "netcoreapp3.1",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\6.0.100\\RuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
