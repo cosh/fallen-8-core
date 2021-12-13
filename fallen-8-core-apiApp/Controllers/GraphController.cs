@@ -1,6 +1,8 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CSharp;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Controllers.Model;
@@ -8,6 +10,7 @@ using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Interfaces;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.Path;
+using NoSQL.GraphDB.Core.App.Helper;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
@@ -22,6 +25,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Text;
 
 namespace NoSQL.GraphDB.App.Controllers
@@ -39,22 +43,6 @@ namespace NoSQL.GraphDB.App.Controllers
 
         private readonly ILogger<GraphController> _logger;
 
-
-        #region Code generation stuff
-
-        private const String PathDelegateClassName = "NoSQL.GraphDB.Algorithms.Path.PathDelegateProvider";
-
-        private readonly String _pathDelegateClassPrefix = CodeGeneration.Prefix;
-        private readonly String _pathDelegateClassSuffix = CodeGeneration.Suffix;
-
-        private const String VertexFilterMethodName = "VertexFilter";
-        private const String EdgeFilterMethodName = "EdgeFilter";
-        private const String EdgePropertyFilterMethodName = "EdgePropertyFilter";
-        private const String VertexCostMethodName = "VertexCost";
-        private const String EdgeCostMethodName = "EdgeCost";
-
-        #endregion
-
         #endregion
 
         public GraphController(ILogger<GraphController> logger, Fallen8 fallen8)
@@ -62,8 +50,6 @@ namespace NoSQL.GraphDB.App.Controllers
             _logger = logger;
 
             _fallen8 = fallen8;
-
-            //todo: add compiler stuff later
         }
 
         #region IDisposable Members
@@ -447,79 +433,36 @@ namespace NoSQL.GraphDB.App.Controllers
                 var fromId = Convert.ToInt32(from);
                 var toId = Convert.ToInt32(to);
 
-                var sourceCode = CreateSource(definition);
+                IPathTraverser traverser;
 
-                var options = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
+                var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);
 
-                var parsedSyntaxTree = SyntaxFactory.ParseSyntaxTree(sourceCode, options);
-
-                var references = new MetadataReference[]
-                {
-                    MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                    MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-                    MetadataReference.CreateFromFile(typeof(System.Runtime.AssemblyTargetedPatchBandAttribute).Assembly.Location),
-                    MetadataReference.CreateFromFile(typeof(Microsoft.CSharp.RuntimeBinder.CSharpArgumentInfo).Assembly.Location),
-                };
-
-                var compilation =CSharpCompilation.Create("customPath.dll",
-                new[] { parsedSyntaxTree },
-                references: references,
-                options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
-                    optimizationLevel: OptimizationLevel.Release,
-                    assemblyIdentityComparer: DesktopAssemblyIdentityComparer.Default));
-
-                using (var peStream = new MemoryStream())
-                {
-                    var result = compilation.Emit(peStream);
-
-                    compilation.
-
-                    if (!result.Success)
+                if (traverser != null)
+                { 
+                    List<Core.Algorithms.Path.Path> paths;
+                    if (_fallen8.CalculateShortestPath(
+                        out paths,
+                        definition.PathAlgorithmName,
+                        fromId,
+                        toId,
+                        definition.MaxDepth,
+                        definition.MaxPathWeight,
+                        definition.MaxResults,
+                        traverser.EdgePropertyFilter(),
+                        traverser.VertexFilter(),
+                        traverser.EdgeFilter(),
+                        traverser.EdgeCost(),
+                        traverser.VertexCost()))
                     {
-                        Console.WriteLine("Compilation done with error.");
-
-                        var failures = result.Diagnostics.Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error);
-
-                        foreach (var diagnostic in failures)
+                        if (paths != null)
                         {
-                            Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
+                            return new List<PathREST>(paths.Select(aPath => new PathREST(aPath)));
                         }
-
-                        return null;
                     }
-
                 }
-
-
-                Type type = null; //get correct type
-
-                var edgeCostDelegate = CreateEdgeCostDelegate(definition.Cost, type);
-                var vertexCostDelegate = CreateVertexCostDelegate(definition.Cost, type);
-
-                var edgePropertyFilterDelegate = CreateEdgePropertyFilterDelegate(definition.Filter, type);
-                var vertexFilterDelegate = CreateVertexFilterDelegate(definition.Filter, type);
-                var edgeFilterDelegate = CreateEdgeFilterDelegate(definition.Filter, type);
-
-
-                List<Core.Algorithms.Path.Path> paths;
-                if (_fallen8.CalculateShortestPath(
-                    out paths,
-                    definition.PathAlgorithmName,
-                    fromId,
-                    toId,
-                    definition.MaxDepth,
-                    definition.MaxPathWeight,
-                    definition.MaxResults,
-                    edgePropertyFilterDelegate,
-                    vertexFilterDelegate,
-                    edgeFilterDelegate,
-                    edgeCostDelegate,
-                    vertexCostDelegate))
+                else
                 {
-                    if (paths != null)
-                    {
-                        return new List<PathREST>(paths.Select(aPath => new PathREST(aPath)));
-                    }
+                    _logger.LogError(compilerMessage);
                 }
             }
             return null;
@@ -602,142 +545,6 @@ namespace NoSQL.GraphDB.App.Controllers
         #region private helper
 
         /// <summary>
-        /// Create the source for the code generation
-        /// </summary>
-        /// <param name="definition">The path specification</param>
-        /// <returns>The source code</returns>
-        private string CreateSource(PathSpecification definition)
-        {
-            //use https://carlos.mendible.com/2017/03/02/create-a-class-with-net-core-and-roslyn/ to generate the code
-
-
-            if (definition == null) return string.Empty;
-
-            var sb = new StringBuilder();
-            sb.AppendLine(_pathDelegateClassPrefix);
-
-            if (definition.Cost != null)
-            {
-                if (definition.Cost.Edge != null)
-                {
-                    sb.AppendLine(definition.Cost.Edge);
-                }
-
-                if (definition.Cost.Vertex != null)
-                {
-                    sb.AppendLine(definition.Cost.Vertex);
-                }
-            }
-
-            if (definition.Filter != null)
-            {
-                if (definition.Filter.Edge != null)
-                {
-                    sb.AppendLine(definition.Filter.Edge);
-                }
-
-                if (definition.Filter.EdgeProperty != null)
-                {
-                    sb.AppendLine(definition.Filter.EdgeProperty);
-                }
-
-                if (definition.Filter.Vertex != null)
-                {
-                    sb.AppendLine(definition.Filter.Vertex);
-                }
-            }
-
-            sb.AppendLine(_pathDelegateClassSuffix);
-
-            return sb.ToString();
-        }
-
-        /// <summary>
-        /// Creates an edge filter delegate
-        /// </summary>
-        /// <param name="pathFilterSpecification">Filter specification.</param>
-        /// <param name="pathDelegateType">The path delegate type  </param>
-        /// <returns>The delegate</returns>
-        private static PathDelegates.EdgeFilter CreateEdgeFilterDelegate(PathFilterSpecification pathFilterSpecification, Type pathDelegateType)
-        {
-            if (pathFilterSpecification != null && !String.IsNullOrEmpty(pathFilterSpecification.Edge))
-            {
-                var method = pathDelegateType.GetMethod(EdgeFilterMethodName);
-
-                return (PathDelegates.EdgeFilter)Delegate.CreateDelegate(typeof(PathDelegates.EdgeFilter), method);
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Creates a vertex filter delegate
-        /// </summary>
-        /// <param name="pathFilterSpecification">Filter specification.</param>
-        /// <param name="pathDelegateType">The path delegate type </param>
-        /// <returns>The delegate</returns>
-        private static PathDelegates.VertexFilter CreateVertexFilterDelegate(PathFilterSpecification pathFilterSpecification, Type pathDelegateType)
-        {
-            if (pathFilterSpecification != null && !String.IsNullOrEmpty(pathFilterSpecification.Vertex))
-            {
-                var method = pathDelegateType.GetMethod(VertexFilterMethodName);
-
-                return (PathDelegates.VertexFilter)Delegate.CreateDelegate(typeof(PathDelegates.VertexFilter), method);
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Creates an edge property filter delegate
-        /// </summary>
-        /// <param name="pathFilterSpecification">Filter specification.</param>
-        /// <param name="pathDelegateType">The path delegate type </param>
-        /// <returns>The delegate</returns>
-        private static PathDelegates.EdgePropertyFilter CreateEdgePropertyFilterDelegate(PathFilterSpecification pathFilterSpecification, Type pathDelegateType)
-        {
-            if (pathFilterSpecification != null && !String.IsNullOrEmpty(pathFilterSpecification.EdgeProperty))
-            {
-                var method = pathDelegateType.GetMethod(EdgePropertyFilterMethodName);
-
-                return (PathDelegates.EdgePropertyFilter)Delegate.CreateDelegate(typeof(PathDelegates.EdgePropertyFilter), method);
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Creates a vertex cost delegate
-        /// </summary>
-        /// <param name="pathCostSpecification">Cost specificateion</param>
-        /// <param name="pathDelegateType">The path delegate type </param>
-        /// <returns>The delegate</returns>
-        private static PathDelegates.VertexCost CreateVertexCostDelegate(PathCostSpecification pathCostSpecification, Type pathDelegateType)
-        {
-            if (pathCostSpecification != null && !String.IsNullOrEmpty(pathCostSpecification.Edge))
-            {
-                var method = pathDelegateType.GetMethod(VertexCostMethodName);
-
-                return (PathDelegates.VertexCost)Delegate.CreateDelegate(typeof(PathDelegates.VertexCost), method);
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Creates an edge cost delegate
-        /// </summary>
-        /// <param name="pathCostSpecification">Cost specificateion</param>
-        /// <param name="pathDelegateType">The path delegate type</param>
-        /// <returns>The delegate</returns>
-        private static PathDelegates.EdgeCost CreateEdgeCostDelegate(PathCostSpecification pathCostSpecification, Type pathDelegateType)
-        {
-            if (pathCostSpecification != null && !String.IsNullOrEmpty(pathCostSpecification.Edge))
-            {
-                var method = pathDelegateType.GetMethod(EdgeCostMethodName);
-
-                return (PathDelegates.EdgeCost)Delegate.CreateDelegate(typeof(PathDelegates.EdgeCost), method);
-            }
-            return null;
-        }
-
-        /// <summary>
         ///   Creats the result
         /// </summary>
         /// <param name="graphElements"> The graph elements </param>
@@ -761,7 +568,6 @@ namespace NoSQL.GraphDB.App.Controllers
                     throw new ArgumentOutOfRangeException("resultTypeSpecification");
             }
         }
-
 
         #endregion
 
