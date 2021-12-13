@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netcoreapp3.1</TargetFramework>
@@ -12,6 +12,12 @@
     <PackageReference Include="MSTest.TestAdapter" Version="2.1.0" />
     <PackageReference Include="MSTest.TestFramework" Version="2.1.0" />
     <PackageReference Include="coverlet.collector" Version="1.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\fallen-8-core-apiApp\fallen-8-core-apiApp.csproj" />
+    <ProjectReference Include="..\fallen-8-core-serializer\fallen-8-core-serializer.csproj" />
+    <ProjectReference Include="..\fallen-8-core\fallen-8-core.csproj" />
   </ItemGroup>
 
 </Project>

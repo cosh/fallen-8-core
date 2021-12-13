@@ -14,7 +14,7 @@ using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Spatial;
 using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Serializer;
+using NoSQL.GraphDB.Core.Serializer;
 using System;
 using System.CodeDom.Compiler;
 using System.Collections.Generic;
