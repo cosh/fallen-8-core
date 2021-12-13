@@ -4,7 +4,7 @@ using System;
 
 #endregion
 
-namespace NoSQL.GraphDB.Serializer
+namespace NoSQL.GraphDB.Core.Serializer
 {
 	/// <summary>
 	/// Interface to allow helper classes to be used to serialize objects

@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace NoSQL.GraphDB.Serializer
+namespace NoSQL.GraphDB.Core.Serializer
 {
 	/// <summary>
 	/// Interface which allows a class to specify that it can be recreated during deserialization using a default constructor

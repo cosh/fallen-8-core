@@ -34,7 +34,7 @@ using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer;
 using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Serializer;
+using NoSQL.GraphDB.Core.Serializer;
 
 #endregion
 

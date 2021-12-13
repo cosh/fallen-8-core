@@ -2,7 +2,7 @@
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Plugin;
-using NoSQL.GraphDB.Serializer;
+using NoSQL.GraphDB.Core.Serializer;
 using System;
 using System.Collections.Generic;
 using System.IO;

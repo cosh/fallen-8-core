@@ -7,7 +7,7 @@ using System.Linq;
 using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Error;
 using System.IO;
-using NoSQL.GraphDB.Serializer;
+using NoSQL.GraphDB.Core.Serializer;
 
 namespace NoSQL.GraphDB.Core.Service
 {

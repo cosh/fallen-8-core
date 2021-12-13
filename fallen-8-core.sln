@@ -5,9 +5,11 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "fallen-8-core-apiApp", "fallen-8-core-apiApp\fallen-8-core-apiApp.csproj", "{4F7D59BC-BB6E-4372-A208-30DA872E561D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fallen-8-core", "fallen-8-core\fallen-8-core.csproj", "{9C6C7498-681A-456F-B9B0-3FC888745CB2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "fallen-8-core", "fallen-8-core\fallen-8-core.csproj", "{9C6C7498-681A-456F-B9B0-3FC888745CB2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fallen-8-core-serializer", "fallen-8-core-serializer\fallen-8-core-serializer.csproj", "{1199D6CD-EB4D-4FCB-9F13-ED69F46AA5C0}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "fallen-8-core-serializer", "fallen-8-core-serializer\fallen-8-core-serializer.csproj", "{1199D6CD-EB4D-4FCB-9F13-ED69F46AA5C0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fallen-8-core-unittest", "fallen-8-core-unittest\fallen-8-core-unittest.csproj", "{F05674A0-2558-4C8C-9172-F2EB464BEB9B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,6 +29,10 @@ Global
 		{1199D6CD-EB4D-4FCB-9F13-ED69F46AA5C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1199D6CD-EB4D-4FCB-9F13-ED69F46AA5C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1199D6CD-EB4D-4FCB-9F13-ED69F46AA5C0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F05674A0-2558-4C8C-9172-F2EB464BEB9B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F05674A0-2558-4C8C-9172-F2EB464BEB9B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F05674A0-2558-4C8C-9172-F2EB464BEB9B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F05674A0-2558-4C8C-9172-F2EB464BEB9B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

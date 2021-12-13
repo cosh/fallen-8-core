@@ -15,7 +15,7 @@ using System.Text;
 
 #endregion
 
-namespace NoSQL.GraphDB.Serializer
+namespace NoSQL.GraphDB.Core.Serializer
 {
 	/// <summary>
 	/// Class which defines the writer for serialized data using the fast serialization optimization.

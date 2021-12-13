@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace NoSQL.GraphDB.App.Controllers {
+namespace NoSQL.GraphDB.Core.App.Controllers {
     using System;
     
     
@@ -39,7 +39,7 @@ namespace NoSQL.GraphDB.App.Controllers {
         internal static global::System.Resources.ResourceManager ResourceManager {
             get {
                 if (object.ReferenceEquals(resourceMan, null)) {
-                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("NoSQL.GraphDB.App.Controllers.CodeGeneration", typeof(CodeGeneration).Assembly);
+                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("NoSQL.GraphDB.Core.App.Controllers.CodeGeneration", typeof(CodeGeneration).Assembly);
                     resourceMan = temp;
                 }
                 return resourceMan;

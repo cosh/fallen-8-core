@@ -6,7 +6,7 @@ using System.Drawing;
 
 #endregion
 
-namespace NoSQL.GraphDB.Serializer
+namespace NoSQL.GraphDB.Core.Serializer
 {
 	public class DrawingFastSerializationHelper : IFastSerializationTypeSurrogate
 	{

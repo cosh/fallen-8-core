@@ -11,7 +11,7 @@ using System.Text;
 
 #endregion
 
-namespace NoSQL.GraphDB.Serializer
+namespace NoSQL.GraphDB.Core.Serializer
 {
 	/// <summary>
 	/// A SerializationReader instance is used to read stored values and objects from a byte array.

@@ -4,7 +4,7 @@ using System.IO;
 
 #endregion
 
-namespace NoSQL.GraphDB.Serializer
+namespace NoSQL.GraphDB.Core.Serializer
 {
 	/// <summary>
 	/// Interface to implement on specialized compressor classes to compress a passed-in memory stream

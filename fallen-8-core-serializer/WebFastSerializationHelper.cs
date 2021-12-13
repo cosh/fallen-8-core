@@ -8,7 +8,7 @@ using System.Reflection;
 
 #endregion
 
-namespace NoSQL.GraphDB.Serializer
+namespace NoSQL.GraphDB.Core.Serializer
 {
 	public class WebFastSerializationHelper : IFastSerializationTypeSurrogate
 	{

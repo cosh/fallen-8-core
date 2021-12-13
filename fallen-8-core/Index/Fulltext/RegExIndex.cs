@@ -7,7 +7,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using NoSQL.GraphDB.Core.Error;
 using System.Collections.ObjectModel;
-using NoSQL.GraphDB.Serializer;
+using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Log;
 
 namespace NoSQL.GraphDB.Core.Index.Fulltext

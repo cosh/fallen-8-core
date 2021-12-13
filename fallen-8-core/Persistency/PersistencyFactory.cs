@@ -3,7 +3,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Service;
-using NoSQL.GraphDB.Serializer;
+using NoSQL.GraphDB.Core.Serializer;
 using System;
 using System.Collections.Generic;
 using System.Globalization;

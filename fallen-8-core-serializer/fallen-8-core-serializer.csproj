@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp3.1</TargetFramework>
-    <RootNamespace>NoSQL.GraphDB.Serializer</RootNamespace>
+    <RootNamespace>NoSQL.GraphDB.Core.Serializer</RootNamespace>
   </PropertyGroup>
 
 </Project>
