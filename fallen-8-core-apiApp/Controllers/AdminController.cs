@@ -14,7 +14,7 @@ using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Service;
-using NoSQL.GraphDB.Serializer;
+using NoSQL.GraphDB.Core.Serializer;
 using System;
 using System.CodeDom.Compiler;
 using System.Collections.Generic;
