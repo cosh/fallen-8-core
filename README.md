@@ -1,5 +1,4 @@
-[![Build Status](https://travis-ci.org/cosh/fallen-8.png?branch=master)](https://travis-ci.org/cosh/fallen-8)
-[![Join the chat at https://gitter.im/cosh/fallen-8](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/cosh/fallen-8?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![.NET](https://github.com/cosh/fallen-8-core/actions/workflows/buildAndTest.yml/badge.svg?branch=main)](https://github.com/cosh/fallen-8-core/actions/workflows/buildAndTest.yml)
 
 ## Welcome to Fallen-8.
 Fallen-8 is an in-memory [graph database](http://en.wikipedia.org/wiki/Graph_database) implemented in C#. Its focus is to provide raw speed for heavy graph algorithms.
