@@ -3,13 +3,15 @@ using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Tests.Helper;
+using NoSQL.GraphDB.Tests.Helper;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace NoSQL.GraphDB.Core.Tests
+namespace NoSQL.GraphDB.Tests
 {
     [TestClass]
     public class PathTest
@@ -23,27 +25,27 @@ namespace NoSQL.GraphDB.Core.Tests
         private ScanSpecification ALICESPEC = new ScanSpecification() 
         { 
             Literal = new LiteralSpecification() { Value = "Alice", FullQualifiedTypeName = "System.String" } , 
-            Operator = Expression.BinaryOperator.Equals,  ResultType =  ResultTypeSpecification.Vertices 
+            Operator = BinaryOperator.Equals,  ResultType =  ResultTypeSpecification.Vertices 
         };
 
         private ScanSpecification BOBSPEC = new ScanSpecification()
         {
             Literal = new LiteralSpecification() { Value = "Bob", FullQualifiedTypeName = "System.String" },
-            Operator = Expression.BinaryOperator.Equals,
+            Operator = BinaryOperator.Equals,
             ResultType = ResultTypeSpecification.Vertices
         };
 
         private ScanSpecification MALLORYSPEC = new ScanSpecification()
         {
             Literal = new LiteralSpecification() { Value = "Mallory", FullQualifiedTypeName = "System.String" },
-            Operator = Expression.BinaryOperator.Equals,
+            Operator = BinaryOperator.Equals,
             ResultType = ResultTypeSpecification.Vertices
         };
 
         private ScanSpecification TRENTSPEC = new ScanSpecification()
         {
             Literal = new LiteralSpecification() { Value = "Trent", FullQualifiedTypeName = "System.String" },
-            Operator = Expression.BinaryOperator.Equals,
+            Operator = BinaryOperator.Equals,
             ResultType = ResultTypeSpecification.Vertices
         };
 
@@ -71,7 +73,7 @@ namespace NoSQL.GraphDB.Core.Tests
 
             var result = _controller.GetPaths(mallory, trent, null);
 
-            //Assert.AreEqual("Alice", name);
+            Assert.AreEqual(2, result.Count);
         }
     }
 }

@@ -9,7 +9,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "fallen-8-core", "fallen-8-c
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "fallen-8-core-serializer", "fallen-8-core-serializer\fallen-8-core-serializer.csproj", "{1199D6CD-EB4D-4FCB-9F13-ED69F46AA5C0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fallen-8-core-unittest", "fallen-8-core-unittest\fallen-8-core-unittest.csproj", "{F05674A0-2558-4C8C-9172-F2EB464BEB9B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fallen-8-unittest", "fallen-8-unittest\fallen-8-unittest.csproj", "{F05674A0-2558-4C8C-9172-F2EB464BEB9B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

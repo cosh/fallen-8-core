@@ -1,9 +1,10 @@
-﻿using NoSQL.GraphDB.Core.Model;
+﻿using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Model;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace NoSQL.GraphDB.Core.Tests.Helper
+namespace NoSQL.GraphDB.Tests.Helper
 {
     public static class TestGraphGenerator
     {

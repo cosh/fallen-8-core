@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netcoreapp3.1</TargetFramework>
-    <RootNamespace>NoSQL.GraphDB.Core.Tests</RootNamespace>
+    <RootNamespace>NoSQL.GraphDB.Tests</RootNamespace>
 
     <IsPackable>false</IsPackable>
   </PropertyGroup>

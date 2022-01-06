@@ -1,10 +1,12 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Tests.Helper;
+using NoSQL.GraphDB.Tests.Helper;
 using System;
 using System.Collections.Generic;
 
-namespace NoSQL.GraphDB.Core.Tests
+namespace NoSQL.GraphDB.Tests
 {
     [TestClass]
     public class CoreTest
@@ -21,7 +23,7 @@ namespace NoSQL.GraphDB.Core.Tests
         public void FindAlice()
         {
             List<AGraphElement> result;
-            _fallen8.GraphScan(out result, 0, "Alice", Expression.BinaryOperator.Equals);
+            _fallen8.GraphScan(out result, 0, "Alice", BinaryOperator.Equals);
 
             Assert.IsNotNull(result);
 
