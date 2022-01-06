@@ -1,8 +1,4 @@
 ﻿using NoSQL.GraphDB.Core.Serializer;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text;
 
 namespace NoSQL.GraphDB.Core.Persistency
 {

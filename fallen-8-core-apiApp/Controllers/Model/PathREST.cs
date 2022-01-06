@@ -1,6 +1,6 @@
-﻿using NoSQL.GraphDB.Core.Algorithms.Path;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using NoSQL.GraphDB.Core.Algorithms.Path;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {

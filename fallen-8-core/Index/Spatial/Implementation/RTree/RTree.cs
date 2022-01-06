@@ -43,7 +43,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
     /// <summary>
     /// Spatial index implementation as r-tree
     /// </summary>
-    public sealed class RTree : AThreadSafeElement,ISpatialIndex
+    public sealed class RTree : AThreadSafeElement, ISpatialIndex
     {
         #region public member
         /// <summary>
@@ -73,8 +73,8 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         private ARTreeContainer _root;
 
         private delegate bool SpatialFilter(ISpatialContainer spatialContainer1, ISpatialContainer spatialContainer2);
-		
-		#endregion
+
+        #endregion
 
         #region constructor
         public RTree()
@@ -176,35 +176,35 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             return currentResult.AsReadOnly();
         }
         #endregion
-        
-		#region helper methods
+
+        #region helper methods
 
         private static bool Inclusion(ISpatialContainer x, ISpatialContainer y)
-		{
-			return x.Inclusion(y);
-		}
+        {
+            return x.Inclusion(y);
+        }
 
 
         private static bool Adjacency(ISpatialContainer x, ISpatialContainer y)
-		{
+        {
 
-			return x.Adjacency(y);
-		}
+            return x.Adjacency(y);
+        }
 
         private static bool ReInclusion(ISpatialContainer x, ISpatialContainer y)
         {
-			return y.Inclusion(x);
-		}
+            return y.Inclusion(x);
+        }
 
-		
+
 
         private static bool Intersection(ISpatialContainer x, ISpatialContainer y)
-		{
-			return x.Intersection(y);
-		}
+        {
+            return x.Intersection(y);
+        }
 
 
-		#endregion
+        #endregion
 
         #region EqualsSearch
         private ReadOnlyCollection<AGraphElement> EqualSearch(IRTreeDataContainer element)
@@ -227,7 +227,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                 }
                 else
                 {
-                    var container = (RTreeLeaf) currentContainer;
+                    var container = (RTreeLeaf)currentContainer;
 
                     for (var i = 0; i < container.Data.Count; i++)
                     {
@@ -239,7 +239,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     }
                 }
             }
-            
+
             return currentResult.AsReadOnly();
         }
         #endregion
@@ -323,7 +323,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                 }
                 else
                 {
-                    var container = (RTreeLeaf) currentContainer;
+                    var container = (RTreeLeaf)currentContainer;
 
                     for (var i = 0; i < container.Data.Count; i++)
                     {
@@ -355,7 +355,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                 var leafLevel = _levelForOverflowStrategy.Count - 1;
                 if (((RTreeNode)rTree.Parent).Children.Count < MinCountOfNode)
                     LocalReorganisationByRemoving(rTree.Parent, level - 1);
-                
+
                 if (rTree is RTreeLeaf)
                 {
                     foreach (var value in ((RTreeLeaf)rTree).Data)
@@ -528,7 +528,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             }
         }
         #endregion
-        
+
         #region OverflowTreatment
         private void OverflowTreatment(int level, ARTreeContainer container)
         {
@@ -550,19 +550,19 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         {
             var center = FindCenterOfContainer(container);
             var distance = new List<Tuple<float, IRTreeContainer>>(MaxCountOfNode + 1);
-            var dataContainer = container.IsLeaf 
-                                     ? new List<ISpatialContainer>(((RTreeLeaf) container).Data) 
-                                     : new List<ISpatialContainer>(((RTreeNode) container).Children);
+            var dataContainer = container.IsLeaf
+                                     ? new List<ISpatialContainer>(((RTreeLeaf)container).Data)
+                                     : new List<ISpatialContainer>(((RTreeNode)container).Children);
 
             foreach (IRTreeContainer value in dataContainer)
             {
                 if (value is APointContainer)
                     distance.Add(Tuple.Create(
-                        Metric.Distance(new RTreePoint(((APointContainer) value).Coordinates),
+                        Metric.Distance(new RTreePoint(((APointContainer)value).Coordinates),
                                         new RTreePoint(center)), value));
                 else
                     distance.Add(Tuple.Create(
-                        Metric.Distance(new RTreePoint(FindCenterOfContainer((ASpatialContainer) value)),
+                        Metric.Distance(new RTreePoint(FindCenterOfContainer((ASpatialContainer)value)),
                                         new RTreePoint(center)), value));
             }
             distance.Sort((x, y) => x.Item1.CompareTo(y.Item1));
@@ -571,9 +571,9 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             var reinsertData = new List<Tuple<float, IRTreeContainer>>(_countOfReInsert);
             reinsertData.AddRange(distance.GetRange(0, _countOfReInsert));
             if (container.IsLeaf)
-                ((RTreeLeaf) container).Data.RemoveAll(_ => reinsertData.Exists(y => y.Item2 == _));
+                ((RTreeLeaf)container).Data.RemoveAll(_ => reinsertData.Exists(y => y.Item2 == _));
             else
-                ((RTreeNode) container).Children.RemoveAll(_ => reinsertData.Exists(y => y.Item2 == _));
+                ((RTreeNode)container).Children.RemoveAll(_ => reinsertData.Exists(y => y.Item2 == _));
 
             RecalculationByRemoving(reinsertData.Select(_ => _.Item2));
             var leafLevel = _levelForOverflowStrategy.Count - 1;
@@ -630,7 +630,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                 var area = _root.Area;
                 _root.Dispose();
                 _root = null;
-                _root = new RTreeNode(lower, upper) {Area = area};
+                _root = new RTreeNode(lower, upper) { Area = area };
                 container1.Parent = _root;
                 container2.Parent = _root;
                 ((RTreeNode)_root).Children.Add(container1);
@@ -676,8 +676,8 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         /// </returns>
         private int ChooseSplitAxis(out List<IRTreeContainer> result, ARTreeContainer container)
         {
-            var currentContainers = container.IsLeaf == false 
-                ? new List<IRTreeContainer>(((RTreeNode)container).Children) 
+            var currentContainers = container.IsLeaf == false
+                ? new List<IRTreeContainer>(((RTreeNode)container).Children)
                 : new List<IRTreeContainer>(((RTreeLeaf)container).Data);
 
             result = currentContainers;
@@ -979,7 +979,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                 {
                     return GetLeavesLevelByOverlap(currentNode.Children, container);
                 }
-                
+
                 currentNode = (RTreeNode)GetNodeByAreaValue(currentNode.Children, container);
                 counterOfLevel++;
             }
@@ -1307,7 +1307,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             }
             throw new CollisionException(this);
         }
-        
+
         /// <summary>
         /// find all object which distance less or equal d from this element of graph have
         /// </summary>
@@ -1360,14 +1360,14 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                         if (key is IPoint)
                         {
                             var coordinations = ((IPoint)key).PointToSpaceR();
-                            currentContainer = new PointDataContainer(coordinations) {GraphElement = graphElement};
+                            currentContainer = new PointDataContainer(coordinations) { GraphElement = graphElement };
 
                         }
                         else
                         {
                             var mbr = key.GeometryToMBR();
                             currentContainer = new SpatialDataContainer(mbr.Lower, mbr.Upper)
-                                                   {GraphElement = graphElement};
+                            { GraphElement = graphElement };
                         }
 
                         InsertData(currentContainer);
@@ -1379,7 +1379,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                         RemoveValue(graphElement);
                         AddOrUpdate(key, graphElement);
                     }
-                    
+
                 }
                 FinishWriteResource();
                 return;
@@ -1399,11 +1399,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     return Metric.Distance(new RTreePoint(((IPoint)geometry1).PointToSpaceR()),
                         new RTreePoint(((IPoint)geometry2).PointToSpaceR()));
                 }
-                
+
                 var mbr1 = geometry1.GeometryToMBR();
                 var mbr2 = geometry2.GeometryToMBR();
                 var points = FindNeighborPoints(mbr1.Lower, mbr1.Upper, mbr2.Lower, mbr2.Upper);
-                    
+
                 FinishReadResource();
                 return Metric.Distance(points.Item1, points.Item2);
             }
@@ -1422,7 +1422,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     FinishReadResource();
                     return Distance(container1, container2);
                 }
-                
+
                 FinishReadResource();
                 return float.NaN;
             }
@@ -1821,7 +1821,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             }
             throw new CollisionException(this);
         }
-        
+
 
         public bool SearchPoint(out ReadOnlyCollection<AGraphElement> result, IPoint point)
         {
@@ -1863,19 +1863,19 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         {
             if (parameter == null) throw new ArgumentNullException("parameter");
 
-            if (!parameter.ContainsKey("IMetric")||!(parameter["IMetric"] is IMetric))
+            if (!parameter.ContainsKey("IMetric") || !(parameter["IMetric"] is IMetric))
                 throw new Exception("IMetric is uncorrectly");
             Metric = (IMetric)parameter["IMetric"];
 
-            if (!parameter.ContainsKey("MinCount")||!(parameter["MinCount"] is int))
+            if (!parameter.ContainsKey("MinCount") || !(parameter["MinCount"] is int))
                 throw new Exception("MinCount is uncorrectly");
             MinCountOfNode = (int)parameter["MinCount"];
 
-            if (!parameter.ContainsKey("MaxCount")||!(parameter["MaxCount"] is int))
+            if (!parameter.ContainsKey("MaxCount") || !(parameter["MaxCount"] is int))
                 throw new Exception("Max is uncorrectly");
             MaxCountOfNode = (int)parameter["MaxCount"];
 
-            if (!parameter.ContainsKey("Space")||!(parameter["Space"] is IEnumerable<IDimension>))
+            if (!parameter.ContainsKey("Space") || !(parameter["Space"] is IEnumerable<IDimension>))
                 throw new Exception("Space is uncorrectly");
             Space = new List<IDimension>(parameter["Space"] as IEnumerable<IDimension>);
 
@@ -1885,9 +1885,9 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             }
 
             _mapOfContainers = new Dictionary<int, IRTreeDataContainer>();
-            
-            
-            if (MinCountOfNode*2 > MaxCountOfNode+1)
+
+
+            if (MinCountOfNode * 2 > MaxCountOfNode + 1)
                 throw new Exception("with this parametrs MinCount and MaxCount is split method inposible");
 
 
@@ -1907,7 +1907,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             }
             _root = new RTreeLeaf(lower, upper);
 
-            _levelForOverflowStrategy = new List<bool> {true};
+            _levelForOverflowStrategy = new List<bool> { true };
         }
 
         public string PluginName

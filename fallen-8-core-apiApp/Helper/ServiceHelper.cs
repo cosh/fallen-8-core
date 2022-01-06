@@ -1,8 +1,8 @@
-﻿using NoSQL.GraphDB.App.Controllers.Model;
-using NoSQL.GraphDB.Core.Model;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.Core.Model;
 
 namespace NoSQL.GraphDB.App.Helper
 {

@@ -26,7 +26,7 @@
 
 namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
 {
-        /// <summary>
+    /// <summary>
     /// Container for point data
     /// </summary>
     abstract public class APointContainer : IMBP, IRTreeContainer
@@ -35,7 +35,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
         /// type of container
         /// </summary>
         public TypeOfContainer Container { get { return TypeOfContainer.PointContainer; } }
-      
+
 
         #region Inclusion of MBR and Point
         virtual public bool Inclusion(ISpatialContainer container)
@@ -60,13 +60,13 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
             }
             #endregion
             #region Point
-            
+
             return EqualTo(container);
 
             #endregion
         }
 
-            #endregion
+        #endregion
         #region Equal
         virtual public bool EqualTo(ISpatialContainer container)
         {
@@ -83,7 +83,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
 
                 return true;
             }
-            
+
             var currentLower = ((ASpatialContainer)container).Lower;
             var currentUpper = ((ASpatialContainer)container).Upper;
 
@@ -105,7 +105,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
             }
             #endregion
             #region MBR
-            
+
             var currentLower = ((ASpatialContainer)container).Lower;
             var currentUpper = ((ASpatialContainer)container).Upper;
             for (int i = 0; i < Coordinates.Length; i++)
@@ -116,11 +116,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
 
             return true;
         }
-            #endregion
+        #endregion
         #endregion
 
         #region Point get,set
-       
+
         virtual public float[] LowerPoint
         {
             get { return Coordinates; }
@@ -144,5 +144,5 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
 
 
     }
-    
+
 }

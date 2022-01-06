@@ -34,10 +34,10 @@ using NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer;
 
 namespace NoSQL.GraphDB.Core.Index.Spatial
 {
-	/// <summary>
-	/// Point.
-	/// </summary>
-	public sealed class Point : IPoint
+    /// <summary>
+    /// Point.
+    /// </summary>
+    public sealed class Point : IPoint
     {
 
         #region data
@@ -49,13 +49,13 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
 		/// The longitude.
 		/// </value>
         public float Longitude { get; private set; }
-		
-		/// <summary>
-		/// Gets or sets the latitude.
-		/// </summary>
-		/// <value>
-		/// The latitude.
-		/// </value>
+
+        /// <summary>
+        /// Gets or sets the latitude.
+        /// </summary>
+        /// <value>
+        /// The latitude.
+        /// </value>
         public float Latitude { get; private set; }
 
         #endregion
@@ -68,14 +68,14 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
             Latitude = latitude;
         }
 
-	    #endregion
+        #endregion
 
         public IMBR GeometryToMBR()
         {
-            var lower = new[]{Longitude,Latitude};
+            var lower = new[] { Longitude, Latitude };
             var upper = new[] { Longitude, Latitude };
 
-           return new MBR(lower,upper);
+            return new MBR(lower, upper);
         }
 
         public List<IDimension> Dimensions
@@ -85,12 +85,12 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
 
         public IEnumerable<object> Coordinates
         {
-            get { return new[] {new[] {Longitude, Latitude}}; }
+            get { return new[] { new[] { Longitude, Latitude } }; }
         }
 
         public float[] PointToSpaceR()
         {
-           return  new[]{Longitude,Latitude};
+            return new[] { Longitude, Latitude };
         }
     }
 }

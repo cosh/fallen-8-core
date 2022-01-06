@@ -36,7 +36,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
     /// <summary>
     /// Geometry point
     /// </summary>
-    public interface IPoint:IGeometry
+    public interface IPoint : IGeometry
     {
         /// <summary>
         /// gets coordinates of point 

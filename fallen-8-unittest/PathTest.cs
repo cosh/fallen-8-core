@@ -1,3 +1,4 @@
+﻿using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -5,11 +6,7 @@ using NoSQL.GraphDB.App.Controllers;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Expression;
-using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Tests.Helper;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -22,10 +19,11 @@ namespace NoSQL.GraphDB.Tests
 
         private readonly ushort NAME = 0;
 
-        private ScanSpecification ALICESPEC = new ScanSpecification() 
-        { 
-            Literal = new LiteralSpecification() { Value = "Alice", FullQualifiedTypeName = "System.String" } , 
-            Operator = BinaryOperator.Equals,  ResultType =  ResultTypeSpecification.Vertices 
+        private ScanSpecification ALICESPEC = new ScanSpecification()
+        {
+            Literal = new LiteralSpecification() { Value = "Alice", FullQualifiedTypeName = "System.String" },
+            Operator = BinaryOperator.Equals,
+            ResultType = ResultTypeSpecification.Vertices
         };
 
         private ScanSpecification BOBSPEC = new ScanSpecification()

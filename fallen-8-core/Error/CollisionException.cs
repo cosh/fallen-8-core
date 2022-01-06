@@ -1,8 +1,6 @@
-﻿using NoSQL.GraphDB.Core.Helper;
+﻿using System;
+using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Log;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace NoSQL.GraphDB.Core.Error
 {

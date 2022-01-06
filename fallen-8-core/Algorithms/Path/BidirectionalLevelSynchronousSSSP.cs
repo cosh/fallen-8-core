@@ -29,10 +29,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Log;
-using NoSQL.GraphDB.Core.Plugin;
 
 
 #endregion

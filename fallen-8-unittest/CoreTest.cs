@@ -1,10 +1,10 @@
+﻿using System;
+using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Tests.Helper;
-using System;
-using System.Collections.Generic;
 
 namespace NoSQL.GraphDB.Tests
 {

@@ -1,5 +1,5 @@
-﻿using NoSQL.GraphDB.Core.Expression;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
+using NoSQL.GraphDB.Core.Expression;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {

@@ -26,8 +26,8 @@
 
 namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
 {
-/// <summary>
-/// The type of container for data
-/// </summary>
-public enum TypeOfContainer {PointContainer,MBRContainer};  
+    /// <summary>
+    /// The type of container for data
+    /// </summary>
+    public enum TypeOfContainer { PointContainer, MBRContainer };
 }

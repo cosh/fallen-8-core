@@ -29,7 +29,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
     /// <summary>
     /// container for spatial data
     /// </summary>
-    public abstract class ASpatialContainer : IMBR, IRTreeContainer 
+    public abstract class ASpatialContainer : IMBR, IRTreeContainer
     {
         public float Area;
         public TypeOfContainer Container { get { return TypeOfContainer.MBRContainer; } }
@@ -50,7 +50,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
 
                 return true;
             }
-            
+
             return IsPointInclusion((APointContainer)container);
         }
 
@@ -103,8 +103,8 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
         {
             if (container is ASpatialContainer)
             {
-                var currentLower = ((ASpatialContainer) container).Lower;
-                var currentUpper = ((ASpatialContainer) container).Upper;
+                var currentLower = ((ASpatialContainer)container).Lower;
+                var currentUpper = ((ASpatialContainer)container).Upper;
                 for (int i = 0; i < Lower.Length; i++)
                 {
                     if (Lower[i] > currentUpper[i] || Upper[i] < currentLower[i])
@@ -136,7 +136,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
             }
             if (Intersection(container) && !InternalIntersection((ASpatialContainer)container))
                 return true;
-            
+
             return false;
         }
 
@@ -157,7 +157,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
 
                 return true;
             }
-            
+
             var currentLower = ((ASpatialContainer)myContainer).Lower;
             var currentUpper = ((ASpatialContainer)myContainer).Upper;
 
@@ -171,7 +171,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
         }
         #endregion
         #region Point get,set
-        
+
         virtual public float[] LowerPoint
         {
             get { return Lower; }

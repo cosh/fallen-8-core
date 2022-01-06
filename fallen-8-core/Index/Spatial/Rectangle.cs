@@ -26,17 +26,17 @@
 
 #region Usings
 
-using NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer;
 using System.Collections.Generic;
+using NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer;
 
 #endregion
 
 namespace NoSQL.GraphDB.Core.Index.Spatial
 {
-	/// <summary>
-	/// Rectangle.
-	/// </summary>
-	public sealed class Rectangle : IGeometry
+    /// <summary>
+    /// Rectangle.
+    /// </summary>
+    public sealed class Rectangle : IGeometry
     {
         #region constructor
 
@@ -57,14 +57,14 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
 		/// The lower left corner.
 		/// </value>
 		public IPoint LowerLeft { get; private set; }
-		
-		/// <summary>
-		/// Gets or sets the upper right corner.
-		/// </summary>
-		/// <value>
-		/// The upper right corner.
-		/// </value>
-		public IPoint UpperRight { get; private set; }
+
+        /// <summary>
+        /// Gets or sets the upper right corner.
+        /// </summary>
+        /// <value>
+        /// The upper right corner.
+        /// </value>
+        public IPoint UpperRight { get; private set; }
 
         #endregion
 
@@ -72,7 +72,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
 
         public IMBR GeometryToMBR()
         {
-            return new MBR(LowerLeft.PointToSpaceR(),UpperRight.PointToSpaceR());
+            return new MBR(LowerLeft.PointToSpaceR(), UpperRight.PointToSpaceR());
         }
 
         public List<IDimension> Dimensions

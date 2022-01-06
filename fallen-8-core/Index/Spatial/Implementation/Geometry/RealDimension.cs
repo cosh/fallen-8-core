@@ -26,8 +26,8 @@
 
 #region Usings
 
-using NoSQL.GraphDB.Core.Index.Spatial;
 using System;
+using NoSQL.GraphDB.Core.Index.Spatial;
 
 #endregion
 
@@ -42,7 +42,7 @@ namespace NNoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry
 
         public Type ObjectType
         {
-            get { return typeof (float); }
+            get { return typeof(float); }
         }
     }
 }

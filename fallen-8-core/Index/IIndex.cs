@@ -1,10 +1,9 @@
-﻿using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Persistency;
-using NoSQL.GraphDB.Core.Plugin;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Text;
+using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Persistency;
+using NoSQL.GraphDB.Core.Plugin;
 
 namespace NoSQL.GraphDB.Core.Index
 {

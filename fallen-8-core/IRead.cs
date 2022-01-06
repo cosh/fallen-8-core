@@ -1,11 +1,10 @@
-﻿using NoSQL.GraphDB.Core.Algorithms.Path;
+﻿using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Model;
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Text;
 
 namespace NoSQL.GraphDB.Core
 {

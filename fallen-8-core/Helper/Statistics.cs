@@ -20,7 +20,7 @@ namespace NoSQL.GraphDB.Core.Helper
         /// <returns>Average</returns>
         public static double Average(List<double> numbers)
         {
-            if (numbers != null) return numbers.Sum()/numbers.Count();
+            if (numbers != null) return numbers.Sum() / numbers.Count();
 
             throw new ArgumentException("Numbers are null or 0", "numbers");
 

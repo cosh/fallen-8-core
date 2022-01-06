@@ -1,16 +1,15 @@
-﻿using NoSQL.GraphDB.Core.Helper;
-using NoSQL.GraphDB.Core.Index;
-using NoSQL.GraphDB.Core.Log;
-using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Service;
-using NoSQL.GraphDB.Core.Serializer;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using NoSQL.GraphDB.Core.Helper;
+using NoSQL.GraphDB.Core.Index;
+using NoSQL.GraphDB.Core.Log;
+using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Serializer;
+using NoSQL.GraphDB.Core.Service;
 
 namespace NoSQL.GraphDB.Core.Persistency
 {

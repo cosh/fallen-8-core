@@ -1,12 +1,10 @@
-﻿using NoSQL.GraphDB.Core.Error;
+﻿using System;
+using System.Collections.Generic;
+using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Serializer;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text;
 
 namespace NoSQL.GraphDB.Core.Index
 {

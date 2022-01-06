@@ -26,8 +26,8 @@
 
 #region Usings
 
-using NoSQL.GraphDB.Core.Index.Spatial;
 using System;
+using NoSQL.GraphDB.Core.Index.Spatial;
 
 #endregion
 
@@ -74,7 +74,7 @@ namespace NNoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric
             var cdelta = Math.Cos(delta);
             var sdelta = Math.Sin(delta);
 
-            
+
             var y = Math.Sqrt(Math.Pow(cl2 * sdelta, 2) + Math.Pow(cl1 * sl2 - sl1 * cl2 * cdelta, 2));
             var x = sl1 * sl2 + cl1 * cl2 * cdelta;
             var angelDifference = Math.Atan2(y, x);

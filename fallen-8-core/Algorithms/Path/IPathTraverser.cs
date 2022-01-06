@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace NoSQL.GraphDB.Core.Algorithms.Path
+﻿namespace NoSQL.GraphDB.Core.Algorithms.Path
 {
     public interface IPathTraverser
     {

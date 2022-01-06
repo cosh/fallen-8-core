@@ -35,7 +35,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
     /// <summary>
     /// geometric object curve
     /// </summary>
-    public interface ICurve:IGeometry
+    public interface ICurve : IGeometry
     {
         /// <summary>
         /// gets points of curve

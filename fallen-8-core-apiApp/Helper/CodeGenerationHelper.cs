@@ -1,16 +1,15 @@
-﻿using Microsoft.CodeAnalysis;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
-using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core.Algorithms.Path;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
-using System.Linq;
-using System.Text;
 
 namespace NoSQL.GraphDB.Core.App.Helper
 {
@@ -47,7 +46,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
               .AddSyntaxTrees(tree);
 
             IPathTraverser pathTraverserInstance = null;
-            String resultMessage = null; 
+            String resultMessage = null;
 
             using (var ms = new MemoryStream())
             {
@@ -80,7 +79,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             traverser = pathTraverserInstance; ;
 
-            return resultMessage; 
+            return resultMessage;
         }
 
         /// <summary>

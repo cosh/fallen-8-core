@@ -36,6 +36,6 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
             Lower = lower;
             Upper = upper;
         }
-   
+
     }
 }

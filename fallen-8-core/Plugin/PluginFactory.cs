@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
-using System.Linq;
 using System.IO;
+using System.Linq;
 using System.Reflection;
+using System.Text;
 
 namespace NoSQL.GraphDB.Core.Plugin
 {
@@ -26,7 +26,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <param name='result'> Result. </param>
         /// <param name='name'> The unique name of the pluginN. </param>
         /// <typeparam name='T'> The interface type of the plugin. </typeparam>
-        public static Boolean TryFindPlugin<T>(out T result, String name) 
+        public static Boolean TryFindPlugin<T>(out T result, String name)
             where T : class, IPlugin
         {
             foreach (var aPluginTypeOfT in GetAllTypes<T>())
@@ -194,13 +194,13 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   Activate the specified currentPluginType.
         /// </summary>
         /// <param name='currentPluginType'> Current plugin type. </param>
-        private static T Activate<T>(Type currentPluginType) 
+        private static T Activate<T>(Type currentPluginType)
             where T : class
         {
             object instance;
 
             try
-            { 
+            {
                 instance = Activator.CreateInstance(currentPluginType, false);
             }
             catch (TypeLoadException)

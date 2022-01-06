@@ -1,5 +1,11 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.CSharp;
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
@@ -8,24 +14,10 @@ using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
-using NoSQL.GraphDB.Core.Index.Fulltext;
-using NoSQL.GraphDB.Core.Index.Spatial;
 using NoSQL.GraphDB.Core.Log;
-using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Plugin;
-using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.Serializer;
-using System;
-using System.CodeDom.Compiler;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Diagnostics;
-using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Net;
-using System.Reflection;
-using System.Text;
+using NoSQL.GraphDB.Core.Service;
 
 namespace NoSQL.GraphDB.App.Controllers
 {
@@ -152,7 +144,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpPost("/service")]
         [Consumes("application/json")]
-        public bool CreateService([FromBody]PluginSpecification definition)
+        public bool CreateService([FromBody] PluginSpecification definition)
         {
             IService service;
             return _fallen8.ServiceFactory.TryAddService(out service, definition.PluginType, definition.UniqueId, ServiceHelper.CreatePluginOptions(definition.PluginOptions));

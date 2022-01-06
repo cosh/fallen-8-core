@@ -13,7 +13,7 @@ namespace NoSQL.GraphDB.Core.Helper
     {
         public static Int32 GetOptimalNumberOfTasks()
         {
-			return (Environment.ProcessorCount / 2) * 3;
+            return (Environment.ProcessorCount / 2) * 3;
         }
     }
 }

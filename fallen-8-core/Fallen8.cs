@@ -1,4 +1,9 @@
-﻿using NoSQL.GraphDB.Core.Algorithms.Path;
+﻿using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading;
+using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Helper;
@@ -10,12 +15,6 @@ using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Service;
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Diagnostics;
-using System.Linq;
-using System.Threading;
 
 namespace NoSQL.GraphDB.Core
 {

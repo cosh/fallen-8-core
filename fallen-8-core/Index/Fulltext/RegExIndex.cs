@@ -1,14 +1,13 @@
-﻿using NoSQL.GraphDB.Core.Helper;
-using NoSQL.GraphDB.Core.Model;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.RegularExpressions;
 using NoSQL.GraphDB.Core.Error;
-using System.Collections.ObjectModel;
-using NoSQL.GraphDB.Core.Serializer;
+using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Log;
+using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Serializer;
 
 namespace NoSQL.GraphDB.Core.Index.Fulltext
 {

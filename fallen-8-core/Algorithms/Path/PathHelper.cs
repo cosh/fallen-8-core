@@ -49,9 +49,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="vertexFilter">The target vertex filter.</param>
         /// <returns>Valid edges</returns>
         public static List<Tuple<UInt16, IEnumerable<EdgeModel>>> GetValidEdges(
-            VertexModel vertex, 
-            Direction direction, 
-            PathDelegates.EdgePropertyFilter edgepropertyFilter, 
+            VertexModel vertex,
+            Direction direction,
+            PathDelegates.EdgePropertyFilter edgepropertyFilter,
             PathDelegates.EdgeFilter edgeFilter,
             PathDelegates.VertexFilter vertexFilter)
         {
@@ -115,7 +115,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         }
                         else
                         {
-                            result.Add(new Tuple<ushort, IEnumerable<EdgeModel>>(edgeContainer.EdgePropertyId, edgeContainer.Edges));                                                        
+                            result.Add(new Tuple<ushort, IEnumerable<EdgeModel>>(edgeContainer.EdgePropertyId, edgeContainer.Edges));
                         }
                     }
                 }

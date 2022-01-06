@@ -46,7 +46,7 @@ namespace NoSQL.GraphDB.Core.Index
     public sealed class DictionaryIndex : AThreadSafeElement, IIndex
     {
         #region Data
-        
+
         /// <summary>
         /// The index dictionary.
         /// </summary>
@@ -58,24 +58,24 @@ namespace NoSQL.GraphDB.Core.Index
         private String _description = "A very conservative dictionary index";
 
         #endregion
-  
+
         #region Constructor
-        
+
         /// <summary>
         /// Initializes a new instance of the DictionaryIndex class.
         /// </summary>
-        public DictionaryIndex ()
+        public DictionaryIndex()
         {
         }
-        
+
         #endregion
-        
+
         #region IIndex implementation
-        
+
         public Int32 CountOfKeys()
         {
-			if (ReadResource()) 
-			{
+            if (ReadResource())
+            {
                 try
                 {
                     var keyCount = _idx.Keys.Count;
@@ -85,16 +85,16 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     FinishReadResource();
                 }
-				
-			}
-			
-			throw new CollisionException(this);
+
+            }
+
+            throw new CollisionException(this);
         }
 
         public Int32 CountOfValues()
         {
-			if (ReadResource()) 
-			{
+            if (ReadResource())
+            {
                 try
                 {
                     var valueCount = _idx.Values.SelectMany(_ => _).Count();
@@ -103,10 +103,10 @@ namespace NoSQL.GraphDB.Core.Index
                 finally
                 {
                     FinishReadResource();
-                }				
-			}
-			
-			throw new CollisionException(this);
+                }
+            }
+
+            throw new CollisionException(this);
         }
 
         public void AddOrUpdate(Object keyObject, AGraphElement graphElement)
@@ -117,8 +117,8 @@ namespace NoSQL.GraphDB.Core.Index
                 return;
             }
 
-			if (WriteResource()) 
-			{
+            if (WriteResource())
+            {
                 try
                 {
 
@@ -137,14 +137,14 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     FinishWriteResource();
                 }
-				
-				return;
-			}
-			
-			throw new CollisionException(this);
+
+                return;
+            }
+
+            throw new CollisionException(this);
         }
 
-        public bool TryRemoveKey (Object keyObject)
+        public bool TryRemoveKey(Object keyObject)
         {
             IComparable key;
             if (!IndexHelper.CheckObject(out key, keyObject))
@@ -152,8 +152,8 @@ namespace NoSQL.GraphDB.Core.Index
                 return false;
             }
 
-			if (WriteResource()) 
-			{
+            if (WriteResource())
+            {
                 try
                 {
                     var foundSth = _idx.Remove(key);
@@ -163,15 +163,15 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     FinishWriteResource();
                 }
-			}
-			
-			throw new CollisionException(this);
+            }
+
+            throw new CollisionException(this);
         }
 
         public void RemoveValue(AGraphElement graphElement)
         {
-			if (WriteResource()) 
-			{
+            if (WriteResource())
+            {
                 try
                 {
                     var toBeRemovedKeys = new List<IComparable>();
@@ -191,17 +191,17 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     FinishWriteResource();
                 }
-				
-				return;
-			}
-			
-			throw new CollisionException(this);
+
+                return;
+            }
+
+            throw new CollisionException(this);
         }
-        
-        public void Wipe ()
+
+        public void Wipe()
         {
-			if (WriteResource()) 
-			{
+            if (WriteResource())
+            {
                 try
                 {
                     _idx.Clear();
@@ -210,17 +210,17 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     FinishWriteResource();
                 }
-				
-				return;
-			}
-			
-			throw new CollisionException(this);
+
+                return;
+            }
+
+            throw new CollisionException(this);
         }
 
-        public IEnumerable<Object> GetKeys ()
+        public IEnumerable<Object> GetKeys()
         {
-			if (ReadResource()) 
-			{
+            if (ReadResource())
+            {
                 try
                 {
                     var keys = new List<IComparable>(_idx.Keys);
@@ -231,15 +231,15 @@ namespace NoSQL.GraphDB.Core.Index
                     FinishReadResource();
                 }
             }
-			
-			throw new CollisionException(this);
+
+            throw new CollisionException(this);
         }
 
 
         public IEnumerable<KeyValuePair<object, ReadOnlyCollection<AGraphElement>>> GetKeyValues()
         {
-			if (ReadResource()) 
-			{
+            if (ReadResource())
+            {
                 try
                 {
                     foreach (var aKv in _idx)
@@ -249,11 +249,11 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     FinishReadResource();
                 }
-				
-				yield break;
-			}
-			
-			throw new CollisionException(this);
+
+                yield break;
+            }
+
+            throw new CollisionException(this);
         }
 
         public bool TryGetValue(out ReadOnlyCollection<AGraphElement> result, Object keyObject)
@@ -265,8 +265,8 @@ namespace NoSQL.GraphDB.Core.Index
                 return false;
             }
 
-			if (ReadResource()) 
-			{
+            if (ReadResource())
+            {
                 try
                 {
                     List<AGraphElement> graphElements;
@@ -279,10 +279,10 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     FinishReadResource();
                 }
-				
-			}
-			
-			throw new CollisionException(this);
+
+            }
+
+            throw new CollisionException(this);
         }
         #endregion
 
@@ -290,8 +290,8 @@ namespace NoSQL.GraphDB.Core.Index
 
         public void Save(SerializationWriter writer)
         {
-			if (ReadResource()) 
-			{
+            if (ReadResource())
+            {
                 try
                 {
                     writer.Write(0);//parameter
@@ -310,17 +310,17 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     FinishReadResource();
                 }
-				
-				return;
-			}
-			
-			throw new CollisionException(this);
+
+                return;
+            }
+
+            throw new CollisionException(this);
         }
 
         public void Load(SerializationReader reader, Fallen8 fallen8)
         {
-			if (WriteResource()) 
-			{
+            if (WriteResource())
+            {
                 try
                 {
                     reader.ReadInt32();//parameter
@@ -354,18 +354,18 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     FinishWriteResource();
                 }
-				
-				return;
-			}
-			
-			throw new CollisionException(this);
+
+                return;
+            }
+
+            throw new CollisionException(this);
         }
 
         #endregion
 
         #region IPlugin implementation
 
-        public void Initialize (Fallen8 fallen8, IDictionary<string, object> parameter)
+        public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
         {
             _idx = new Dictionary<IComparable, List<AGraphElement>>();
         }

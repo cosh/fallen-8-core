@@ -40,6 +40,6 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <summary>
         /// upperst point of the rechtangle
         /// </summary>
-       public float[] Upper;
+        public float[] Upper;
     }
 }

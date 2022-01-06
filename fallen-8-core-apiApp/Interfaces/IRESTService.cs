@@ -1,5 +1,5 @@
-﻿using NoSQL.GraphDB.Core.Persistency;
-using System;
+﻿using System;
+using NoSQL.GraphDB.Core.Persistency;
 
 namespace NoSQL.GraphDB.App.Interfaces
 {

@@ -1,7 +1,5 @@
-﻿using NoSQL.GraphDB.Core.Model;
-using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using System;
+using NoSQL.GraphDB.Core.Model;
 
 namespace NoSQL.GraphDB.Core.Persistency
 {

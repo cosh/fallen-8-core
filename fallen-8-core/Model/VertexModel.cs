@@ -1,10 +1,9 @@
-﻿using NoSQL.GraphDB.Core.Error;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Text;
-using System.Linq;
 using System.Globalization;
+using System.Linq;
+using NoSQL.GraphDB.Core.Error;
 
 namespace NoSQL.GraphDB.Core.Model
 {

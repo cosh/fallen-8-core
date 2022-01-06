@@ -1,9 +1,8 @@
-﻿using NoSQL.GraphDB.Core.Model;
-using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Linq;
+﻿using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using NoSQL.GraphDB.Core.Model;
 
 namespace NoSQL.GraphDB.Core.Algorithms.Path
 {

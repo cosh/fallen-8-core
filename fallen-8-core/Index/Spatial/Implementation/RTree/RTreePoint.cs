@@ -36,5 +36,5 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             Coordinates = coordinates;
         }
     }
-   
+
 }

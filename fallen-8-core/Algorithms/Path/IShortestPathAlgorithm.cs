@@ -54,7 +54,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="vertexCost">The vertex cost delegate.</param>
         /// <returns>Paths</returns>
         List<Path> Calculate(
-            Int32 sourceVertexId, 
+            Int32 sourceVertexId,
             Int32 destinationVertexId,
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,

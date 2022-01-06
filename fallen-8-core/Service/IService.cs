@@ -1,8 +1,7 @@
-﻿using NoSQL.GraphDB.Core.Persistency;
-using NoSQL.GraphDB.Core.Plugin;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Text;
+using NoSQL.GraphDB.Core.Persistency;
+using NoSQL.GraphDB.Core.Plugin;
 
 namespace NoSQL.GraphDB.Core.Service
 {
