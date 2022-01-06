@@ -12,23 +12,23 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The desired path algorithm plugin name
         /// </summary>
         [Required]
-        public String PathAlgorithmName { get; set; }
+        public String PathAlgorithmName { get; set; } = "BLS";
 
         /// <summary>
         ///   The maximum depth
         /// </summary>
         [Required]
-        public UInt16 MaxDepth { get; set; }
+        public UInt16 MaxDepth { get; set; } = 7;
 
         /// <summary>
         ///   The maximum result count
         /// </summary>
-        public UInt16 MaxResults { get; set; }
+        public UInt16 MaxResults { get; set; } = UInt16.MaxValue;
 
         /// <summary>
         ///   The maximum path weight
         /// </summary>
-        public Double MaxPathWeight { get; set; }
+        public Double MaxPathWeight { get; set; } = Double.MaxValue;
 
         /// <summary>
         ///   The path filter specification

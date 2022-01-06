@@ -203,7 +203,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpPost("/scan/graph/property/{propertyId}")]
         [Produces("application/json")]
-        public IEnumerable<int> GraphScan([FromQuery] String propertyIdString, [FromBody] ScanSpecification definition)
+        public IEnumerable<int> GraphScan([FromQuery] UInt16 propertyId, [FromBody] ScanSpecification definition)
         {
             #region initial checks
 
@@ -213,8 +213,6 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             #endregion
-
-            var propertyId = Convert.ToUInt16(propertyIdString);
 
             IComparable value = definition.Literal.FullQualifiedTypeName == null
                 ? definition.Literal.Value
@@ -426,45 +424,46 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpPost("/path/{from}/to/{to}")]
         [Produces("application/json")]
         [Consumes("application/json")]
-        public List<PathREST> GetPaths([FromQuery] string from, [FromQuery] string to, [FromBody] PathSpecification definition)
+        public List<PathREST> GetPaths([FromQuery] Int32 fromId, [FromQuery] Int32 toId, [FromBody] PathSpecification definition)
         {
-            if (definition != null)
+            if (definition == null)
             {
-                var fromId = Convert.ToInt32(from);
-                var toId = Convert.ToInt32(to);
+                definition = new PathSpecification();
+            }
 
-                IPathTraverser traverser;
 
-                var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);
+            IPathTraverser traverser;
 
-                if (traverser != null)
-                { 
-                    List<Core.Algorithms.Path.Path> paths;
-                    if (_fallen8.CalculateShortestPath(
-                        out paths,
-                        definition.PathAlgorithmName,
-                        fromId,
-                        toId,
-                        definition.MaxDepth,
-                        definition.MaxPathWeight,
-                        definition.MaxResults,
-                        traverser.EdgePropertyFilter(),
-                        traverser.VertexFilter(),
-                        traverser.EdgeFilter(),
-                        traverser.EdgeCost(),
-                        traverser.VertexCost()))
+            var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);
+
+            if (traverser != null)
+            {
+                List<Core.Algorithms.Path.Path> paths;
+                if (_fallen8.CalculateShortestPath(
+                    out paths,
+                    definition.PathAlgorithmName,
+                    fromId,
+                    toId,
+                    definition.MaxDepth,
+                    definition.MaxPathWeight,
+                    definition.MaxResults,
+                    traverser.EdgePropertyFilter(),
+                    traverser.VertexFilter(),
+                    traverser.EdgeFilter(),
+                    traverser.EdgeCost(),
+                    traverser.VertexCost()))
+                {
+                    if (paths != null)
                     {
-                        if (paths != null)
-                        {
-                            return new List<PathREST>(paths.Select(aPath => new PathREST(aPath)));
-                        }
+                        return new List<PathREST>(paths.Select(aPath => new PathREST(aPath)));
                     }
                 }
-                else
-                {
-                    _logger.LogError(compilerMessage);
-                }
             }
+            else
+            {
+                _logger.LogError(compilerMessage);
+            }
+
             return null;
         }
 

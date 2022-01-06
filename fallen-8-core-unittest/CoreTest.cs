@@ -18,7 +18,7 @@ namespace NoSQL.GraphDB.Core.Tests
 
 
         [TestMethod]
-        public void FindMallory()
+        public void FindAlice()
         {
             List<AGraphElement> result;
             _fallen8.GraphScan(out result, 0, "Alice", Expression.BinaryOperator.Equals);

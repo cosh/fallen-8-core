@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "fallen-8-core-unittest": {
+      "commandName": "Project",
+      "nativeDebugging": true
+    }
+  }
+}

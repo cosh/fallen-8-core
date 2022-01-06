@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "fallen-8-core": {
+      "commandName": "Project",
+      "nativeDebugging": true
+    }
+  }
+}

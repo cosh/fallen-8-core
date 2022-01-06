@@ -26,16 +26,18 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <param name='result'> Result. </param>
         /// <param name='name'> The unique name of the pluginN. </param>
         /// <typeparam name='T'> The interface type of the plugin. </typeparam>
-        public static Boolean TryFindPlugin<T>(out T result, String name) where T : IPlugin
+        public static Boolean TryFindPlugin<T>(out T result, String name) 
+            where T : class, IPlugin
         {
             foreach (var aPluginTypeOfT in GetAllTypes<T>())
             {
-                var aPluginInstance = Activate<IPlugin>(aPluginTypeOfT);
+                var aPluginInstance = Activate<T>(aPluginTypeOfT);
+
                 if (aPluginInstance != null)
                 {
                     if (aPluginInstance.PluginName == name)
                     {
-                        result = (T)aPluginInstance;
+                        result = aPluginInstance;
                         return true;
                     }
                 }
@@ -121,23 +123,6 @@ namespace NoSQL.GraphDB.Core.Plugin
             return assimilationPath;
         }
 
-        /// <summary>
-        /// Tries to find plugins
-        /// </summary>
-        /// <typeparam name="T">The interface of the plugins</typeparam>
-        /// <param name="newTypeObjects">The resulting types</param>
-        /// <param name="pathToNewAssembly">The path to the interesting assembly</param>
-        /// <param name="checkForIPlugin">Check for IPlugin</param>
-        /// <returns>True for success otherwise false</returns>
-        public static bool TryFindPlugins<T>(out IEnumerable<T> newTypeObjects, string pathToNewAssembly, bool checkForIPlugin = true) where T : class
-        {
-            var newTypes = new List<Type>(ProcessAFile<T>(pathToNewAssembly, checkForIPlugin));
-
-            newTypeObjects = newTypes.Select(Activate<T>);
-
-            return newTypes.Count > 0;
-        }
-
         #region private helper
 
         /// <summary>
@@ -187,20 +172,36 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <typeparam name='T'> The interface type. </typeparam>
         private static Boolean IsInterfaceOf<T>(Type type)
         {
-            return typeof(T).IsAssignableFrom(type);
+            var interestingInterface = typeof(T).FullName;
+
+            return type.GetInterfaces().Any(i =>
+            {
+                String fullNameOfInterface = null;
+
+                try
+                {
+                    fullNameOfInterface = i.FullName;
+                }
+                catch (Exception)
+                {
+                }
+
+                return fullNameOfInterface != null && fullNameOfInterface.Equals(interestingInterface);
+            });
         }
 
         /// <summary>
         ///   Activate the specified currentPluginType.
         /// </summary>
         /// <param name='currentPluginType'> Current plugin type. </param>
-        private static T Activate<T>(Type currentPluginType) where T : class
+        private static T Activate<T>(Type currentPluginType) 
+            where T : class
         {
-            Object instance;
+            object instance;
 
             try
-            {
-                instance = Activator.CreateInstance(currentPluginType);
+            { 
+                instance = Activator.CreateInstance(currentPluginType, false);
             }
             catch (TypeLoadException)
             {
@@ -219,11 +220,24 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <returns>Enumerable of matching types</returns>
         private static IEnumerable<Type> ProcessAFile<T>(string file, bool checkForIPlugin)
         {
-            var assembly = Assembly.LoadFrom(file);
-            var types = assembly.GetTypes();
+            Assembly assembly;
+
+            try
+            {
+                AssemblyName assemblyName = new AssemblyName(Path.GetFileNameWithoutExtension(file));
+                assembly = Assembly.Load(assemblyName);
+            }
+            catch (FileLoadException e)
+            {
+                yield break;
+            }
+
+            var types = assembly.GetExportedTypes();
 
             foreach (var aType in types)
             {
+                var NameOfType = aType.Name;
+
                 if (!aType.IsClass || aType.IsAbstract)
                 {
                     continue;
