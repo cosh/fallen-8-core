@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// CoreTest.cs
+// SampleStats.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -24,42 +24,25 @@
 // SOFTWARE.
 
 using System;
-using System.Collections.Generic;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App.Controllers.Sample;
-using NoSQL.GraphDB.Core;
-using NoSQL.GraphDB.Core.Expression;
-using NoSQL.GraphDB.Core.Model;
+using System.ComponentModel.DataAnnotations;
 
-namespace NoSQL.GraphDB.Tests
+namespace NoSQL.GraphDB.App.Controllers.Model
 {
-    [TestClass]
-    public class CoreTest
+    /// <summary>
+    ///   Sample statistics
+    /// </summary>
+    public class SampleStats
     {
-        private readonly Fallen8 _fallen8 = new Fallen8();
+        /// <summary>
+        ///   The vertex count
+        /// </summary>
+        [Required]
+        public Int32 VertexCount { get; set; }
 
-        public CoreTest()
-        {
-            TestGraphGenerator.GenerateSampleGraph(_fallen8);
-        }
-
-
-        [TestMethod]
-        public void FindAlice()
-        {
-            List<AGraphElement> result;
-            _fallen8.GraphScan(out result, 0, "Alice", BinaryOperator.Equals);
-
-            Assert.IsNotNull(result);
-
-            Assert.AreEqual(1, result.Count);
-
-            VertexModel alice = (VertexModel)result[0];
-
-            String name;
-            alice.TryGetProperty(out name, 0);
-
-            Assert.AreEqual("Alice", name);
-        }
+        /// <summary>
+        ///   The edge count
+        /// </summary>
+        [Required]
+        public Int32 EdgeCount { get; set; }
     }
 }

@@ -29,9 +29,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Controllers.Sample;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Expression;
-using NoSQL.GraphDB.Tests.Helper;
 
 namespace NoSQL.GraphDB.Tests
 {

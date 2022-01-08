@@ -23,14 +23,15 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Model;
 
-namespace NoSQL.GraphDB.Tests.Helper
+namespace NoSQL.GraphDB.App.Controllers.Sample
 {
     public static class TestGraphGenerator
     {
-        public static void GenerateSampleGraph(Fallen8 f8)
+        public static SampleStats GenerateSampleGraph(Fallen8 f8)
         {
             uint creationDate = 0;
 
@@ -69,6 +70,10 @@ namespace NoSQL.GraphDB.Tests.Helper
             f8.CreateEdge(mallory.Id, attacks, bob.Id, creationDate);
 
             #endregion
+
+            var stats = new SampleStats() { VertexCount = 5, EdgeCount = 7 };
+
+            return stats;
         }
 
         private static PropertyContainer CreateName(string name)
