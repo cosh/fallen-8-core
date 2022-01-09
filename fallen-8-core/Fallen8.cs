@@ -29,6 +29,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using NoSQL.GraphDB.Core.Algorithms.Path;
+using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Helper;
@@ -89,8 +90,12 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         private delegate Boolean BinaryOperatorDelegate(IComparable property, IComparable literal);
 
-        #endregion
+        /// <summary>
+        /// Cache for all kinds of plugins
+        /// </summary>
+        private readonly PluginCache _pluginCache = new PluginCache();
 
+        #endregion
 
         #region Constructor
 
@@ -367,8 +372,25 @@ namespace NoSQL.GraphDB.Core
             PathDelegates.EdgeCost edgeCost = null,
             PathDelegates.VertexCost vertexCost = null)
         {
-            IShortestPathAlgorithm algo;
-            if (PluginFactory.TryFindPlugin(out algo, algorithmname))
+            IShortestPathAlgorithm algo = null;
+
+            Object cachedAlgo;
+            if (!_pluginCache.ShortestPath.TryGetValue(algorithmname, out cachedAlgo))
+            {
+                //Shortest path plugin was not cached
+                if (PluginFactory.TryFindPlugin(out algo, algorithmname))
+                {
+                    algo.Initialize(this, null);
+
+                    _pluginCache.AddShortestPath(algo);
+                }
+            }
+            else
+            {
+                algo = (IShortestPathAlgorithm)cachedAlgo;
+            }
+
+            if (algo != null)
             {
                 algo.Initialize(this, null);
 

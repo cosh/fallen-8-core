@@ -24,7 +24,6 @@
 // SOFTWARE.
 
 using System.Linq;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
@@ -76,15 +75,7 @@ namespace NoSQL.GraphDB.Tests
         {
             TestGraphGenerator.GenerateSampleGraph(_fallen8);
 
-            var serviceProvider = new ServiceCollection()
-                .AddLogging()
-                .BuildServiceProvider();
-
-            var factory = serviceProvider.GetService<ILoggerFactory>();
-
-            var logger = factory.CreateLogger<GraphController>();
-
-            _controller = new GraphController(logger, _fallen8);
+            _controller = new GraphController(new UnitTestLogger<GraphController>(), _fallen8);
         }
 
 
@@ -95,6 +86,11 @@ namespace NoSQL.GraphDB.Tests
             var mallory = _controller.GraphScan(NAME, MALLORYSPEC).First();
 
             var result = _controller.GetPaths(mallory, trent, null);
+
+            Assert.AreEqual(2, result.Count);
+
+            //testing it a second time to see if the cache works
+            result = _controller.GetPaths(mallory, trent, null);
 
             Assert.AreEqual(2, result.Count);
         }
