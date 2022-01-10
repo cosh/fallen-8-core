@@ -125,7 +125,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name='graphElementIdentifier'> Vertex identifier. </param>
         [HttpGet("/graphelement/{graphElementIdentifier}")]
         [Produces("application/json")]
-        public GraphElementProperties GetAllGraphelementProperties([FromQuery] Int32 graphElementIdentifier)
+        public GraphElementProperties GetAllGraphelementProperties([FromRoute] Int32 graphElementIdentifier)
         {
             AGraphElement vertex;
             if (_fallen8.TryGetGraphElement(out vertex, graphElementIdentifier))
@@ -144,7 +144,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
 
         [HttpGet("/edge/{edgeIdentifier}/source")]
-        public int GetSourceVertexForEdge([FromQuery] Int32 edgeIdentifier)
+        public int GetSourceVertexForEdge([FromRoute] Int32 edgeIdentifier)
         {
             EdgeModel edge;
             if (_fallen8.TryGetEdge(out edge, edgeIdentifier))
@@ -156,7 +156,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [HttpGet("/edge/{edgeIdentifier}/target")]
-        public int GetTargetVertexForEdge([FromQuery] Int32 edgeIdentifier)
+        public int GetTargetVertexForEdge([FromRoute] Int32 edgeIdentifier)
         {
             EdgeModel edge;
             if (_fallen8.TryGetEdge(out edge, edgeIdentifier))
@@ -170,7 +170,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/out")]
         [Produces("application/json")]
-        public List<ushort> GetAllAvailableOutEdgesOnVertex([FromQuery] Int32 vertexIdentifier)
+        public List<ushort> GetAllAvailableOutEdgesOnVertex([FromRoute] Int32 vertexIdentifier)
         {
             VertexModel vertex;
             return _fallen8.TryGetVertex(out vertex, vertexIdentifier)
@@ -181,7 +181,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/in")]
         [Produces("application/json")]
-        public List<ushort> GetAllAvailableIncEdgesOnVertex([FromQuery] Int32 vertexIdentifier)
+        public List<ushort> GetAllAvailableIncEdgesOnVertex([FromRoute] Int32 vertexIdentifier)
         {
             VertexModel vertex;
             return _fallen8.TryGetVertex(out vertex, vertexIdentifier)
@@ -191,7 +191,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}")]
         [Produces("application/json")]
-        public List<int> GetOutgoingEdges([FromQuery] Int32 vertexIdentifier, [FromQuery] UInt16 edgePropertyIdentifier)
+        public List<int> GetOutgoingEdges([FromRoute] Int32 vertexIdentifier, [FromRoute] UInt16 edgePropertyIdentifier)
         {
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, vertexIdentifier))
@@ -208,7 +208,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}")]
         [Produces("application/json")]
-        public List<int> GetIncomingEdges([FromQuery] Int32 vertexIdentifier, [FromQuery] UInt16 edgePropertyIdentifier)
+        public List<int> GetIncomingEdges([FromRoute] Int32 vertexIdentifier, [FromRoute] UInt16 edgePropertyIdentifier)
         {
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, vertexIdentifier))
@@ -225,7 +225,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpPost("/scan/graph/property/{propertyId}")]
         [Produces("application/json")]
-        public IEnumerable<int> GraphScan([FromQuery] UInt16 propertyId, [FromBody] ScanSpecification definition)
+        public IEnumerable<int> GraphScan([FromRoute] UInt16 propertyId, [FromBody] ScanSpecification definition)
         {
             #region initial checks
 
@@ -358,7 +358,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpPut("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
         [Consumes("application/json")]
-        public bool TryAddProperty([FromQuery] string graphElementIdString, [FromQuery] string propertyIdString, [FromBody] PropertySpecification definition)
+        public bool TryAddProperty([FromRoute] string graphElementIdString, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition)
         {
             var graphElementId = Convert.ToInt32(graphElementIdString);
             var propertyId = Convert.ToUInt16(propertyIdString);
@@ -371,7 +371,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [HttpDelete("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
-        public bool TryRemoveProperty([FromQuery] string graphElementIdentifier, [FromQuery] string propertyIdString)
+        public bool TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
             var propertyId = Convert.ToUInt16(propertyIdString);
@@ -380,7 +380,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [HttpDelete("/graphelement/{graphElementIdentifier}")]
-        public bool TryRemoveGraphElement([FromQuery] string graphElementIdentifier)
+        public bool TryRemoveGraphElement([FromRoute] string graphElementIdentifier)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
 
@@ -389,7 +389,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/indegree")]
         [Produces("application/json")]
-        public uint GetInDegree([FromQuery] string vertexIdentifier)
+        public uint GetInDegree([FromRoute] string vertexIdentifier)
         {
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
@@ -401,7 +401,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/outdegree")]
         [Produces("application/json")]
-        public uint GetOutDegree([FromQuery] string vertexIdentifier)
+        public uint GetOutDegree([FromRoute] string vertexIdentifier)
         {
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
@@ -413,7 +413,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}/degree")]
         [Produces("application/json")]
-        public uint GetInEdgeDegree([FromQuery] string vertexIdentifier, [FromQuery] string edgePropertyIdentifier)
+        public uint GetInEdgeDegree([FromRoute] string vertexIdentifier, [FromRoute] string edgePropertyIdentifier)
         {
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
@@ -429,7 +429,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}/degree")]
         [Produces("application/json")]
-        public uint GetOutEdgeDegree([FromQuery] string vertexIdentifier, [FromQuery] string edgePropertyIdentifier)
+        public uint GetOutEdgeDegree([FromRoute] string vertexIdentifier, [FromRoute] string edgePropertyIdentifier)
         {
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
@@ -446,7 +446,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpPost("/path/{from}/to/{to}")]
         [Produces("application/json")]
         [Consumes("application/json")]
-        public List<PathREST> GetPaths([FromQuery] Int32 fromId, [FromQuery] Int32 toId, [FromBody] PathSpecification definition)
+        public List<PathREST> GetPaths([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {
             if (definition == null)
             {
@@ -481,8 +481,8 @@ namespace NoSQL.GraphDB.App.Controllers
                 if (_fallen8.CalculateShortestPath(
                     out paths,
                     definition.PathAlgorithmName,
-                    fromId,
-                    toId,
+                    from,
+                    to,
                     definition.MaxDepth,
                     definition.MaxPathWeight,
                     definition.MaxResults,
@@ -515,7 +515,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpPut("/index/{indexId}")]
         [Consumes("application/json")]
         [Produces("application/json")]
-        public bool AddToIndex([FromQuery] String indexId, [FromBody] IndexAddToSpecification definition)
+        public bool AddToIndex([FromRoute] String indexId, [FromBody] IndexAddToSpecification definition)
         {
             IIndex idx;
             if (_fallen8.IndexFactory.TryGetIndex(out idx, indexId))
@@ -537,7 +537,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpDelete("/index/{indexId}/propertyValue")]
         [Consumes("application/json")]
         [Produces("application/json")]
-        public bool RemoveKeyFromIndex([FromQuery] String indexId, [FromBody] PropertySpecification property)
+        public bool RemoveKeyFromIndex([FromRoute] String indexId, [FromBody] PropertySpecification property)
         {
             IIndex idx;
             if (_fallen8.IndexFactory.TryGetIndex(out idx, indexId))
@@ -549,7 +549,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [HttpDelete("/index/{indexId}/{graphElementId}")]
-        public bool RemoveGraphElementFromIndex([FromQuery] String indexId, [FromQuery] Int32 graphElementId)
+        public bool RemoveGraphElementFromIndex([FromRoute] String indexId, [FromRoute] Int32 graphElementId)
         {
             IIndex idx;
             if (_fallen8.IndexFactory.TryGetIndex(out idx, indexId))
@@ -569,7 +569,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [HttpDelete("/index/{indexId}")]
-        public bool DeleteIndex([FromQuery] String indexId)
+        public bool DeleteIndex([FromRoute] String indexId)
         {
             return _fallen8.IndexFactory.TryDeleteIndex(indexId);
         }
