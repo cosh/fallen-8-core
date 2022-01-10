@@ -36,6 +36,7 @@ using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Interfaces;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.Path;
+using NoSQL.GraphDB.Core.App.Controllers.Cache;
 using NoSQL.GraphDB.Core.App.Helper;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
@@ -60,6 +61,8 @@ namespace NoSQL.GraphDB.App.Controllers
 
         private readonly ILogger<GraphController> _logger;
 
+        private readonly GeneratedCodeCache _cache;
+
         #endregion
 
         public GraphController(ILogger<GraphController> logger, Fallen8 fallen8)
@@ -67,6 +70,8 @@ namespace NoSQL.GraphDB.App.Controllers
             _logger = logger;
 
             _fallen8 = fallen8;
+
+            _cache = new GeneratedCodeCache();
         }
 
         #region IDisposable Members
@@ -448,10 +453,27 @@ namespace NoSQL.GraphDB.App.Controllers
                 definition = new PathSpecification();
             }
 
+            IPathTraverser traverser = null;
 
-            IPathTraverser traverser;
+            Object cachedTraverser;
+            if (!_cache.Traverser.TryGetValue(definition, out cachedTraverser))
+            {
+                //Traverser was not cached
+                var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);
 
-            var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);
+                if (traverser != null)
+                {
+                    _cache.AddTraverser(definition, traverser);
+                }
+                else
+                {
+                    _logger.LogError(compilerMessage);
+                }
+            }
+            else
+            {
+                traverser = (IPathTraverser)cachedTraverser;
+            }
 
             if (traverser != null)
             {
@@ -475,10 +497,6 @@ namespace NoSQL.GraphDB.App.Controllers
                         return new List<PathREST>(paths.Select(aPath => new PathREST(aPath)));
                     }
                 }
-            }
-            else
-            {
-                _logger.LogError(compilerMessage);
             }
 
             return null;

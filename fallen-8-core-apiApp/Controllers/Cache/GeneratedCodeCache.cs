@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// PathCostSpecification.cs
+// GeneratedCodeCache.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -23,40 +23,32 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using Microsoft.Extensions.Caching.Memory;
+using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.Core.Algorithms.Path;
 using System;
 
-namespace NoSQL.GraphDB.App.Controllers.Model
+namespace NoSQL.GraphDB.Core.App.Controllers.Cache
 {
-    /// <summary>
-    ///   The path cost specification
-    /// </summary>
-    public sealed class PathCostSpecification : IEquatable<PathCostSpecification>
+    public class GeneratedCodeCache
     {
-        /// <summary>
-        /// The vertex cost function
-        /// </summary>
-        public String Vertex { get; set; }
+        private readonly static int _slidingExpirationSeconds = 60;
 
-        /// <summary>
-        /// The edge cost function
-        /// </summary>
-        public String Edge { get; set; }
+        private readonly MemoryCacheEntryOptions _cacheOptions = new MemoryCacheEntryOptions()
+                .SetSlidingExpiration(TimeSpan.FromSeconds(_slidingExpirationSeconds))
+                .SetSize(1);
 
-        public override Boolean Equals(Object obj)
+
+        public IMemoryCache Traverser { get; } = new MemoryCache(
+            new MemoryCacheOptions
+            {
+                SizeLimit = 1024,
+                ExpirationScanFrequency = TimeSpan.FromMinutes(1)
+            });
+
+        public void AddTraverser(PathSpecification definition, IPathTraverser generatedCode)
         {
-            return Equals(obj as PathCostSpecification);
-        }
-
-        public Boolean Equals(PathCostSpecification other)
-        {
-            return other != null &&
-                   Vertex == other.Vertex &&
-                   Edge == other.Edge;
-        }
-
-        public override Int32 GetHashCode()
-        {
-            return HashCode.Combine(Vertex, Edge);
+            Traverser.Set(definition, generatedCode, _cacheOptions);
         }
     }
 }

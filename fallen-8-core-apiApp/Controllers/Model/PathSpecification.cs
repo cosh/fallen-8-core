@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
@@ -31,7 +32,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// <summary>
     ///   The path specification
     /// </summary>
-    public sealed class PathSpecification
+    public sealed class PathSpecification : IEquatable<PathSpecification>
     {
         /// <summary>
         ///   The desired path algorithm plugin name
@@ -64,5 +65,26 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The path cost specification
         /// </summary>
         public PathCostSpecification Cost { get; set; }
+
+        public override Boolean Equals(Object obj)
+        {
+            return Equals(obj as PathSpecification);
+        }
+
+        public Boolean Equals(PathSpecification other)
+        {
+            return other != null &&
+                   PathAlgorithmName == other.PathAlgorithmName &&
+                   MaxDepth == other.MaxDepth &&
+                   MaxResults == other.MaxResults &&
+                   MaxPathWeight == other.MaxPathWeight &&
+                   EqualityComparer<PathFilterSpecification>.Default.Equals(Filter, other.Filter) &&
+                   EqualityComparer<PathCostSpecification>.Default.Equals(Cost, other.Cost);
+        }
+
+        public override Int32 GetHashCode()
+        {
+            return HashCode.Combine(PathAlgorithmName, MaxDepth, MaxResults, MaxPathWeight, Filter, Cost);
+        }
     }
 }

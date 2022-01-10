@@ -31,7 +31,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// <summary>
     ///   The path filter specification
     /// </summary>
-    public sealed class PathFilterSpecification
+    public sealed class PathFilterSpecification : IEquatable<PathFilterSpecification>
     {
         /// <summary>
         /// The edge property filter function (JS)
@@ -50,5 +50,23 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// </summary>
         [Required]
         public String Edge { get; set; }
+
+        public override Boolean Equals(Object obj)
+        {
+            return Equals(obj as PathFilterSpecification);
+        }
+
+        public Boolean Equals(PathFilterSpecification other)
+        {
+            return other != null &&
+                   EdgeProperty == other.EdgeProperty &&
+                   Vertex == other.Vertex &&
+                   Edge == other.Edge;
+        }
+
+        public override Int32 GetHashCode()
+        {
+            return HashCode.Combine(EdgeProperty, Vertex, Edge);
+        }
     }
 }

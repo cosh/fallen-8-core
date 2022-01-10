@@ -18,20 +18,5 @@
     <ProjectReference Include="..\fallen-8-core\fallen-8-core.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Update="Controllers\CodeGeneration.Designer.cs">
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>CodeGeneration.resx</DependentUpon>
-    </Compile>
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Update="Controllers\CodeGeneration.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>CodeGeneration.Designer.cs</LastGenOutput>
-    </EmbeddedResource>
-  </ItemGroup>
-
 
 </Project>
