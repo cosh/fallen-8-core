@@ -47,7 +47,8 @@ using NoSQL.GraphDB.Core.Service;
 namespace NoSQL.GraphDB.App.Controllers
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("api/v{version:apiVersion}/[controller]")]
+    [ApiVersion("0.1")]
     public class AdminController : ControllerBase, IRESTService
     {
         #region Data
@@ -137,7 +138,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/load/{startServices}")]
         [Produces("application/json")]
-        public void Load([FromQuery] Boolean startServices)
+        public void Load([FromRoute] Boolean startServices)
         {
             Logger.LogInfo(String.Format("Loading Fallen-8. Start services: {0}", startServices));
             _fallen8.Load(FindLatestFallen8(), startServices);
@@ -176,7 +177,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [HttpDelete("/service/{key}")]
-        public bool DeleteService([FromQuery] string key)
+        public bool DeleteService([FromRoute] string key)
         {
             return _fallen8.ServiceFactory.Services.Remove(key);
         }

@@ -37,18 +37,27 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   Binary Operator
         /// </summary>
         [Required]
-        public BinaryOperator Operator { get; set; }
+        public BinaryOperator Operator
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   Literal specification
         /// </summary>
         [Required]
-        public LiteralSpecification Literal { get; set; }
+        public LiteralSpecification Literal
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   Result type specification
         /// </summary>
         [Required]
-        public ResultTypeSpecification ResultType { get; set; }
+        public ResultTypeSpecification ResultType
+        {
+            get; set;
+        }
     }
 }

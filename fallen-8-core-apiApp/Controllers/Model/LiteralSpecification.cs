@@ -37,11 +37,17 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The value of the literal
         /// </summary>
         [Required]
-        public String Value { get; set; }
+        public String Value
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The type of the literal
         /// </summary>
-        public String FullQualifiedTypeName { get; set; }
+        public String FullQualifiedTypeName
+        {
+            get; set;
+        }
     }
 }

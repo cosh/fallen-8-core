@@ -38,13 +38,19 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The unique plugin identifier
         /// </summary>
         [Required]
-        public String UniqueId { get; set; }
+        public String UniqueId
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The name of the plugin type
         /// </summary>
         [Required]
-        public String PluginType { get; set; }
+        public String PluginType
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The specification of the plugin options

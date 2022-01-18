@@ -37,12 +37,18 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The vertex count
         /// </summary>
         [Required]
-        public Int32 VertexCount { get; set; }
+        public Int32 VertexCount
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The edge count
         /// </summary>
         [Required]
-        public Int32 EdgeCount { get; set; }
+        public Int32 EdgeCount
+        {
+            get; set;
+        }
     }
 }

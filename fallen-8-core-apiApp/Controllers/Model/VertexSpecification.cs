@@ -38,11 +38,17 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The creation date
         /// </summary>
         [Required]
-        public UInt32 CreationDate { get; set; }
+        public UInt32 CreationDate
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The properties of the vertex
         /// </summary>
-        public List<PropertySpecification> Properties { get; set; }
+        public List<PropertySpecification> Properties
+        {
+            get; set;
+        }
     }
 }

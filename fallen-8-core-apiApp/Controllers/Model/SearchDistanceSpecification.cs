@@ -39,19 +39,28 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   Index identifier
         /// </summary>
         [Required]
-        public String IndexId { get; set; }
+        public String IndexId
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The graph element identifier.
         /// </summary>
         [Required]
-        public Int32 GraphElementId;
+        public Int32 GraphElementId
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The distance.
         /// </summary>
         [Required]
-        public float Distance;
+        public float Distance
+        {
+            get; set;
+        }
 
         #endregion
     }

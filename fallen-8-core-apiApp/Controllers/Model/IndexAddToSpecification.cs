@@ -37,12 +37,18 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The graph element identifier
         /// </summary>
         [Required]
-        public Int32 GraphElementId { get; set; }
+        public Int32 GraphElementId
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The specification of the index key
         /// </summary>
         [Required]
-        public PropertySpecification Key { get; set; }
+        public PropertySpecification Key
+        {
+            get; set;
+        }
     }
 }

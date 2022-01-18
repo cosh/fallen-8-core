@@ -39,13 +39,19 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   Index identifier
         /// </summary>
         [Required]
-        public String IndexId { get; set; }
+        public String IndexId
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The request string
         /// </summary>
 		[Required]
-        public String RequestString;
+        public String RequestString
+        {
+            get; set;
+        }
 
         #endregion
     }

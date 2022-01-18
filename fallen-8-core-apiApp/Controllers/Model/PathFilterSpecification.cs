@@ -37,19 +37,28 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// The edge property filter function (JS)
         /// </summary>
         [Required]
-        public String EdgeProperty { get; set; }
+        public String EdgeProperty
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The vertex filter function (JS)
         /// </summary>
         [Required]
-        public String Vertex { get; set; }
+        public String Vertex
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The edge filter function (JS)
         /// </summary>
         [Required]
-        public String Edge { get; set; }
+        public String Edge
+        {
+            get; set;
+        }
 
         public override Boolean Equals(Object obj)
         {

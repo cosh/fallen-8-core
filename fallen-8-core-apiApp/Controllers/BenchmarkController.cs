@@ -35,7 +35,8 @@ using NoSQL.GraphDB.Core.Serializer;
 namespace NoSQL.GraphDB.App.Controllers
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("api/v{version:apiVersion}/[controller]")]
+    [ApiVersion("0.1")]
     public class BenchmarkController : ControllerBase, IRESTService
     {
         #region Data

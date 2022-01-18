@@ -36,21 +36,33 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   The identifier
         /// </summary>
-        public Int32 Id { get; set; }
+        public Int32 Id
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The creation date
         /// </summary>
-        public DateTime CreationDate { get; set; }
+        public DateTime CreationDate
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The modification date
         /// </summary>
-        public DateTime ModificationDate { get; set; }
+        public DateTime ModificationDate
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The properties
         /// </summary>
-        public List<Property> Properties { get; set; }
+        public List<Property> Properties
+        {
+            get; set;
+        }
     }
 }

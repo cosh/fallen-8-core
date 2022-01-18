@@ -40,13 +40,19 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// The path elements
         /// </summary>
         [Required]
-        public List<PathElementREST> PathElements;
+        public List<PathElementREST> PathElements
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The weight of the path
         /// </summary>
         [Required]
-        public double TotalWeight;
+        public double TotalWeight
+        {
+            get; set;
+        }
 
         #endregion
 

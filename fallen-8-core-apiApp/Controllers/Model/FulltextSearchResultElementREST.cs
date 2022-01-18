@@ -44,7 +44,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// The graph element.
         /// </value>
         [Required]
-        public readonly Int32 GraphElementId;
+        public Int32 GraphElementId
+        {
+            get; set;
+        }
 
         /// <summary>
         /// Gets or sets the highlights.
@@ -53,7 +56,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// The highlights.
         /// </value>
         [Required]
-        public readonly IList<string> Highlights;
+        public IList<string> Highlights
+        {
+            get; set;
+        }
 
         /// <summary>
         /// Gets or sets the score.
@@ -62,7 +68,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// The score.
         /// </value>
         [Required]
-        public readonly Double Score;
+        public Double Score
+        {
+            get; set;
+        }
 
         #endregion
 

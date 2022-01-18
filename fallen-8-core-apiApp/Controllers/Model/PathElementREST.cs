@@ -40,37 +40,55 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// The source vertex identifier
         /// </summary>
         [Required]
-        public Int64 SourceVertexId;
+        public Int64 SourceVertexId
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The target vertex identifier
         /// </summary>
         [Required]
-        public Int64 TargetVertexId;
+        public Int64 TargetVertexId
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The edge identifier
         /// </summary>
         [Required]
-        public Int64 EdgeId;
+        public Int64 EdgeId
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The edge property identifier
         /// </summary>
         [Required]
-        public UInt16 EdgePropertyId;
+        public UInt16 EdgePropertyId
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The direction of the edge
         /// </summary>
         [Required]
-        public Direction Direction;
+        public Direction Direction
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The weight of the pathelement
         /// </summary>
         [Required]
-        public double Weight;
+        public double Weight
+        {
+            get; set;
+        }
 
         #endregion
 

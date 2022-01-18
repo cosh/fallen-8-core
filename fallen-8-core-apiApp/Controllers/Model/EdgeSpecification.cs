@@ -38,29 +38,44 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The creation date
         /// </summary>
         [Required]
-        public UInt32 CreationDate { get; set; }
+        public UInt32 CreationDate
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The source vertex
         /// </summary>
         [Required]
-        public Int32 SourceVertex { get; set; }
+        public Int32 SourceVertex
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The target vertex
         /// </summary>
         [Required]
-        public Int32 TargetVertex { get; set; }
+        public Int32 TargetVertex
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The edge property identifier
         /// </summary>
         [Required]
-        public UInt16 EdgePropertyId { get; set; }
+        public UInt16 EdgePropertyId
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The properties of the vertex
         /// </summary>
-        public List<PropertySpecification> Properties { get; set; }
+        public List<PropertySpecification> Properties
+        {
+            get; set;
+        }
     }
 }

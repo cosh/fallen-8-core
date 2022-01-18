@@ -36,7 +36,8 @@ using NoSQL.GraphDB.Core.Serializer;
 namespace NoSQL.GraphDB.App.Controllers
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("api/v{version:apiVersion}/[controller]")]
+    [ApiVersion("0.1")]
     public class SampleGraphController : ControllerBase, IRESTService
     {
         #region Data
@@ -63,7 +64,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [HttpPost("/unittest")]
-        [Produces("application/json")]
+        [MapToApiVersion("0.1")]
         public string CreateGraph()
         {
             var sw = Stopwatch.StartNew();

@@ -35,12 +35,18 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         /// The vertex cost function
         /// </summary>
-        public String Vertex { get; set; }
+        public String Vertex
+        {
+            get; set;
+        }
 
         /// <summary>
         /// The edge cost function
         /// </summary>
-        public String Edge { get; set; }
+        public String Edge
+        {
+            get; set;
+        }
 
         public override Boolean Equals(Object obj)
         {

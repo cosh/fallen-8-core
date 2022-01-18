@@ -44,7 +44,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// The maximum score.
         /// </value>
         [Required]
-        public readonly Double MaximumScore;
+        public Double MaximumScore
+        {
+            get; set;
+        }
 
         /// <summary>
         /// Gets or sets the elements.
@@ -53,7 +56,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// The elements.
         /// </value>
         [Required]
-        public readonly List<FulltextSearchResultElementREST> Elements;
+        public List<FulltextSearchResultElementREST> Elements
+        {
+            get; set;
+        }
 
         #endregion
 
