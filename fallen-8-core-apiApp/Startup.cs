@@ -33,9 +33,11 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.App.Helper;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System.IO;
 using System.Reflection;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App
 {
@@ -62,6 +64,10 @@ namespace NoSQL.GraphDB.App
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("0.1", new OpenApiInfo { Title = "fallen-8 api", Version = "0.1" });
+                
+                #region  EnumDesc
+                c.SchemaFilter<EnumSchemaFilter>();
+                #endregion
             });
 
             services.AddApiVersioning(o =>

@@ -63,9 +63,9 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8 = fallen8;
         }
 
-        [HttpPost("/unittest")]
+        [HttpPut("/unittest")]
         [MapToApiVersion("0.1")]
-        public string CreateGraph()
+        public void CreateGraph()
         {
             var sw = Stopwatch.StartNew();
 
@@ -75,7 +75,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             _fallen8.Trim();
 
-            return String.Format("It took {0}ms to create a Fallen-8 graph with {1} nodes and {2} edges per node.", sw.Elapsed.TotalMilliseconds, stats.VertexCount, stats.EdgeCount);
+            _logger.LogInformation($"It took {sw.Elapsed.TotalMilliseconds}ms to create a Fallen-8 graph with {stats.VertexCount} nodes and {stats.EdgeCount} edges per node.");
         }
 
         #region not implemented

@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// BinaryOperator.cs
+// EnumSchemaFilter.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -23,25 +23,29 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System.Runtime.Serialization;
+using Microsoft.OpenApi.Any;
+using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.SwaggerGen;
+using System;
+using System.Linq;
 
-namespace NoSQL.GraphDB.Core.Expression
+namespace NoSQL.GraphDB.Core.App.Helper
 {
-    /// <summary>
-	/// Binary operator.
-	/// </summary>
-    public enum BinaryOperator
+    public class EnumSchemaFilter : ISchemaFilter
     {
-        Equals,
-
-        Greater,
-
-        GreaterOrEquals,
-
-        Lower,
-
-        LowerOrEquals,
-
-        NotEquals
+        public void Apply(OpenApiSchema schema, SchemaFilterContext context)
+        {
+            if (context.Type.IsEnum)
+            {
+                var enumValues = schema.Enum.ToArray();
+                var i = 0;
+                schema.Enum.Clear();
+                foreach (var n in Enum.GetNames(context.Type).ToList())
+                {
+                    schema.Enum.Add(new OpenApiString(n + $" = {((OpenApiPrimitive<int>)enumValues[i]).Value}"));
+                    i++;
+                }
+            }
+        }
     }
 }
