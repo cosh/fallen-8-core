@@ -162,6 +162,11 @@ namespace NoSQL.GraphDB.Core
                     result = _graphElements[id];
                     return result != null;
                 }
+                catch (ArgumentOutOfRangeException)
+                {
+                    result = null;
+                    return false;
+                }
                 finally
                 {
                     FinishReadResource();
@@ -180,6 +185,11 @@ namespace NoSQL.GraphDB.Core
                     result = _graphElements[id] as EdgeModel;
                     return result != null;
                 }
+                catch (ArgumentOutOfRangeException)
+                {
+                    result = null;
+                    return false;
+                }
                 finally
                 {
                     FinishReadResource();
@@ -197,6 +207,11 @@ namespace NoSQL.GraphDB.Core
                 {
                     result = _graphElements[id] as VertexModel;
                     return result != null;
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    result = null;
+                    return false;
                 }
                 finally
                 {

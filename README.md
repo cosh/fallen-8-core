@@ -1,6 +1,9 @@
 [![.NET](https://github.com/cosh/fallen-8-core/actions/workflows/buildAndTest.yml/badge.svg?branch=main)](https://github.com/cosh/fallen-8-core/actions/workflows/buildAndTest.yml)
 
 ## Welcome to Fallen-8.
+
+![Fallen-8 logo.](pics/F8Black.svg)
+
 Fallen-8 is an in-memory [graph database](http://en.wikipedia.org/wiki/Graph_database) implemented in C#. Its focus is to provide raw speed for heavy graph algorithms.
 
 This is the .NET Core version of the original [fallen-8](https://github.com/cosh/fallen-8). The core of fallen-8 stays unchanged but the webservices have been upgraded with a proper swagger interface.
@@ -19,12 +22,158 @@ This is the .NET Core version of the original [fallen-8](https://github.com/cosh
 ## Samples
 Start the fallen-8-core-apiApp and have fun.
 
+Docs can be found by opening the [swagger](https://localhost:5001/swagger/index.html) page.
+
+![Swagger docs.](pics/swaggerDoc.png)
+
 ### Create a sample graph
+
+HTTP example
+```http
+PUT /unittest HTTP/1.1
+Host: localhost:5001
+```
+
+cURL example
+```bash
+curl -L -X PUT 'https://localhost:5001/unittest'
+```
 
 ### Scan for Trent and Mallory
 
+HTTP example (Trent)
+```http
+POST /scan/graph/property/0 HTTP/1.1
+Host: localhost:5001
+Content-Type: application/json
+Content-Length: 148
+
+{
+    "operator": 0,
+    "literal": {
+        "value": "Trent",
+        "fullQualifiedTypeName": "System.String"
+    },
+    "resultType": 0
+}
+```
+
+Powershell example (Trent)
+```powershell
+$headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+$headers.Add("Content-Type", "application/json")
+
+$body = "{
+`n    `"operator`": 0,
+`n    `"literal`": {
+`n        `"value`": `"Trent`",
+`n        `"fullQualifiedTypeName`": `"System.String`"
+`n    },
+`n    `"resultType`": 0
+`n}"
+
+$response = Invoke-RestMethod 'https://localhost:5001/scan/graph/property/0' -Method 'POST' -Headers $headers -Body $body
+$response | ConvertTo-Json
+```
+
+cURL example (Mallory)
+```bash
+curl -L -X POST 'https://localhost:5001/scan/graph/property/0' -H 'Content-Type: application/json' --data-raw '{
+    "operator": 0,
+    "literal": {
+        "value": "Mallory",
+        "fullQualifiedTypeName": "System.String"
+    },
+    "resultType": 0
+}'
+```
+
+Response
+```json
+[
+    4
+]
+```
+
 ### Calculate the paths between Trent and Mallory
 
+Trent = 4
+
+Mallory = 3
+
+HTTP example
+```http
+POST /path/4/to/3 HTTP/1.1
+Host: localhost:5001
+Content-Type: application/json
+Content-Length: 2
+
+{}
+```
+
+Powershell example
+```powershell
+$headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+$headers.Add("Content-Type", "application/json")
+
+$body = "{}"
+
+$response = Invoke-RestMethod 'https://localhost:5001/path/4/to/3' -Method 'POST' -Headers $headers -Body $body
+$response | ConvertTo-Json
+```
+
+cURL example
+```bash
+curl -L -X POST 'https://localhost:5001/path/4/to/3' -H 'Content-Type: application/json' --data-raw '{}'
+```
+
+Response
+```json
+[
+    {
+        "pathElements": [
+            {
+                "sourceVertexId": 4,
+                "targetVertexId": 0,
+                "edgeId": 7,
+                "edgePropertyId": 11,
+                "direction": 0,
+                "weight": 0
+            },
+            {
+                "sourceVertexId": 0,
+                "targetVertexId": 3,
+                "edgeId": 10,
+                "edgePropertyId": 12,
+                "direction": 0,
+                "weight": 0
+            }
+        ],
+        "totalWeight": 0
+    },
+    {
+        "pathElements": [
+            {
+                "sourceVertexId": 4,
+                "targetVertexId": 1,
+                "edgeId": 8,
+                "edgePropertyId": 11,
+                "direction": 0,
+                "weight": 0
+            },
+            {
+                "sourceVertexId": 1,
+                "targetVertexId": 3,
+                "edgeId": 11,
+                "edgePropertyId": 12,
+                "direction": 0,
+                "weight": 0
+            }
+        ],
+        "totalWeight": 0
+    }
+]
+```
 
 ## Additional information
 
