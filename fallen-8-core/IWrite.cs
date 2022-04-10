@@ -25,6 +25,7 @@
 
 using System;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Core
 {
@@ -115,6 +116,24 @@ namespace NoSQL.GraphDB.Core
         /// <param name="path">The path.</param>
         /// <param name="startServices">Start the services?</param>
         void Load(String path, Boolean startServices = false);
+
+        #endregion
+
+        #region Transaction
+
+        /// <summary>
+        /// Exqueues a new transaction
+        /// </summary>
+        /// <param name="tx">The transaction</param>
+        /// <returns>The transaction identifier</returns>
+        string EnqueueTransaction(ATransaction tx);
+
+        /// <summary>
+        /// Gets the state of a transaction
+        /// </summary>
+        /// <param name="txId">The transaction id</param>
+        /// <returns>The state of the transaction</returns>
+        TransactionState GetTransactionState(String txId);
 
         #endregion
     }

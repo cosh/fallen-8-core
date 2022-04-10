@@ -29,6 +29,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
@@ -42,18 +43,39 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             Action action = () =>
             {
-                ATransaction transaction;
-                while (transactions.TryDequeue(out transaction))
+                while (true)
                 {
-                    //do some work
-                    if (!transaction.TryExecute(f8))
+                    ATransaction transaction;
+                    while (transactions.TryDequeue(out transaction))
                     {
-                        transaction.Rollback(f8);
+                        //do some work
+                        if (transaction.TryExecute(f8))
+                        {
+                            SetTransactionState(transaction.TransactionId, TransactionState.Finished);
+                        }
+                        else
+                        {
+                            transaction.Rollback(f8);
+                            SetTransactionState(transaction.TransactionId, TransactionState.RolledBack);
+                        }
                     }
+
+                    Thread.Sleep(1);
                 }
             };
 
             Task.Run(action);
+        }
+
+        private void SetTransactionState(String txId, TransactionState state)
+        {
+            transactionState.AddOrUpdate(txId,
+                                        new TransactionInformation() { TransactionID = txId, TransactionState = state },
+                                        (id, info) =>
+                                        {
+                                            info.TransactionState = state;
+                                            return info;
+                                        });
         }
 
         public TransactionInformation AddTransaction(ATransaction tx)
@@ -62,7 +84,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             var txInfo = new TransactionInformation()
             {
-                TransactionID = Guid.NewGuid().ToString(),
+                TransactionID = tx.TransactionId,
                 TransactionState = TransactionState.Enqueued
             };
 

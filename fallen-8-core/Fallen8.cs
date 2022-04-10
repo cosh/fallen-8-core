@@ -64,22 +64,34 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   The index factory.
         /// </summary>
-        public IndexFactory IndexFactory { get; internal set; }
+        public IndexFactory IndexFactory
+        {
+            get; internal set;
+        }
 
         /// <summary>
         ///   The index factory.
         /// </summary>
-        public ServiceFactory ServiceFactory { get; internal set; }
+        public ServiceFactory ServiceFactory
+        {
+            get; internal set;
+        }
 
         /// <summary>
         /// The count of edges
         /// </summary>
-        public Int32 EdgeCount { get; private set; }
+        public Int32 EdgeCount
+        {
+            get; private set;
+        }
 
         /// <summary>
         /// The count of vertices
         /// </summary>
-        public Int32 VertexCount { get; private set; }
+        public Int32 VertexCount
+        {
+            get; private set;
+        }
 
         /// <summary>
         ///   The current identifier.
@@ -136,18 +148,7 @@ namespace NoSQL.GraphDB.Core
 
                 try
                 {
-                    //create the new vertex
-                    var newVertex = new VertexModel(_currentId, creationDate, properties);
-
-                    //insert it
-                    _graphElements.Add(newVertex);
-
-                    //increment the id
-                    Interlocked.Increment(ref _currentId);
-
-                    //Increase the vertex count
-                    VertexCount++;
-                    return newVertex;
+                    return CreateVertex_interal(creationDate, properties);
                 }
                 finally
                 {
@@ -157,6 +158,22 @@ namespace NoSQL.GraphDB.Core
             }
 
             throw new CollisionException(this);
+        }
+
+        internal VertexModel CreateVertex_interal(UInt32 creationDate, PropertyContainer[] properties = null)
+        {
+            //create the new vertex
+            var newVertex = new VertexModel(_currentId, creationDate, properties);
+
+            //insert it
+            _graphElements.Add(newVertex);
+
+            //increment the id
+            Interlocked.Increment(ref _currentId);
+
+            //Increase the vertex count
+            VertexCount++;
+            return newVertex;
         }
 
         public bool TryGetGraphElement(out AGraphElement result, int id)
@@ -827,6 +844,18 @@ namespace NoSQL.GraphDB.Core
             throw new CollisionException(this);
         }
 
+        public String EnqueueTransaction(ATransaction tx)
+        {
+            var txInfo = _txManager.AddTransaction(tx);
+
+            return txInfo.TransactionID;
+        }
+
+        public TransactionState GetTransactionState(String txId)
+        {
+            return _txManager.GetState(txId);
+        }
+
         public void Dispose()
         {
             TabulaRasa();
@@ -1009,6 +1038,8 @@ namespace NoSQL.GraphDB.Core
             //cleanup and switch
             _graphElements.Clear();
             _graphElements = newGraphElementList;
+
+            _txManager.Trim();
 
             GC.Collect();
             GC.Collect();

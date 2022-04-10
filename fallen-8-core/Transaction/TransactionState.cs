@@ -29,10 +29,11 @@ using System.Text;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
-    internal enum TransactionState
+    public enum TransactionState
     {
         Enqueued,
         NotExist,
-        Finished
+        Finished,
+        RolledBack
     }
 }

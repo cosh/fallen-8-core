@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// ATransaction.cs
+// CreateVertexTransaction.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -23,17 +23,35 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using NoSQL.GraphDB.Core.Model;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
-    public abstract class ATransaction : ITransaction
+    public class CreateVertexTransaction : ATransaction
     {
-        public readonly string TransactionId = Guid.NewGuid().ToString();
+        public UInt32 CreationDate
+        {
+            get;
+            set;
+        }
 
-        public abstract void Rollback(Fallen8 f8);
-        public abstract bool TryExecute(Fallen8 f8);
+        public PropertyContainer[] Properties
+        {
+            get;
+            set;
+        } = null;
+
+        public override void Rollback(Fallen8 f8)
+        {
+            //NOP
+        }
+
+        public override Boolean TryExecute(Fallen8 f8)
+        {
+            return f8.CreateVertex_interal(CreationDate, Properties) != null;
+        }
     }
 }

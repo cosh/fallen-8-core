@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// ATransaction.cs
+// TransactionTest.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -25,15 +25,49 @@
 
 using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Threading;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.App.Controllers.Sample;
+using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Expression;
+using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Transaction;
 
-namespace NoSQL.GraphDB.Core.Transaction
+namespace NoSQL.GraphDB.Tests
 {
-    public abstract class ATransaction : ITransaction
+    [TestClass]
+    public class TransactionTest
     {
-        public readonly string TransactionId = Guid.NewGuid().ToString();
+        private readonly Fallen8 _fallen8 = new Fallen8();
 
-        public abstract void Rollback(Fallen8 f8);
-        public abstract bool TryExecute(Fallen8 f8);
+        public TransactionTest()
+        {
+            
+        }
+
+
+        [TestMethod]
+        public void AddVertex()
+        {
+            CreateVertexTransaction tx = new CreateVertexTransaction() { CreationDate = 1, Properties = null };
+
+            var txId = _fallen8.EnqueueTransaction(tx);
+
+            Thread.Sleep(10);
+
+            int tries = 0;
+
+            while (_fallen8.GetTransactionState(txId)!= TransactionState.Finished)
+            {
+                Thread.Sleep(1000);
+
+                tries++;
+
+                if (tries > 10)
+                {
+                    Assert.Fail();
+                }
+            }
+        }
     }
 }
