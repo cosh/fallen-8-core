@@ -31,5 +31,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 {
     internal abstract class ATransaction : ITransaction
     {
+        public abstract void Rollback(Fallen8 f8);
+        public abstract bool TryExecute(Fallen8 f8);
     }
 }

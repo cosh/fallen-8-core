@@ -41,6 +41,7 @@ using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Core
 {
@@ -95,6 +96,11 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         private readonly PluginCache _pluginCache = new PluginCache();
 
+        /// <summary>
+        /// Transaction manager
+        /// </summary>
+        private readonly TransactionManager _txManager;
+
         #endregion
 
         #region Constructor
@@ -108,6 +114,7 @@ namespace NoSQL.GraphDB.Core
             _graphElements = new List<AGraphElement>();
             ServiceFactory = new ServiceFactory(this);
             IndexFactory.Indices.Clear();
+            _txManager = new TransactionManager(this);
         }
 
         /// <summary>
@@ -778,7 +785,7 @@ namespace NoSQL.GraphDB.Core
 
             Logger.LogInfo(String.Format("Fallen-8 now loads a savegame from path \"{0}\"", path));
 
-            if (ReadResource())
+            if (WriteResource())
             {
                 try
                 {
@@ -811,7 +818,7 @@ namespace NoSQL.GraphDB.Core
                 }
                 finally
                 {
-                    FinishReadResource();
+                    FinishWriteResource();
                 }
 
                 return;

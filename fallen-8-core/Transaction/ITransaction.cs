@@ -23,9 +23,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System;
+
 namespace NoSQL.GraphDB.Core.Transaction
 {
     internal interface ITransaction
     {
+        bool TryExecute(Fallen8 f8);
+
+        void Rollback(Fallen8 f8);
     }
 }

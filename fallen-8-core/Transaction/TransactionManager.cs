@@ -28,6 +28,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
@@ -37,9 +38,22 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         private readonly ConcurrentDictionary<String, TransactionInformation> transactionState = new ConcurrentDictionary<String, TransactionInformation>();
 
-        public TransactionManager()
+        public TransactionManager(Fallen8 f8)
         {
-        
+            Action action = () =>
+            {
+                ATransaction transaction;
+                while (transactions.TryDequeue(out transaction))
+                {
+                    //do some work
+                    if (!transaction.TryExecute(f8))
+                    {
+                        transaction.Rollback(f8);
+                    }
+                }
+            };
+
+            Task.Run(action);
         }
 
         public TransactionInformation AddTransaction(ATransaction tx)
