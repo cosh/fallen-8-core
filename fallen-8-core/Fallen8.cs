@@ -463,33 +463,7 @@ namespace NoSQL.GraphDB.Core
             {
                 try
                 {
-                    EdgeModel outgoingEdge = null;
-
-                    var sourceVertex = _graphElements[sourceVertexId] as VertexModel;
-                    var targetVertex = _graphElements[targetVertexId] as VertexModel;
-
-                    //get the related vertices
-                    if (sourceVertex != null && targetVertex != null)
-                    {
-                        outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, properties);
-
-                        //add the edge to the graph elements
-                        _graphElements.Add(outgoingEdge);
-
-                        //increment the ids
-                        Interlocked.Increment(ref _currentId);
-
-                        //add the edge to the source vertex
-                        sourceVertex.AddOutEdge(edgePropertyId, outgoingEdge);
-
-                        //link the vertices
-                        targetVertex.AddIncomingEdge(edgePropertyId, outgoingEdge);
-
-                        //increase the edgeCount
-                        EdgeCount++;
-                    }
-
-                    return outgoingEdge;
+                    return CreateEdge_internal(sourceVertexId, edgePropertyId, targetVertexId, creationDate, properties);
                 }
                 finally
                 {
@@ -498,6 +472,37 @@ namespace NoSQL.GraphDB.Core
             }
 
             throw new CollisionException(this);
+        }
+
+        internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, PropertyContainer[] properties)
+        {
+            EdgeModel outgoingEdge = null;
+
+            var sourceVertex = _graphElements[sourceVertexId] as VertexModel;
+            var targetVertex = _graphElements[targetVertexId] as VertexModel;
+
+            //get the related vertices
+            if (sourceVertex != null && targetVertex != null)
+            {
+                outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, properties);
+
+                //add the edge to the graph elements
+                _graphElements.Add(outgoingEdge);
+
+                //increment the ids
+                Interlocked.Increment(ref _currentId);
+
+                //add the edge to the source vertex
+                sourceVertex.AddOutEdge(edgePropertyId, outgoingEdge);
+
+                //link the vertices
+                targetVertex.AddIncomingEdge(edgePropertyId, outgoingEdge);
+
+                //increase the edgeCount
+                EdgeCount++;
+            }
+
+            return outgoingEdge;
         }
 
         public bool TryAddProperty(Int32 graphElementId, UInt16 propertyId, Object property)

@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// CreateVertexTransaction.cs
+// CreateVerticesTransaction.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -25,31 +25,49 @@
 
 using NoSQL.GraphDB.Core.Model;
 using System;
+using System.Collections.Generic;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
-    public class CreateVertexTransaction : ATransaction
+    public class CreateVerticesTransaction : ATransaction
     {
-        public UInt32 CreationDate
-        {
-            get;
-            set;
-        }
+        public List<CreateVertexTransaction> Vertices
+            { get; set; } = new List<CreateVertexTransaction>();
 
-        public PropertyContainer[] Properties
-        {
-            get;
-            set;
-        } = null;
+        private List<Int32> _verticesAdded = new List<Int32>();
 
         public override void Rollback(Fallen8 f8)
         {
-            //NOP
+            foreach (var aVertexId in _verticesAdded)
+            {
+                f8.TryRemoveGraphElement(aVertexId);
+            }
         }
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            return f8.CreateVertex_interal(CreationDate, Properties) != null;
+            try
+            {
+                foreach (var aTx in Vertices)
+                {
+                    var vertex = f8.CreateVertex_interal(aTx.CreationDate, aTx.Properties);
+                    
+                    _verticesAdded.Add(vertex.Id);
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+
+            return  true;
+        }
+
+        public CreateVerticesTransaction AddVertex(UInt32 CreationDate, PropertyContainer[] Properties)
+        {
+            Vertices.Add(new CreateVertexTransaction() { CreationDate = CreationDate, Properties = Properties });
+
+            return this;
         }
     }
 }

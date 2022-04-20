@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// CreateVertexTransaction.cs
+// CreateEdgeTransaction.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -28,8 +28,26 @@ using System;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
-    public class CreateVertexTransaction : ATransaction
+    public class CreateEdgeTransaction : ATransaction
     {
+        public Int32 SourceVertexId
+        {
+            get;
+            set;
+        }
+
+        public UInt16 EdgePropertyId
+        {
+            get;
+            set;
+        }
+
+        public Int32 TargetVertexId
+        {
+            get;
+            set;
+        }
+
         public UInt32 CreationDate
         {
             get;
@@ -49,7 +67,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            return f8.CreateVertex_interal(CreationDate, Properties) != null;
+            return f8.CreateEdge_internal(SourceVertexId, EdgePropertyId, TargetVertexId, CreationDate, Properties) != null;
         }
     }
 }
