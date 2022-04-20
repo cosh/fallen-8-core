@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Threading.Tasks;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -34,30 +35,6 @@ namespace NoSQL.GraphDB.Core
     /// </summary>
     public interface IWrite
     {
-        #region create
-
-        /// <summary>
-        ///   Creates a vertex
-        /// </summary>
-        /// <param name="creationDate"> The creation date as Unix timestamp (seconds from 01/01/1971) </param>
-        /// <param name="properties"> The properties. </param>
-        /// <returns> The created vertex </returns>
-        VertexModel CreateVertex(UInt32 creationDate, PropertyContainer[] properties = null);
-
-        /// <summary>
-        ///   Creates an edge.
-        /// </summary>
-        /// <returns> The edge model. </returns>
-        /// <param name='sourceVertexId'> Source vertex identifier. </param>
-        /// <param name='edgePropertyId'> Edge property identifier. </param>
-        /// <param name='targetVertexId'> Target vertex identifier. </param>
-        /// <param name='creationDate'> The creation date as Unix timestamp (seconds from 01/01/1971) </param>
-        /// <param name='properties'> Properties. </param>
-        EdgeModel CreateEdge(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate,
-                             PropertyContainer[] properties = null);
-
-        #endregion
-
         #region update
 
         /// <summary>
@@ -125,15 +102,15 @@ namespace NoSQL.GraphDB.Core
         /// Exqueues a new transaction
         /// </summary>
         /// <param name="tx">The transaction</param>
-        /// <returns>The transaction identifier</returns>
-        string EnqueueTransaction(ATransaction tx);
+        /// <returns>The task of the transaction</returns>
+        Task<TransactionInformation> EnqueueTransaction(ATransaction tx);
 
         /// <summary>
         /// Gets the state of a transaction
         /// </summary>
         /// <param name="txId">The transaction id</param>
-        /// <returns>The state of the transaction</returns>
-        TransactionState GetTransactionState(String txId);
+        /// <returns>The task of the transaction</returns>
+        TransactionState  GetTransactionState(String txId);
 
         #endregion
     }

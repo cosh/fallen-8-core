@@ -61,6 +61,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             {
                 _numberOfToBeTestedVertices = nodeCound;
             }
+
             for (var i = 0; i < nodeCound; i++)
             {
                 //                vertexIDs.Add(
@@ -72,7 +73,6 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                 //                                                               new PropertyContainer { PropertyId = 26, Value = "Ein gaaaaaaaanz langes Property" },
                 //                                                           }).Id);
                 vertexIDs.Add(_f8.CreateVertex(creationDate).Id);
-
             }
 
             if (edgeCount != 0)

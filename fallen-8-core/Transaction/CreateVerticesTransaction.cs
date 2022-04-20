@@ -31,16 +31,16 @@ namespace NoSQL.GraphDB.Core.Transaction
 {
     public class CreateVerticesTransaction : ATransaction
     {
-        public List<CreateVertexTransaction> Vertices
-            { get; set; } = new List<CreateVertexTransaction>();
+        public List<VertexDefinition> Vertices
+            { get; set; } = new List<VertexDefinition>();
 
-        private List<Int32> _verticesAdded = new List<Int32>();
+        private List<VertexModel> VerticesCreated = new List<VertexModel>();
 
         public override void Rollback(Fallen8 f8)
         {
-            foreach (var aVertexId in _verticesAdded)
+            foreach (var aVertex in VerticesCreated)
             {
-                f8.TryRemoveGraphElement(aVertexId);
+                f8.TryRemoveGraphElement(aVertex.Id);
             }
         }
 
@@ -48,12 +48,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             try
             {
-                foreach (var aTx in Vertices)
-                {
-                    var vertex = f8.CreateVertex_interal(aTx.CreationDate, aTx.Properties);
-                    
-                    _verticesAdded.Add(vertex.Id);
-                }
+                VerticesCreated = f8.CreateVertices_internal(Vertices);
             }
             catch (Exception)
             {
@@ -65,7 +60,14 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public CreateVerticesTransaction AddVertex(UInt32 CreationDate, PropertyContainer[] Properties)
         {
-            Vertices.Add(new CreateVertexTransaction() { CreationDate = CreationDate, Properties = Properties });
+            Vertices.Add(new VertexDefinition() { CreationDate = CreationDate, Properties = Properties });
+
+            return this;
+        }
+
+        public CreateVerticesTransaction AddVertex(VertexDefinition definition)
+        {
+            Vertices.Add(definition);
 
             return this;
         }

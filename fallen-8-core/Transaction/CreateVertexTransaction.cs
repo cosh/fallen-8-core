@@ -30,17 +30,13 @@ namespace NoSQL.GraphDB.Core.Transaction
 {
     public class CreateVertexTransaction : ATransaction
     {
-        public UInt32 CreationDate
+        public VertexModel VertexCreated { get; private set; }
+
+        public VertexDefinition Definition
         {
             get;
             set;
         }
-
-        public PropertyContainer[] Properties
-        {
-            get;
-            set;
-        } = null;
 
         public override void Rollback(Fallen8 f8)
         {
@@ -49,7 +45,9 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            return f8.CreateVertex_interal(CreationDate, Properties) != null;
+            VertexCreated = f8.CreateVertex_internal(Definition.CreationDate, Definition.Properties);
+
+            return VertexCreated != null;
         }
     }
 }

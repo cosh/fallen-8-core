@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-//
+// VertexDefinition.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -23,14 +23,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System.Threading.Tasks;
+using System;
+using System.Collections.Generic;
+using System.Text;
 
-namespace NoSQL.GraphDB.Core.Transaction
+namespace NoSQL.GraphDB.Core.Model
 {
-    public class TransactionInformation
+    public class VertexDefinition
     {
-        public ATransaction Transaction { get; set; }
+        public UInt32 CreationDate
+        {
+            get;
+            set;
+        }
 
-        public TransactionState TransactionState { get; set; }
+        public PropertyContainer[] Properties
+        {
+            get;
+            set;
+        } = null;
     }
 }

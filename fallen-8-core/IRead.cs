@@ -131,7 +131,8 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         /// <param name='path'> Path. </param>
         /// <param name='savePartitions'> The number of save partitions. </param>
-        void Save(String path, UInt32 savePartitions = 5);
+        /// <returns>The actual path of the savegame</returns>
+        string Save(String path, UInt32 savePartitions = 5);
 
         #endregion
 

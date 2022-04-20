@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-//
+// PropertyAddDefinition.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -23,14 +23,30 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System.Threading.Tasks;
+using System;
+using System.Collections.Generic;
+using System.Text;
 
-namespace NoSQL.GraphDB.Core.Transaction
+namespace NoSQL.GraphDB.Core.Model
 {
-    public class TransactionInformation
+    public class PropertyAddDefinition
     {
-        public ATransaction Transaction { get; set; }
+        public Int32 GraphElementId
+        {
+            get;
+            set;
+        }
 
-        public TransactionState TransactionState { get; set; }
+        public UInt16 PropertyId
+        {
+            get;
+            set;
+        }
+
+        public Object Property
+        {
+            get;
+            set;
+        }
     }
 }

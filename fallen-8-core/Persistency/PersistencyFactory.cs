@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -53,7 +54,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name="pathToSavePoint">The path to the save point.</param>
         /// <param name="currentId">The maximum graph element id</param>
         /// <param name="startServices">Start the services</param>
-        internal static Boolean Load(Fallen8 fallen8, ref List<AGraphElement> graphElements, string pathToSavePoint, ref Int32 currentId, Boolean startServices)
+        internal static Boolean Load(Fallen8 fallen8, ref ImmutableList<AGraphElement> graphElements, string pathToSavePoint, ref Int32 currentId, Boolean startServices)
         {
             //if there is no savepoint file... do nothing
             if (!File.Exists(pathToSavePoint))
@@ -90,7 +91,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 LoadGraphElements(graphElementArray, graphElementStreams);
 
-                graphElements = new List<AGraphElement>(graphElementArray);
+                graphElements = graphElementArray.ToImmutableList();
 
                 #endregion
 
@@ -140,7 +141,8 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='path'> Path. </param>
         /// <param name='savePartitions'> The number of save partitions for the graph elements. </param>
         /// <param name="currentId">The current graph elemement identifier.</param>
-        internal static void Save(Fallen8 fallen8, List<AGraphElement> graphElements, String path, UInt32 savePartitions, Int32 currentId)
+        /// <returns>The path of the savegame</returns>
+        internal static string Save(Fallen8 fallen8, ImmutableList<AGraphElement> graphElements, String path, UInt32 savePartitions, Int32 currentId)
         {
             // Create the new, empty data file.
             if (File.Exists(path))
@@ -235,6 +237,8 @@ namespace NoSQL.GraphDB.Core.Persistency
                 writer.Flush();
                 file.Flush();
             }
+
+            return path;
         }
 
         #endregion
@@ -425,7 +429,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='range'> Range. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='pathToSavePoint'> Path to save point basis. </param>
-        private static String SaveBunch(Tuple<Int32, Int32> range, List<AGraphElement> graphElements,
+        private static String SaveBunch(Tuple<Int32, Int32> range, ImmutableList<AGraphElement> graphElements,
                                         String pathToSavePoint)
         {
             var partitionFileName = pathToSavePoint + Constants.GraphElementsSaveString + range.Item1 + "_to_" + range.Item2;
@@ -441,7 +445,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 {
                     AGraphElement aGraphElement = graphElements[i];
                     //there can be nulls
-                    if (aGraphElement == null)
+                    if (aGraphElement == null || aGraphElement._removed)
                     {
                         partitionWriter.Write(SerializedNull); // 2 for null
                         continue;

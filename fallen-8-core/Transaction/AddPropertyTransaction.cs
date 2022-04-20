@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// CreateEdgesTransaction.cs
+// AddPropertyTransaction.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -25,53 +25,25 @@
 
 using NoSQL.GraphDB.Core.Model;
 using System;
-using System.Collections.Generic;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
-    public class CreateEdgesTransaction : ATransaction
+    public class AddPropertyTransaction : ATransaction
     {
-        public List<EdgeDefinition> Edges
+        public PropertyAddDefinition Definition
         {
-            get; set;
-        } = new List<EdgeDefinition>();
-
-        private List<Int32> _edgesAdded = new List<Int32>();
+            get;
+            set;
+        }
 
         public override void Rollback(Fallen8 f8)
         {
-            foreach (var aEdgeId in _edgesAdded)
-            {
-                f8.TryRemoveGraphElement(aEdgeId);
-            }
+            //NOP
         }
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            try
-            {
-                f8.CreateEdges_internal(Edges);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        public CreateEdgesTransaction AddEdge(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, PropertyContainer[] properties)
-        {
-            Edges.Add(new EdgeDefinition() { SourceVertexId = sourceVertexId, EdgePropertyId = edgePropertyId, TargetVertexId = targetVertexId, CreationDate = creationDate, Properties = properties });
-
-            return this;
-        }
-
-        public CreateEdgesTransaction AddEdge(EdgeDefinition definition)
-        {
-            Edges.Add(definition);
-
-            return this;
+            return f8.TryAddProperty_internal(Definition.GraphElementId, Definition.PropertyId, Definition.Property);
         }
     }
 }

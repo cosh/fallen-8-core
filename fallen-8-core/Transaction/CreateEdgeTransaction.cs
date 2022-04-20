@@ -30,35 +30,11 @@ namespace NoSQL.GraphDB.Core.Transaction
 {
     public class CreateEdgeTransaction : ATransaction
     {
-        public Int32 SourceVertexId
+        public EdgeDefinition Definition
         {
             get;
             set;
         }
-
-        public UInt16 EdgePropertyId
-        {
-            get;
-            set;
-        }
-
-        public Int32 TargetVertexId
-        {
-            get;
-            set;
-        }
-
-        public UInt32 CreationDate
-        {
-            get;
-            set;
-        }
-
-        public PropertyContainer[] Properties
-        {
-            get;
-            set;
-        } = null;
 
         public override void Rollback(Fallen8 f8)
         {
@@ -67,7 +43,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            return f8.CreateEdge_internal(SourceVertexId, EdgePropertyId, TargetVertexId, CreationDate, Properties) != null;
+            return f8.CreateEdge_internal(Definition.SourceVertexId, Definition.EdgePropertyId, Definition.TargetVertexId, Definition.CreationDate, Definition.Properties) != null;
         }
     }
 }

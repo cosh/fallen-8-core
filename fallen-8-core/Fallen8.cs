@@ -25,9 +25,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Error;
@@ -52,7 +54,7 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   The graph elements
         /// </summary>
-        private List<AGraphElement> _graphElements;
+        private  ImmutableList<AGraphElement> _graphElements;
 
         /// <summary>
         /// The delegate to find elements in the big list
@@ -123,7 +125,7 @@ namespace NoSQL.GraphDB.Core
         public Fallen8()
         {
             IndexFactory = new IndexFactory();
-            _graphElements = new List<AGraphElement>();
+            _graphElements = ImmutableList.Create<AGraphElement>();
             ServiceFactory = new ServiceFactory(this);
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
@@ -148,7 +150,7 @@ namespace NoSQL.GraphDB.Core
 
                 try
                 {
-                    return CreateVertex_interal(creationDate, properties);
+                    return CreateVertex_internal(creationDate, properties);
                 }
                 finally
                 {
@@ -160,13 +162,13 @@ namespace NoSQL.GraphDB.Core
             throw new CollisionException(this);
         }
 
-        internal VertexModel CreateVertex_interal(UInt32 creationDate, PropertyContainer[] properties = null)
+        internal VertexModel CreateVertex_internal(UInt32 creationDate, PropertyContainer[] properties = null)
         {
             //create the new vertex
             var newVertex = new VertexModel(_currentId, creationDate, properties);
 
             //insert it
-            _graphElements.Add(newVertex);
+            _graphElements = _graphElements.Add(newVertex);
 
             //increment the id
             Interlocked.Increment(ref _currentId);
@@ -174,6 +176,33 @@ namespace NoSQL.GraphDB.Core
             //Increase the vertex count
             VertexCount++;
             return newVertex;
+        }
+
+        internal List<VertexModel> CreateVertices_internal(List<VertexDefinition> definitions)
+        {
+            var newVertices = new List<VertexModel>();
+
+            if (definitions != null)
+            {
+                foreach (var aVertexDef in definitions)
+                {
+                    //create the new vertex
+                    var newVertex = new VertexModel(_currentId, aVertexDef.CreationDate, aVertexDef.Properties);
+
+                    newVertices.Add(newVertex);
+
+                    //increment the id
+                    Interlocked.Increment(ref _currentId);
+
+                    //Increase the vertex count
+                    VertexCount++;
+                }
+            }
+
+            //insert it
+            _graphElements = _graphElements.AddRange(newVertices);
+
+            return newVertices;
         }
 
         public bool TryGetGraphElement(out AGraphElement result, int id)
@@ -378,20 +407,22 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        public void Save(string path, uint savePartitions = 5)
+        public string Save(string path, uint savePartitions = 5)
         {
             if (ReadResource())
             {
+                string saveGamePath = null;
+
                 try
                 {
-                    PersistencyFactory.Save(this, _graphElements, path, savePartitions, _currentId);
+                    saveGamePath = PersistencyFactory.Save(this, _graphElements, path, savePartitions, _currentId);
                 }
                 finally
                 {
                     FinishReadResource();
                 }
 
-                return;
+                return saveGamePath;
             }
 
             throw new CollisionException(this);
@@ -487,7 +518,7 @@ namespace NoSQL.GraphDB.Core
                 outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, properties);
 
                 //add the edge to the graph elements
-                _graphElements.Add(outgoingEdge);
+                _graphElements = _graphElements.Add(outgoingEdge);
 
                 //increment the ids
                 Interlocked.Increment(ref _currentId);
@@ -505,20 +536,50 @@ namespace NoSQL.GraphDB.Core
             return outgoingEdge;
         }
 
+        internal void CreateEdges_internal(List<EdgeDefinition> definitions)
+        {
+            if (definitions != null)
+            {
+                var newEdges = new List<EdgeModel>();
+
+                foreach (var aEdgeDefinition in definitions)
+                {
+                    var sourceVertex = _graphElements[aEdgeDefinition.SourceVertexId] as VertexModel;
+                    var targetVertex = _graphElements[aEdgeDefinition.TargetVertexId] as VertexModel;
+
+                    //get the related vertices
+                    if (sourceVertex != null && targetVertex != null)
+                    {
+                        var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex, aEdgeDefinition.Properties);
+
+                        newEdges.Add(newEdge);
+                        
+                        //increment the ids
+                        Interlocked.Increment(ref _currentId);
+
+                        //add the edge to the source vertex
+                        sourceVertex.AddOutEdge(aEdgeDefinition.EdgePropertyId, newEdge);
+
+                        //link the vertices
+                        targetVertex.AddIncomingEdge(aEdgeDefinition.EdgePropertyId, newEdge);
+
+                        //increase the edgeCount
+                        EdgeCount++;
+                    }
+                }
+
+                //add the edge to the graph elements
+                _graphElements = _graphElements.AddRange(newEdges);
+            }
+        }
+
         public bool TryAddProperty(Int32 graphElementId, UInt16 propertyId, Object property)
         {
             if (WriteResource())
             {
                 try
                 {
-                    var success = false;
-                    AGraphElement graphElement = _graphElements[graphElementId];
-                    if (graphElement != null)
-                    {
-                        success = graphElement != null && graphElement.TryAddProperty(propertyId, property);
-                    }
-
-                    return success;
+                    return TryAddProperty_internal(graphElementId, propertyId, property);
                 }
                 finally
                 {
@@ -527,6 +588,18 @@ namespace NoSQL.GraphDB.Core
             }
 
             throw new CollisionException(this);
+        }
+
+        internal Boolean TryAddProperty_internal(Int32 graphElementId, UInt16 propertyId, Object property)
+        {
+            var success = false;
+            AGraphElement graphElement = _graphElements[graphElementId];
+            if (graphElement != null)
+            {
+                success = graphElement != null && graphElement.TryAddProperty(propertyId, property);
+            }
+
+            return success;
         }
 
         public bool TryRemoveProperty(Int32 graphElementId, UInt16 propertyId)
@@ -558,7 +631,7 @@ namespace NoSQL.GraphDB.Core
                 {
                     AGraphElement graphElement = _graphElements[graphElementId];
 
-                    if (graphElement == null)
+                    if (graphElement == null || graphElement._removed)
                     {
                         return false;
                     }
@@ -571,7 +644,7 @@ namespace NoSQL.GraphDB.Core
                     {
                         #region remove element
 
-                        _graphElements[graphElementId] = null;
+                        _graphElements[graphElementId].MarkAsRemoved();
 
                         if (graphElement is VertexModel)
                         {
@@ -595,7 +668,7 @@ namespace NoSQL.GraphDB.Core
                                         aOutEdge.TargetVertex.RemoveIncomingEdge(aOutEdgeContainer.EdgePropertyId, aOutEdge);
 
                                         //remove the edge itself
-                                        _graphElements[aOutEdge.Id] = null;
+                                        _graphElements[aOutEdge.Id].MarkAsRemoved();
                                     }
                                 }
                             }
@@ -618,7 +691,7 @@ namespace NoSQL.GraphDB.Core
                                         aInEdge.SourceVertex.RemoveOutGoingEdge(aInEdgeContainer.EdgePropertyId, aInEdge);
 
                                         //remove the edge itself
-                                        _graphElements[aInEdge.Id] = null;
+                                        _graphElements[aInEdge.Id].MarkAsRemoved();
                                     }
                                 }
                             }
@@ -762,7 +835,7 @@ namespace NoSQL.GraphDB.Core
                 try
                 {
                     _currentId = 0;
-                    _graphElements = new List<AGraphElement>();
+                    _graphElements = ImmutableList.Create<AGraphElement>();
                     IndexFactory.DeleteAllIndices();
                     VertexCount = 0;
                     EdgeCount = 0;
@@ -820,7 +893,7 @@ namespace NoSQL.GraphDB.Core
                     GC.WaitForFullGCComplete(-1);
                     GC.WaitForPendingFinalizers();
 
-                    _graphElements = new List<AGraphElement>();
+                    _graphElements = ImmutableList.Create<AGraphElement>();
 
                     var success = PersistencyFactory.Load(this, ref _graphElements, path, ref _currentId, startServices);
 
@@ -849,11 +922,9 @@ namespace NoSQL.GraphDB.Core
             throw new CollisionException(this);
         }
 
-        public String EnqueueTransaction(ATransaction tx)
+        public Task<TransactionInformation> EnqueueTransaction(ATransaction tx)
         {
-            var txInfo = _txManager.AddTransaction(tx);
-
-            return txInfo.TransactionID;
+            return _txManager.AddTransaction(tx);
         }
 
         public TransactionState GetTransactionState(String txId)
@@ -916,7 +987,7 @@ namespace NoSQL.GraphDB.Core
         private List<AGraphElement> FindElements(ElementSeeker seeker)
         {
             return _graphElements.AsParallel()
-                .Where(_ => _ != null && seeker(_))
+                .Where(_ => _ != null && !_._removed && seeker(_))
                 .ToList();
         }
 
@@ -1042,7 +1113,7 @@ namespace NoSQL.GraphDB.Core
 
             //cleanup and switch
             _graphElements.Clear();
-            _graphElements = newGraphElementList;
+            _graphElements = newGraphElementList.ToImmutableList();
 
             _txManager.Trim();
 

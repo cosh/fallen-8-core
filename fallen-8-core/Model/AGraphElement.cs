@@ -57,6 +57,11 @@ namespace NoSQL.GraphDB.Core.Model
         /// </summary>
         private PropertyContainer[] _properties;
 
+        /// <summary>
+        ///  Defines if the object has been removed. If it is set to true then it will not be returned in searches
+        /// </summary>
+        internal bool _removed = false;
+
         #endregion
 
         #region constructor
@@ -367,6 +372,14 @@ namespace NoSQL.GraphDB.Core.Model
             }
 
             throw new CollisionException(this);
+        }
+
+        /// <summary>
+        /// Marks the graph element as removed
+        /// </summary>
+        internal void MarkAsRemoved()
+        {
+            _removed = true;
         }
 
         #endregion

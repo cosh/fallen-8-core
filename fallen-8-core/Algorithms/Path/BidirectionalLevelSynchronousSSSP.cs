@@ -73,6 +73,11 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                 return null;
             }
 
+            if (sourceVertex._removed || targetVertex._removed)
+            {
+                return null;
+            }
+
             if (maxDepth == 0 || maxResults == 0 || maxResults <= 0)
             {
                 return null;

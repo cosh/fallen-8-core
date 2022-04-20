@@ -45,6 +45,7 @@ using NoSQL.GraphDB.Core.Index.Spatial;
 using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.App.Controllers
 {
@@ -87,7 +88,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpPut("/vertex")]
         [Consumes("application/json")]
-        public int AddVertex([FromBody] VertexSpecification definition)
+        public void AddVertex([FromBody] VertexSpecification definition)
         {
             #region initial checks
 
@@ -98,7 +99,16 @@ namespace NoSQL.GraphDB.App.Controllers
 
             #endregion
 
-            return _fallen8.CreateVertex(definition.CreationDate, ServiceHelper.GenerateProperties(definition.Properties)).Id;
+            var tx = new CreateVertexTransaction()
+            {
+                Definition = new VertexDefinition()
+                {
+                    CreationDate = definition.CreationDate,
+                    Properties = ServiceHelper.GenerateProperties(definition.Properties)
+                }
+            };
+
+            _fallen8.EnqueueTransaction(tx);
         }
 
         [HttpPut("/edge")]

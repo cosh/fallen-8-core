@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers.Sample;
 using NoSQL.GraphDB.Core;
@@ -60,6 +61,30 @@ namespace NoSQL.GraphDB.Tests
             alice.TryGetProperty(out name, 0);
 
             Assert.AreEqual("Alice", name);
+        }
+
+        [TestMethod]
+        public void SaveAndLoad()
+        {
+            var saveGameName = @"SaveAndLoadTest.f8";
+            var saveGameDirectory = @".";
+            var saveGameLocation = Path.Combine(saveGameDirectory, saveGameName);
+
+            var actualSaveGameLocation = _fallen8.Save(saveGameLocation);
+            _fallen8.TabulaRasa();
+
+            _fallen8.Load(saveGameLocation);
+
+            FindAlice();
+
+            //cleanup
+            var toBeDeletedSaveGame = Path.GetFileName(actualSaveGameLocation) + "*";
+            var files = Directory.GetFiles(saveGameDirectory, toBeDeletedSaveGame);
+
+            foreach (var aToBeDeletedFile in files)
+            {
+                File.Delete(aToBeDeletedFile);
+            }
         }
     }
 }
