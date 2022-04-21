@@ -26,6 +26,7 @@
 using NoSQL.GraphDB.Core.Model;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
@@ -36,13 +37,13 @@ namespace NoSQL.GraphDB.Core.Transaction
             get; set;
         } = new List<EdgeDefinition>();
 
-        private List<Int32> _edgesAdded = new List<Int32>();
+        private List<EdgeModel> _edgesAdded = new List<EdgeModel>();
 
         public override void Rollback(Fallen8 f8)
         {
-            foreach (var aEdgeId in _edgesAdded)
+            foreach (var aEdge in _edgesAdded)
             {
-                f8.TryRemoveGraphElement(aEdgeId);
+                f8.TryRemoveGraphElement(aEdge.Id);
             }
         }
 
@@ -50,7 +51,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             try
             {
-                f8.CreateEdges_internal(Edges);
+                _edgesAdded = f8.CreateEdges_internal(Edges);
             }
             catch (Exception)
             {
@@ -60,7 +61,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             return true;
         }
 
-        public CreateEdgesTransaction AddEdge(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, PropertyContainer[] properties)
+        public CreateEdgesTransaction AddEdge(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, PropertyContainer[] properties = null)
         {
             Edges.Add(new EdgeDefinition() { SourceVertexId = sourceVertexId, EdgePropertyId = edgePropertyId, TargetVertexId = targetVertexId, CreationDate = creationDate, Properties = properties });
 
@@ -72,6 +73,11 @@ namespace NoSQL.GraphDB.Core.Transaction
             Edges.Add(definition);
 
             return this;
+        }
+        
+        public ImmutableList<EdgeModel> GetCreatedEdges()
+        {
+            return ImmutableList.CreateRange(_edgesAdded);
         }
     }
 }

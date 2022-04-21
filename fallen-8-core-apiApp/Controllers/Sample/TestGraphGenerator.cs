@@ -26,6 +26,7 @@
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.App.Controllers.Sample
 {
@@ -37,15 +38,23 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             #region Vertices
 
-            var alice = f8.CreateVertex(creationDate, new PropertyContainer[] { CreateName("Alice") });
+            var vertexTx = new CreateVerticesTransaction();
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Alice") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Bob") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Eve") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Mallory") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Trent") });
 
-            var bob = f8.CreateVertex(creationDate, new PropertyContainer[] { CreateName("Bob") });
+            var vertexTxInfo = f8.EnqueueTransaction(vertexTx);
 
-            var eve = f8.CreateVertex(creationDate, new PropertyContainer[] { CreateName("Eve") });
+            vertexTxInfo.WaitUntilFinished();
 
-            var mallory = f8.CreateVertex(creationDate, new PropertyContainer[] { CreateName("Mallory") });
-
-            var trent = f8.CreateVertex(creationDate, new PropertyContainer[] { CreateName("Trent") });
+            var verticesCreated = vertexTx.GetCreatedVertices();
+            var alice = verticesCreated[0];
+            var bob = verticesCreated[1];
+            var eve = verticesCreated[2];
+            var mallory = verticesCreated[3];
+            var trent = verticesCreated[4];
 
             #endregion
 
@@ -55,19 +64,18 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
             ushort trusts = 11;
             ushort attacks = 12;
 
-            f8.CreateEdge(alice.Id, communicatesWith, bob.Id, creationDate);
+            var edgesTx = new CreateEdgesTransaction();
+            edgesTx.AddEdge(alice.Id, communicatesWith, bob.Id, creationDate);
+            edgesTx.AddEdge(bob.Id, communicatesWith, alice.Id, creationDate);
+            edgesTx.AddEdge(alice.Id, trusts, trent.Id, creationDate);
+            edgesTx.AddEdge(bob.Id, trusts, trent.Id, creationDate);
+            edgesTx.AddEdge(eve.Id, attacks, alice.Id, creationDate);
+            edgesTx.AddEdge(mallory.Id, attacks, alice.Id, creationDate);
+            edgesTx.AddEdge(mallory.Id, attacks, bob.Id, creationDate);
 
-            f8.CreateEdge(bob.Id, communicatesWith, alice.Id, creationDate);
+            var edgesTxInfo = f8.EnqueueTransaction(edgesTx);
 
-            f8.CreateEdge(alice.Id, trusts, trent.Id, creationDate);
-
-            f8.CreateEdge(bob.Id, trusts, trent.Id, creationDate);
-
-            f8.CreateEdge(eve.Id, attacks, alice.Id, creationDate);
-
-            f8.CreateEdge(mallory.Id, attacks, alice.Id, creationDate);
-
-            f8.CreateEdge(mallory.Id, attacks, bob.Id, creationDate);
+            edgesTxInfo.WaitUntilFinished();
 
             #endregion
 

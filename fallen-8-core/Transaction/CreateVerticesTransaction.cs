@@ -26,6 +26,7 @@
 using NoSQL.GraphDB.Core.Model;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
@@ -34,11 +35,11 @@ namespace NoSQL.GraphDB.Core.Transaction
         public List<VertexDefinition> Vertices
             { get; set; } = new List<VertexDefinition>();
 
-        private List<VertexModel> VerticesCreated = new List<VertexModel>();
+        private List<VertexModel> _verticesCreated = new List<VertexModel>();
 
         public override void Rollback(Fallen8 f8)
         {
-            foreach (var aVertex in VerticesCreated)
+            foreach (var aVertex in _verticesCreated)
             {
                 f8.TryRemoveGraphElement(aVertex.Id);
             }
@@ -48,7 +49,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             try
             {
-                VerticesCreated = f8.CreateVertices_internal(Vertices);
+                _verticesCreated = f8.CreateVertices_internal(Vertices);
             }
             catch (Exception)
             {
@@ -70,6 +71,11 @@ namespace NoSQL.GraphDB.Core.Transaction
             Vertices.Add(definition);
 
             return this;
+        }
+
+        public ImmutableList<VertexModel> GetCreatedVertices()
+        {
+            return ImmutableList.CreateRange(_verticesCreated);
         }
     }
 }

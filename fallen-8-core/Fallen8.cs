@@ -536,12 +536,12 @@ namespace NoSQL.GraphDB.Core
             return outgoingEdge;
         }
 
-        internal void CreateEdges_internal(List<EdgeDefinition> definitions)
+        internal List<EdgeModel> CreateEdges_internal(List<EdgeDefinition> definitions)
         {
+            var newEdges = new List<EdgeModel>();
+
             if (definitions != null)
             {
-                var newEdges = new List<EdgeModel>();
-
                 foreach (var aEdgeDefinition in definitions)
                 {
                     var sourceVertex = _graphElements[aEdgeDefinition.SourceVertexId] as VertexModel;
@@ -571,6 +571,8 @@ namespace NoSQL.GraphDB.Core
                 //add the edge to the graph elements
                 _graphElements = _graphElements.AddRange(newEdges);
             }
+
+            return newEdges;
         }
 
         public bool TryAddProperty(Int32 graphElementId, UInt16 propertyId, Object property)
