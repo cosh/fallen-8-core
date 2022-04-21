@@ -49,10 +49,7 @@ namespace NoSQL.GraphDB.Core.Log
         /// <param name="toBeloggedString"></param>
         private static void ConsoleLog(String toBeloggedString)
         {
-            lock (Console.Title)
-            {
-                Console.WriteLine(toBeloggedString);
-            }
+            Console.WriteLine(toBeloggedString);
         }
 
         /// <summary>
