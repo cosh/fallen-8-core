@@ -102,14 +102,14 @@ namespace NoSQL.GraphDB.Core
         /// Exqueues a new transaction
         /// </summary>
         /// <param name="tx">The transaction</param>
-        /// <returns>The task of the transaction</returns>
-        Task<TransactionInformation> EnqueueTransaction(ATransaction tx);
+        /// <returns>The transaction information</returns>
+        TransactionInformation EnqueueTransaction(ATransaction tx);
 
         /// <summary>
         /// Gets the state of a transaction
         /// </summary>
         /// <param name="txId">The transaction id</param>
-        /// <returns>The task of the transaction</returns>
+        /// <returns>The state of the transaction</returns>
         TransactionState  GetTransactionState(String txId);
 
         #endregion

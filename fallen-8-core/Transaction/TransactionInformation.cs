@@ -32,5 +32,20 @@ namespace NoSQL.GraphDB.Core.Transaction
         public ATransaction Transaction { get; set; }
 
         public TransactionState TransactionState { get; set; }
+
+        private readonly Task _txTask;
+
+        public TransactionInformation(Task txTask)
+        {
+            _txTask = txTask;
+        }
+
+        public void WaitUntilFinished()
+        {
+            if (_txTask != null)
+            {
+            _txTask.Wait();
+            }
+        }
     }
 }

@@ -35,7 +35,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 {
     internal class TransactionManager
     {
-        private readonly ConcurrentQueue<Task<TransactionInformation>> transactions = new ConcurrentQueue<Task<TransactionInformation>>();
+        private readonly ConcurrentQueue<Task> transactions = new ConcurrentQueue<Task>();
 
         private readonly ConcurrentDictionary<String, TransactionInformation> transactionState = new ConcurrentDictionary<String, TransactionInformation>();
 
@@ -49,7 +49,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             {
                 while (true)
                 {
-                    Task<TransactionInformation> transactionTask;
+                    Task transactionTask;
                     while (transactions.TryDequeue(out transactionTask))
                     {
                         transactionTask.Start();
@@ -66,7 +66,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         private TransactionInformation SetTransactionState(ATransaction tx, TransactionState state)
         {
             return transactionState.AddOrUpdate(tx.TransactionId,
-                                        new TransactionInformation() { Transaction = tx , TransactionState = state },
+                                        new TransactionInformation(null) { Transaction = tx , TransactionState = state },
                                         (id, info) =>
                                         {
                                             info.TransactionState = state;
@@ -74,29 +74,29 @@ namespace NoSQL.GraphDB.Core.Transaction
                                         });
         }
 
-        private TransactionInformation ProcessTransaction(Object transactionObj)
+        private void ProcessTransaction(Object transactionObj)
         {
             ATransaction tx = (ATransaction)transactionObj;
 
             //do some work
             if (tx.TryExecute(_f8))
             {
-                return SetTransactionState(tx, TransactionState.Finished);
+                SetTransactionState(tx, TransactionState.Finished);
             }
             else
             {
                 tx.Rollback(_f8);
-                return SetTransactionState(tx, TransactionState.RolledBack);
+                SetTransactionState(tx, TransactionState.RolledBack);
             }
         }
 
-        public Task<TransactionInformation> AddTransaction(ATransaction tx)
+        public TransactionInformation AddTransaction(ATransaction tx)
         {
-            var task = new Task<TransactionInformation>(ProcessTransaction, tx);
+            var task = new Task(ProcessTransaction, tx);
 
             transactions.Enqueue(task);
 
-            var txInfo = new TransactionInformation()
+            var txInfo = new TransactionInformation(task)
             {
                 Transaction = tx,
                 TransactionState = TransactionState.Enqueued
@@ -104,7 +104,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             transactionState.TryAdd(tx.TransactionId, txInfo);
 
-            return task;
+            return txInfo;
         }
 
         public TransactionState GetState(String txId)

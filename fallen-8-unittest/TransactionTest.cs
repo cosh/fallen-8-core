@@ -45,15 +45,14 @@ namespace NoSQL.GraphDB.Tests
             
         }
 
-
         [TestMethod]
         public void AddVertex()
         {
             CreateVertexTransaction tx = new CreateVertexTransaction() { Definition = new VertexDefinition() { CreationDate = 1, Properties = null } };
 
-            var txTask = _fallen8.EnqueueTransaction(tx);
+            var txInfo = _fallen8.EnqueueTransaction(tx);
 
-            var result = txTask.Result;
+            txInfo.WaitUntilFinished();
 
             Assert.AreEqual(1, _fallen8.VertexCount);
         }

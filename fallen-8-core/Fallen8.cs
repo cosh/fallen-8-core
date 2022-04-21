@@ -922,7 +922,7 @@ namespace NoSQL.GraphDB.Core
             throw new CollisionException(this);
         }
 
-        public Task<TransactionInformation> EnqueueTransaction(ATransaction tx)
+        public TransactionInformation EnqueueTransaction(ATransaction tx)
         {
             return _txManager.AddTransaction(tx);
         }
