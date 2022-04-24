@@ -30,6 +30,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Error;
@@ -38,7 +39,6 @@ using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Range;
-using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
@@ -115,6 +115,21 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         private readonly TransactionManager _txManager;
 
+        /// <summary>
+        ///   The persisitency factory.
+        /// </summary>
+        private readonly PersistencyFactory _persistencyFactory;
+
+        /// <summary>
+        /// The logger
+        /// </summary>
+        private readonly ILogger<Fallen8> _logger;
+
+        /// <summary>
+        /// The logger factory
+        /// </summary>
+        internal readonly ILoggerFactory _loggerFactory;
+
         #endregion
 
         #region Constructor
@@ -122,21 +137,25 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   Initializes a new instance of the Fallen-8 class.
         /// </summary>
-        public Fallen8()
+        public Fallen8(ILoggerFactory loggerfactory)
         {
-            IndexFactory = new IndexFactory();
+            _loggerFactory = loggerfactory;
+
+            IndexFactory = new IndexFactory(loggerfactory);
             _graphElements = ImmutableList.Create<AGraphElement>();
             ServiceFactory = new ServiceFactory(this);
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
+            _logger = loggerfactory.CreateLogger<Fallen8>();
+            _persistencyFactory = new PersistencyFactory(loggerfactory);
         }
 
         /// <summary>
         ///   Initializes a new instance of the Fallen-8 class and loads the vertices from a save point.
         /// </summary>
         /// <param name='path'> Path to the save point. </param>
-        public Fallen8(String path)
-            : this()
+        public Fallen8(String path, ILoggerFactory loggerfactory)
+            : this(loggerfactory)
         {
             Load(path, true);
         }
@@ -159,7 +178,7 @@ namespace NoSQL.GraphDB.Core
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         internal VertexModel CreateVertex_internal(UInt32 creationDate, PropertyContainer[] properties = null)
@@ -226,7 +245,7 @@ namespace NoSQL.GraphDB.Core
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public bool TryGetEdge(out EdgeModel result, int id)
@@ -249,7 +268,7 @@ namespace NoSQL.GraphDB.Core
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public bool TryGetVertex(out VertexModel result, int id)
@@ -272,7 +291,7 @@ namespace NoSQL.GraphDB.Core
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
 
@@ -415,7 +434,7 @@ namespace NoSQL.GraphDB.Core
 
                 try
                 {
-                    saveGamePath = PersistencyFactory.Save(this, _graphElements, path, savePartitions, _currentId);
+                    saveGamePath = _persistencyFactory.Save(this, _graphElements, path, savePartitions, _currentId);
                 }
                 finally
                 {
@@ -425,7 +444,7 @@ namespace NoSQL.GraphDB.Core
                 return saveGamePath;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public bool CalculateShortestPath(
@@ -480,7 +499,7 @@ namespace NoSQL.GraphDB.Core
                     }
                 }
 
-                throw new CollisionException(this);
+                throw new CollisionException();
             }
 
             result = null;
@@ -502,7 +521,7 @@ namespace NoSQL.GraphDB.Core
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, PropertyContainer[] properties)
@@ -589,7 +608,7 @@ namespace NoSQL.GraphDB.Core
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         internal Boolean TryAddProperty_internal(Int32 graphElementId, UInt16 propertyId, Object property)
@@ -622,7 +641,7 @@ namespace NoSQL.GraphDB.Core
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public bool TryRemoveGraphElement(Int32 graphElementId)
@@ -827,7 +846,7 @@ namespace NoSQL.GraphDB.Core
                 return true;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void TabulaRasa()
@@ -850,7 +869,7 @@ namespace NoSQL.GraphDB.Core
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void Trim()
@@ -869,18 +888,18 @@ namespace NoSQL.GraphDB.Core
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void Load(String path, Boolean startServices = false)
         {
             if (String.IsNullOrWhiteSpace(path))
             {
-                Logger.LogInfo(String.Format("There is no path given, so nothing will be loaded."));
+                _logger.LogInformation(String.Format("There is no path given, so nothing will be loaded."));
                 return;
             }
 
-            Logger.LogInfo(String.Format("Fallen-8 now loads a savegame from path \"{0}\"", path));
+            _logger.LogInformation(String.Format("Fallen-8 now loads a savegame from path \"{0}\"", path));
 
             if (WriteResource())
             {
@@ -897,7 +916,7 @@ namespace NoSQL.GraphDB.Core
 
                     _graphElements = ImmutableList.Create<AGraphElement>();
 
-                    var success = PersistencyFactory.Load(this, ref _graphElements, path, ref _currentId, startServices);
+                    var success = _persistencyFactory.Load(this, ref _graphElements, path, ref _currentId, startServices);
 
                     if (success)
                     {
@@ -921,7 +940,7 @@ namespace NoSQL.GraphDB.Core
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public TransactionInformation EnqueueTransaction(ATransaction tx)
@@ -978,7 +997,7 @@ namespace NoSQL.GraphDB.Core
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -1164,7 +1183,7 @@ namespace NoSQL.GraphDB.Core
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public ReadOnlyCollection<EdgeModel> GetAllEdges()
@@ -1189,7 +1208,7 @@ namespace NoSQL.GraphDB.Core
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         #endregion

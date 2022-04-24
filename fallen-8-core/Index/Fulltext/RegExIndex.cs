@@ -28,9 +28,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
-using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 
@@ -47,11 +47,16 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
         /// The index dictionary.
         /// </summary>
         private Dictionary<String, List<AGraphElement>> _idx;
-
+        
         /// <summary>
         /// The description of the plugin
         /// </summary>
         private String _description = "A very very simple fulltext index using regular expressions";
+
+        /// <summary>
+        /// The logger
+        /// </summary>
+        private ILogger<RegExIndex> _logger;
 
         #endregion
 
@@ -201,7 +206,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         #endregion
@@ -243,7 +248,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         #endregion
@@ -266,7 +271,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public int CountOfValues()
@@ -285,7 +290,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void AddOrUpdate(object keyObject, AGraphElement graphElement)
@@ -319,7 +324,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public bool TryRemoveKey(object keyObject)
@@ -344,7 +349,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void RemoveValue(AGraphElement graphElement)
@@ -374,7 +379,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void Wipe()
@@ -393,7 +398,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public IEnumerable<object> GetKeys()
@@ -412,7 +417,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public IEnumerable<KeyValuePair<Object, ReadOnlyCollection<AGraphElement>>> GetKeyValues()
@@ -432,7 +437,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                 yield break;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public bool TryGetValue(out ReadOnlyCollection<AGraphElement> result, object keyObject)
@@ -461,7 +466,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         #endregion
@@ -494,6 +499,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
         public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
         {
             _idx = new Dictionary<String, List<AGraphElement>>();
+            _logger = fallen8._loggerFactory.CreateLogger<RegExIndex>();
         }
 
         #endregion
@@ -536,7 +542,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void Load(SerializationReader reader, Fallen8 fallen8)
@@ -566,7 +572,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                             }
                             else
                             {
-                                Logger.LogError(String.Format("Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
+                                _logger.LogError(String.Format("Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
                             }
                         }
                         _idx.Add(key, value);
@@ -580,7 +586,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         #endregion

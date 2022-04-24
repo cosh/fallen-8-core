@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers.Sample;
 using NoSQL.GraphDB.Core;
@@ -38,11 +39,20 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class TransactionTest
     {
-        private readonly Fallen8 _fallen8 = new Fallen8();
+        private readonly Fallen8 _fallen8;
 
         public TransactionTest()
         {
-            
+            var loggerFactory = LoggerFactory.Create(builder =>
+            {
+                builder
+                    .AddFilter("Microsoft", LogLevel.Warning)
+                    .AddFilter("System", LogLevel.Warning)
+                    .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
+                    .AddConsole();
+            });
+
+            _fallen8 = new Fallen8(loggerFactory);
         }
 
         [TestMethod]

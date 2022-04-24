@@ -24,8 +24,6 @@
 // SOFTWARE.
 
 using System;
-using NoSQL.GraphDB.Core.Helper;
-using NoSQL.GraphDB.Core.Log;
 
 namespace NoSQL.GraphDB.Core.Error
 {
@@ -38,15 +36,8 @@ namespace NoSQL.GraphDB.Core.Error
         /// <summary>
         /// Initializes a new instance of the CollisionException class.
         /// </summary>
-#if DEBUG
-        public CollisionException(AThreadSafeElement el) : base(el.lockerStack)
-        {
-            Logger.LogError(this.Message);
-        }
-#else
-        public CollisionException (AThreadSafeElement el)
+        public CollisionException ()
         {
         }
-#endif
     }
 }

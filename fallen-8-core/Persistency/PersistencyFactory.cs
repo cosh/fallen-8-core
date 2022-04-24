@@ -30,9 +30,9 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
-using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Service;
@@ -42,8 +42,22 @@ namespace NoSQL.GraphDB.Core.Persistency
     /// <summary>
     ///   Persistency factory.
     /// </summary>
-    internal static class PersistencyFactory
+    internal class PersistencyFactory
     {
+        #region Data
+
+        /// <summary>
+        /// The logger
+        /// </summary>
+        private readonly ILogger<PersistencyFactory> _logger;
+
+        #endregion
+
+        public PersistencyFactory(ILoggerFactory loggerFactory)
+        {
+            _logger = loggerFactory.CreateLogger<PersistencyFactory>();
+        }
+
         #region internal methods
 
         /// <summary>
@@ -54,12 +68,12 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name="pathToSavePoint">The path to the save point.</param>
         /// <param name="currentId">The maximum graph element id</param>
         /// <param name="startServices">Start the services</param>
-        internal static Boolean Load(Fallen8 fallen8, ref ImmutableList<AGraphElement> graphElements, string pathToSavePoint, ref Int32 currentId, Boolean startServices)
+        internal Boolean Load(Fallen8 fallen8, ref ImmutableList<AGraphElement> graphElements, string pathToSavePoint, ref Int32 currentId, Boolean startServices)
         {
             //if there is no savepoint file... do nothing
             if (!File.Exists(pathToSavePoint))
             {
-                Logger.LogError(String.Format("Fallen-8 could not be loaded because the path \"{0}\" does not exist.", pathToSavePoint));
+                _logger.LogError(String.Format("Fallen-8 could not be loaded because the path \"{0}\" does not exist.", pathToSavePoint));
 
                 return false;
             }
@@ -67,7 +81,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             var pathName = Path.GetDirectoryName(pathToSavePoint);
             var fileName = Path.GetFileName(pathToSavePoint);
 
-            Logger.LogInfo(String.Format("Now loading file \"{0}\" from path \"{1}\"", fileName, pathName));
+            _logger.LogInformation(String.Format("Now loading file \"{0}\" from path \"{1}\"", fileName, pathName));
 
             using (var file = File.Open(pathToSavePoint, FileMode.Open, FileAccess.Read))
             {
@@ -84,7 +98,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 for (var i = 0; i < numberOfGraphElemementStreams; i++)
                 {
                     var graphElementBunchFilename = Path.Combine(pathName, reader.ReadString());
-                    Logger.LogInfo(String.Format("Found graph element bunch {0} here: \"{1}\"", i, graphElementBunchFilename));
+                    _logger.LogInformation(String.Format("Found graph element bunch {0} here: \"{1}\"", i, graphElementBunchFilename));
 
                     graphElementStreams.Add(graphElementBunchFilename);
                 }
@@ -102,11 +116,11 @@ namespace NoSQL.GraphDB.Core.Persistency
                 for (var i = 0; i < numberOfIndexStreams; i++)
                 {
                     var indexFilename = Path.Combine(pathName, reader.ReadString());
-                    Logger.LogInfo(String.Format("Found index number {0} here: \"{1}\"", i, indexFilename));
+                    _logger.LogInformation(String.Format("Found index number {0} here: \"{1}\"", i, indexFilename));
 
                     indexStreams.Add(indexFilename);
                 }
-                var newIndexFactory = new IndexFactory();
+                var newIndexFactory = new IndexFactory(fallen8._loggerFactory);
                 LoadIndices(fallen8, newIndexFactory, indexStreams);
                 fallen8.IndexFactory = newIndexFactory;
 
@@ -119,7 +133,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 for (var i = 0; i < numberOfServiceStreams; i++)
                 {
                     var serviceFilename = Path.Combine(pathName, reader.ReadString());
-                    Logger.LogInfo(String.Format("Found service number {0} here: \"{1}\"", i, serviceFilename));
+                    _logger.LogInformation(String.Format("Found service number {0} here: \"{1}\"", i, serviceFilename));
 
                     serviceStreams.Add(serviceFilename);
                 }
@@ -142,7 +156,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='savePartitions'> The number of save partitions for the graph elements. </param>
         /// <param name="currentId">The current graph elemement identifier.</param>
         /// <returns>The path of the savegame</returns>
-        internal static string Save(Fallen8 fallen8, ImmutableList<AGraphElement> graphElements, String path, UInt32 savePartitions, Int32 currentId)
+        internal string Save(Fallen8 fallen8, ImmutableList<AGraphElement> graphElements, String path, UInt32 savePartitions, Int32 currentId)
         {
             // Create the new, empty data file.
             if (File.Exists(path))
@@ -267,7 +281,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='indexName'> Index name. </param>
         /// <param name='index'> Index. </param>
         /// <param name='path'> Path. </param>
-        private static String SaveIndex(string indexName, IIndex index, string path)
+        private String SaveIndex(string indexName, IIndex index, string path)
         {
             var indexFileName = path + Constants.IndexSaveString + indexName;
 
@@ -294,7 +308,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name="service">Service.</param>
         /// <param name="path">Path.</param>
         /// <returns>The filename of the persisted service.</returns>
-        private static String SaveService(string serviceName, IService service, string path)
+        private String SaveService(string serviceName, IService service, string path)
         {
             var serviceFileName = path + Constants.ServiceSaveString + serviceName;
 
@@ -321,7 +335,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='graphElementBunchPath'> Graph element bunch path. </param>
         /// <param name='graphElementsOfFallen8'> Graph elements of Fallen-8. </param>
         /// <param name="edgeTodoOnVertex"> The edges that have to be added to this vertex </param>
-        private static List<EdgeSneakPeak> LoadAGraphElementBunch(
+        private List<EdgeSneakPeak> LoadAGraphElementBunch(
             string graphElementBunchPath,
             AGraphElement[] graphElementsOfFallen8,
             Dictionary<Int32, List<EdgeOnVertexToDo>> edgeTodoOnVertex)
@@ -366,7 +380,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             return result;
         }
 
-        private static void LoadIndices(Fallen8 fallen8, IndexFactory indexFactory, List<String> indexStreams)
+        private void LoadIndices(Fallen8 fallen8, IndexFactory indexFactory, List<String> indexStreams)
         {
             //load the indices
             for (var i = 0; i < indexStreams.Count; i++)
@@ -375,7 +389,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
-        private static void LoadServices(Fallen8 fallen8, ServiceFactory newServiceFactory, List<string> serviceStreams, Boolean startServices)
+        private void LoadServices(Fallen8 fallen8, ServiceFactory newServiceFactory, List<string> serviceStreams, Boolean startServices)
         {
             //load the indices
             for (var i = 0; i < serviceStreams.Count; i++)
@@ -384,7 +398,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
-        private static void LoadAService(string serviceLocaion, Fallen8 fallen8, ServiceFactory serviceFactory, Boolean startService)
+        private void LoadAService(string serviceLocaion, Fallen8 fallen8, ServiceFactory serviceFactory, Boolean startService)
         {
             //if there is no savepoint file... do nothing
             if (!File.Exists(serviceLocaion))
@@ -403,7 +417,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
-        private static void LoadAnIndex(string indexLocaion, Fallen8 fallen8, IndexFactory indexFactory)
+        private void LoadAnIndex(string indexLocaion, Fallen8 fallen8, IndexFactory indexFactory)
         {
             //if there is no savepoint file... do nothing
             if (!File.Exists(indexLocaion))
@@ -429,7 +443,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='range'> Range. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='pathToSavePoint'> Path to save point basis. </param>
-        private static String SaveBunch(Tuple<Int32, Int32> range, ImmutableList<AGraphElement> graphElements,
+        private String SaveBunch(Tuple<Int32, Int32> range, ImmutableList<AGraphElement> graphElements,
                                         String pathToSavePoint)
         {
             var partitionFileName = pathToSavePoint + Constants.GraphElementsSaveString + range.Item1 + "_to_" + range.Item2;
@@ -475,7 +489,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='graphElements'> Graph elements of Fallen-8. </param>
         /// <param name='graphElementStreams'> Graph element streams. </param>
-        private static void LoadGraphElements(AGraphElement[] graphElements, List<String> graphElementStreams)
+        private void LoadGraphElements(AGraphElement[] graphElements, List<String> graphElementStreams)
         {
             var edgeTodo = new Dictionary<Int32, List<EdgeOnVertexToDo>>();
             var result = new List<List<EdgeSneakPeak>>(graphElementStreams.Count);
@@ -531,13 +545,13 @@ namespace NoSQL.GraphDB.Core.Persistency
                         }
                         else
                         {
-                            Logger.LogError(String.Format("Corrupt savegame... could not get the vertex {0}", aTodo.VertexId));
+                            _logger.LogError(String.Format("Corrupt savegame... could not get the vertex {0}", aTodo.VertexId));
                         }
                     }
                 }
                 else
                 {
-                    Logger.LogError(String.Format("Corrupt savegame... could not get the edge {0}", aKV.Key));
+                    _logger.LogError(String.Format("Corrupt savegame... could not get the edge {0}", aKV.Key));
                 }
             }
         }
@@ -548,7 +562,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <returns> The partitions. </returns>
         /// <param name='totalCount'> Total count. </param>
         /// <param name='savePartitions'> Save partitions. </param>
-        private static List<Tuple<Int32, Int32>> CreatePartitions(UInt32 totalCount, UInt32 savePartitions)
+        private List<Tuple<Int32, Int32>> CreatePartitions(UInt32 totalCount, UInt32 savePartitions)
         {
             var result = new List<Tuple<Int32, Int32>>();
 
@@ -584,7 +598,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='graphElement'> Graph element. </param>
         /// <param name='writer'> Writer. </param>
-        private static void WriteAGraphElement(AGraphElement graphElement, SerializationWriter writer)
+        private void WriteAGraphElement(AGraphElement graphElement, SerializationWriter writer)
         {
             writer.Write(graphElement.Id);
             writer.Write(graphElement.CreationDate);
@@ -605,7 +619,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='reader'> Reader. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='edgeTodo'> Edge todo. </param>
-        private static void LoadVertex(SerializationReader reader, AGraphElement[] graphElements,
+        private void LoadVertex(SerializationReader reader, AGraphElement[] graphElements,
                                        Dictionary<Int32, List<EdgeOnVertexToDo>> edgeTodo)
         {
             var id = reader.ReadInt32();
@@ -742,7 +756,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='vertex'> Vertex. </param>
         /// <param name='writer'> Writer. </param>
-        private static void WriteVertex(VertexModel vertex, SerializationWriter writer)
+        private void WriteVertex(VertexModel vertex, SerializationWriter writer)
         {
             writer.Write(SerializedVertex);
             WriteAGraphElement(vertex, writer);
@@ -796,7 +810,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='reader'> Reader. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='sneakPeaks'> Sneak peaks. </param>
-        private static void LoadEdge(SerializationReader reader, AGraphElement[] graphElements,
+        private void LoadEdge(SerializationReader reader, AGraphElement[] graphElements,
                                      ref List<EdgeSneakPeak> sneakPeaks)
         {
             var id = reader.ReadInt32();
@@ -851,7 +865,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='edge'> Edge. </param>
         /// <param name='writer'> Writer. </param>
-        private static void WriteEdge(EdgeModel edge, SerializationWriter writer)
+        private void WriteEdge(EdgeModel edge, SerializationWriter writer)
         {
             writer.Write(SerializedEdge);
             WriteAGraphElement(edge, writer);

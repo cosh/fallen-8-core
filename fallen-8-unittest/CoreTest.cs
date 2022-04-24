@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers.Sample;
 using NoSQL.GraphDB.Core;
@@ -37,10 +38,21 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class CoreTest
     {
-        private readonly Fallen8 _fallen8 = new Fallen8();
+        private readonly Fallen8 _fallen8;
 
         public CoreTest()
         {
+            var loggerFactory = LoggerFactory.Create(builder =>
+            {
+                builder
+                    .AddFilter("Microsoft", LogLevel.Warning)
+                    .AddFilter("System", LogLevel.Warning)
+                    .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
+                    .AddConsole();
+            });
+
+            _fallen8 = new Fallen8(loggerFactory);
+
             TestGraphGenerator.GenerateSampleGraph(_fallen8);
         }
 

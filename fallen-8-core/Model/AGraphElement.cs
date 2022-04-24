@@ -104,7 +104,7 @@ namespace NoSQL.GraphDB.Core.Model
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -127,7 +127,7 @@ namespace NoSQL.GraphDB.Core.Model
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -150,7 +150,7 @@ namespace NoSQL.GraphDB.Core.Model
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -176,7 +176,7 @@ namespace NoSQL.GraphDB.Core.Model
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -216,7 +216,7 @@ namespace NoSQL.GraphDB.Core.Model
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         #endregion
@@ -291,7 +291,7 @@ namespace NoSQL.GraphDB.Core.Model
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -354,7 +354,7 @@ namespace NoSQL.GraphDB.Core.Model
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -371,7 +371,7 @@ namespace NoSQL.GraphDB.Core.Model
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>

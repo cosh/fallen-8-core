@@ -25,9 +25,9 @@
 
 using System;
 using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
-using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Serializer;
 
@@ -45,6 +45,11 @@ namespace NoSQL.GraphDB.Core.Index
         /// </summary>
         public IDictionary<String, IIndex> Indices;
 
+        /// <summary>
+        /// The logger
+        /// </summary>
+        private ILogger<IndexFactory> _logger;
+
         #endregion
 
         #region constructor
@@ -52,9 +57,10 @@ namespace NoSQL.GraphDB.Core.Index
         /// <summary>
         ///   Initializes a new instance of the IndexFactory class.
         /// </summary>
-        public IndexFactory()
+        public IndexFactory(ILoggerFactory loggerFactory)
         {
             Indices = new Dictionary<String, IIndex>();
+            _logger = loggerFactory.CreateLogger<IndexFactory>();
         }
 
         #endregion
@@ -101,7 +107,7 @@ namespace NoSQL.GraphDB.Core.Index
 
                                 return true;
                             }
-                            Logger.LogError(String.Format("The index with name \"{0}\" already exists.", indexName));
+                            _logger.LogError(String.Format("The index with name \"{0}\" already exists.", indexName));
                         }
                         finally
                         {
@@ -138,7 +144,7 @@ namespace NoSQL.GraphDB.Core.Index
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -161,7 +167,7 @@ namespace NoSQL.GraphDB.Core.Index
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -183,7 +189,7 @@ namespace NoSQL.GraphDB.Core.Index
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         #endregion
@@ -218,10 +224,10 @@ namespace NoSQL.GraphDB.Core.Index
                     }
                 }
 
-                throw new CollisionException(this);
+                throw new CollisionException();
             }
 
-            Logger.LogError(String.Format("Could not find index plugin with name \"{0}\".", indexPluginName));
+            _logger.LogError(String.Format("Could not find index plugin with name \"{0}\".", indexPluginName));
         }
 
         #endregion

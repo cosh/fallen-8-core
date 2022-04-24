@@ -37,7 +37,7 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class PathTest
     {
-        private readonly Fallen8 _fallen8 = new Fallen8();
+        private readonly Fallen8 _fallen8;
 
         private readonly GraphController _controller;
 
@@ -73,6 +73,17 @@ namespace NoSQL.GraphDB.Tests
 
         public PathTest()
         {
+            var loggerFactory = LoggerFactory.Create(builder =>
+            {
+                builder
+                    .AddFilter("Microsoft", LogLevel.Warning)
+                    .AddFilter("System", LogLevel.Warning)
+                    .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
+                    .AddConsole();
+            });
+
+            _fallen8 = new Fallen8(loggerFactory);
+
             TestGraphGenerator.GenerateSampleGraph(_fallen8);
 
             _controller = new GraphController(new UnitTestLogger<GraphController>(), _fallen8);

@@ -29,9 +29,9 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
-using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 
@@ -55,6 +55,11 @@ namespace NoSQL.GraphDB.Core.Index
         /// The description of the plugin
         /// </summary>
         private String _description = "A very conservative dictionary index";
+
+        /// <summary>
+        /// The logger
+        /// </summary>
+        private ILogger<DictionaryIndex> _logger;
 
         #endregion
 
@@ -87,7 +92,7 @@ namespace NoSQL.GraphDB.Core.Index
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public Int32 CountOfValues()
@@ -105,7 +110,7 @@ namespace NoSQL.GraphDB.Core.Index
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void AddOrUpdate(Object keyObject, AGraphElement graphElement)
@@ -140,7 +145,7 @@ namespace NoSQL.GraphDB.Core.Index
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public bool TryRemoveKey(Object keyObject)
@@ -164,7 +169,7 @@ namespace NoSQL.GraphDB.Core.Index
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void RemoveValue(AGraphElement graphElement)
@@ -194,7 +199,7 @@ namespace NoSQL.GraphDB.Core.Index
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void Wipe()
@@ -213,7 +218,7 @@ namespace NoSQL.GraphDB.Core.Index
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public IEnumerable<Object> GetKeys()
@@ -231,7 +236,7 @@ namespace NoSQL.GraphDB.Core.Index
                 }
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
 
@@ -252,7 +257,7 @@ namespace NoSQL.GraphDB.Core.Index
                 yield break;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public bool TryGetValue(out ReadOnlyCollection<AGraphElement> result, Object keyObject)
@@ -281,7 +286,7 @@ namespace NoSQL.GraphDB.Core.Index
 
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
         #endregion
 
@@ -313,7 +318,7 @@ namespace NoSQL.GraphDB.Core.Index
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         public void Load(SerializationReader reader, Fallen8 fallen8)
@@ -343,7 +348,7 @@ namespace NoSQL.GraphDB.Core.Index
                             }
                             else
                             {
-                                Logger.LogError(String.Format("[DictionaryIndex] Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
+                                _logger.LogError(String.Format("[DictionaryIndex] Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
                             }
                         }
                         _idx.Add((IComparable)key, value);
@@ -357,7 +362,7 @@ namespace NoSQL.GraphDB.Core.Index
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         #endregion
@@ -367,6 +372,7 @@ namespace NoSQL.GraphDB.Core.Index
         public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
         {
             _idx = new Dictionary<IComparable, List<AGraphElement>>();
+            _logger = fallen8._loggerFactory.CreateLogger<DictionaryIndex>();
         }
 
         public string PluginName

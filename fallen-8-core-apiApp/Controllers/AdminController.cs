@@ -39,7 +39,6 @@ using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
-using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Service;
@@ -140,7 +139,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Produces("application/json")]
         public void Load([FromRoute] Boolean startServices)
         {
-            Logger.LogInfo(String.Format("Loading Fallen-8. Start services: {0}", startServices));
+            _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", startServices));
             _fallen8.Load(FindLatestFallen8(), startServices);
         }
 
@@ -197,9 +196,9 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <returns></returns>
         private string FindLatestFallen8()
         {
-            Logger.LogInfo("Trying to find the latest Fallen-8 savegame");
+            _logger.LogInformation("Trying to find the latest Fallen-8 savegame");
             string currentAssemblyDirectoryName = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            Logger.LogInfo(String.Format("Save directory: {0}", currentAssemblyDirectoryName));
+            _logger.LogInformation(String.Format("Save directory: {0}", currentAssemblyDirectoryName));
 
             var versions = Directory.EnumerateFiles(currentAssemblyDirectoryName,
                                                _saveFile + Constants.VersionSeparator + "*")
@@ -207,7 +206,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (versions.Count > 0)
             {
-                Logger.LogInfo(String.Format("There are multiple Fallen-8 savegames."));
+                _logger.LogInformation(String.Format("There are multiple Fallen-8 savegames."));
 
                 var fileToPathMapper = versions
                     .Select(path => path.Split(System.IO.Path.DirectorySeparatorChar))
@@ -224,21 +223,21 @@ namespace NoSQL.GraphDB.App.Controllers
                     .ToBinary()
                     .ToString(CultureInfo.InvariantCulture);
 
-                Logger.LogInfo(String.Format("The latest revivision is from {0}", DateTime.FromBinary(Convert.ToInt64(latestRevision))));
+                _logger.LogInformation(String.Format("The latest revivision is from {0}", DateTime.FromBinary(Convert.ToInt64(latestRevision))));
 
                 return fileToPathMapper.First(_ => _.Key.Contains(latestRevision)).Value;
             }
 
             var lookupPath = System.IO.Path.Combine(currentAssemblyDirectoryName, _saveFile);
-            Logger.LogInfo(String.Format("Trying to find a savegame here: {0}", lookupPath));
+            _logger.LogInformation(String.Format("Trying to find a savegame here: {0}", lookupPath));
 
             if (System.IO.File.Exists(lookupPath))
             {
-                Logger.LogInfo(String.Format("There is a savegame here: {0}", lookupPath));
+                _logger.LogInformation(String.Format("There is a savegame here: {0}", lookupPath));
                 return lookupPath;
             }
 
-            Logger.LogInfo(String.Format("There were no Fallen-8 savegames.", versions.Count));
+            _logger.LogInformation(String.Format("There were no Fallen-8 savegames.", versions.Count));
 
             return null;
         }

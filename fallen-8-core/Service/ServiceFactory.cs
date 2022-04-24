@@ -26,9 +26,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
-using NoSQL.GraphDB.Core.Log;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Serializer;
 
@@ -51,6 +51,11 @@ namespace NoSQL.GraphDB.Core.Service
         /// </summary>
         public readonly IDictionary<String, IService> Services;
 
+        /// <summary>
+        /// The logger
+        /// </summary>
+        private readonly ILogger<ServiceFactory> _logger;
+
         #endregion
 
         #region constructor
@@ -63,6 +68,7 @@ namespace NoSQL.GraphDB.Core.Service
         {
             _fallen8 = fallen8;
             Services = new Dictionary<string, IService>();
+            _logger = _fallen8._loggerFactory.CreateLogger<ServiceFactory>();
         }
 
         #endregion
@@ -102,7 +108,7 @@ namespace NoSQL.GraphDB.Core.Service
                     {
                         if (Services.ContainsKey(serviceName))
                         {
-                            Logger.LogError(String.Format("There already exists a service with the name {0}", serviceName));
+                            _logger.LogError(String.Format("There already exists a service with the name {0}", serviceName));
                             service = null;
 
                             FinishWriteResource();
@@ -116,17 +122,17 @@ namespace NoSQL.GraphDB.Core.Service
                         return true;
                     }
 
-                    throw new CollisionException(this);
+                    throw new CollisionException();
                 }
                 else
                 {
-                    Logger.LogError(String.Format("Fallen-8 did not fine the {0} service plugin",
+                    _logger.LogError(String.Format("Fallen-8 did not fine the {0} service plugin",
                         servicePluginName));
                 }
             }
             catch (Exception e)
             {
-                Logger.LogError(String.Format("Fallen-8 was not able to add the {0} service plugin. Message: {1}",
+                _logger.LogError(String.Format("Fallen-8 was not able to add the {0} service plugin. Message: {1}",
                     servicePluginName, e.Message));
 
                 FinishWriteResource();
@@ -162,7 +168,7 @@ namespace NoSQL.GraphDB.Core.Service
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         /// <summary>
@@ -187,7 +193,7 @@ namespace NoSQL.GraphDB.Core.Service
                 return;
             }
 
-            throw new CollisionException(this);
+            throw new CollisionException();
         }
 
         #endregion
@@ -213,7 +219,7 @@ namespace NoSQL.GraphDB.Core.Service
                     {
                         if (Services.ContainsKey(serviceName))
                         {
-                            Logger.LogError(String.Format("A service with the same name \"{0}\" already exists.", serviceName));
+                            _logger.LogError(String.Format("A service with the same name \"{0}\" already exists.", serviceName));
                         }
 
                         service.Load(reader, fallen8);
@@ -231,10 +237,10 @@ namespace NoSQL.GraphDB.Core.Service
                     return;
                 }
 
-                throw new CollisionException(this);
+                throw new CollisionException();
             }
 
-            Logger.LogError(String.Format("Could not find service plugin with name \"{0}\".", servicePluginName));
+            _logger.LogError(String.Format("Could not find service plugin with name \"{0}\".", servicePluginName));
         }
 
         #endregion
