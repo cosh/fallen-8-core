@@ -1,8 +1,8 @@
 [![.NET](https://github.com/cosh/fallen-8-core/actions/workflows/buildAndTest.yml/badge.svg?branch=main)](https://github.com/cosh/fallen-8-core/actions/workflows/buildAndTest.yml)
 
-## Welcome to Fallen-8.
+## Welcome to Fallen-8
 
-![Fallen-8 logo.](pics/F8Black.svg)
+![Fallen-8 logo.](https://raw.githubusercontent.com/cosh/fallen-8-core/main/pics/F8White.svg)
 
 Fallen-8 is an in-memory [graph database](http://en.wikipedia.org/wiki/Graph_database) implemented in C#. Its focus is to provide raw speed for heavy graph algorithms.
 
@@ -24,7 +24,7 @@ Start the fallen-8-core-apiApp and have fun.
 
 Docs can be found by opening the [swagger](https://localhost:5001/swagger/index.html) page.
 
-![Swagger docs.](pics/swaggerDoc.png)
+![Swagger docs.](https://raw.githubusercontent.com/cosh/fallen-8-core/main/pics/swaggerDoc.png)
 
 ### Create a sample graph
 
