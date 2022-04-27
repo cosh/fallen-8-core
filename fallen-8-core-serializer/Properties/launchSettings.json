@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "fallen-8-core-serializer": {
-      "commandName": "Project",
-      "nativeDebugging": true
-    }
-  }
-}

@@ -16,7 +16,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\fallen-8-core-apiApp\fallen-8-core-apiApp.csproj" />
-    <ProjectReference Include="..\fallen-8-core-serializer\fallen-8-core-serializer.csproj" />
     <ProjectReference Include="..\fallen-8-core\fallen-8-core.csproj" />
   </ItemGroup>
 
