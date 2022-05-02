@@ -157,7 +157,7 @@ namespace NoSQL.GraphDB.Core
         public Fallen8(String path, ILoggerFactory loggerfactory)
             : this(loggerfactory)
         {
-            Load(path, true);
+            Load_internal(path, true);
         }
 
         #endregion
@@ -779,7 +779,7 @@ namespace NoSQL.GraphDB.Core
             EdgeCount = 0;
         }
 
-        public void Load(String path, Boolean startServices = false)
+        internal void Load_internal(String path, Boolean startServices = false)
         {
             if (String.IsNullOrWhiteSpace(path))
             {
@@ -789,46 +789,32 @@ namespace NoSQL.GraphDB.Core
 
             _logger.LogInformation(String.Format("Fallen-8 now loads a savegame from path \"{0}\"", path));
 
-            if (WriteResource())
+            var oldIndexFactory = IndexFactory;
+            var oldServiceFactory = ServiceFactory;
+            oldServiceFactory.ShutdownAllServices();
+            var oldGraphElements = _graphElements;
+            GC.Collect();
+            GC.Collect();
+            GC.WaitForFullGCComplete(-1);
+            GC.WaitForPendingFinalizers();
+
+            _graphElements = ImmutableList.Create<AGraphElement>();
+
+            var success = _persistencyFactory.Load(this, ref _graphElements, path, ref _currentId, startServices);
+
+            if (success)
             {
-                try
-                {
-                    var oldIndexFactory = IndexFactory;
-                    var oldServiceFactory = ServiceFactory;
-                    oldServiceFactory.ShutdownAllServices();
-                    var oldGraphElements = _graphElements;
-                    GC.Collect();
-                    GC.Collect();
-                    GC.WaitForFullGCComplete(-1);
-                    GC.WaitForPendingFinalizers();
-
-                    _graphElements = ImmutableList.Create<AGraphElement>();
-
-                    var success = _persistencyFactory.Load(this, ref _graphElements, path, ref _currentId, startServices);
-
-                    if (success)
-                    {
-                        oldIndexFactory.DeleteAllIndices();
-                    }
-                    else
-                    {
-                        _graphElements = oldGraphElements;
-                        IndexFactory = oldIndexFactory;
-                        ServiceFactory = oldServiceFactory;
-                        ServiceFactory.StartAllServices();
-                    }
-
-                    Trim_internal();
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
-                return;
+                oldIndexFactory.DeleteAllIndices();
+            }
+            else
+            {
+                _graphElements = oldGraphElements;
+                IndexFactory = oldIndexFactory;
+                ServiceFactory = oldServiceFactory;
+                ServiceFactory.StartAllServices();
             }
 
-            throw new CollisionException();
+            Trim_internal();
         }
 
         public TransactionInformation EnqueueTransaction(ATransaction tx)

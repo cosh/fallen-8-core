@@ -86,10 +86,10 @@ namespace NoSQL.GraphDB.Tests
             var actualSaveGameLocation = _fallen8.Save(saveGameLocation);
 
             TabulaRasaTransaction tx = new TabulaRasaTransaction();
+            _fallen8.EnqueueTransaction(tx);
 
-            _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-
-            _fallen8.Load(saveGameLocation);
+            LoadTransaction loadTransaction = new LoadTransaction() { Path = saveGameLocation };
+            _fallen8.EnqueueTransaction(loadTransaction).WaitUntilFinished();
 
             FindAlice();
 

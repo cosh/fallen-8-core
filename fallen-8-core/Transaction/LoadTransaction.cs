@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// IWrite.cs
+// LoadTransaction.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -23,34 +23,35 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
-using System.Threading.Tasks;
 using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Transaction;
+using System;
 
-namespace NoSQL.GraphDB.Core
+namespace NoSQL.GraphDB.Core.Transaction
 {
-    /// <summary>
-    ///   Fallen8 write interface.
-    /// </summary>
-    public interface IWrite
+    public class LoadTransaction : ATransaction
     {
-        #region Transaction
+        public String Path
+        {
+            get;
+            set;
+        }
 
-        /// <summary>
-        /// Exqueues a new transaction
-        /// </summary>
-        /// <param name="tx">The transaction</param>
-        /// <returns>The transaction information</returns>
-        TransactionInformation EnqueueTransaction(ATransaction tx);
+        public Boolean StartServices
+        {
+            get;
+            set;
+        } = false;
 
-        /// <summary>
-        /// Gets the state of a transaction
-        /// </summary>
-        /// <param name="txId">The transaction id</param>
-        /// <returns>The state of the transaction</returns>
-        TransactionState  GetTransactionState(String txId);
+        public override void Rollback(Fallen8 f8)
+        {
+            //TODO
+        }
 
-        #endregion
+        public override Boolean TryExecute(Fallen8 f8)
+        {
+            f8.Load_internal(Path, StartServices);
+
+            return true;
+        }
     }
 }

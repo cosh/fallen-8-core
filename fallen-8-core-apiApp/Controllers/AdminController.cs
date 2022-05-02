@@ -138,12 +138,14 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
-        [HttpGet("/load/{startServices}")]
-        [Produces("application/json")]
+        [HttpPut("/load/{startServices}")]
         public void Load([FromRoute] Boolean startServices)
         {
             _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", startServices));
-            _fallen8.Load(FindLatestFallen8(), startServices);
+
+            LoadTransaction tx = new LoadTransaction();
+
+            _fallen8.EnqueueTransaction(tx);
         }
 
         [HttpHead("/save")]
