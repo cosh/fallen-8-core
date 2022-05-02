@@ -38,7 +38,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public override void Rollback(Fallen8 f8)
         {
-            //NOP
+            //TODO
         }
 
         public override Boolean TryExecute(Fallen8 f8)

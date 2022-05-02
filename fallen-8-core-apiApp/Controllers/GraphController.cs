@@ -416,11 +416,16 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [HttpDelete("/graphelement/{graphElementIdentifier}")]
-        public bool TryRemoveGraphElement([FromRoute] string graphElementIdentifier)
+        public void TryRemoveGraphElement([FromRoute] string graphElementIdentifier)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
 
-            return _fallen8.TryRemoveGraphElement(graphElementId);
+            RemoveGraphElementTransaction tx = new RemoveGraphElementTransaction()
+            {
+                GraphElementId = graphElementId
+            };
+
+            _fallen8.EnqueueTransaction(tx);
         }
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/indegree")]

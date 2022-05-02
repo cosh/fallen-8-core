@@ -578,12 +578,8 @@ namespace NoSQL.GraphDB.Core
             return success;
         }
 
-        public bool TryRemoveGraphElement(Int32 graphElementId)
+        internal bool TryRemoveGraphElement_private(Int32 graphElementId)
         {
-            if (WriteResource())
-            {
-                try
-                {
                     AGraphElement graphElement = _graphElements[graphElementId];
 
                     if (graphElement == null || graphElement._removed)
@@ -771,16 +767,7 @@ namespace NoSQL.GraphDB.Core
                         throw;
                     }
 
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
                 return true;
-            }
-
-            throw new CollisionException();
         }
 
         public void TabulaRasa()

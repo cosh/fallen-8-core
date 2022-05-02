@@ -35,17 +35,6 @@ namespace NoSQL.GraphDB.Core
     /// </summary>
     public interface IWrite
     {
-        #region delete
-
-        /// <summary>
-        ///   Tries the remove graph element.
-        /// </summary>
-        /// <returns> <c>true</c> if the graph element was removed; otherwise, <c>false</c> . </returns>
-        /// <param name='graphElementId'> Graph element identifier. </param>
-        Boolean TryRemoveGraphElement(Int32 graphElementId);
-
-        #endregion
-
         #region Tabula rasa
 
         /// <summary>

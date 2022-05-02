@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// AddPropertyTransaction.cs
+// RemoveGraphElementTransaction.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -28,9 +28,9 @@ using System;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
-    public class AddPropertyTransaction : ATransaction
+    public class RemoveGraphElementTransaction : ATransaction
     {
-        public PropertyAddDefinition Definition
+        public Int32 GraphElementId
         {
             get;
             set;
@@ -38,12 +38,13 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public override void Rollback(Fallen8 f8)
         {
-            //TODO
+            //rollback is implemeted in the TryRemoveGraphElement_private method
         }
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            f8.TryAddProperty_internal(Definition.GraphElementId, Definition.PropertyId, Definition.Property);
+            f8.TryRemoveGraphElement_private(GraphElementId);
+
             return true;
         }
     }

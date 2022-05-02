@@ -43,7 +43,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             foreach (var aEdge in _edgesAdded)
             {
-                f8.TryRemoveGraphElement(aEdge.Id);
+                f8.TryRemoveGraphElement_private(aEdge.Id);
             }
         }
 

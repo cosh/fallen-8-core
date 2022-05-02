@@ -41,7 +41,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             foreach (var aVertex in _verticesCreated)
             {
-                f8.TryRemoveGraphElement(aVertex.Id);
+                f8.TryRemoveGraphElement_private(aVertex.Id);
             }
         }
 
