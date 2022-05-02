@@ -401,12 +401,18 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [HttpDelete("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
-        public bool TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString)
+        public void TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
             var propertyId = Convert.ToUInt16(propertyIdString);
 
-            return _fallen8.TryRemoveProperty(graphElementId, propertyId);
+            RemovePropertyTransaction tx = new RemovePropertyTransaction()
+            {
+                GraphElementId = graphElementId,
+                PropertyId = propertyId
+            };
+
+            _fallen8.EnqueueTransaction(tx);
         }
 
         [HttpDelete("/graphelement/{graphElementIdentifier}")]

@@ -569,25 +569,13 @@ namespace NoSQL.GraphDB.Core
             return success;
         }
 
-        public bool TryRemoveProperty(Int32 graphElementId, UInt16 propertyId)
+        internal bool TryRemoveProperty_internal(Int32 graphElementId, UInt16 propertyId)
         {
-            if (WriteResource())
-            {
-                try
-                {
-                    var graphElement = _graphElements[graphElementId];
+            var graphElement = _graphElements[graphElementId];
 
-                    var success = graphElement != null && graphElement.TryRemoveProperty(propertyId);
+            var success = graphElement != null && graphElement.TryRemoveProperty(propertyId);
 
-                    return success;
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-            }
-
-            throw new CollisionException();
+            return success;
         }
 
         public bool TryRemoveGraphElement(Int32 graphElementId)

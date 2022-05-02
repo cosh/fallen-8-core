@@ -35,18 +35,6 @@ namespace NoSQL.GraphDB.Core
     /// </summary>
     public interface IWrite
     {
-        #region update
-
-        /// <summary>
-        ///   Tries to remove a property.
-        /// </summary>
-        /// <returns> <c>true</c> if the property was removed; otherwise, <c>false</c> . </returns>
-        /// <param name='graphElementId'> Graph element identifier. </param>
-        /// <param name='propertyId'> Property identifier. </param>
-        Boolean TryRemoveProperty(Int32 graphElementId, UInt16 propertyId);
-
-        #endregion
-
         #region delete
 
         /// <summary>
