@@ -32,6 +32,7 @@ using NoSQL.GraphDB.App.Controllers.Sample;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -83,7 +84,10 @@ namespace NoSQL.GraphDB.Tests
             var saveGameLocation = Path.Combine(saveGameDirectory, saveGameName);
 
             var actualSaveGameLocation = _fallen8.Save(saveGameLocation);
-            _fallen8.TabulaRasa();
+
+            TabulaRasaTransaction tx = new TabulaRasaTransaction();
+
+            _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
 
             _fallen8.Load(saveGameLocation);
 

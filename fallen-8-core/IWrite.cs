@@ -35,15 +35,6 @@ namespace NoSQL.GraphDB.Core
     /// </summary>
     public interface IWrite
     {
-        #region Tabula rasa
-
-        /// <summary>
-        ///   Put the database in its initial state.
-        /// </summary>
-        void TabulaRasa();
-
-        #endregion
-
         #region Trim
 
         /// <summary>

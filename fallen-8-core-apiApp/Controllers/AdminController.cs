@@ -42,6 +42,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.App.Controllers
 {
@@ -152,7 +153,9 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpHead("/tabularasa")]
         public void TabulaRasa()
         {
-            _fallen8.TabulaRasa();
+            TabulaRasaTransaction tx = new TabulaRasaTransaction();
+
+            _fallen8.EnqueueTransaction(tx);
         }
 
         [HttpGet("/vertex/count")]

@@ -770,27 +770,13 @@ namespace NoSQL.GraphDB.Core
                 return true;
         }
 
-        public void TabulaRasa()
+        internal void TabulaRasa_internal()
         {
-            if (WriteResource())
-            {
-                try
-                {
-                    _currentId = 0;
-                    _graphElements = ImmutableList.Create<AGraphElement>();
-                    IndexFactory.DeleteAllIndices();
-                    VertexCount = 0;
-                    EdgeCount = 0;
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
-                return;
-            }
-
-            throw new CollisionException();
+            _currentId = 0;
+            _graphElements = ImmutableList.Create<AGraphElement>();
+            IndexFactory.DeleteAllIndices();
+            VertexCount = 0;
+            EdgeCount = 0;
         }
 
         public void Trim()
@@ -876,7 +862,7 @@ namespace NoSQL.GraphDB.Core
 
         public void Dispose()
         {
-            TabulaRasa();
+            TabulaRasa_internal();
 
             _graphElements = null;
 
