@@ -85,6 +85,8 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
             if (edgeCount != 0)
             {
+                CreateEdgesTransaction edgesCreateTx = new CreateEdgesTransaction();
+
                 foreach (var aVertex in verticesCreates)
                 {
                     var targetVertices = new HashSet<Int32>();
@@ -102,10 +104,14 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                         //                                                               new PropertyContainer { PropertyId = 1, Value = 2 },
                         //                                                           });
                         //
-                        _f8.CreateEdge(aVertex.Id, 0, aTargetVertex, creationDate);
+                        edgesCreateTx.AddEdge(aVertex.Id, 0, aTargetVertex, creationDate);
                     }
                 }
+
+                _f8.EnqueueTransaction(edgesCreateTx).WaitUntilFinished();
             }
+
+            _f8.Trim();
         }
 
         /// <summary>

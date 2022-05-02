@@ -44,7 +44,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             if (_txTask != null)
             {
-            _txTask.Wait();
+                _txTask.Wait();
             }
         }
     }
