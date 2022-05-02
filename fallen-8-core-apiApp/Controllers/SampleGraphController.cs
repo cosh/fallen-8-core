@@ -32,6 +32,7 @@ using NoSQL.GraphDB.App.Controllers.Sample;
 using NoSQL.GraphDB.App.Interfaces;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Serializer;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.App.Controllers
 {
@@ -73,7 +74,9 @@ namespace NoSQL.GraphDB.App.Controllers
 
             sw.Stop();
 
-            _fallen8.Trim();
+            TrimTransaction tx = new TrimTransaction();
+
+            _fallen8.EnqueueTransaction(tx);
 
             _logger.LogInformation($"It took {sw.Elapsed.TotalMilliseconds}ms to create a Fallen-8 graph with {stats.VertexCount} nodes and {stats.EdgeCount} edges per node.");
         }

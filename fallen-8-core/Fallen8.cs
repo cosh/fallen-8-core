@@ -779,25 +779,6 @@ namespace NoSQL.GraphDB.Core
             EdgeCount = 0;
         }
 
-        public void Trim()
-        {
-            if (WriteResource())
-            {
-                try
-                {
-                    TrimPrivate();
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
-                return;
-            }
-
-            throw new CollisionException();
-        }
-
         public void Load(String path, Boolean startServices = false)
         {
             if (String.IsNullOrWhiteSpace(path))
@@ -837,7 +818,7 @@ namespace NoSQL.GraphDB.Core
                         ServiceFactory.StartAllServices();
                     }
 
-                    TrimPrivate();
+                    Trim_internal();
                 }
                 finally
                 {
@@ -1008,7 +989,7 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   Trims the Fallen-8.
         /// </summary>
-        private void TrimPrivate()
+        internal void Trim_internal()
         {
             for (var i = 0; i < _currentId; i++)
             {

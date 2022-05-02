@@ -133,7 +133,9 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpHead("/trim")]
         public void Trim()
         {
-            _fallen8.Trim();
+            TrimTransaction tx = new TrimTransaction();
+
+            _fallen8.EnqueueTransaction(tx);
         }
 
         [HttpGet("/load/{startServices}")]

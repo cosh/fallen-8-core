@@ -111,7 +111,9 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                 _f8.EnqueueTransaction(edgesCreateTx).WaitUntilFinished();
             }
 
-            _f8.Trim();
+            TrimTransaction tx = new TrimTransaction();
+
+            _f8.EnqueueTransaction(tx);
         }
 
         /// <summary>

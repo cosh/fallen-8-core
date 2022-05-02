@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// IWrite.cs
+// TrimTransaction.cs
 //
 // Copyright (c) 2021 Henning Rauch
 //
@@ -23,45 +23,23 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
-using System.Threading.Tasks;
 using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Transaction;
+using System;
 
-namespace NoSQL.GraphDB.Core
+namespace NoSQL.GraphDB.Core.Transaction
 {
-    /// <summary>
-    ///   Fallen8 write interface.
-    /// </summary>
-    public interface IWrite
+    public class TrimTransaction : ATransaction
     {
-        #region Load
 
-        /// <summary>
-        /// Load a Fallen-8 from a specified path
-        /// </summary>
-        /// <param name="path">The path.</param>
-        /// <param name="startServices">Start the services?</param>
-        void Load(String path, Boolean startServices = false);
+        public override void Rollback(Fallen8 f8)
+        {
+            //NOP
+        }
 
-        #endregion
-
-        #region Transaction
-
-        /// <summary>
-        /// Exqueues a new transaction
-        /// </summary>
-        /// <param name="tx">The transaction</param>
-        /// <returns>The transaction information</returns>
-        TransactionInformation EnqueueTransaction(ATransaction tx);
-
-        /// <summary>
-        /// Gets the state of a transaction
-        /// </summary>
-        /// <param name="txId">The transaction id</param>
-        /// <returns>The state of the transaction</returns>
-        TransactionState  GetTransactionState(String txId);
-
-        #endregion
+        public override Boolean TryExecute(Fallen8 f8)
+        {
+            f8.Trim_internal();
+            return true;
+        }
     }
 }
