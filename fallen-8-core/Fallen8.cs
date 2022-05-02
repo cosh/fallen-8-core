@@ -29,13 +29,10 @@ using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Cache;
-using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Expression;
-using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Range;
@@ -47,14 +44,14 @@ using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Core
 {
-    public sealed class Fallen8 : AThreadSafeElement, IRead, IWrite, IDisposable
+    public sealed class Fallen8 : IRead, IWrite, IDisposable
     {
         #region Data
 
         /// <summary>
         ///   The graph elements
         /// </summary>
-        private  ImmutableList<AGraphElement> _graphElements;
+        private ImmutableList<AGraphElement> _graphElements;
 
         /// <summary>
         /// The delegate to find elements in the big list
@@ -207,72 +204,52 @@ namespace NoSQL.GraphDB.Core
 
         public bool TryGetGraphElement(out AGraphElement result, int id)
         {
-            if (ReadResource())
-            {
-                try
-                {
 
-                    result = _graphElements[id];
-                    return result != null;
-                }
-                catch (ArgumentOutOfRangeException)
-                {
-                    result = null;
-                    return false;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
+            try
+            {
+
+                result = _graphElements[id];
+                return result != null;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                result = null;
             }
 
-            throw new CollisionException();
+            return false;
         }
 
         public bool TryGetEdge(out EdgeModel result, int id)
         {
-            if (ReadResource())
+
+            try
             {
-                try
-                {
-                    result = _graphElements[id] as EdgeModel;
-                    return result != null;
-                }
-                catch (ArgumentOutOfRangeException)
-                {
-                    result = null;
-                    return false;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
+                result = _graphElements[id] as EdgeModel;
+                return result != null;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                result = null;
+
             }
 
-            throw new CollisionException();
+            return false;
         }
 
         public bool TryGetVertex(out VertexModel result, int id)
         {
-            if (ReadResource())
-            {
-                try
-                {
-                    result = _graphElements[id] as VertexModel;
-                    return result != null;
-                }
-                catch (ArgumentOutOfRangeException)
-                {
-                    result = null;
-                    return false;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-            }
 
-            throw new CollisionException();
+            try
+            {
+                result = _graphElements[id] as VertexModel;
+                return result != null;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                result = null;
+            }
+            return false;
+
         }
 
 
@@ -409,23 +386,7 @@ namespace NoSQL.GraphDB.Core
 
         public string Save(string path, uint savePartitions = 5)
         {
-            if (ReadResource())
-            {
-                string saveGamePath = null;
-
-                try
-                {
-                    saveGamePath = _persistencyFactory.Save(this, _graphElements, path, savePartitions, _currentId);
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-
-                return saveGamePath;
-            }
-
-            throw new CollisionException();
+            return _persistencyFactory.Save(this, _graphElements, path, savePartitions, _currentId);
         }
 
         public bool CalculateShortestPath(
@@ -464,23 +425,13 @@ namespace NoSQL.GraphDB.Core
             {
                 algo.Initialize(this, null);
 
-                if (ReadResource())
-                {
-                    try
-                    {
-                        result = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
-                                                edgePropertyFilter,
-                                                vertexFilter, edgeFilter, edgeCost, vertexCost);
 
-                        return result != null && result.Count > 0;
-                    }
-                    finally
-                    {
-                        FinishReadResource();
-                    }
-                }
+                result = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
+                                        edgePropertyFilter,
+                                        vertexFilter, edgeFilter, edgeCost, vertexCost);
 
-                throw new CollisionException();
+                return result != null && result.Count > 0;
+
             }
 
             result = null;
@@ -535,7 +486,7 @@ namespace NoSQL.GraphDB.Core
                         var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex, aEdgeDefinition.Properties);
 
                         newEdges.Add(newEdge);
-                        
+
                         //increment the ids
                         Interlocked.Increment(ref _currentId);
 
@@ -580,194 +531,194 @@ namespace NoSQL.GraphDB.Core
 
         internal bool TryRemoveGraphElement_private(Int32 graphElementId)
         {
-                    AGraphElement graphElement = _graphElements[graphElementId];
+            AGraphElement graphElement = _graphElements[graphElementId];
 
-                    if (graphElement == null || graphElement._removed)
+            if (graphElement == null || graphElement._removed)
+            {
+                return false;
+            }
+
+            //used if an edge is removed
+            List<UInt16> inEdgeRemovals = null;
+            List<UInt16> outEdgeRemovals = null;
+
+            try
+            {
+                #region remove element
+
+                _graphElements[graphElementId].MarkAsRemoved();
+
+                if (graphElement is VertexModel)
+                {
+                    #region remove vertex
+
+                    var vertex = (VertexModel)graphElement;
+
+                    #region out edges
+
+                    var outgoingEdgeConatiner = vertex.GetOutgoingEdges();
+                    if (outgoingEdgeConatiner != null)
                     {
-                        return false;
+                        for (var i = 0; i < outgoingEdgeConatiner.Count; i++)
+                        {
+                            var aOutEdgeContainer = outgoingEdgeConatiner[i];
+                            for (var j = 0; j < aOutEdgeContainer.Edges.Count; j++)
+                            {
+                                var aOutEdge = aOutEdgeContainer.Edges[j];
+
+                                //remove from incoming edges of target vertex
+                                aOutEdge.TargetVertex.RemoveIncomingEdge(aOutEdgeContainer.EdgePropertyId, aOutEdge);
+
+                                //remove the edge itself
+                                _graphElements[aOutEdge.Id].MarkAsRemoved();
+                            }
+                        }
                     }
 
-                    //used if an edge is removed
-                    List<UInt16> inEdgeRemovals = null;
-                    List<UInt16> outEdgeRemovals = null;
+                    #endregion
 
-                    try
+                    #region in edges
+
+                    var incomingEdgeContainer = vertex.GetIncomingEdges();
+                    if (incomingEdgeContainer != null)
                     {
-                        #region remove element
-
-                        _graphElements[graphElementId].MarkAsRemoved();
-
-                        if (graphElement is VertexModel)
+                        for (var i = 0; i < incomingEdgeContainer.Count; i++)
                         {
-                            #region remove vertex
-
-                            var vertex = (VertexModel)graphElement;
-
-                            #region out edges
-
-                            var outgoingEdgeConatiner = vertex.GetOutgoingEdges();
-                            if (outgoingEdgeConatiner != null)
+                            var aInEdgeContainer = incomingEdgeContainer[i];
+                            for (var j = 0; j < aInEdgeContainer.Edges.Count; j++)
                             {
-                                for (var i = 0; i < outgoingEdgeConatiner.Count; i++)
-                                {
-                                    var aOutEdgeContainer = outgoingEdgeConatiner[i];
-                                    for (var j = 0; j < aOutEdgeContainer.Edges.Count; j++)
-                                    {
-                                        var aOutEdge = aOutEdgeContainer.Edges[j];
+                                var aInEdge = aInEdgeContainer.Edges[j];
 
-                                        //remove from incoming edges of target vertex
-                                        aOutEdge.TargetVertex.RemoveIncomingEdge(aOutEdgeContainer.EdgePropertyId, aOutEdge);
+                                //remove from outgoing edges of source vertex
+                                aInEdge.SourceVertex.RemoveOutGoingEdge(aInEdgeContainer.EdgePropertyId, aInEdge);
 
-                                        //remove the edge itself
-                                        _graphElements[aOutEdge.Id].MarkAsRemoved();
-                                    }
-                                }
+                                //remove the edge itself
+                                _graphElements[aInEdge.Id].MarkAsRemoved();
                             }
-
-                            #endregion
-
-                            #region in edges
-
-                            var incomingEdgeContainer = vertex.GetIncomingEdges();
-                            if (incomingEdgeContainer != null)
-                            {
-                                for (var i = 0; i < incomingEdgeContainer.Count; i++)
-                                {
-                                    var aInEdgeContainer = incomingEdgeContainer[i];
-                                    for (var j = 0; j < aInEdgeContainer.Edges.Count; j++)
-                                    {
-                                        var aInEdge = aInEdgeContainer.Edges[j];
-
-                                        //remove from outgoing edges of source vertex
-                                        aInEdge.SourceVertex.RemoveOutGoingEdge(aInEdgeContainer.EdgePropertyId, aInEdge);
-
-                                        //remove the edge itself
-                                        _graphElements[aInEdge.Id].MarkAsRemoved();
-                                    }
-                                }
-                            }
-
-                            #endregion
-
-                            //update the EdgeCount --> hard way
-                            RecalculateGraphElementCounter();
-
-                            #endregion
                         }
-                        else
-                        {
-                            #region remove edge
-
-                            var edge = (EdgeModel)graphElement;
-
-                            //remove from incoming edges of target vertex
-                            inEdgeRemovals = edge.TargetVertex.RemoveIncomingEdge(edge);
-
-                            //remove from outgoing edges of source vertex
-                            outEdgeRemovals = edge.SourceVertex.RemoveOutGoingEdge(edge);
-
-                            //update the EdgeCount --> easy way
-                            EdgeCount--;
-
-                            #endregion
-                        }
-
-                        #endregion
-                    }
-                    catch (Exception)
-                    {
-                        #region restore
-
-                        _graphElements.Insert(graphElementId, graphElement);
-
-                        if (graphElement is VertexModel)
-                        {
-                            #region restore vertex
-
-                            var vertex = (VertexModel)graphElement;
-
-                            #region out edges
-
-                            var outgoingEdgeConatiner = vertex.GetOutgoingEdges();
-                            if (outgoingEdgeConatiner != null)
-                            {
-                                for (var i = 0; i < outgoingEdgeConatiner.Count; i++)
-                                {
-                                    var aOutEdgeContainer = outgoingEdgeConatiner[i];
-                                    for (var j = 0; j < aOutEdgeContainer.Edges.Count; j++)
-                                    {
-                                        var aOutEdge = aOutEdgeContainer.Edges[j];
-
-                                        //remove from incoming edges of target vertex
-                                        aOutEdge.TargetVertex.AddIncomingEdge(aOutEdgeContainer.EdgePropertyId, aOutEdge);
-
-                                        //reset the edge
-                                        _graphElements.Insert(aOutEdge.Id, aOutEdge);
-                                    }
-                                }
-                            }
-
-                            #endregion
-
-                            #region in edges
-
-                            var incomingEdgeContainer = vertex.GetIncomingEdges();
-                            if (incomingEdgeContainer != null)
-                            {
-                                for (var i = 0; i < incomingEdgeContainer.Count; i++)
-                                {
-                                    var aInEdgeContainer = incomingEdgeContainer[i];
-                                    for (var j = 0; j < aInEdgeContainer.Edges.Count; j++)
-                                    {
-                                        var aInEdge = aInEdgeContainer.Edges[j];
-
-                                        //remove from outgoing edges of source vertex
-                                        aInEdge.SourceVertex.AddOutEdge(aInEdgeContainer.EdgePropertyId, aInEdge);
-
-                                        //reset the edge
-                                        _graphElements.Insert(aInEdge.Id, aInEdge);
-                                    }
-                                }
-                            }
-
-                            #endregion
-
-                            #endregion
-                        }
-                        else
-                        {
-                            #region restore edge
-
-                            var edge = (EdgeModel)graphElement;
-
-                            if (inEdgeRemovals != null)
-                            {
-                                for (var i = 0; i < inEdgeRemovals.Count; i++)
-                                {
-                                    edge.TargetVertex.AddIncomingEdge(inEdgeRemovals[i], edge);
-                                }
-                            }
-
-                            if (outEdgeRemovals != null)
-                            {
-                                for (var i = 0; i < outEdgeRemovals.Count; i++)
-                                {
-                                    edge.SourceVertex.AddOutEdge(outEdgeRemovals[i], edge);
-                                }
-                            }
-
-                            #endregion
-                        }
-
-                        //recalculate the counter
-                        RecalculateGraphElementCounter();
-
-                        #endregion
-
-                        throw;
                     }
 
-                return true;
+                    #endregion
+
+                    //update the EdgeCount --> hard way
+                    RecalculateGraphElementCounter();
+
+                    #endregion
+                }
+                else
+                {
+                    #region remove edge
+
+                    var edge = (EdgeModel)graphElement;
+
+                    //remove from incoming edges of target vertex
+                    inEdgeRemovals = edge.TargetVertex.RemoveIncomingEdge(edge);
+
+                    //remove from outgoing edges of source vertex
+                    outEdgeRemovals = edge.SourceVertex.RemoveOutGoingEdge(edge);
+
+                    //update the EdgeCount --> easy way
+                    EdgeCount--;
+
+                    #endregion
+                }
+
+                #endregion
+            }
+            catch (Exception)
+            {
+                #region restore
+
+                _graphElements.Insert(graphElementId, graphElement);
+
+                if (graphElement is VertexModel)
+                {
+                    #region restore vertex
+
+                    var vertex = (VertexModel)graphElement;
+
+                    #region out edges
+
+                    var outgoingEdgeConatiner = vertex.GetOutgoingEdges();
+                    if (outgoingEdgeConatiner != null)
+                    {
+                        for (var i = 0; i < outgoingEdgeConatiner.Count; i++)
+                        {
+                            var aOutEdgeContainer = outgoingEdgeConatiner[i];
+                            for (var j = 0; j < aOutEdgeContainer.Edges.Count; j++)
+                            {
+                                var aOutEdge = aOutEdgeContainer.Edges[j];
+
+                                //remove from incoming edges of target vertex
+                                aOutEdge.TargetVertex.AddIncomingEdge(aOutEdgeContainer.EdgePropertyId, aOutEdge);
+
+                                //reset the edge
+                                _graphElements.Insert(aOutEdge.Id, aOutEdge);
+                            }
+                        }
+                    }
+
+                    #endregion
+
+                    #region in edges
+
+                    var incomingEdgeContainer = vertex.GetIncomingEdges();
+                    if (incomingEdgeContainer != null)
+                    {
+                        for (var i = 0; i < incomingEdgeContainer.Count; i++)
+                        {
+                            var aInEdgeContainer = incomingEdgeContainer[i];
+                            for (var j = 0; j < aInEdgeContainer.Edges.Count; j++)
+                            {
+                                var aInEdge = aInEdgeContainer.Edges[j];
+
+                                //remove from outgoing edges of source vertex
+                                aInEdge.SourceVertex.AddOutEdge(aInEdgeContainer.EdgePropertyId, aInEdge);
+
+                                //reset the edge
+                                _graphElements.Insert(aInEdge.Id, aInEdge);
+                            }
+                        }
+                    }
+
+                    #endregion
+
+                    #endregion
+                }
+                else
+                {
+                    #region restore edge
+
+                    var edge = (EdgeModel)graphElement;
+
+                    if (inEdgeRemovals != null)
+                    {
+                        for (var i = 0; i < inEdgeRemovals.Count; i++)
+                        {
+                            edge.TargetVertex.AddIncomingEdge(inEdgeRemovals[i], edge);
+                        }
+                    }
+
+                    if (outEdgeRemovals != null)
+                    {
+                        for (var i = 0; i < outEdgeRemovals.Count; i++)
+                        {
+                            edge.SourceVertex.AddOutEdge(outEdgeRemovals[i], edge);
+                        }
+                    }
+
+                    #endregion
+                }
+
+                //recalculate the counter
+                RecalculateGraphElementCounter();
+
+                #endregion
+
+                throw;
+            }
+
+            return true;
         }
 
         internal void TabulaRasa_internal()
@@ -851,27 +802,13 @@ namespace NoSQL.GraphDB.Core
         /// <param name='propertyId'> Property identifier. </param>
         private List<AGraphElement> FindElements(BinaryOperatorDelegate finder, IComparable literal, UInt16 propertyId)
         {
-            if (ReadResource())
-            {
-                try
+            return FindElements(
+                aGraphElement =>
                 {
-                    var result = FindElements(
-                        aGraphElement =>
-                        {
-                            Object property;
-                            return aGraphElement.TryGetProperty(out property, propertyId) &&
-                                   finder(property as IComparable, literal);
-                        });
-
-                    return result;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-            }
-
-            throw new CollisionException();
+                    Object property;
+                    return aGraphElement.TryGetProperty(out property, propertyId) &&
+                           finder(property as IComparable, literal);
+                });
         }
 
         /// <summary>
@@ -1037,52 +974,20 @@ namespace NoSQL.GraphDB.Core
 
         public ReadOnlyCollection<VertexModel> GetAllVertices()
         {
-            ReadOnlyCollection<VertexModel> result;
-
-            if (ReadResource())
-            {
-                try
-                {
-                    result = new ReadOnlyCollection<VertexModel>(
-                        _graphElements
-                        .AsParallel()
-                        .Where(_ => _ != null && _ is VertexModel)
-                        .Select(_ => (VertexModel)_).ToList());
-
-                    return result;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-            }
-
-            throw new CollisionException();
+            return new ReadOnlyCollection<VertexModel>(
+                 _graphElements
+                 .AsParallel()
+                 .Where(_ => _ != null && _ is VertexModel)
+                 .Select(_ => (VertexModel)_).ToList());
         }
 
         public ReadOnlyCollection<EdgeModel> GetAllEdges()
         {
-            ReadOnlyCollection<EdgeModel> result;
-
-            if (ReadResource())
-            {
-                try
-                {
-                    result = new ReadOnlyCollection<EdgeModel>(
+            return new ReadOnlyCollection<EdgeModel>(
                         _graphElements
                         .AsParallel()
                         .Where(_ => _ != null && _ is EdgeModel)
                         .Select(_ => (EdgeModel)_).ToList());
-
-                    return result;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-            }
-
-            throw new CollisionException();
         }
 
         #endregion

@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -42,12 +43,12 @@ namespace NoSQL.GraphDB.Core.Model
         /// <summary>
         ///   The out edges.
         /// </summary>
-        internal List<EdgeContainer> _outEdges;
+        internal ImmutableList<EdgeContainer> _outEdges;
 
         /// <summary>
         ///   The in edges.
         /// </summary>
-        internal List<EdgeContainer> _inEdges;
+        internal ImmutableList<EdgeContainer> _inEdges;
 
         #endregion
 
@@ -77,8 +78,16 @@ namespace NoSQL.GraphDB.Core.Model
                              List<EdgeContainer> outEdges, List<EdgeContainer> incEdges)
             : base(id, creationDate, properties)
         {
-            _outEdges = outEdges;
-            _inEdges = incEdges;
+            if (outEdges != null)
+            {
+                _outEdges = ImmutableList.CreateRange<EdgeContainer>(outEdges);
+            }
+
+            if (incEdges != null)
+            {
+                _inEdges = ImmutableList.CreateRange<EdgeContainer>(incEdges);
+            }
+
             ModificationDate = modificationDate;
         }
 
@@ -94,40 +103,32 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void AddOutEdge(UInt16 edgePropertyId, EdgeModel outEdge)
         {
-            if (WriteResource())
+            if (_outEdges == null)
             {
-                if (_outEdges == null)
-                {
-                    _outEdges = new List<EdgeContainer>();
-                }
-
-                var foundSth = false;
-
-                for (var i = 0; i < _outEdges.Count; i++)
-                {
-                    var aOutEdge = _outEdges[i];
-                    if (aOutEdge.EdgePropertyId == edgePropertyId)
-                    {
-                        aOutEdge.Edges.Add(outEdge);
-
-                        foundSth = true;
-
-                        break;
-                    }
-                }
-
-                if (!foundSth)
-                {
-                    _outEdges.Add(new EdgeContainer(edgePropertyId, new List<EdgeModel> { outEdge }));
-                }
-
-                FinishWriteResource();
+                _outEdges = ImmutableList.Create<EdgeContainer>(new EdgeContainer(edgePropertyId, new List<EdgeModel> { outEdge }));
 
                 return;
             }
 
+            var foundSth = false;
 
-            throw new CollisionException();
+            for (var i = 0; i < _outEdges.Count; i++)
+            {
+                var aOutEdge = _outEdges[i];
+                if (aOutEdge.EdgePropertyId == edgePropertyId)
+                {
+                    aOutEdge.Edges.Add(outEdge);
+
+                    foundSth = true;
+
+                    break;
+                }
+            }
+
+            if (!foundSth)
+            {
+                _outEdges = _outEdges.Add(new EdgeContainer(edgePropertyId, new List<EdgeModel> { outEdge }));
+            }
         }
 
         /// <summary>
@@ -137,21 +138,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void SetOutEdges(List<EdgeContainer> outEdges)
         {
-            if (WriteResource())
-            {
-                try
-                {
-                    _outEdges = outEdges;
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
-                return;
-            }
-
-            throw new CollisionException();
+            _outEdges = ImmutableList.CreateRange<EdgeContainer>(outEdges);
         }
 
         /// <summary>
@@ -162,43 +149,30 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void AddIncomingEdge(UInt16 edgePropertyId, EdgeModel incomingEdge)
         {
-            if (WriteResource())
+            if (_inEdges == null)
             {
-                try
-                {
-                    if (_inEdges == null)
-                    {
-                        _inEdges = new List<EdgeContainer>();
-                    }
-
-                    var foundSth = false;
-
-                    for (var i = 0; i < _inEdges.Count; i++)
-                    {
-                        var aInEdge = _inEdges[i];
-                        if (aInEdge.EdgePropertyId == edgePropertyId)
-                        {
-                            aInEdge.Edges.Add(incomingEdge);
-                            foundSth = true;
-                            break;
-                        }
-                    }
-
-                    if (!foundSth)
-                    {
-                        _inEdges.Add(new EdgeContainer(edgePropertyId, new List<EdgeModel> { incomingEdge }));
-                    }
-
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
+                _inEdges = ImmutableList.Create<EdgeContainer>(new EdgeContainer(edgePropertyId, new List<EdgeModel> { incomingEdge }));
 
                 return;
             }
 
-            throw new CollisionException();
+            var foundSth = false;
+
+            for (var i = 0; i < _inEdges.Count; i++)
+            {
+                var aInEdge = _inEdges[i];
+                if (aInEdge.EdgePropertyId == edgePropertyId)
+                {
+                    aInEdge.Edges.Add(incomingEdge);
+                    foundSth = true;
+                    break;
+                }
+            }
+
+            if (!foundSth)
+            {
+                _inEdges = _inEdges.Add(new EdgeContainer(edgePropertyId, new List<EdgeModel> { incomingEdge }));
+            }
         }
 
         /// <summary>
@@ -209,25 +183,12 @@ namespace NoSQL.GraphDB.Core.Model
         {
             ReadOnlyCollection<EdgeContainer> result = null;
 
-            if (ReadResource())
+            if (_inEdges != null)
             {
-                try
-                {
-                    if (_inEdges != null)
-                    {
-                        result = new ReadOnlyCollection<EdgeContainer>(_inEdges);
-                    }
-
-                    return result;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-
+                result = new ReadOnlyCollection<EdgeContainer>(_inEdges);
             }
 
-            throw new CollisionException();
+            return result;
         }
 
         /// <summary>
@@ -238,24 +199,11 @@ namespace NoSQL.GraphDB.Core.Model
         {
             ReadOnlyCollection<EdgeContainer> result = null;
 
-            if (ReadResource())
+            if (_outEdges != null)
             {
-                try
-                {
-                    if (_outEdges != null)
-                    {
-                        result = new ReadOnlyCollection<EdgeContainer>(_outEdges);
-                    }
-                    return result;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-
+                result = new ReadOnlyCollection<EdgeContainer>(_outEdges);
             }
-
-            throw new CollisionException();
+            return result;
         }
 
         /// <summary>
@@ -265,34 +213,20 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name="toBeRemovedEdge"> The to be removed edge </param>
         internal void RemoveIncomingEdge(ushort edgePropertyId, EdgeModel toBeRemovedEdge)
         {
-            if (WriteResource())
+            if (_inEdges == null)
             {
-                try
-                {
-                    if (_inEdges == null)
-                    {
-                        return;
-                    }
-
-                    for (var i = 0; i < _inEdges.Count; i++)
-                    {
-                        var aInEdge = _inEdges[i];
-                        if (aInEdge.EdgePropertyId == edgePropertyId)
-                        {
-                            aInEdge.Edges.RemoveAll(_ => _.Id == toBeRemovedEdge.Id);
-                            break;
-                        }
-                    }
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
                 return;
             }
 
-            throw new CollisionException();
+            for (var i = 0; i < _inEdges.Count; i++)
+            {
+                var aInEdge = _inEdges[i];
+                if (aInEdge.EdgePropertyId == edgePropertyId)
+                {
+                    aInEdge.Edges.RemoveAll(_ => _.Id == toBeRemovedEdge.Id);
+                    break;
+                }
+            }
         }
 
         /// <summary>
@@ -302,34 +236,24 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> The edge property identifier where the edge was deleted </returns>
         internal List<UInt16> RemoveIncomingEdge(EdgeModel toBeRemovedEdge)
         {
-            if (WriteResource())
+            var result = new List<UInt16>();
+
+            if (_inEdges == null)
             {
-                try
-                {
-                    var result = new List<UInt16>();
-
-                    if (_inEdges == null)
-                    {
-                        return result;
-                    }
-
-                    for (var i = 0; i < _inEdges.Count; i++)
-                    {
-                        if (_inEdges[i].Edges.RemoveAll(_ => _.Id == toBeRemovedEdge.Id) > 0)
-                        {
-                            result.Add(_inEdges[i].EdgePropertyId);
-                        }
-                    }
-                    return result;
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
+                return result;
             }
+            else
+            {
+                for (var i = 0; i < _inEdges.Count; i++)
+                {
+                    if (_inEdges[i].Edges.RemoveAll(_ => _.Id == toBeRemovedEdge.Id) > 0)
+                    {
+                        result.Add(_inEdges[i].EdgePropertyId);
+                    }
+                }
 
-            throw new CollisionException();
+                return result;
+            }
         }
 
         /// <summary>
@@ -339,34 +263,20 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name="toBeRemovedEdge"> The to be removed edge </param>
         internal void RemoveOutGoingEdge(ushort edgePropertyId, EdgeModel toBeRemovedEdge)
         {
-            if (WriteResource())
+            if (_outEdges == null)
             {
-                try
-                {
-                    if (_outEdges == null)
-                    {
-                        return;
-                    }
-
-                    for (var i = 0; i < _outEdges.Count; i++)
-                    {
-                        var aOutEdge = _outEdges[i];
-                        if (aOutEdge.EdgePropertyId == edgePropertyId)
-                        {
-                            aOutEdge.Edges.RemoveAll(_ => _.Id == toBeRemovedEdge.Id);
-                            break;
-                        }
-                    }
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
                 return;
             }
 
-            throw new CollisionException();
+            for (var i = 0; i < _outEdges.Count; i++)
+            {
+                var aOutEdge = _outEdges[i];
+                if (aOutEdge.EdgePropertyId == edgePropertyId)
+                {
+                    aOutEdge.Edges.RemoveAll(_ => _.Id == toBeRemovedEdge.Id);
+                    break;
+                }
+            }
         }
 
         /// <summary>
@@ -376,35 +286,22 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> The edge property identifier where the edge was deleted </returns>
         internal List<UInt16> RemoveOutGoingEdge(EdgeModel toBeRemovedEdge)
         {
-            if (WriteResource())
+            var result = new List<UInt16>();
+
+            if (_outEdges == null)
             {
-                try
-                {
-                    var result = new List<UInt16>();
-
-                    if (_outEdges == null)
-                    {
-                        return result;
-                    }
-
-                    for (var i = 0; i < _outEdges.Count; i++)
-                    {
-                        if (_outEdges[i].Edges.RemoveAll(_ => _.Id == toBeRemovedEdge.Id) > 0)
-                        {
-                            result.Add(_outEdges[i].EdgePropertyId);
-                        }
-                    }
-
-                    return result;
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
+                return result;
             }
 
-            throw new CollisionException();
+            for (var i = 0; i < _outEdges.Count; i++)
+            {
+                if (_outEdges[i].Edges.RemoveAll(_ => _.Id == toBeRemovedEdge.Id) > 0)
+                {
+                    result.Add(_outEdges[i].EdgePropertyId);
+                }
+            }
+
+            return result;
         }
 
         #endregion
@@ -413,56 +310,30 @@ namespace NoSQL.GraphDB.Core.Model
 
         public uint GetInDegree()
         {
-            if (ReadResource())
+            UInt32 degree = 0;
+
+            if (_inEdges != null)
             {
-                try
+                for (var i = 0; i < _inEdges.Count; i++)
                 {
-                    UInt32 degree = 0;
-
-                    if (_inEdges != null)
-                    {
-                        for (var i = 0; i < _inEdges.Count; i++)
-                        {
-                            degree += Convert.ToUInt32(_inEdges[i].Edges.Count);
-                        }
-                    }
-                    return degree;
+                    degree += Convert.ToUInt32(_inEdges[i].Edges.Count);
                 }
-                finally
-                {
-                    FinishReadResource();
-                }
-
             }
-
-            throw new CollisionException();
+            return degree;
         }
 
         public uint GetOutDegree()
         {
-            if (ReadResource())
+            UInt32 degree = 0;
+
+            if (_outEdges != null)
             {
-                try
+                for (var i = 0; i < _outEdges.Count; i++)
                 {
-                    UInt32 degree = 0;
-
-                    if (_outEdges != null)
-                    {
-                        for (var i = 0; i < _outEdges.Count; i++)
-                        {
-                            degree += Convert.ToUInt32(_outEdges[i].Edges.Count);
-                        }
-                    }
-                    return degree;
+                    degree += Convert.ToUInt32(_outEdges[i].Edges.Count);
                 }
-                finally
-                {
-                    FinishReadResource();
-                }
-
             }
-
-            throw new CollisionException();
+            return degree;
         }
 
         /// <summary>
@@ -471,36 +342,24 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> The neighbors. </returns>
         public List<VertexModel> GetAllNeighbors()
         {
-            if (ReadResource())
+            var neighbors = new List<VertexModel>();
+
+            if (_outEdges != null)
             {
-                try
+                for (var i = 0; i < _outEdges.Count; i++)
                 {
-                    var neighbors = new List<VertexModel>();
-
-                    if (_outEdges != null)
-                    {
-                        for (var i = 0; i < _outEdges.Count; i++)
-                        {
-                            neighbors.AddRange(_outEdges[i].Edges.Select(TargetVertexExtractor));
-                        }
-                    }
-
-                    if (_inEdges != null)
-                    {
-                        for (var i = 0; i < _inEdges.Count; i++)
-                        {
-                            neighbors.AddRange(_inEdges[i].Edges.Select(SourceVertexExtractor));
-                        }
-                    }
-                    return neighbors;
-                }
-                finally
-                {
-                    FinishReadResource();
+                    neighbors.AddRange(_outEdges[i].Edges.Select(TargetVertexExtractor));
                 }
             }
 
-            throw new CollisionException();
+            if (_inEdges != null)
+            {
+                for (var i = 0; i < _inEdges.Count; i++)
+                {
+                    neighbors.AddRange(_inEdges[i].Edges.Select(SourceVertexExtractor));
+                }
+            }
+            return neighbors;
         }
 
         /// <summary>
@@ -509,25 +368,13 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> The incoming edge identifiers. </returns>
         public List<UInt16> GetIncomingEdgeIds()
         {
-            if (ReadResource())
+            var inEdges = new List<UInt16>();
+
+            if (_inEdges != null)
             {
-                try
-                {
-                    var inEdges = new List<UInt16>();
-
-                    if (_inEdges != null)
-                    {
-                        inEdges.AddRange(_inEdges.Select(_ => _.EdgePropertyId));
-                    }
-                    return inEdges;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
+                inEdges.AddRange(_inEdges.Select(_ => _.EdgePropertyId));
             }
-
-            throw new CollisionException();
+            return inEdges;
         }
 
         /// <summary>
@@ -536,26 +383,14 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> The outgoing edge identifiers. </returns>
         public List<UInt16> GetOutgoingEdgeIds()
         {
-            if (ReadResource())
+
+            var outEdges = new List<UInt16>();
+
+            if (_outEdges != null)
             {
-                try
-                {
-                    var outEdges = new List<UInt16>();
-
-                    if (_outEdges != null)
-                    {
-                        outEdges.AddRange(_outEdges.Select(_ => _.EdgePropertyId));
-                    }
-                    return outEdges;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-
+                outEdges.AddRange(_outEdges.Select(_ => _.EdgePropertyId));
             }
-
-            throw new CollisionException();
+            return outEdges;
         }
 
         /// <summary>
@@ -566,37 +401,25 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='edgePropertyId'> Edge property identifier. </param>
         public Boolean TryGetOutEdge(out ReadOnlyCollection<EdgeModel> result, UInt16 edgePropertyId)
         {
-            if (ReadResource())
+
+            var foundSth = false;
+            result = null;
+
+            if (_outEdges != null)
             {
-                try
+                for (var i = 0; i < _outEdges.Count; i++)
                 {
-                    var foundSth = false;
-                    result = null;
-
-                    if (_outEdges != null)
+                    var aOutEdge = _outEdges[i];
+                    if (aOutEdge.EdgePropertyId == edgePropertyId)
                     {
-                        for (var i = 0; i < _outEdges.Count; i++)
-                        {
-                            var aOutEdge = _outEdges[i];
-                            if (aOutEdge.EdgePropertyId == edgePropertyId)
-                            {
-                                result = aOutEdge.Edges.AsReadOnly();
-                                foundSth = true;
-                                break;
-                            }
-                        }
+                        result = aOutEdge.Edges.AsReadOnly();
+                        foundSth = true;
+                        break;
                     }
-
-                    return foundSth;
                 }
-                finally
-                {
-                    FinishReadResource();
-                }
-
             }
 
-            throw new CollisionException();
+            return foundSth;
         }
 
         /// <summary>
@@ -607,37 +430,24 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='edgePropertyId'> Edge property identifier. </param>
         public Boolean TryGetInEdge(out ReadOnlyCollection<EdgeModel> result, UInt16 edgePropertyId)
         {
-            if (ReadResource())
+            result = null;
+            var foundSth = false;
+
+            if (_inEdges != null)
             {
-                try
+                for (var i = 0; i < _inEdges.Count; i++)
                 {
-                    result = null;
-                    var foundSth = false;
-
-                    if (_inEdges != null)
+                    var aInEdge = _inEdges[i];
+                    if (aInEdge.EdgePropertyId == edgePropertyId)
                     {
-                        for (var i = 0; i < _inEdges.Count; i++)
-                        {
-                            var aInEdge = _inEdges[i];
-                            if (aInEdge.EdgePropertyId == edgePropertyId)
-                            {
-                                result = aInEdge.Edges.AsReadOnly();
-                                foundSth = true;
-                                break;
-                            }
-                        }
+                        result = aInEdge.Edges.AsReadOnly();
+                        foundSth = true;
+                        break;
                     }
-
-                    return foundSth;
                 }
-                finally
-                {
-                    FinishReadResource();
-                }
-
             }
 
-            throw new CollisionException();
+            return foundSth;
         }
 
         #endregion
@@ -649,29 +459,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// </summary>
         internal override void Trim()
         {
-            if (WriteResource())
-            {
-                try
-                {
-                    if (_outEdges != null)
-                    {
-                        _outEdges.TrimExcess();
-                    }
-
-                    if (_inEdges != null)
-                    {
-                        _inEdges.TrimExcess();
-                    }
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
-                return;
-            }
-
-            throw new CollisionException();
+            //NOP
         }
 
         #endregion

@@ -33,7 +33,7 @@ namespace NoSQL.GraphDB.Core.Model
     /// <summary>
     ///   A graph element.
     /// </summary>
-    public abstract class AGraphElement : AThreadSafeElement
+    public abstract class AGraphElement
     {
         #region Data
 
@@ -90,21 +90,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> Creation date </returns>
         public DateTime GetCreationDate()
         {
-            if (ReadResource())
-            {
-                try
-                {
-                    var creationDate = DateHelper.GetDateTimeFromUnixTimeStamp(CreationDate);
-                    return creationDate;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-
-            }
-
-            throw new CollisionException();
+            return DateHelper.GetDateTimeFromUnixTimeStamp(CreationDate);
         }
 
         /// <summary>
@@ -113,21 +99,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> Modification date </returns>
         public DateTime GetModificationDate()
         {
-            if (ReadResource())
-            {
-                try
-                {
-                    var modificationDate = DateHelper.GetDateTimeFromUnixTimeStamp(CreationDate + ModificationDate);
-                    return modificationDate;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-
-            }
-
-            throw new CollisionException();
+            return DateHelper.GetDateTimeFromUnixTimeStamp(CreationDate + ModificationDate);
         }
 
         /// <summary>
@@ -136,21 +108,9 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> Count of Properties </returns>
         public Int32 GetPropertyCount()
         {
-            if (ReadResource())
-            {
-                try
-                {
-                    var count = _properties.Length;
-                    return count;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
 
-            }
+            return _properties.Length;
 
-            throw new CollisionException();
         }
 
         /// <summary>
@@ -159,24 +119,9 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> All properties. </returns>
         public ReadOnlyCollection<PropertyContainer> GetAllProperties()
         {
-            if (ReadResource())
-            {
-                try
-                {
-                    var result = _properties != null
+            return _properties != null
                         ? new ReadOnlyCollection<PropertyContainer>(_properties)
                         : new ReadOnlyCollection<PropertyContainer>(new PropertyContainer[0]);
-
-                    return result;
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-
-            }
-
-            throw new CollisionException();
         }
 
         /// <summary>
@@ -188,35 +133,22 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
         public Boolean TryGetProperty<TProperty>(out TProperty result, UInt16 propertyId)
         {
-            if (ReadResource())
+            if (_properties != null)
             {
-                try
+                for (var i = 0; i < _properties.Length; i++)
                 {
-                    if (_properties != null)
+                    var aPropContainer = _properties[i];
+                    if (aPropContainer.Value != null && aPropContainer.PropertyId == propertyId)
                     {
-                        for (var i = 0; i < _properties.Length; i++)
-                        {
-                            var aPropContainer = _properties[i];
-                            if (aPropContainer.Value != null && aPropContainer.PropertyId == propertyId)
-                            {
-                                result = (TProperty)aPropContainer.Value;
-                                return true;
-                            }
-                        }
+                        result = (TProperty)aPropContainer.Value;
+                        return true;
                     }
-
-                    result = default(TProperty);
-
-                    return false;
                 }
-                finally
-                {
-                    FinishReadResource();
-                }
-
             }
 
-            throw new CollisionException();
+            result = default(TProperty);
+
+            return false;
         }
 
         #endregion
@@ -240,58 +172,45 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal bool TryAddProperty(UInt16 propertyId, object property)
         {
-            if (WriteResource())
+            var foundProperty = false;
+            var idx = 0;
+
+            if (_properties != null)
             {
-                try
+                for (var i = 0; i < _properties.Length; i++)
                 {
-                    var foundProperty = false;
-                    var idx = 0;
-
-                    if (_properties != null)
+                    if (_properties[i].PropertyId == propertyId)
                     {
-                        for (var i = 0; i < _properties.Length; i++)
-                        {
-                            if (_properties[i].PropertyId == propertyId)
-                            {
-                                foundProperty = true;
-                                idx = i;
-                                break;
-                            }
-                        }
-
-                        if (!foundProperty)
-                        {
-                            //resize
-                            var newProperties = new PropertyContainer[_properties.Length + 1];
-                            Array.Copy(_properties, newProperties, _properties.Length);
-                            newProperties[_properties.Length] = new PropertyContainer { PropertyId = propertyId, Value = property };
-
-                            _properties = newProperties;
-                        }
-                        else
-                        {
-                            _properties[idx] = new PropertyContainer { PropertyId = propertyId, Value = property };
-                        }
+                        foundProperty = true;
+                        idx = i;
+                        break;
                     }
-                    else
-                    {
-                        _properties = new PropertyContainer[0];
-                        _properties[0] = new PropertyContainer { PropertyId = propertyId, Value = property };
-                    }
-
-                    //set the modificationdate
-                    ModificationDate = DateHelper.GetModificationDate(CreationDate);
-
-                    return foundProperty;
-                }
-                finally
-                {
-                    FinishWriteResource();
                 }
 
+                if (!foundProperty)
+                {
+                    //resize
+                    var newProperties = new PropertyContainer[_properties.Length + 1];
+                    Array.Copy(_properties, newProperties, _properties.Length);
+                    newProperties[_properties.Length] = new PropertyContainer { PropertyId = propertyId, Value = property };
+
+                    _properties = newProperties;
+                }
+                else
+                {
+                    _properties[idx] = new PropertyContainer { PropertyId = propertyId, Value = property };
+                }
+            }
+            else
+            {
+                _properties = new PropertyContainer[0];
+                _properties[0] = new PropertyContainer { PropertyId = propertyId, Value = property };
             }
 
-            throw new CollisionException();
+            //set the modificationdate
+            ModificationDate = DateHelper.GetModificationDate(CreationDate);
+
+            return foundProperty;
         }
 
         /// <summary>
@@ -302,59 +221,47 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal bool TryRemoveProperty(UInt16 propertyId)
         {
-            if (WriteResource())
+
+            var removedSomething = false;
+
+            if (_properties != null)
             {
-                try
-                {
-                    var removedSomething = false;
+                var toBeRemovedIdx = 0;
 
-                    if (_properties != null)
+                for (var i = 0; i < _properties.Length; i++)
+                {
+                    if (_properties[i].PropertyId == propertyId)
                     {
-                        var toBeRemovedIdx = 0;
-
-                        for (var i = 0; i < _properties.Length; i++)
-                        {
-                            if (_properties[i].PropertyId == propertyId)
-                            {
-                                toBeRemovedIdx = i;
-                                removedSomething = true;
-                                break;
-                            }
-                        }
-
-                        if (removedSomething)
-                        {
-                            //resize
-                            var newProperties = new PropertyContainer[_properties.Length - 1];
-                            if (newProperties.Length != 0)
-                            {
-                                //everything until the to be removed item
-                                Array.Copy(_properties, newProperties, toBeRemovedIdx);
-
-                                if (toBeRemovedIdx > newProperties.Length)
-                                {
-                                    //everything after the removed item
-                                    Array.Copy(_properties, toBeRemovedIdx + 1, newProperties, toBeRemovedIdx,
-                                               _properties.Length - toBeRemovedIdx);
-                                }
-
-                                _properties = newProperties;
-                            }
-
-                            //set the modificationdate
-                            ModificationDate = DateHelper.GetModificationDate(CreationDate);
-                        }
+                        toBeRemovedIdx = i;
+                        removedSomething = true;
+                        break;
                     }
-                    return removedSomething;
                 }
-                finally
+
+                if (removedSomething)
                 {
-                    FinishWriteResource();
+                    //resize
+                    var newProperties = new PropertyContainer[_properties.Length - 1];
+                    if (newProperties.Length != 0)
+                    {
+                        //everything until the to be removed item
+                        Array.Copy(_properties, newProperties, toBeRemovedIdx);
+
+                        if (toBeRemovedIdx > newProperties.Length)
+                        {
+                            //everything after the removed item
+                            Array.Copy(_properties, toBeRemovedIdx + 1, newProperties, toBeRemovedIdx,
+                                       _properties.Length - toBeRemovedIdx);
+                        }
+
+                        _properties = newProperties;
+                    }
+
+                    //set the modificationdate
+                    ModificationDate = DateHelper.GetModificationDate(CreationDate);
                 }
-
             }
-
-            throw new CollisionException();
+            return removedSomething;
         }
 
         /// <summary>
@@ -363,15 +270,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name="newId">The new id</param>
         internal void SetId(Int32 newId)
         {
-            if (WriteResource())
-            {
-                Id = newId;
-                FinishWriteResource();
-
-                return;
-            }
-
-            throw new CollisionException();
+            Id = newId;
         }
 
         /// <summary>
