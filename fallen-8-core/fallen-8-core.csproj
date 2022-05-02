@@ -18,6 +18,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="pics\**" />
+    <EmbeddedResource Remove="pics\**" />
+    <None Remove="pics\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\pics\iconwhite.png" Pack="true" PackagePath="\" />
     <None Include="..\README.md">
       <Pack>True</Pack>
@@ -28,10 +34,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="6.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="6.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="pics\" />
   </ItemGroup>
 
 </Project>

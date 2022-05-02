@@ -75,7 +75,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             sw.Stop();
 
-            _fallen8.Trim();
+            //_fallen8.Trim();
 
             return String.Format("It took {0}ms to create a Fallen-8 graph with {1} nodes and {2} edges per node.", sw.Elapsed.TotalMilliseconds, nodeCount, edgeCount);
         }

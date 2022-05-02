@@ -52,11 +52,9 @@ namespace NoSQL.GraphDB.App
         public IConfiguration Configuration { get; }
 
         // This method gets called by the runtime. Use this method to add services to the container.
-        public void ConfigureServices(IServiceCollection services, ILoggerFactory loggerFactory)
+        public void ConfigureServices(IServiceCollection services)
         {
-            Fallen8 f8 = new Fallen8(loggerFactory);
-
-            services.AddSingleton<Fallen8>(f8);
+            services.AddSingleton<Fallen8>();
 
             services.AddControllers();
 

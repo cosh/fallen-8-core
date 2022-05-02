@@ -33,6 +33,7 @@ using System.Threading.Tasks;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.App.Controllers.Benchmark
 {
@@ -55,12 +56,13 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         public void CreateScaleFreeNetwork(int nodeCound, int edgeCount)
         {
             var creationDate = DateHelper.ConvertDateTime(DateTime.Now);
-            var vertexIDs = new List<Int32>();
             var prng = new Random();
             if (nodeCound < _numberOfToBeTestedVertices)
             {
                 _numberOfToBeTestedVertices = nodeCound;
             }
+
+            CreateVerticesTransaction vertexTx = new CreateVerticesTransaction();
 
             for (var i = 0; i < nodeCound; i++)
             {
@@ -72,18 +74,24 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                 //                                                               new PropertyContainer { PropertyId = 25, Value = "Ein kurzes Property" },
                 //                                                               new PropertyContainer { PropertyId = 26, Value = "Ein gaaaaaaaanz langes Property" },
                 //                                                           }).Id);
-                vertexIDs.Add(_f8.CreateVertex(creationDate).Id);
+                vertexTx.AddVertex(creationDate);
             }
+
+            var vertexTxTask = _f8.EnqueueTransaction(vertexTx);
+
+            vertexTxTask.WaitUntilFinished();
+
+            var verticesCreates = vertexTx.GetCreatedVertices();
 
             if (edgeCount != 0)
             {
-                foreach (var aVertexId in vertexIDs)
+                foreach (var aVertex in verticesCreates)
                 {
                     var targetVertices = new HashSet<Int32>();
 
                     do
                     {
-                        targetVertices.Add(vertexIDs[prng.Next(0, vertexIDs.Count)]);
+                        targetVertices.Add(verticesCreates[prng.Next(0, verticesCreates.Count)].Id);
                     } while (targetVertices.Count < edgeCount);
 
                     foreach (var aTargetVertex in targetVertices)
@@ -94,7 +102,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                         //                                                               new PropertyContainer { PropertyId = 1, Value = 2 },
                         //                                                           });
                         //
-                        _f8.CreateEdge(aVertexId, 0, aTargetVertex, creationDate);
+                        _f8.CreateEdge(aVertex.Id, 0, aTargetVertex, creationDate);
                     }
                 }
             }

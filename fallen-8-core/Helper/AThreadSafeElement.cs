@@ -39,10 +39,6 @@ namespace NoSQL.GraphDB.Core.Helper
         /// </summary>
         private volatile Int32 _usingResource;
 
-#if DEBUG
-        public string lockerStack;
-#endif
-
         /// <summary>
         /// Reads the resource.
         /// Blocks if reading is currently not allowed
@@ -93,9 +89,6 @@ namespace NoSQL.GraphDB.Core.Helper
 
                 if ((Interlocked.Add(ref _usingResource, 0x100000) & 0xfff00000) == 0x100000)
                 {
-#if DEBUG
-                    lockerStack = Environment.StackTrace;
-#endif
                     while ((_usingResource & 0x000fffff) != 0)
                         Thread.Yield();
 
@@ -114,9 +107,6 @@ namespace NoSQL.GraphDB.Core.Helper
         protected void FinishWriteResource()
         {
             //Release the lock
-#if DEBUG
-            lockerStack = String.Empty;
-#endif
             Interlocked.Add(ref _usingResource, -0x100000);
         }
     }
