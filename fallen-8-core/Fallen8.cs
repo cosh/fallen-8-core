@@ -162,25 +162,6 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
-        public VertexModel CreateVertex(UInt32 creationDate, PropertyContainer[] properties = null)
-        {
-            if (WriteResource())
-            {
-
-                try
-                {
-                    return CreateVertex_internal(creationDate, properties);
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-
-            }
-
-            throw new CollisionException();
-        }
-
         internal VertexModel CreateVertex_internal(UInt32 creationDate, PropertyContainer[] properties = null)
         {
             //create the new vertex
@@ -504,24 +485,6 @@ namespace NoSQL.GraphDB.Core
 
             result = null;
             return false;
-        }
-
-        public EdgeModel CreateEdge(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId,
-                                    UInt32 creationDate, PropertyContainer[] properties = null)
-        {
-            if (WriteResource())
-            {
-                try
-                {
-                    return CreateEdge_internal(sourceVertexId, edgePropertyId, targetVertexId, creationDate, properties);
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-            }
-
-            throw new CollisionException();
         }
 
         internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, PropertyContainer[] properties)

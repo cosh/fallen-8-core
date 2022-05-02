@@ -112,7 +112,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpPut("/edge")]
         [Consumes("application/json")]
-        public int AddEdge(EdgeSpecification definition)
+        public void AddEdge(EdgeSpecification definition)
         {
             #region initial checks
 
@@ -123,9 +123,19 @@ namespace NoSQL.GraphDB.App.Controllers
 
             #endregion
 
-            return
-                _fallen8.CreateEdge(definition.SourceVertex, definition.EdgePropertyId, definition.TargetVertex,
-                                    definition.CreationDate, ServiceHelper.GenerateProperties(definition.Properties)).Id;
+            var tx = new CreateEdgeTransaction()
+            {
+                Definition = new EdgeDefinition()
+                {
+                    CreationDate = definition.CreationDate,
+                    SourceVertexId = definition.SourceVertex,
+                    EdgePropertyId = definition.EdgePropertyId,
+                    TargetVertexId = definition.TargetVertex,
+                    Properties = ServiceHelper.GenerateProperties(definition.Properties)
+                }
+            };
+
+            _fallen8.EnqueueTransaction(tx);
         }
 
         /// <summary>
