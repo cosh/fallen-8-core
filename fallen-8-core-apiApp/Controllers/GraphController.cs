@@ -378,7 +378,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpPut("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
         [Consumes("application/json")]
-        public bool TryAddProperty([FromRoute] string graphElementIdString, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition)
+        public void AddProperty([FromRoute] string graphElementIdString, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition)
         {
             var graphElementId = Convert.ToInt32(graphElementIdString);
             var propertyId = Convert.ToUInt16(propertyIdString);
@@ -387,7 +387,17 @@ namespace NoSQL.GraphDB.App.Controllers
                 definition.PropertyValue,
                 Type.GetType(definition.FullQualifiedTypeName, true, true));
 
-            return _fallen8.TryAddProperty(graphElementId, propertyId, property);
+            AddPropertyTransaction tx = new AddPropertyTransaction()
+            {
+                Definition =
+                {
+                    GraphElementId = graphElementId,
+                    PropertyId = propertyId,
+                    Property = property
+                }
+            };
+
+            _fallen8.EnqueueTransaction(tx);
         }
 
         [HttpDelete("/graphelement/{graphElementIdentifier}/{propertyIdString}")]

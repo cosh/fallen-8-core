@@ -557,23 +557,6 @@ namespace NoSQL.GraphDB.Core
             return newEdges;
         }
 
-        public bool TryAddProperty(Int32 graphElementId, UInt16 propertyId, Object property)
-        {
-            if (WriteResource())
-            {
-                try
-                {
-                    return TryAddProperty_internal(graphElementId, propertyId, property);
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-            }
-
-            throw new CollisionException();
-        }
-
         internal Boolean TryAddProperty_internal(Int32 graphElementId, UInt16 propertyId, Object property)
         {
             var success = false;

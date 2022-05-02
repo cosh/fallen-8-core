@@ -38,15 +38,6 @@ namespace NoSQL.GraphDB.Core
         #region update
 
         /// <summary>
-        ///   Tries to add a property.
-        /// </summary>
-        /// <returns> <c>true</c> if the property was added; otherwise, <c>false</c> . </returns>
-        /// <param name='graphElementId'> Graph element identifier. </param>
-        /// <param name='propertyId'> Property identifier. </param>
-        /// <param name='property'> The to be added property. </param>
-        Boolean TryAddProperty(Int32 graphElementId, UInt16 propertyId, Object property);
-
-        /// <summary>
         ///   Tries to remove a property.
         /// </summary>
         /// <returns> <c>true</c> if the property was removed; otherwise, <c>false</c> . </returns>
