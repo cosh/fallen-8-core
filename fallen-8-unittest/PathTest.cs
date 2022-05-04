@@ -105,5 +105,23 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(2, result.Count);
         }
+
+        [TestMethod]
+        public void FindAliceToBob()
+        {
+            var bob = _controller.GraphScan(NAME, BOBSPEC).First();
+            var alice = _controller.GraphScan(NAME, ALICESPEC).First();
+
+            PathSpecification pathSpec = new PathSpecification() { MaxDepth = 2, MaxResults = 2 };
+
+            var result = _controller.GetPaths(alice, bob, pathSpec);
+
+            Assert.AreEqual(1, result.Count);
+
+            //testing it a second time to see if the cache works
+            result = _controller.GetPaths(bob, alice, pathSpec);
+
+            Assert.AreEqual(1, result.Count);
+        }
     }
 }

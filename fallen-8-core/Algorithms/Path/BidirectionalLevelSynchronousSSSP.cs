@@ -314,6 +314,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     case -1:
                         //the target vertex located in the middle vertices
                         //nothing to do
+                        result.AddRange(middleToSourcePaths);
+
                         break;
 
                     case 0:
