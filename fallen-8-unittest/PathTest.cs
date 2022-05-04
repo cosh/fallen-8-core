@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -30,6 +31,7 @@ using NoSQL.GraphDB.App.Controllers;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Controllers.Sample;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Expression;
 
 namespace NoSQL.GraphDB.Tests
@@ -40,6 +42,8 @@ namespace NoSQL.GraphDB.Tests
         private readonly Fallen8 _fallen8;
 
         private readonly GraphController _controller;
+
+        private readonly ILoggerFactory _loggerFactory;
 
         private readonly ushort NAME = 0;
 
@@ -73,7 +77,7 @@ namespace NoSQL.GraphDB.Tests
 
         public PathTest()
         {
-            var loggerFactory = LoggerFactory.Create(builder =>
+            _loggerFactory = LoggerFactory.Create(builder =>
             {
                 builder
                     .AddFilter("Microsoft", LogLevel.Warning)
@@ -82,7 +86,7 @@ namespace NoSQL.GraphDB.Tests
                     .AddConsole();
             });
 
-            _fallen8 = new Fallen8(loggerFactory);
+            _fallen8 = new Fallen8(_loggerFactory);
 
             TestGraphGenerator.GenerateSampleGraph(_fallen8);
 
@@ -122,6 +126,19 @@ namespace NoSQL.GraphDB.Tests
             result = _controller.GetPaths(bob, alice, pathSpec);
 
             Assert.AreEqual(1, result.Count);
+        }
+
+        [TestMethod]
+        public void MultiHopPaths()
+        {
+            Fallen8 f8 = new Fallen8(_loggerFactory);
+
+            TestGraphGenerator.GenerateAbcGraph(f8);
+
+            List<Path> paths;
+            f8.CalculateShortestPath(out paths, "BLS", 0, 20, maxDepth: 26, maxResults: 2);
+
+            Assert.AreEqual(1, paths.Count);
         }
     }
 }

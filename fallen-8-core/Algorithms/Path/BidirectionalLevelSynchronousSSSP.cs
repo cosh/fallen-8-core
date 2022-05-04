@@ -297,7 +297,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                 else
                 {
                     //recursion
-                    middleToSourcePaths = CreateToSourcePaths(middleVertices, sourceFrontiers, sourceLevel);
+                    middleToSourcePaths = CreateToSourcePaths(middleVertices, sourceFrontiers, previousSourceLevel);
                 }
 
 
@@ -340,7 +340,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     default:
                         //recursion
-                        result = CreatePathsRecusive(middleToSourcePaths, targetFrontiers, targetLevel, Direction.OutgoingEdge, Direction.IncomingEdge);
+                        result = CreatePathsRecusive(middleToSourcePaths, targetFrontiers, previousTargetLevel, Direction.OutgoingEdge, Direction.IncomingEdge, false);
 
                         break;
 
@@ -389,7 +389,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
             var newSourceLevel = sourceLevel - 1;
 
-            return CreatePathsRecusive(firstPaths, sourceFrontiers, newSourceLevel, Direction.IncomingEdge, Direction.OutgoingEdge);
+            return CreatePathsRecusive(firstPaths, sourceFrontiers, newSourceLevel, Direction.IncomingEdge, Direction.OutgoingEdge, true);
         }
 
         /// <summary>
@@ -401,7 +401,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="incomingPredDirection">The direction of the incoming predecessors (depends on the frontier)</param>
         /// <param name="outgoingPredDirection">The direction of the outgoing predecessors (depends on the frontier)</param>
         /// <returns>List of paths</returns>
-        private static List<Path> CreatePathsRecusive(List<Path> currentPaths, List<Dictionary<VertexModel, VertexPredecessor>> frontier, int level, Direction incomingPredDirection, Direction outgoingPredDirection)
+        private static List<Path> CreatePathsRecusive(List<Path> currentPaths, List<Dictionary<VertexModel, VertexPredecessor>> frontier, int level, Direction incomingPredDirection, Direction outgoingPredDirection, bool toSource)
         {
             var result = new List<Path>();
 
@@ -415,7 +415,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     for (var i = 0; i < currentPaths.Count; i++)
                     {
                         var middlePath = currentPaths[i];
-                        var pred = frontier[level][middlePath.LastPathElement.TargetVertex];
+                        var keyVertex = toSource ? middlePath.LastPathElement.SourceVertex : middlePath.LastPathElement.TargetVertex;
+                        var pred = frontier[level][keyVertex];
                         result.AddRange(
                         pred.Incoming.Select(
                             edgeLocation =>
@@ -436,7 +437,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     for (var i = 0; i < currentPaths.Count; i++)
                     {
                         var middlePath = currentPaths[i];
-                        var pred = frontier[level][middlePath.LastPathElement.TargetVertex];
+                        var keyVertex = toSource ? middlePath.LastPathElement.SourceVertex : middlePath.LastPathElement.TargetVertex;
+                        var pred = frontier[level][keyVertex];
                         newMiddlePaths.AddRange(
                         pred.Incoming.Select(
                             edgeLocation =>
@@ -451,7 +453,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     var newPredLevel = level - 1;
 
-                    result = CreatePathsRecusive(newMiddlePaths, frontier, newPredLevel, incomingPredDirection, outgoingPredDirection);
+                    result = CreatePathsRecusive(newMiddlePaths, frontier, newPredLevel, incomingPredDirection, outgoingPredDirection, toSource);
 
                     break;
             }

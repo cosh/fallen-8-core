@@ -88,5 +88,67 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
         {
             return new PropertyContainer() { PropertyId = 0, Value = name };
         }
+
+        public static SampleStats GenerateAbcGraph(Fallen8 f8)
+        {
+            uint creationDate = 0;
+
+            #region Vertices
+
+            var vertexTx = new CreateVerticesTransaction();
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("a") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("b") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("c") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("d") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("e") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("f") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("g") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("h") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("i") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("j") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("k") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("l") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("m") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("n") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("o") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("p") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("q") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("r") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("s") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("t") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("u") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("v") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("w") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("x") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("y") });
+            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("z") });
+
+            var vertexTxInfo = f8.EnqueueTransaction(vertexTx);
+
+            vertexTxInfo.WaitUntilFinished();
+
+
+            #endregion
+
+            #region Edges
+
+            ushort communicatesWith = 0;
+
+            var edgesTx = new CreateEdgesTransaction();
+            for (int i = 0; i < 25; i++)
+            {
+                edgesTx.AddEdge(i, communicatesWith, i+1, creationDate);
+            }
+
+            var edgesTxInfo = f8.EnqueueTransaction(edgesTx);
+
+            edgesTxInfo.WaitUntilFinished();
+
+            #endregion
+
+            var stats = new SampleStats() { VertexCount = 26, EdgeCount = 25 };
+
+            return stats;
+        }
     }
 }
