@@ -61,9 +61,10 @@ namespace NoSQL.GraphDB.Core.Transaction
             return true;
         }
 
-        public CreateEdgesTransaction AddEdge(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, PropertyContainer[] properties = null)
+        public CreateEdgesTransaction AddEdge(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, String label = null, PropertyContainer[] properties = null)
         {
-            Edges.Add(new EdgeDefinition() { SourceVertexId = sourceVertexId, EdgePropertyId = edgePropertyId, TargetVertexId = targetVertexId, CreationDate = creationDate, Properties = properties });
+            Edges.Add(new EdgeDefinition() { SourceVertexId = sourceVertexId, EdgePropertyId = edgePropertyId, 
+                TargetVertexId = targetVertexId, CreationDate = creationDate, Label = label, Properties = properties });
 
             return this;
         }

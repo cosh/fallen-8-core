@@ -59,9 +59,9 @@ namespace NoSQL.GraphDB.Core.Transaction
             return  true;
         }
 
-        public CreateVerticesTransaction AddVertex(UInt32 CreationDate, PropertyContainer[] Properties = null)
+        public CreateVerticesTransaction AddVertex(UInt32 CreationDate, String Label = null, PropertyContainer[] Properties = null)
         {
-            Vertices.Add(new VertexDefinition() { CreationDate = CreationDate, Properties = Properties });
+            Vertices.Add(new VertexDefinition() { CreationDate = CreationDate, Properties = Properties , Label = Label});
 
             return this;
         }

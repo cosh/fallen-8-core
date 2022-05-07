@@ -39,11 +39,11 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
             #region Vertices
 
             var vertexTx = new CreateVerticesTransaction();
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Alice") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Bob") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Eve") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Mallory") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("Trent") });
+            vertexTx.AddVertex(creationDate, "person", new PropertyContainer[] { CreateName("Alice") });
+            vertexTx.AddVertex(creationDate, "person", new PropertyContainer[] { CreateName("Bob") });
+            vertexTx.AddVertex(creationDate, "person", new PropertyContainer[] { CreateName("Eve") });
+            vertexTx.AddVertex(creationDate, "person", new PropertyContainer[] { CreateName("Mallory") });
+            vertexTx.AddVertex(creationDate, "person", new PropertyContainer[] { CreateName("Trent") });
 
             var vertexTxInfo = f8.EnqueueTransaction(vertexTx);
 
@@ -96,32 +96,32 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
             #region Vertices
 
             var vertexTx = new CreateVerticesTransaction();
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("a") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("b") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("c") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("d") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("e") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("f") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("g") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("h") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("i") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("j") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("k") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("l") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("m") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("n") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("o") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("p") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("q") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("r") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("s") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("t") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("u") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("v") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("w") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("x") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("y") });
-            vertexTx.AddVertex(creationDate, new PropertyContainer[] { CreateName("z") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("a") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("b") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("c") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("d") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("e") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("f") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("g") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("h") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("i") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("j") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("k") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("l") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("m") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("n") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("o") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("p") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("q") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("r") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("s") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("t") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("u") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("v") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("w") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("x") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("y") });
+            vertexTx.AddVertex(creationDate, "letter", new PropertyContainer[] { CreateName("z") });
 
             var vertexTxInfo = f8.EnqueueTransaction(vertexTx);
 
