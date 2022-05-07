@@ -604,7 +604,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             writer.Write(graphElement.Id);
             writer.Write(graphElement.CreationDate);
             writer.Write(graphElement.ModificationDate);
-            WriteString(writer, graphElement.Label);
+            writer.WriteOptimized(graphElement.Label);
 
             var properties = graphElement.GetAllProperties();
             writer.Write(properties.Count);
@@ -613,16 +613,6 @@ namespace NoSQL.GraphDB.Core.Persistency
                 writer.Write(aProperty.PropertyId);
                 writer.WriteObject(aProperty.Value);
             }
-        }
-
-        private void WriteString(SerializationWriter writer, String label)
-        {
-            writer.WriteObject(label);
-        }
-
-        private String ReadString(SerializationReader reader)
-        {
-            return reader.ReadObject() as String;
         }
 
         /// <summary>
@@ -637,7 +627,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             var id = reader.ReadInt32();
             var creationDate = reader.ReadUInt32();
             var modificationDate = reader.ReadUInt32();
-            var label = ReadString(reader);
+            var label = reader.ReadOptimizedString();
 
             #region properties
 
@@ -829,8 +819,8 @@ namespace NoSQL.GraphDB.Core.Persistency
             var id = reader.ReadInt32();
             var creationDate = reader.ReadUInt32();
             var modificationDate = reader.ReadUInt32();
-            var label = ReadString(reader);
-            
+            var label = reader.ReadOptimizedString();
+
             #region properties
 
             PropertyContainer[] properties = null;
