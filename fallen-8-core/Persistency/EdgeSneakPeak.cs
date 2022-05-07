@@ -54,6 +54,11 @@ namespace NoSQL.GraphDB.Core.Persistency
         public PropertyContainer[] Properties;
 
         /// <summary>
+        /// The label.
+        /// </summary>
+        public String Label;
+
+        /// <summary>
         /// The source vertex identifier.
         /// </summary>
         public Int32 SourceVertexId;

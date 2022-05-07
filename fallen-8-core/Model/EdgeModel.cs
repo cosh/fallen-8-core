@@ -42,10 +42,11 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='creationDate'> Creation date. </param>
         /// <param name='targetVertex'> Target vertex. </param>
         /// <param name='sourceVertex'> Source vertex. </param>
+        /// <param name='label'> Label. </param>
         /// <param name='properties'> Properties. </param>
         public EdgeModel(Int32 id, UInt32 creationDate, VertexModel targetVertex, VertexModel sourceVertex,
-                         PropertyContainer[] properties)
-            : base(id, creationDate, properties)
+                         String label = null, PropertyContainer[] properties = null)
+            : base(id, creationDate, label, properties)
         {
             TargetVertex = targetVertex;
             SourceVertex = sourceVertex;
@@ -59,10 +60,11 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='modificationDate'> Modification date. </param>
         /// <param name='targetVertex'> Target vertex. </param>
         /// <param name='sourceVertex'> Source vertex. </param>
+        /// <param name='label'> Label. </param>
         /// <param name='properties'> Properties. </param>
         internal EdgeModel(Int32 id, UInt32 creationDate, UInt32 modificationDate, VertexModel targetVertex,
-                           VertexModel sourceVertex, PropertyContainer[] properties)
-            : base(id, creationDate, properties)
+                           VertexModel sourceVertex, String label = null, PropertyContainer[] properties = null)
+            : base(id, creationDate,label, properties)
         {
             TargetVertex = targetVertex;
             SourceVertex = sourceVertex;

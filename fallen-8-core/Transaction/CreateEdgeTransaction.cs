@@ -43,7 +43,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            return f8.CreateEdge_internal(Definition.SourceVertexId, Definition.EdgePropertyId, Definition.TargetVertexId, Definition.CreationDate, Definition.Properties) != null;
+            return f8.CreateEdge_internal(Definition.SourceVertexId, Definition.EdgePropertyId, Definition.TargetVertexId, Definition.CreationDate, Definition.Label, Definition.Properties) != null;
         }
     }
 }

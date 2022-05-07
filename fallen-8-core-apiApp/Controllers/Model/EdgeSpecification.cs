@@ -77,5 +77,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   The label of the vertex
+        /// </summary>
+        public String Label
+        {
+            get; set;
+        }
     }
 }

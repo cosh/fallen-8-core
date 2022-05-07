@@ -159,10 +159,10 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
-        internal VertexModel CreateVertex_internal(UInt32 creationDate, PropertyContainer[] properties = null)
+        internal VertexModel CreateVertex_internal(UInt32 creationDate, String label, PropertyContainer[] properties = null)
         {
             //create the new vertex
-            var newVertex = new VertexModel(_currentId, creationDate, properties);
+            var newVertex = new VertexModel(_currentId, creationDate, label, properties);
 
             //insert it
             _graphElements = _graphElements.Add(newVertex);
@@ -184,7 +184,7 @@ namespace NoSQL.GraphDB.Core
                 foreach (var aVertexDef in definitions)
                 {
                     //create the new vertex
-                    var newVertex = new VertexModel(_currentId, aVertexDef.CreationDate, aVertexDef.Properties);
+                    var newVertex = new VertexModel(_currentId, aVertexDef.CreationDate, aVertexDef.Label, aVertexDef.Properties);
 
                     newVertices.Add(newVertex);
 
@@ -438,7 +438,7 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, PropertyContainer[] properties)
+        internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, String label, PropertyContainer[] properties)
         {
             EdgeModel outgoingEdge = null;
 
@@ -448,7 +448,7 @@ namespace NoSQL.GraphDB.Core
             //get the related vertices
             if (sourceVertex != null && targetVertex != null)
             {
-                outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, properties);
+                outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, label, properties);
 
                 //add the edge to the graph elements
                 _graphElements = _graphElements.Add(outgoingEdge);
@@ -483,7 +483,7 @@ namespace NoSQL.GraphDB.Core
                     //get the related vertices
                     if (sourceVertex != null && targetVertex != null)
                     {
-                        var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex, aEdgeDefinition.Properties);
+                        var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex, aEdgeDefinition.Label, aEdgeDefinition.Properties);
 
                         newEdges.Add(newEdge);
 

@@ -42,5 +42,11 @@ namespace NoSQL.GraphDB.Core.Model
             get;
             set;
         } = null;
+
+        public String Label
+        {
+            get;
+            set;
+        }
     }
 }

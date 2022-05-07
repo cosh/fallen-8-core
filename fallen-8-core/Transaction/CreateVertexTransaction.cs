@@ -45,7 +45,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            VertexCreated = f8.CreateVertex_internal(Definition.CreationDate, Definition.Properties);
+            VertexCreated = f8.CreateVertex_internal(Definition.CreationDate, Definition.Label, Definition.Properties);
 
             return VertexCreated != null;
         }

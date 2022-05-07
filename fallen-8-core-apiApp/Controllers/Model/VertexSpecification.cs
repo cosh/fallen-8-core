@@ -44,6 +44,14 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
+        ///   The label of the vertex
+        /// </summary>
+        public String Label
+        {
+            get; set;
+        }
+
+        /// <summary>
         ///   The properties of the vertex
         /// </summary>
         public List<PropertySpecification> Properties

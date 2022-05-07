@@ -43,6 +43,11 @@ namespace NoSQL.GraphDB.Core.Model
         public Int32 Id;
 
         /// <summary>
+        /// The label of the graph element
+        /// </summary>
+        public String Label;
+
+        /// <summary>
         ///   The creation date.
         /// </summary>
         public readonly UInt32 CreationDate;
@@ -71,13 +76,15 @@ namespace NoSQL.GraphDB.Core.Model
         /// </summary>
         /// <param name='id'> Identifier. </param>
         /// <param name='creationDate'> Creation date. </param>
+        /// <param name='label'> Label. </param>
         /// <param name='properties'> Properties. </param>
-        protected AGraphElement(Int32 id, UInt32 creationDate, PropertyContainer[] properties)
+        protected AGraphElement(Int32 id, UInt32 creationDate, String label = null, PropertyContainer[] properties = null)
         {
             Id = id;
             CreationDate = creationDate;
             ModificationDate = 0;
             _properties = properties;
+            Label = label;
         }
 
         #endregion
@@ -221,7 +228,6 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal bool TryRemoveProperty(UInt16 propertyId)
         {
-
             var removedSomething = false;
 
             if (_properties != null)
@@ -262,6 +268,15 @@ namespace NoSQL.GraphDB.Core.Model
                 }
             }
             return removedSomething;
+        }
+
+        /// <summary>
+        /// Set the label for the graph element
+        /// </summary>
+        /// <param name="newLabel">The new Label</param>
+        internal void SetLabel(String newLabel)
+        {
+            Label = newLabel;
         }
 
         /// <summary>

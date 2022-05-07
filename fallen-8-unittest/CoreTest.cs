@@ -83,7 +83,9 @@ namespace NoSQL.GraphDB.Tests
             var saveGameDirectory = @".";
             var saveGameLocation = Path.Combine(saveGameDirectory, saveGameName);
 
-            var actualSaveGameLocation = _fallen8.Save(saveGameLocation);
+            CleanupSavegames(saveGameDirectory, saveGameName.Split('.')[0]);
+
+            var actualSaveGameLocation = _fallen8.Save(saveGameLocation, 1);
 
             TabulaRasaTransaction tx = new TabulaRasaTransaction();
             _fallen8.EnqueueTransaction(tx);
@@ -94,6 +96,11 @@ namespace NoSQL.GraphDB.Tests
             FindAlice();
 
             //cleanup
+            CleanupSavegames(saveGameDirectory, actualSaveGameLocation);
+        }
+
+        private static void CleanupSavegames(String saveGameDirectory, String actualSaveGameLocation)
+        {
             var toBeDeletedSaveGame = Path.GetFileName(actualSaveGameLocation) + "*";
             var files = Directory.GetFiles(saveGameDirectory, toBeDeletedSaveGame);
 

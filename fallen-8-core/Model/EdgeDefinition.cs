@@ -55,6 +55,12 @@ namespace NoSQL.GraphDB.Core.Model
             set;
         }
 
+        public String Label
+        {
+            get;
+            set;
+        }
+
         public PropertyContainer[] Properties
         {
             get;

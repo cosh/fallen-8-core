@@ -515,6 +515,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                                 aSneakPeak.ModificationDate,
                                 targetVertex,
                                 sourceVertex,
+                                aSneakPeak.Label,
                                 aSneakPeak.Properties);
                     }
                     else
@@ -603,6 +604,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             writer.Write(graphElement.Id);
             writer.Write(graphElement.CreationDate);
             writer.Write(graphElement.ModificationDate);
+            WriteString(writer, graphElement.Label);
 
             var properties = graphElement.GetAllProperties();
             writer.Write(properties.Count);
@@ -611,6 +613,16 @@ namespace NoSQL.GraphDB.Core.Persistency
                 writer.Write(aProperty.PropertyId);
                 writer.WriteObject(aProperty.Value);
             }
+        }
+
+        private void WriteString(SerializationWriter writer, String label)
+        {
+            writer.WriteObject(label);
+        }
+
+        private String ReadString(SerializationReader reader)
+        {
+            return reader.ReadObject() as String;
         }
 
         /// <summary>
@@ -625,6 +637,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             var id = reader.ReadInt32();
             var creationDate = reader.ReadUInt32();
             var modificationDate = reader.ReadUInt32();
+            var label = ReadString(reader);
 
             #region properties
 
@@ -747,7 +760,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #endregion
 
-            graphElements[id] = new VertexModel(id, creationDate, modificationDate, properties, outEdgeProperties,
+            graphElements[id] = new VertexModel(id, creationDate, modificationDate, label, properties, outEdgeProperties,
                                                      incEdgeProperties);
         }
 
@@ -816,7 +829,8 @@ namespace NoSQL.GraphDB.Core.Persistency
             var id = reader.ReadInt32();
             var creationDate = reader.ReadUInt32();
             var modificationDate = reader.ReadUInt32();
-
+            var label = ReadString(reader);
+            
             #region properties
 
             PropertyContainer[] properties = null;
@@ -844,7 +858,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             if (sourceVertex != null && targetVertex != null)
             {
-                graphElements[id] = new EdgeModel(id, creationDate, modificationDate, targetVertex, sourceVertex, properties);
+                graphElements[id] = new EdgeModel(id, creationDate, modificationDate, targetVertex, sourceVertex, label, properties);
             }
             else
             {
@@ -855,7 +869,8 @@ namespace NoSQL.GraphDB.Core.Persistency
                     ModificationDate = modificationDate,
                     Properties = properties,
                     SourceVertexId = sourceVertexId,
-                    TargetVertexId = targetVertexId
+                    TargetVertexId = targetVertexId,
+                    Label = label
                 });
             }
         }

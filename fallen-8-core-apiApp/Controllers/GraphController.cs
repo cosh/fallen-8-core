@@ -103,6 +103,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 Definition = new VertexDefinition()
                 {
                     CreationDate = definition.CreationDate,
+                    Label = definition.Label,
                     Properties = ServiceHelper.GenerateProperties(definition.Properties)
                 }
             };
@@ -131,6 +132,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     SourceVertexId = definition.SourceVertex,
                     EdgePropertyId = definition.EdgePropertyId,
                     TargetVertexId = definition.TargetVertex,
+                    Label = definition.Label,
                     Properties = ServiceHelper.GenerateProperties(definition.Properties)
                 }
             };
