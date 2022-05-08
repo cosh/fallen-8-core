@@ -423,15 +423,58 @@ namespace NoSQL.GraphDB.Core
 
             if (algo != null)
             {
-                algo.Initialize(this, null);
-
-
                 result = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
                                         edgePropertyFilter,
                                         vertexFilter, edgeFilter, edgeCost, vertexCost);
 
                 return result != null && result.Count > 0;
 
+            }
+
+            result = null;
+            return false;
+        }
+
+        public bool CalculateShortestPath<T>(
+            out List<Path> result,
+            Int32 sourceVertexId,
+            Int32 destinationVertexId,
+            Int32 maxDepth = 1,
+            Double maxPathWeight = Double.MaxValue,
+            Int32 maxResults = 1,
+            PathDelegates.EdgePropertyFilter edgePropertyFilter = null,
+            PathDelegates.VertexFilter vertexFilter = null,
+            PathDelegates.EdgeFilter edgeFilter = null,
+            PathDelegates.EdgeCost edgeCost = null,
+            PathDelegates.VertexCost vertexCost = null) 
+                where T : IShortestPathAlgorithm
+        {
+            Type shortestPathType = typeof(T);
+            var algo = Activator.CreateInstance(shortestPathType, false) as IShortestPathAlgorithm;
+
+            if (algo != null)
+            {
+                Object cachedAlgo;
+                if (!_pluginCache.ShortestPath.TryGetValue(algo.PluginName, out cachedAlgo))
+                {
+                    //Shortest path plugin was not cached
+                    algo.Initialize(this, null);
+                    _pluginCache.AddShortestPath(algo);
+                }
+                else
+                {
+                    algo = (IShortestPathAlgorithm)cachedAlgo;
+                }
+
+                if (algo != null)
+                {
+                    result = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
+                                            edgePropertyFilter,
+                                            vertexFilter, edgeFilter, edgeCost, vertexCost);
+
+                    return result != null && result.Count > 0;
+
+                }
             }
 
             result = null;

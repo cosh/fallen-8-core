@@ -140,5 +140,22 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(1, paths.Count);
         }
+
+        [TestMethod]
+        public void MultiHopPaths_generic()
+        {
+            Fallen8 f8 = new Fallen8(_loggerFactory);
+
+            TestGraphGenerator.GenerateAbcGraph(f8);
+
+            List<Path> paths;
+            f8.CalculateShortestPath<BidirectionalLevelSynchronousSSSP> (out paths, 0, 20, maxDepth: 26, maxResults: 2);
+
+            Assert.AreEqual(1, paths.Count);
+
+            //test the cache
+            f8.CalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
+            Assert.AreEqual(1, paths.Count);
+        }
     }
 }

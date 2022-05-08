@@ -219,7 +219,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   Activate the specified currentPluginType.
         /// </summary>
         /// <param name='currentPluginType'> Current plugin type. </param>
-        private static T Activate<T>(Type currentPluginType)
+        internal static T Activate<T>(Type currentPluginType)
             where T : class
         {
             object instance;
