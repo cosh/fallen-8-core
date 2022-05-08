@@ -262,17 +262,17 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <summary>
         ///   The serialized edge.
         /// </summary>
-        private const Int32 SerializedEdge = 0;
+        private const byte SerializedEdge = 0;
 
         /// <summary>
         ///   The serialized vertex.
         /// </summary>
-        private const Int32 SerializedVertex = 1;
+        private const byte SerializedVertex = 1;
 
         /// <summary>
         ///   The serialized null.
         /// </summary>
-        private const Int32 SerializedNull = 2;
+        private const byte SerializedNull = 2;
 
         /// <summary>
         ///   Saves the index.
@@ -357,7 +357,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 for (var i = 0; i < countOfElements; i++)
                 {
-                    var kind = reader.ReadInt32();
+                    var kind = reader.ReadByte();
                     switch (kind)
                     {
                         case SerializedEdge:
