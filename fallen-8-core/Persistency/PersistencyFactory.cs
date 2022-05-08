@@ -601,16 +601,16 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='writer'> Writer. </param>
         private void WriteAGraphElement(AGraphElement graphElement, SerializationWriter writer)
         {
-            writer.Write(graphElement.Id);
-            writer.Write(graphElement.CreationDate);
-            writer.Write(graphElement.ModificationDate);
+            writer.WriteOptimized(graphElement.Id);
+            writer.WriteOptimized(graphElement.CreationDate);
+            writer.WriteOptimized(graphElement.ModificationDate);
             writer.WriteOptimized(graphElement.Label);
 
             var properties = graphElement.GetAllProperties();
-            writer.Write(properties.Count);
+            writer.WriteOptimized(properties.Count);
             foreach (var aProperty in properties)
             {
-                writer.Write(aProperty.PropertyId);
+                writer.WriteOptimized(aProperty.PropertyId);
                 writer.WriteObject(aProperty.Value);
             }
         }
@@ -624,14 +624,14 @@ namespace NoSQL.GraphDB.Core.Persistency
         private void LoadVertex(SerializationReader reader, AGraphElement[] graphElements,
                                        Dictionary<Int32, List<EdgeOnVertexToDo>> edgeTodo)
         {
-            var id = reader.ReadInt32();
-            var creationDate = reader.ReadUInt32();
-            var modificationDate = reader.ReadUInt32();
+            var id = reader.ReadOptimizedInt32();
+            var creationDate = reader.ReadOptimizedUInt32();
+            var modificationDate = reader.ReadOptimizedUInt32();
             var label = reader.ReadOptimizedString();
 
             #region properties
 
-            var propertyCount = reader.ReadInt32();
+            var propertyCount = reader.ReadOptimizedInt32();
             PropertyContainer[] properties = null;
 
             if (propertyCount > 0)
@@ -639,7 +639,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 properties = new PropertyContainer[propertyCount];
                 for (var i = 0; i < propertyCount; i++)
                 {
-                    var propertyIdentifier = reader.ReadUInt16();
+                    var propertyIdentifier = reader.ReadOptimizedUInt16();
                     var propertyValue = reader.ReadObject();
 
                     properties[i] = new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue };
@@ -816,22 +816,22 @@ namespace NoSQL.GraphDB.Core.Persistency
         private void LoadEdge(SerializationReader reader, AGraphElement[] graphElements,
                                      ref List<EdgeSneakPeak> sneakPeaks)
         {
-            var id = reader.ReadInt32();
-            var creationDate = reader.ReadUInt32();
-            var modificationDate = reader.ReadUInt32();
+            var id = reader.ReadOptimizedInt32();
+            var creationDate = reader.ReadOptimizedUInt32();
+            var modificationDate = reader.ReadOptimizedUInt32();
             var label = reader.ReadOptimizedString();
 
             #region properties
 
             PropertyContainer[] properties = null;
-            var propertyCount = reader.ReadInt32();
+            var propertyCount = reader.ReadOptimizedInt32();
 
             if (propertyCount > 0)
             {
                 properties = new PropertyContainer[propertyCount];
                 for (var i = 0; i < propertyCount; i++)
                 {
-                    var propertyIdentifier = reader.ReadUInt16();
+                    var propertyIdentifier = reader.ReadOptimizedUInt16();
                     var propertyValue = reader.ReadObject();
 
                     properties[i] = new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue };
@@ -840,8 +840,8 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #endregion
 
-            var sourceVertexId = reader.ReadInt32();
-            var targetVertexId = reader.ReadInt32();
+            var sourceVertexId = reader.ReadOptimizedInt32();
+            var targetVertexId = reader.ReadOptimizedInt32();
 
             VertexModel sourceVertex = graphElements[sourceVertexId] as VertexModel;
             VertexModel targetVertex = graphElements[targetVertexId] as VertexModel;
@@ -874,8 +874,8 @@ namespace NoSQL.GraphDB.Core.Persistency
         {
             writer.Write(SerializedEdge);
             WriteAGraphElement(edge, writer);
-            writer.Write(edge.SourceVertex.Id);
-            writer.Write(edge.TargetVertex.Id);
+            writer.WriteOptimized(edge.SourceVertex.Id);
+            writer.WriteOptimized(edge.TargetVertex.Id);
         }
 
         #endregion
