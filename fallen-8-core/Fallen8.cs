@@ -254,7 +254,7 @@ namespace NoSQL.GraphDB.Core
 
 
 
-        public bool GraphScan(out List<AGraphElement> result, ushort propertyId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
+        public bool GraphScan(out List<AGraphElement> result, String propertyId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
         {
             #region binary operation
 
@@ -551,7 +551,7 @@ namespace NoSQL.GraphDB.Core
             return newEdges;
         }
 
-        internal Boolean TryAddProperty_internal(Int32 graphElementId, UInt16 propertyId, Object property)
+        internal Boolean TryAddProperty_internal(Int32 graphElementId, String propertyId, Object property)
         {
             var success = false;
             AGraphElement graphElement = _graphElements[graphElementId];
@@ -563,7 +563,7 @@ namespace NoSQL.GraphDB.Core
             return success;
         }
 
-        internal bool TryRemoveProperty_internal(Int32 graphElementId, UInt16 propertyId)
+        internal bool TryRemoveProperty_internal(Int32 graphElementId, String propertyId)
         {
             var graphElement = _graphElements[graphElementId];
 
@@ -843,7 +843,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='finder'> Finder. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='propertyId'> Property identifier. </param>
-        private List<AGraphElement> FindElements(BinaryOperatorDelegate finder, IComparable literal, UInt16 propertyId)
+        private List<AGraphElement> FindElements(BinaryOperatorDelegate finder, IComparable literal, String propertyId)
         {
             return FindElements(
                 aGraphElement =>

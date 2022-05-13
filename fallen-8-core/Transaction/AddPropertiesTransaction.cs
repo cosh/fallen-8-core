@@ -51,7 +51,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             return true;
         }
 
-        public AddPropertiesTransaction AddProperty(Int32 graphElementId, UInt16 propertyId, Object property)
+        public AddPropertiesTransaction AddProperty(Int32 graphElementId, String propertyId, Object property)
         {
             Properties.Add(new PropertyAddDefinition() { GraphElementId = graphElementId, PropertyId = propertyId, Property = property });
 

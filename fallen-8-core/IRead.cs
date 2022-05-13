@@ -86,7 +86,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='propertyId'> Property identifier. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='binOp'> Binary operator. </param>
-        Boolean GraphScan(out List<AGraphElement> result, UInt16 propertyId, IComparable literal,
+        Boolean GraphScan(out List<AGraphElement> result, String propertyId, IComparable literal,
                           BinaryOperator binOp = BinaryOperator.Equals);
 
         /// <summary>

@@ -247,7 +247,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpPost("/scan/graph/property/{propertyId}")]
         [Produces("application/json")]
-        public IEnumerable<int> GraphScan([FromRoute] UInt16 propertyId, [FromBody] ScanSpecification definition)
+        public IEnumerable<int> GraphScan([FromRoute] String propertyId, [FromBody] ScanSpecification definition)
         {
             #region initial checks
 
@@ -383,7 +383,7 @@ namespace NoSQL.GraphDB.App.Controllers
         public void AddProperty([FromRoute] string graphElementIdString, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition)
         {
             var graphElementId = Convert.ToInt32(graphElementIdString);
-            var propertyId = Convert.ToUInt16(propertyIdString);
+            var propertyId = propertyIdString;
 
             var property = Convert.ChangeType(
                 definition.PropertyValue,
@@ -406,7 +406,7 @@ namespace NoSQL.GraphDB.App.Controllers
         public void TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
-            var propertyId = Convert.ToUInt16(propertyIdString);
+            var propertyId = propertyIdString;
 
             RemovePropertyTransaction tx = new RemovePropertyTransaction()
             {

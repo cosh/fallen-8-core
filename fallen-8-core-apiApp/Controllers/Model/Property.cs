@@ -37,7 +37,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The property id
         /// </summary>
         [Required]
-        public UInt16 PropertyId
+        public String PropertyId
         {
             get; set;
         }

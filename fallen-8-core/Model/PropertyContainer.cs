@@ -40,7 +40,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <value>
         /// The property identifier.
         /// </value>
-        public UInt16 PropertyId;
+        public String PropertyId;
 
         /// <summary>
         /// Gets or sets the value.

@@ -72,7 +72,7 @@ namespace NoSQL.GraphDB.App.Helper
         /// <returns> The properties. </returns>
         /// <param name='propertySpecification'> Property specification. </param>
         public static PropertyContainer[] GenerateProperties(
-            Dictionary<UInt16, PropertySpecification> propertySpecification)
+            Dictionary<String, PropertySpecification> propertySpecification)
         {
             PropertyContainer[] properties = null;
 

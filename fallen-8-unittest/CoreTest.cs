@@ -62,7 +62,7 @@ namespace NoSQL.GraphDB.Tests
         public void FindAlice()
         {
             List<AGraphElement> result;
-            _fallen8.GraphScan(out result, 0, "Alice", BinaryOperator.Equals);
+            _fallen8.GraphScan(out result, "name", "Alice", BinaryOperator.Equals);
 
             Assert.IsNotNull(result);
 
@@ -71,7 +71,7 @@ namespace NoSQL.GraphDB.Tests
             VertexModel alice = (VertexModel)result[0];
 
             String name;
-            alice.TryGetProperty(out name, 0);
+            alice.TryGetProperty(out name, "name");
 
             Assert.AreEqual("Alice", name);
         }

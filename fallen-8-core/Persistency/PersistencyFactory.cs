@@ -639,7 +639,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 properties = new PropertyContainer[propertyCount];
                 for (var i = 0; i < propertyCount; i++)
                 {
-                    var propertyIdentifier = reader.ReadOptimizedUInt16();
+                    var propertyIdentifier = reader.ReadOptimizedString();
                     var propertyValue = reader.ReadObject();
 
                     properties[i] = new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue };
@@ -831,7 +831,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 properties = new PropertyContainer[propertyCount];
                 for (var i = 0; i < propertyCount; i++)
                 {
-                    var propertyIdentifier = reader.ReadOptimizedUInt16();
+                    var propertyIdentifier = reader.ReadOptimizedString();
                     var propertyValue = reader.ReadObject();
 
                     properties[i] = new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue };

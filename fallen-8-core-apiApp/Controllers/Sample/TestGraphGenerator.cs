@@ -86,7 +86,7 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
         private static PropertyContainer CreateName(string name)
         {
-            return new PropertyContainer() { PropertyId = 0, Value = name };
+            return new PropertyContainer() { PropertyId = "name", Value = name };
         }
 
         public static SampleStats GenerateAbcGraph(Fallen8 f8)

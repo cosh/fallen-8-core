@@ -36,7 +36,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
-        public UInt16 PropertyId
+        public String PropertyId
         {
             get;
             set;

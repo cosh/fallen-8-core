@@ -138,14 +138,14 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name="result"> Result. </param>
         /// <param name="propertyId"> Property identifier. </param>
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
-        public Boolean TryGetProperty<TProperty>(out TProperty result, UInt16 propertyId)
+        public Boolean TryGetProperty<TProperty>(out TProperty result, String propertyId)
         {
             if (_properties != null)
             {
                 for (var i = 0; i < _properties.Length; i++)
                 {
                     var aPropContainer = _properties[i];
-                    if (aPropContainer.Value != null && aPropContainer.PropertyId == propertyId)
+                    if (aPropContainer.Value != null && aPropContainer.PropertyId.Equals(propertyId))
                     {
                         result = (TProperty)aPropContainer.Value;
                         return true;
@@ -177,7 +177,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='propertyId'> If set to <c>true</c> property identifier. </param>
         /// <param name='property'> If set to <c>true</c> property. </param>
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
-        internal bool TryAddProperty(UInt16 propertyId, object property)
+        internal bool TryAddProperty(String propertyId, object property)
         {
             var foundProperty = false;
             var idx = 0;
@@ -186,7 +186,7 @@ namespace NoSQL.GraphDB.Core.Model
             {
                 for (var i = 0; i < _properties.Length; i++)
                 {
-                    if (_properties[i].PropertyId == propertyId)
+                    if (_properties[i].PropertyId.Equals(propertyId))
                     {
                         foundProperty = true;
                         idx = i;
@@ -226,7 +226,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> <c>true</c> if the property was removed; otherwise, <c>false</c> if there was no such property. </returns>
         /// <param name='propertyId'> If set to <c>true</c> property identifier. </param>
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
-        internal bool TryRemoveProperty(UInt16 propertyId)
+        internal bool TryRemoveProperty(String propertyId)
         {
             var removedSomething = false;
 
@@ -236,7 +236,7 @@ namespace NoSQL.GraphDB.Core.Model
 
                 for (var i = 0; i < _properties.Length; i++)
                 {
-                    if (_properties[i].PropertyId == propertyId)
+                    if (_properties[i].PropertyId.Equals(propertyId))
                     {
                         toBeRemovedIdx = i;
                         removedSomething = true;
