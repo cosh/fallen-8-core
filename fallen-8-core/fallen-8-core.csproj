@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>NoSQL.GraphDB.Core</RootNamespace>
     <PackageId>Fallen-8</PackageId>
-    <Version>0.0.10</Version>
+    <Version>0.0.11</Version>
     <Authors>Henning Rauch</Authors>
     <Company>RauchEntwicklung</Company>
     <Copyright>Copyright (c) 2022 Henning Rauch</Copyright>
