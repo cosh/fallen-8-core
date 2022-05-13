@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>NoSQL.GraphDB.Core</RootNamespace>
     <PackageId>Fallen-8</PackageId>
     <Version>0.0.10</Version>
