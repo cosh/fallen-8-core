@@ -159,7 +159,7 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
-        internal VertexModel CreateVertex_internal(UInt32 creationDate, String label, PropertyContainer[] properties = null)
+        internal VertexModel CreateVertex_internal(UInt32 creationDate, String label, List<PropertyContainer> properties = null)
         {
             //create the new vertex
             var newVertex = new VertexModel(_currentId, creationDate, label, properties);
@@ -481,7 +481,8 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, UInt32 creationDate, String label, PropertyContainer[] properties)
+        internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, 
+            UInt32 creationDate, String label, List<PropertyContainer> properties)
         {
             EdgeModel outgoingEdge = null;
 
@@ -526,7 +527,8 @@ namespace NoSQL.GraphDB.Core
                     //get the related vertices
                     if (sourceVertex != null && targetVertex != null)
                     {
-                        var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex, aEdgeDefinition.Label, aEdgeDefinition.Properties);
+                        var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex, 
+                            aEdgeDefinition.Label, aEdgeDefinition.Properties);
 
                         newEdges.Add(newEdge);
 

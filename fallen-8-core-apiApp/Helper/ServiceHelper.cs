@@ -105,18 +105,18 @@ namespace NoSQL.GraphDB.App.Helper
         /// </summary>
         /// <returns> The properties. </returns>
         /// <param name='propertySpecification'> Property specification. </param>
-        public static PropertyContainer[] GenerateProperties(List<PropertySpecification> propertySpecification)
+        public static List<PropertyContainer> GenerateProperties(List<PropertySpecification> propertySpecification)
         {
-            PropertyContainer[] properties = null;
+            List<PropertyContainer> properties = null;
 
             if (propertySpecification != null)
             {
                 var propCounter = 0;
-                properties = new PropertyContainer[propertySpecification.Count];
+                properties = new List<PropertyContainer>(propertySpecification.Count);
 
                 foreach (var aPropertyDefinition in propertySpecification)
                 {
-                    properties[propCounter] = new PropertyContainer
+                    properties.Add(new PropertyContainer
                     {
                         PropertyId = aPropertyDefinition.PropertyId,
                         Value = aPropertyDefinition.FullQualifiedTypeName != null
@@ -125,7 +125,7 @@ namespace NoSQL.GraphDB.App.Helper
                                                     aPropertyDefinition.FullQualifiedTypeName,
                                                     true, true))
                             : aPropertyDefinition.PropertyValue
-                    };
+                    });
                     propCounter++;
                 }
             }

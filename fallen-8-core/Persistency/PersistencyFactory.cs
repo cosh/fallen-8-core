@@ -632,17 +632,17 @@ namespace NoSQL.GraphDB.Core.Persistency
             #region properties
 
             var propertyCount = reader.ReadOptimizedInt32();
-            PropertyContainer[] properties = null;
+            List<PropertyContainer> properties = null;
 
             if (propertyCount > 0)
             {
-                properties = new PropertyContainer[propertyCount];
+                properties = new List<PropertyContainer>(propertyCount);
                 for (var i = 0; i < propertyCount; i++)
                 {
                     var propertyIdentifier = reader.ReadOptimizedString();
                     var propertyValue = reader.ReadObject();
 
-                    properties[i] = new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue };
+                    properties.Add(new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue });
                 }
             }
 
@@ -823,18 +823,18 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #region properties
 
-            PropertyContainer[] properties = null;
+            List<PropertyContainer> properties = null;
             var propertyCount = reader.ReadOptimizedInt32();
 
             if (propertyCount > 0)
             {
-                properties = new PropertyContainer[propertyCount];
+                properties = new List<PropertyContainer>(propertyCount);
                 for (var i = 0; i < propertyCount; i++)
                 {
                     var propertyIdentifier = reader.ReadOptimizedString();
                     var propertyValue = reader.ReadObject();
 
-                    properties[i] = new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue };
+                    properties.Add(new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue });
                 }
             }
 

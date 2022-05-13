@@ -61,7 +61,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='creationDate'> Creation date. </param>
         /// <param name='label'> Label. </param>
         /// <param name='properties'> Properties. </param>
-        public VertexModel(Int32 id, UInt32 creationDate, String label = null, PropertyContainer[] properties = null)
+        public VertexModel(Int32 id, UInt32 creationDate, String label = null, List<PropertyContainer> properties = null)
             : base(id, creationDate, label, properties)
         {
         }
@@ -76,8 +76,8 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='properties'> Properties. </param>
         /// <param name='outEdges'> Out edges. </param>
         /// <param name='incEdges'> Inc edges. </param>
-        internal VertexModel(Int32 id, UInt32 creationDate, UInt32 modificationDate, String label = null, 
-                             PropertyContainer[] properties = null, List<EdgeContainer> outEdges = null, List<EdgeContainer> incEdges = null)
+        internal VertexModel(Int32 id, UInt32 creationDate, UInt32 modificationDate, String label = null,
+                             List<PropertyContainer> properties = null, List<EdgeContainer> outEdges = null, List<EdgeContainer> incEdges = null)
             : base(id, creationDate, label, properties)
         {
             if (outEdges != null)

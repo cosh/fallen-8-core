@@ -61,7 +61,7 @@ namespace NoSQL.GraphDB.Core.Model
             set;
         }
 
-        public PropertyContainer[] Properties
+        public List<PropertyContainer> Properties
         {
             get;
             set;

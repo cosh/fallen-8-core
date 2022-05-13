@@ -24,6 +24,8 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
@@ -60,7 +62,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <summary>
         ///   The properties.
         /// </summary>
-        private PropertyContainer[] _properties;
+        private ImmutableList<PropertyContainer> _properties;
 
         /// <summary>
         ///  Defines if the object has been removed. If it is set to true then it will not be returned in searches
@@ -78,12 +80,12 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='creationDate'> Creation date. </param>
         /// <param name='label'> Label. </param>
         /// <param name='properties'> Properties. </param>
-        protected AGraphElement(Int32 id, UInt32 creationDate, String label = null, PropertyContainer[] properties = null)
+        protected AGraphElement(Int32 id, UInt32 creationDate, String label = null, List<PropertyContainer> properties = null)
         {
             Id = id;
             CreationDate = creationDate;
             ModificationDate = 0;
-            _properties = properties;
+            _properties = properties != null ? ImmutableList.CreateRange<PropertyContainer>(properties) : null;
             Label = label;
         }
 
@@ -116,7 +118,7 @@ namespace NoSQL.GraphDB.Core.Model
         public Int32 GetPropertyCount()
         {
 
-            return _properties.Length;
+            return _properties.Count;
 
         }
 
@@ -124,11 +126,11 @@ namespace NoSQL.GraphDB.Core.Model
         ///   Gets all properties.
         /// </summary>
         /// <returns> All properties. </returns>
-        public ReadOnlyCollection<PropertyContainer> GetAllProperties()
+        public ImmutableList<PropertyContainer> GetAllProperties()
         {
             return _properties != null
-                        ? new ReadOnlyCollection<PropertyContainer>(_properties)
-                        : new ReadOnlyCollection<PropertyContainer>(new PropertyContainer[0]);
+                        ? _properties
+                        : ImmutableList.Create<PropertyContainer>();
         }
 
         /// <summary>
@@ -142,7 +144,7 @@ namespace NoSQL.GraphDB.Core.Model
         {
             if (_properties != null)
             {
-                for (var i = 0; i < _properties.Length; i++)
+                for (var i = 0; i < _properties.Count; i++)
                 {
                     var aPropContainer = _properties[i];
                     if (aPropContainer.Value != null && aPropContainer.PropertyId.Equals(propertyId))
@@ -184,7 +186,7 @@ namespace NoSQL.GraphDB.Core.Model
 
             if (_properties != null)
             {
-                for (var i = 0; i < _properties.Length; i++)
+                for (var i = 0; i < _properties.Count; i++)
                 {
                     if (_properties[i].PropertyId.Equals(propertyId))
                     {
@@ -196,22 +198,16 @@ namespace NoSQL.GraphDB.Core.Model
 
                 if (!foundProperty)
                 {
-                    //resize
-                    var newProperties = new PropertyContainer[_properties.Length + 1];
-                    Array.Copy(_properties, newProperties, _properties.Length);
-                    newProperties[_properties.Length] = new PropertyContainer { PropertyId = propertyId, Value = property };
-
-                    _properties = newProperties;
+                    _properties = _properties.Add(new PropertyContainer { PropertyId = propertyId, Value = property });
                 }
                 else
                 {
-                    _properties[idx] = new PropertyContainer { PropertyId = propertyId, Value = property };
+                    _properties = _properties.SetItem(idx, new PropertyContainer { PropertyId = propertyId, Value = property });
                 }
             }
             else
             {
-                _properties = new PropertyContainer[0];
-                _properties[0] = new PropertyContainer { PropertyId = propertyId, Value = property };
+                _properties = ImmutableList.Create<PropertyContainer>(new PropertyContainer { PropertyId = propertyId, Value = property });
             }
 
             //set the modificationdate
@@ -234,7 +230,7 @@ namespace NoSQL.GraphDB.Core.Model
             {
                 var toBeRemovedIdx = 0;
 
-                for (var i = 0; i < _properties.Length; i++)
+                for (var i = 0; i < _properties.Count; i++)
                 {
                     if (_properties[i].PropertyId.Equals(propertyId))
                     {
@@ -247,21 +243,7 @@ namespace NoSQL.GraphDB.Core.Model
                 if (removedSomething)
                 {
                     //resize
-                    var newProperties = new PropertyContainer[_properties.Length - 1];
-                    if (newProperties.Length != 0)
-                    {
-                        //everything until the to be removed item
-                        Array.Copy(_properties, newProperties, toBeRemovedIdx);
-
-                        if (toBeRemovedIdx > newProperties.Length)
-                        {
-                            //everything after the removed item
-                            Array.Copy(_properties, toBeRemovedIdx + 1, newProperties, toBeRemovedIdx,
-                                       _properties.Length - toBeRemovedIdx);
-                        }
-
-                        _properties = newProperties;
-                    }
+                    _properties.RemoveAt(toBeRemovedIdx);
 
                     //set the modificationdate
                     ModificationDate = DateHelper.GetModificationDate(CreationDate);
