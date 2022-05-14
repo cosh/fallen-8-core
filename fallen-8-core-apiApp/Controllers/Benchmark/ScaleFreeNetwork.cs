@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
@@ -124,7 +125,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// <returns></returns>
         public String Bench(int myIterations = 1000)
         {
-            ReadOnlyCollection<VertexModel> vertices = _f8.GetAllVertices();
+            ImmutableList<VertexModel> vertices = _f8.GetAllVertices();
             var tps = new List<double>();
             long edgeCount = 0;
             var sb = new StringBuilder();
@@ -153,7 +154,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// <param name="vertices"></param>
         /// <param name="vertexRange"></param>
         /// <returns></returns>
-        private static long CountAllEdgesParallelPartitioner(ReadOnlyCollection<VertexModel> vertices, Int32 vertexRange)
+        private static long CountAllEdgesParallelPartitioner(ImmutableList<VertexModel> vertices, Int32 vertexRange)
         {
             var lockObject = new object();
             var edgeCount = 0L;

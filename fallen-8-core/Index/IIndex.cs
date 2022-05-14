@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
@@ -84,7 +85,7 @@ namespace NoSQL.GraphDB.Core.Index
         ///   Gets the key values.
         /// </summary>
         /// <returns> The key values. </returns>
-        IEnumerable<KeyValuePair<object, ReadOnlyCollection<AGraphElement>>> GetKeyValues();
+        IEnumerable<KeyValuePair<object, ImmutableList<AGraphElement>>> GetKeyValues();
 
         /// <summary>
         ///   Gets the value.
@@ -92,6 +93,6 @@ namespace NoSQL.GraphDB.Core.Index
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
         /// <param name='result'> Result. </param>
         /// <param name='key'> Key. </param>
-        Boolean TryGetValue(out ReadOnlyCollection<AGraphElement> result, Object key);
+        Boolean TryGetValue(out ImmutableList<AGraphElement> result, Object key);
     }
 }

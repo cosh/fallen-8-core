@@ -27,6 +27,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Microsoft.Extensions.Logging;
@@ -189,14 +190,14 @@ namespace NoSQL.GraphDB.Core.Index
         }
 
 
-        public IEnumerable<KeyValuePair<object, ReadOnlyCollection<AGraphElement>>> GetKeyValues()
+        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElement>>> GetKeyValues()
         {
             if (ReadResource())
             {
                 try
                 {
                     foreach (var aKv in _idx)
-                        yield return new KeyValuePair<object, ReadOnlyCollection<AGraphElement>>(aKv.Key, new ReadOnlyCollection<AGraphElement>(new List<AGraphElement> { aKv.Value }));
+                        yield return new KeyValuePair<object, ImmutableList<AGraphElement>>(aKv.Key, ImmutableList.Create<AGraphElement>(aKv.Value));
 
                 }
                 finally
@@ -210,7 +211,7 @@ namespace NoSQL.GraphDB.Core.Index
             throw new CollisionException();
         }
 
-        public bool TryGetValue(out ReadOnlyCollection<AGraphElement> result, Object keyObject)
+        public bool TryGetValue(out ImmutableList<AGraphElement> result, Object keyObject)
         {
             IComparable key;
             if (!IndexHelper.CheckObject(out key, keyObject))
@@ -225,7 +226,7 @@ namespace NoSQL.GraphDB.Core.Index
                 AGraphElement element;
                 var foundSth = _idx.TryGetValue(key, out element);
 
-                result = foundSth ? new ReadOnlyCollection<AGraphElement>(new List<AGraphElement> { element }) : null;
+                result = foundSth ? ImmutableList.Create<AGraphElement>(element) : null;
 
                 FinishReadResource();
 

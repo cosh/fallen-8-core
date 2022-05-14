@@ -254,34 +254,35 @@ namespace NoSQL.GraphDB.Core
 
 
 
-        public bool GraphScan(out List<AGraphElement> result, String propertyId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
+        public bool GraphScan(out List<AGraphElement> result, String propertyId, IComparable literal, 
+            BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null)
         {
             #region binary operation
 
             switch (binOp)
             {
                 case BinaryOperator.Equals:
-                    result = FindElements(BinaryEqualsMethod, literal, propertyId);
+                    result = FindElements(BinaryEqualsMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.Greater:
-                    result = FindElements(BinaryGreaterMethod, literal, propertyId);
+                    result = FindElements(BinaryGreaterMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.GreaterOrEquals:
-                    result = FindElements(BinaryGreaterOrEqualMethod, literal, propertyId);
+                    result = FindElements(BinaryGreaterOrEqualMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.LowerOrEquals:
-                    result = FindElements(BinaryLowerOrEqualMethod, literal, propertyId);
+                    result = FindElements(BinaryLowerOrEqualMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.Lower:
-                    result = FindElements(BinaryLowerMethod, literal, propertyId);
+                    result = FindElements(BinaryLowerMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.NotEquals:
-                    result = FindElements(BinaryNotEqualsMethod, literal, propertyId);
+                    result = FindElements(BinaryNotEqualsMethod, literal, propertyId, interestingLabel);
                     break;
 
                 default:
@@ -295,7 +296,7 @@ namespace NoSQL.GraphDB.Core
             return result.Count > 0;
         }
 
-        public bool IndexScan(out ReadOnlyCollection<AGraphElement> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
+        public bool IndexScan(out ImmutableList<AGraphElement> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
         {
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
@@ -346,7 +347,7 @@ namespace NoSQL.GraphDB.Core
             return result.Count > 0;
         }
 
-        public bool RangeIndexScan(out ReadOnlyCollection<AGraphElement> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
+        public bool RangeIndexScan(out ImmutableList<AGraphElement> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
         {
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
@@ -845,7 +846,9 @@ namespace NoSQL.GraphDB.Core
         /// <param name='finder'> Finder. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='propertyId'> Property identifier. </param>
-        private List<AGraphElement> FindElements(BinaryOperatorDelegate finder, IComparable literal, String propertyId)
+        /// <param name='interestingLabel'> The interesting label. </param>
+        private List<AGraphElement> FindElements(BinaryOperatorDelegate finder, IComparable literal, String propertyId,
+            String interestingLabel = null)
         {
             return FindElements(
                 aGraphElement =>
@@ -860,12 +863,20 @@ namespace NoSQL.GraphDB.Core
         /// Find elements by scanning the list
         /// </summary>
         /// <param name="seeker">A delegate to search for the right element</param>
+        /// <param name='interestingLabel'> The interesting label. </param>
         /// <returns>A list of matching graph elements</returns>
-        private List<AGraphElement> FindElements(ElementSeeker seeker)
+        private List<AGraphElement> FindElements(ElementSeeker seeker, String interestingLabel = null)
         {
             return _graphElements.AsParallel()
-                .Where(_ => _ != null && !_._removed && seeker(_))
+                .Where(_ => _ != null && !_._removed)
+                .Where(CheckLabel(interestingLabel))
+                .Where(_ => seeker(_))
                 .ToList();
+        }
+
+        private static Func<AGraphElement, Boolean> CheckLabel(String interestingLabel = null)
+        {
+            return _ => interestingLabel == null || interestingLabel != null && _.Label != null && _.Label.Equals(interestingLabel);
         }
 
         /// <summary>
@@ -875,17 +886,16 @@ namespace NoSQL.GraphDB.Core
         /// <param name='finder'> Finder delegate. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='index'> Index. </param>
-        private static ReadOnlyCollection<AGraphElement> FindElementsIndex(BinaryOperatorDelegate finder,
+        private static ImmutableList<AGraphElement> FindElementsIndex(BinaryOperatorDelegate finder,
                                                                            IComparable literal, IIndex index)
         {
-            return new ReadOnlyCollection<AGraphElement>(index.GetKeyValues()
+            return ImmutableList.CreateRange<AGraphElement>(index.GetKeyValues()
                                                              .AsParallel()
-                                                             .Select(aIndexElement => new KeyValuePair<IComparable, ReadOnlyCollection<AGraphElement>>((IComparable)aIndexElement.Key, aIndexElement.Value))
+                                                             .Select(aIndexElement => new KeyValuePair<IComparable, ImmutableList<AGraphElement>>((IComparable)aIndexElement.Key, aIndexElement.Value))
                                                              .Where(aTypedIndexElement => finder(aTypedIndexElement.Key, literal))
                                                              .Select(_ => _.Value)
                                                              .SelectMany(__ => __)
-                                                             .Distinct()
-                                                             .ToList());
+                                                             .Distinct());
         }
 
         /// <summary>
@@ -1017,22 +1027,24 @@ namespace NoSQL.GraphDB.Core
                 .Where(_ => _ != null && _ is TInteresting).Count();
         }
 
-        public ReadOnlyCollection<VertexModel> GetAllVertices()
+        public ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null)
         {
-            return new ReadOnlyCollection<VertexModel>(
+            return ImmutableList.CreateRange<VertexModel>(
                  _graphElements
                  .AsParallel()
                  .Where(_ => _ != null && _ is VertexModel)
-                 .Select(_ => (VertexModel)_).ToList());
+                 .Where(CheckLabel(interestingLabel))
+                 .Select(_ => (VertexModel)_));
         }
 
-        public ReadOnlyCollection<EdgeModel> GetAllEdges()
+        public ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null)
         {
-            return new ReadOnlyCollection<EdgeModel>(
+            return ImmutableList.CreateRange<EdgeModel>(
                         _graphElements
                         .AsParallel()
                         .Where(_ => _ != null && _ is EdgeModel)
-                        .Select(_ => (EdgeModel)_).ToList());
+                        .Where(CheckLabel(interestingLabel))
+                        .Select(_ => (EdgeModel)_));
         }
 
         #endregion

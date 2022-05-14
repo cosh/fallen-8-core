@@ -27,6 +27,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Microsoft.Extensions.Logging;
@@ -49,7 +50,7 @@ namespace NoSQL.GraphDB.Core.Index
         /// <summary>
         /// The index dictionary.
         /// </summary>
-        private Dictionary<IComparable, List<AGraphElement>> _idx;
+        private Dictionary<IComparable, ImmutableList<AGraphElement>> _idx;
 
         /// <summary>
         /// The description of the plugin
@@ -126,14 +127,14 @@ namespace NoSQL.GraphDB.Core.Index
                 try
                 {
 
-                    List<AGraphElement> values;
+                    ImmutableList<AGraphElement> values;
                     if (_idx.TryGetValue(key, out values))
                     {
                         values.Add(graphElement);
                     }
                     else
                     {
-                        values = new List<AGraphElement> { graphElement };
+                        values = ImmutableList.Create<AGraphElement>(graphElement);
                         _idx.Add(key, values);
                     }
                 }
@@ -240,14 +241,16 @@ namespace NoSQL.GraphDB.Core.Index
         }
 
 
-        public IEnumerable<KeyValuePair<object, ReadOnlyCollection<AGraphElement>>> GetKeyValues()
+        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElement>>> GetKeyValues()
         {
             if (ReadResource())
             {
                 try
                 {
                     foreach (var aKv in _idx)
-                        yield return new KeyValuePair<object, ReadOnlyCollection<AGraphElement>>(aKv.Key, new ReadOnlyCollection<AGraphElement>(aKv.Value));
+                    {
+                        yield return new KeyValuePair<object, ImmutableList<AGraphElement>>(aKv.Key, aKv.Value);
+                    }
                 }
                 finally
                 {
@@ -260,7 +263,7 @@ namespace NoSQL.GraphDB.Core.Index
             throw new CollisionException();
         }
 
-        public bool TryGetValue(out ReadOnlyCollection<AGraphElement> result, Object keyObject)
+        public bool TryGetValue(out ImmutableList<AGraphElement> result, Object keyObject)
         {
             IComparable key;
             if (!IndexHelper.CheckObject(out key, keyObject))
@@ -273,10 +276,10 @@ namespace NoSQL.GraphDB.Core.Index
             {
                 try
                 {
-                    List<AGraphElement> graphElements;
+                    ImmutableList<AGraphElement> graphElements;
                     var foundSth = _idx.TryGetValue(key, out graphElements);
 
-                    result = foundSth ? new ReadOnlyCollection<AGraphElement>(graphElements) : null;
+                    result = foundSth ? graphElements : null;
                     return foundSth;
                 }
                 finally
@@ -331,7 +334,7 @@ namespace NoSQL.GraphDB.Core.Index
 
                     var keyCount = reader.ReadInt32();
 
-                    _idx = new Dictionary<IComparable, List<AGraphElement>>(keyCount);
+                    _idx = new Dictionary<IComparable, ImmutableList<AGraphElement>>(keyCount);
 
                     for (var i = 0; i < keyCount; i++)
                     {
@@ -351,7 +354,7 @@ namespace NoSQL.GraphDB.Core.Index
                                 _logger.LogError(String.Format("[DictionaryIndex] Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
                             }
                         }
-                        _idx.Add((IComparable)key, value);
+                        _idx.Add((IComparable)key, ImmutableList.CreateRange<AGraphElement>(value));
                     }
                 }
                 finally
@@ -371,7 +374,7 @@ namespace NoSQL.GraphDB.Core.Index
 
         public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
         {
-            _idx = new Dictionary<IComparable, List<AGraphElement>>();
+            _idx = new Dictionary<IComparable, ImmutableList<AGraphElement>>();
             _logger = fallen8._loggerFactory.CreateLogger<DictionaryIndex>();
         }
 

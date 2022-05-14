@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net;
@@ -290,7 +291,7 @@ namespace NoSQL.GraphDB.App.Controllers
                                                          Type.GetType(definition.Literal.FullQualifiedTypeName, true,
                                                                       true));
 
-            ReadOnlyCollection<AGraphElement> graphElements;
+            ImmutableList<AGraphElement> graphElements;
             return _fallen8.IndexScan(out graphElements, definition.IndexId, value, definition.Operator)
                        ? CreateResult(graphElements, definition.ResultType)
                        : Enumerable.Empty<Int32>();
@@ -315,7 +316,7 @@ namespace NoSQL.GraphDB.App.Controllers
             var right = (IComparable)Convert.ChangeType(definition.RightLimit,
                                                          Type.GetType(definition.FullQualifiedTypeName, true, true));
 
-            ReadOnlyCollection<AGraphElement> graphElements;
+            ImmutableList<AGraphElement> graphElements;
             return _fallen8.RangeIndexScan(out graphElements, definition.IndexId, left, right, definition.IncludeLeft,
                                            definition.IncludeRight)
                        ? CreateResult(graphElements, definition.ResultType)
@@ -363,7 +364,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     var spatialIndex = idx as ISpatialIndex;
                     if (spatialIndex != null)
                     {
-                        ReadOnlyCollection<AGraphElement> result;
+                        ImmutableList<AGraphElement> result;
                         return spatialIndex.SearchDistance(out result, definition.Distance, graphElement)
                             ? result.Select(_ => _.Id)
                             : null;

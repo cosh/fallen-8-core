@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Expression;
@@ -69,12 +70,16 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   Gets all vertices
         /// </summary>
-        ReadOnlyCollection<VertexModel> GetAllVertices();
+        /// <param name="interestingLabel">The interesting label</param>
+        /// <returns>A list of vertices</returns>
+        ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null);
 
         /// <summary>
         ///   Gets all edges
         /// </summary>
-        ReadOnlyCollection<EdgeModel> GetAllEdges();
+        /// <param name="interestingLabel">The interesting label</param>
+        /// <returns>A list of edge</returns>
+        ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null);
 
         #region search
 
@@ -86,8 +91,9 @@ namespace NoSQL.GraphDB.Core
         /// <param name='propertyId'> Property identifier. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='binOp'> Binary operator. </param>
+        /// <param name="interestingLabel">The interesting label</param>
         Boolean GraphScan(out List<AGraphElement> result, String propertyId, IComparable literal,
-                          BinaryOperator binOp = BinaryOperator.Equals);
+                          BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null);
 
         /// <summary>
         ///   Scan for graph elements by a specified index identifiert, a literal and a binary operation
@@ -97,7 +103,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='indexId'> Index identifier. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='binOp'> Binary operator. </param>
-        Boolean IndexScan(out ReadOnlyCollection<AGraphElement> result, String indexId, IComparable literal,
+        Boolean IndexScan(out ImmutableList<AGraphElement> result, String indexId, IComparable literal,
                           BinaryOperator binOp = BinaryOperator.Equals);
 
         /// <summary>
@@ -110,7 +116,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='rightLimit'> Right limit. </param>
         /// <param name='includeLeft'> Include left. </param>
         /// <param name='includeRight'> Include right. </param>
-        Boolean RangeIndexScan(out ReadOnlyCollection<AGraphElement> result, String indexId, IComparable leftLimit,
+        Boolean RangeIndexScan(out ImmutableList<AGraphElement> result, String indexId, IComparable leftLimit,
                                IComparable rightLimit, Boolean includeLeft = true, Boolean includeRight = true);
 
         /// <summary>

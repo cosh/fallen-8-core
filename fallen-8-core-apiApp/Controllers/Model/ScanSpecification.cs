@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System;
 using System.ComponentModel.DataAnnotations;
 using NoSQL.GraphDB.Core.Expression;
 
@@ -50,6 +51,14 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        /// The label
+        /// </summary>
+        public String Label
+        {
+            get; set;
+        } = null;
 
         /// <summary>
         ///   Result type specification

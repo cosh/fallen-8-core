@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Microsoft.Extensions.Logging;
@@ -45,7 +46,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
         /// <summary>
         /// The index dictionary.
         /// </summary>
-        private Dictionary<IComparable, List<AGraphElement>> _idx;
+        private Dictionary<IComparable, ImmutableList<AGraphElement>> _idx;
 
         /// <summary>
         /// The description of the plugin
@@ -81,7 +82,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
         #region IPlugin implementation
         public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
         {
-            _idx = new Dictionary<IComparable, List<AGraphElement>>();
+            _idx = new Dictionary<IComparable, ImmutableList<AGraphElement>>();
             _logger = fallen8._loggerFactory.CreateLogger<DictionaryIndex>();
         }
 
@@ -144,7 +145,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
 
                 var keyCount = reader.ReadInt32();
 
-                _idx = new Dictionary<IComparable, List<AGraphElement>>(keyCount);
+                _idx = new Dictionary<IComparable, ImmutableList<AGraphElement>>(keyCount);
 
                 for (var i = 0; i < keyCount; i++)
                 {
@@ -164,7 +165,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
                             _logger.LogError(String.Format("Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
                         }
                     }
-                    _idx.Add((IComparable)key, value);
+                    _idx.Add((IComparable)key, ImmutableList.CreateRange<AGraphElement>(value));
                 }
 
                 FinishWriteResource();
@@ -216,15 +217,14 @@ namespace NoSQL.GraphDB.Core.Index.Range
 
             if (WriteResource())
             {
-                List<AGraphElement> values;
+                ImmutableList<AGraphElement> values;
                 if (_idx.TryGetValue(key, out values))
                 {
-                    values.Add(graphElement);
+                    values = values.Add(graphElement);
                 }
                 else
                 {
-                    values = new List<AGraphElement> { graphElement };
-                    _idx.Add(key, values);
+                    _idx.Add(key, ImmutableList.Create<AGraphElement>(graphElement));
                 }
 
                 FinishWriteResource();
@@ -309,14 +309,14 @@ namespace NoSQL.GraphDB.Core.Index.Range
         }
 
 
-        public IEnumerable<KeyValuePair<object, ReadOnlyCollection<AGraphElement>>> GetKeyValues()
+        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElement>>> GetKeyValues()
         {
             if (ReadResource())
             {
                 try
                 {
                     foreach (var aKv in _idx)
-                        yield return new KeyValuePair<object, ReadOnlyCollection<AGraphElement>>(aKv.Key, new ReadOnlyCollection<AGraphElement>(aKv.Value));
+                        yield return new KeyValuePair<object, ImmutableList<AGraphElement>>(aKv.Key, aKv.Value);
                 }
                 finally
                 {
@@ -329,7 +329,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
             throw new CollisionException();
         }
 
-        public bool TryGetValue(out ReadOnlyCollection<AGraphElement> result, Object keyObject)
+        public bool TryGetValue(out ImmutableList<AGraphElement> result, Object keyObject)
         {
             IComparable key;
             if (!IndexHelper.CheckObject(out key, keyObject))
@@ -340,10 +340,10 @@ namespace NoSQL.GraphDB.Core.Index.Range
 
             if (ReadResource())
             {
-                List<AGraphElement> graphElements;
+                ImmutableList<AGraphElement> graphElements;
                 var foundSth = _idx.TryGetValue(key, out graphElements);
 
-                result = foundSth ? new ReadOnlyCollection<AGraphElement>(graphElements) : null;
+                result = foundSth ? graphElements : null;
 
                 FinishReadResource();
 
@@ -355,7 +355,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
         #endregion
 
         #region IRangeIndex implementation
-        public bool LowerThan(out ReadOnlyCollection<AGraphElement> result, IComparable key, bool includeKey)
+        public bool LowerThan(out ImmutableList<AGraphElement> result, IComparable key, bool includeKey)
         {
             if (ReadResource())
             {
@@ -365,12 +365,9 @@ namespace NoSQL.GraphDB.Core.Index.Range
                                ? aKV.Key.CompareTo(key) <= 0
                                : aKV.Key.CompareTo(key) < 0)
                         .Select(aRelevantKV => aRelevantKV.Value)
-                        .SelectMany(_ => _)
-                        .ToList();
+                        .SelectMany(_ => _);
 
-                result = listOfMatchingGraphElements.Count > 0
-                    ? new ReadOnlyCollection<AGraphElement>(listOfMatchingGraphElements)
-                    : null;
+                result = ImmutableList.CreateRange<AGraphElement>(listOfMatchingGraphElements);
 
                 FinishReadResource();
 
@@ -380,7 +377,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
             throw new CollisionException();
         }
 
-        public bool GreaterThan(out ReadOnlyCollection<AGraphElement> result, IComparable key, bool includeKey)
+        public bool GreaterThan(out ImmutableList<AGraphElement> result, IComparable key, bool includeKey)
         {
             if (ReadResource())
             {
@@ -393,9 +390,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
                         .SelectMany(_ => _)
                         .ToList();
 
-                result = listOfMatchingGraphElements.Count > 0
-                    ? new ReadOnlyCollection<AGraphElement>(listOfMatchingGraphElements)
-                    : null;
+                result = ImmutableList.CreateRange<AGraphElement>(listOfMatchingGraphElements);
 
                 FinishReadResource();
 
@@ -405,7 +400,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
             throw new CollisionException();
         }
 
-        public bool Between(out ReadOnlyCollection<AGraphElement> result, IComparable lowerLimit, IComparable upperLimit, bool includeLowerLimit, bool includeUpperLimit)
+        public bool Between(out ImmutableList<AGraphElement> result, IComparable lowerLimit, IComparable upperLimit, bool includeLowerLimit, bool includeUpperLimit)
         {
             if (ReadResource())
             {
@@ -423,9 +418,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
                         .SelectMany(_ => _)
                         .ToList();
 
-                result = listOfMatchingGraphElements.Count > 0
-                    ? new ReadOnlyCollection<AGraphElement>(listOfMatchingGraphElements)
-                    : null;
+                result = ImmutableList.CreateRange<AGraphElement>(listOfMatchingGraphElements);
 
                 FinishReadResource();
 
