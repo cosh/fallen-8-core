@@ -138,20 +138,23 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
-        [HttpPut("/load/{startServices}")]
-        public void Load([FromRoute] Boolean startServices)
+        [HttpPut("/load")]
+        [Consumes("application/json")]
+        public void Load([FromBody] LoadSpecification definition)
         {
-            _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", startServices));
+            _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", definition.StartServices));
 
             LoadTransaction tx = new LoadTransaction();
+            tx.Path = definition.SaveGameLocation;
+            tx.StartServices = definition.StartServices;
 
             _fallen8.EnqueueTransaction(tx);
         }
 
-        [HttpHead("/save")]
-        public void Save()
+        [HttpGet("/save")]
+        public String Save()
         {
-            _fallen8.Save(_savePath, _optimalNumberOfPartitions);
+            return _fallen8.Save(_savePath, _optimalNumberOfPartitions);
         }
 
         [HttpHead("/tabularasa")]
