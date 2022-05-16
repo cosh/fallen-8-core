@@ -148,7 +148,7 @@ namespace NoSQL.GraphDB.App.Controllers
             tx.Path = definition.SaveGameLocation;
             tx.StartServices = definition.StartServices;
 
-            _fallen8.EnqueueTransaction(tx);
+            _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
         }
 
         [HttpGet("/save")]

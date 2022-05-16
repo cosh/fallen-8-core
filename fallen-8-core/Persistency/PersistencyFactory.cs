@@ -24,10 +24,12 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -338,7 +340,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         private List<EdgeSneakPeak> LoadAGraphElementBunch(
             string graphElementBunchPath,
             AGraphElement[] graphElementsOfFallen8,
-            Dictionary<Int32, List<EdgeOnVertexToDo>> edgeTodoOnVertex)
+            ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>> edgeTodoOnVertex)
         {
             //if there is no savepoint file... do nothing
             if (!File.Exists(graphElementBunchPath))
@@ -491,16 +493,17 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='graphElementStreams'> Graph element streams. </param>
         private void LoadGraphElements(AGraphElement[] graphElements, List<String> graphElementStreams)
         {
-            var edgeTodo = new Dictionary<Int32, List<EdgeOnVertexToDo>>();
-            var result = new List<List<EdgeSneakPeak>>(graphElementStreams.Count);
+            var edgeTodo = new ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>>();
+            var result = new List<EdgeSneakPeak>[graphElementStreams.Count];
 
             //create the major part of the graph elements
-            for (var i = 0; i < graphElementStreams.Count; i++)
+            Parallel.For(0, graphElementStreams.Count, i =>
             {
-                result.Add(LoadAGraphElementBunch(graphElementStreams[i], graphElements, edgeTodo));
-            }
+                result[i] = LoadAGraphElementBunch(graphElementStreams[i], graphElements, edgeTodo);
+            });
 
-            foreach (var aEdgeSneakPeakList in result)
+            //Create the edges
+            Parallel.ForEach(result, aEdgeSneakPeakList =>
             {
                 foreach (var aSneakPeak in aEdgeSneakPeakList)
                 {
@@ -523,8 +526,9 @@ namespace NoSQL.GraphDB.Core.Persistency
                         throw new Exception(String.Format("Corrupt savegame... could not create the edge {0}", aSneakPeak.Id));
                     }
                 }
-            }
+            });
 
+            //Update the vertices with their edges
             foreach (var aKV in edgeTodo)
             {
                 EdgeModel edge = graphElements[aKV.Key] as EdgeModel;
@@ -622,7 +626,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='edgeTodo'> Edge todo. </param>
         private void LoadVertex(SerializationReader reader, AGraphElement[] graphElements,
-                                       Dictionary<Int32, List<EdgeOnVertexToDo>> edgeTodo)
+                                       ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>> edgeTodo)
         {
             var id = reader.ReadInt32();
             var creationDate = reader.ReadUInt32();
@@ -682,15 +686,13 @@ namespace NoSQL.GraphDB.Core.Persistency
                                 IsIncomingEdge = false
                             };
 
-                            List<EdgeOnVertexToDo> todo;
-                            if (edgeTodo.TryGetValue(edgeId, out todo))
-                            {
-                                todo.Add(aEdgeTodo);
-                            }
-                            else
-                            {
-                                edgeTodo.Add(edgeId, new List<EdgeOnVertexToDo> { aEdgeTodo });
-                            }
+                            edgeTodo.AddOrUpdate(edgeId,
+                                 new List<EdgeOnVertexToDo> { aEdgeTodo },
+                                 (id, list) => 
+                                    { 
+                                        list.Add(aEdgeTodo); 
+                                        return list; 
+                                    } );
                         }
                     }
                     outEdgeProperties.Add(new EdgeContainer(outEdgePropertyId, outEdges));
@@ -731,15 +733,13 @@ namespace NoSQL.GraphDB.Core.Persistency
                                 IsIncomingEdge = true
                             };
 
-                            List<EdgeOnVertexToDo> todo;
-                            if (edgeTodo.TryGetValue(edgeId, out todo))
-                            {
-                                todo.Add(aEdgeTodo);
-                            }
-                            else
-                            {
-                                edgeTodo.Add(edgeId, new List<EdgeOnVertexToDo> { aEdgeTodo });
-                            }
+                            edgeTodo.AddOrUpdate(edgeId,
+                                 new List<EdgeOnVertexToDo> { aEdgeTodo },
+                                 (id, list) =>
+                                 {
+                                     list.Add(aEdgeTodo);
+                                     return list;
+                                 });
                         }
                     }
                     incEdgeProperties.Add(new EdgeContainer(incEdgePropertyId, incEdges));
