@@ -43,6 +43,8 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         private int _numberOfToBeTestedVertices = 10000000;
         private Fallen8 _f8;
 
+        private static string edgeProperty = "A";
+
         public ScaleFreeNetwork(Fallen8 fallen8)
         {
             _f8 = fallen8;
@@ -105,7 +107,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                         //                                                               new PropertyContainer { PropertyId = 1, Value = 2 },
                         //                                                           });
                         //
-                        edgesCreateTx.AddEdge(aVertex.Id, 0, aTargetVertex, creationDate);
+                        edgesCreateTx.AddEdge(aVertex.Id, edgeProperty, aTargetVertex, creationDate);
                     }
                 }
 
@@ -169,8 +171,8 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
                     for (var i = range.Item1; i < range.Item2; i++)
                     {
-                        ReadOnlyCollection<EdgeModel> outEdge;
-                        if (vertices[i].TryGetOutEdge(out outEdge, 0))
+                        ImmutableList<EdgeModel> outEdge;
+                        if (vertices[i].TryGetOutEdge(out outEdge, edgeProperty))
                         {
                             for (int j = 0; j < outEdge.Count; j++)
                             {

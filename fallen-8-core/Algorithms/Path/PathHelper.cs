@@ -47,21 +47,21 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="edgeFilter">The edge filter.</param>
         /// <param name="vertexFilter">The target vertex filter.</param>
         /// <returns>Valid edges</returns>
-        public static List<Tuple<UInt16, IEnumerable<EdgeModel>>> GetValidEdges(
+        public static List<Tuple<String, IEnumerable<EdgeModel>>> GetValidEdges(
             VertexModel vertex,
             Direction direction,
-            PathDelegates.EdgePropertyFilter edgepropertyFilter,
-            PathDelegates.EdgeFilter edgeFilter,
-            PathDelegates.VertexFilter vertexFilter)
+            Delegates.EdgePropertyFilter edgepropertyFilter,
+            Delegates.EdgeFilter edgeFilter,
+            Delegates.VertexFilter vertexFilter)
         {
             var edgeProperties = direction == Direction.IncomingEdge ? vertex.GetIncomingEdges() : vertex.GetOutgoingEdges();
-            var result = new List<Tuple<ushort, IEnumerable<EdgeModel>>>();
+            var result = new List<Tuple<String, IEnumerable<EdgeModel>>>();
 
             if (edgeProperties != null)
             {
                 foreach (var edgeContainer in edgeProperties)
                 {
-                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.EdgePropertyId, direction))
+                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key, direction))
                     {
                         continue;
                     }
@@ -70,9 +70,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     {
                         var validEdges = new List<EdgeModel>();
 
-                        for (var i = 0; i < edgeContainer.Edges.Count; i++)
+                        for (var i = 0; i < edgeContainer.Value.Count; i++)
                         {
-                            var aEdge = edgeContainer.Edges[i];
+                            var aEdge = edgeContainer.Value[i];
                             if (edgeFilter(aEdge, direction))
                             {
                                 if (vertexFilter != null)
@@ -91,7 +91,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                                 }
                             }
                         }
-                        result.Add(new Tuple<ushort, IEnumerable<EdgeModel>>(edgeContainer.EdgePropertyId, validEdges));
+                        result.Add(new Tuple<String, IEnumerable<EdgeModel>>(edgeContainer.Key, validEdges));
                     }
                     else
                     {
@@ -99,9 +99,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         {
                             var validEdges = new List<EdgeModel>();
 
-                            for (var i = 0; i < edgeContainer.Edges.Count; i++)
+                            for (var i = 0; i < edgeContainer.Value.Count; i++)
                             {
-                                var aEdge = edgeContainer.Edges[i];
+                                var aEdge = edgeContainer.Value[i];
                                 if (
                                     vertexFilter(direction == Direction.IncomingEdge
                                                      ? aEdge.SourceVertex
@@ -110,11 +110,11 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                                     validEdges.Add(aEdge);
                                 }
                             }
-                            result.Add(new Tuple<ushort, IEnumerable<EdgeModel>>(edgeContainer.EdgePropertyId, validEdges));
+                            result.Add(new Tuple<String, IEnumerable<EdgeModel>>(edgeContainer.Key, validEdges));
                         }
                         else
                         {
-                            result.Add(new Tuple<ushort, IEnumerable<EdgeModel>>(edgeContainer.EdgePropertyId, edgeContainer.Edges));
+                            result.Add(new Tuple<String, IEnumerable<EdgeModel>>(edgeContainer.Key, edgeContainer.Value));
                         }
                     }
                 }

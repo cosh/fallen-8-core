@@ -138,26 +138,26 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             if (definition.Filter != null)
             {
-                methods.Add(GenerateMethodSyntax("PathDelegates.VertexFilter", VertexFilterMethodName, definition.Filter.Vertex));
-                methods.Add(GenerateMethodSyntax("PathDelegates.EdgeFilter", EdgeFilterMethodName, definition.Filter.Edge));
-                methods.Add(GenerateMethodSyntax("PathDelegates.EdgePropertyFilter", EdgePropertyFilterMethodName, definition.Filter.EdgeProperty));
+                methods.Add(GenerateMethodSyntax("Delegates.VertexFilter", VertexFilterMethodName, definition.Filter.Vertex));
+                methods.Add(GenerateMethodSyntax("Delegates.EdgeFilter", EdgeFilterMethodName, definition.Filter.Edge));
+                methods.Add(GenerateMethodSyntax("Delegates.EdgePropertyFilter", EdgePropertyFilterMethodName, definition.Filter.EdgeProperty));
             }
             else
             {
-                methods.Add(GenerateMethodSyntax("PathDelegates.VertexFilter", VertexFilterMethodName, null));
-                methods.Add(GenerateMethodSyntax("PathDelegates.EdgeFilter", EdgeFilterMethodName, null));
-                methods.Add(GenerateMethodSyntax("PathDelegates.EdgePropertyFilter", EdgePropertyFilterMethodName, null));
+                methods.Add(GenerateMethodSyntax("Delegates.VertexFilter", VertexFilterMethodName, null));
+                methods.Add(GenerateMethodSyntax("Delegates.EdgeFilter", EdgeFilterMethodName, null));
+                methods.Add(GenerateMethodSyntax("Delegates.EdgePropertyFilter", EdgePropertyFilterMethodName, null));
             }
 
             if (definition.Cost != null)
             {
-                methods.Add(GenerateMethodSyntax("PathDelegates.VertexCost", VertexCostMethodName, definition.Cost.Vertex));
-                methods.Add(GenerateMethodSyntax("PathDelegates.EdgeCost", EdgeCostMethodName, definition.Cost.Edge));
+                methods.Add(GenerateMethodSyntax("Delegates.VertexCost", VertexCostMethodName, definition.Cost.Vertex));
+                methods.Add(GenerateMethodSyntax("Delegates.EdgeCost", EdgeCostMethodName, definition.Cost.Edge));
             }
             else
             {
-                methods.Add(GenerateMethodSyntax("PathDelegates.VertexCost", VertexCostMethodName, null));
-                methods.Add(GenerateMethodSyntax("PathDelegates.EdgeCost", EdgeCostMethodName, null));
+                methods.Add(GenerateMethodSyntax("Delegates.VertexCost", VertexCostMethodName, null));
+                methods.Add(GenerateMethodSyntax("Delegates.EdgeCost", EdgeCostMethodName, null));
             }
 
             // Add the field, the property and method to the class.

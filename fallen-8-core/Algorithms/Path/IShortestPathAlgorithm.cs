@@ -58,10 +58,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            PathDelegates.EdgePropertyFilter edgePropertyFilter = null,
-            PathDelegates.VertexFilter vertexFilter = null,
-            PathDelegates.EdgeFilter edgeFilter = null,
-            PathDelegates.EdgeCost edgeCost = null,
-            PathDelegates.VertexCost vertexCost = null);
+            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.VertexFilter vertexFilter = null,
+            Delegates.EdgeFilter edgeFilter = null,
+            Delegates.EdgeCost edgeCost = null,
+            Delegates.VertexCost vertexCost = null);
     }
 }

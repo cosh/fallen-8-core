@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// PropertyContainer.cs
+// APattern.cs
 //
 // Copyright (c) 2022 Henning Rauch
 //
@@ -23,42 +23,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
-
-namespace NoSQL.GraphDB.Core.Model
+namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
-    /// <summary>
-    /// Property container.
-    /// </summary>
-    public struct PropertyContainer
+    public abstract class APattern
     {
-        #region Data
-
         /// <summary>
-        /// Gets or sets the property identifier.
+        /// The reference of a pattern which could be used to refer to it
         /// </summary>
-        /// <value>
-        /// The property identifier.
-        /// </value>
-        public String PropertyId;
-
-        /// <summary>
-        /// Gets or sets the value.
-        /// </summary>
-        /// <value>
-        /// The value.
-        /// </value>
-        public Object Value;
-
-        #endregion
-
-        #region overrides
-
-        public override string ToString()
+        public string Reference
         {
-            return PropertyId + ": " + Value;
+            get; set;
         }
 
-        #endregion
+        /// <summary>
+        /// Filter for the label
+        /// </summary>
+        public Delegates.LabelFilter Label
+        {
+            get; set;
+        }
     }
 }

@@ -26,7 +26,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Collections.ObjectModel;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
 
@@ -62,7 +61,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <summary>
         ///   The properties.
         /// </summary>
-        private ImmutableList<PropertyContainer> _properties;
+        private ImmutableDictionary<String, Object> _properties;
 
         /// <summary>
         ///  Defines if the object has been removed. If it is set to true then it will not be returned in searches
@@ -80,12 +79,12 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='creationDate'> Creation date. </param>
         /// <param name='label'> Label. </param>
         /// <param name='properties'> Properties. </param>
-        protected AGraphElement(Int32 id, UInt32 creationDate, String label = null, List<PropertyContainer> properties = null)
+        protected AGraphElement(Int32 id, UInt32 creationDate, String label = null, Dictionary<String, Object> properties = null)
         {
             Id = id;
             CreationDate = creationDate;
             ModificationDate = 0;
-            _properties = properties != null ? ImmutableList.CreateRange<PropertyContainer>(properties) : null;
+            _properties = properties != null ? properties.ToImmutableDictionary() : null;
             Label = label;
         }
 
@@ -126,11 +125,11 @@ namespace NoSQL.GraphDB.Core.Model
         ///   Gets all properties.
         /// </summary>
         /// <returns> All properties. </returns>
-        public ImmutableList<PropertyContainer> GetAllProperties()
+        public ImmutableDictionary<String, Object> GetAllProperties()
         {
             return _properties != null
                         ? _properties
-                        : ImmutableList.Create<PropertyContainer>();
+                        : ImmutableDictionary.Create<String, Object>();
         }
 
         /// <summary>
@@ -144,14 +143,12 @@ namespace NoSQL.GraphDB.Core.Model
         {
             if (_properties != null)
             {
-                for (var i = 0; i < _properties.Count; i++)
+                object pValue;
+                if (_properties.TryGetValue(propertyId, out pValue))
                 {
-                    var aPropContainer = _properties[i];
-                    if (aPropContainer.Value != null && aPropContainer.PropertyId.Equals(propertyId))
-                    {
-                        result = (TProperty)aPropContainer.Value;
-                        return true;
-                    }
+                    result = (TProperty) pValue;
+
+                    return true;
                 }
             }
 
@@ -173,47 +170,17 @@ namespace NoSQL.GraphDB.Core.Model
         }
 
         /// <summary>
-        ///   Tries to add a property.
+        ///   Sets a property
         /// </summary>
         /// <returns> <c>true</c> if it was an update; otherwise, <c>false</c> . </returns>
         /// <param name='propertyId'> If set to <c>true</c> property identifier. </param>
         /// <param name='property'> If set to <c>true</c> property. </param>
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
-        internal bool TryAddProperty(String propertyId, object property)
+        internal void SetProperty(String propertyId, object property)
         {
-            var foundProperty = false;
-            var idx = 0;
+            _properties = _properties.Add(propertyId, property);
 
-            if (_properties != null)
-            {
-                for (var i = 0; i < _properties.Count; i++)
-                {
-                    if (_properties[i].PropertyId.Equals(propertyId))
-                    {
-                        foundProperty = true;
-                        idx = i;
-                        break;
-                    }
-                }
-
-                if (!foundProperty)
-                {
-                    _properties = _properties.Add(new PropertyContainer { PropertyId = propertyId, Value = property });
-                }
-                else
-                {
-                    _properties = _properties.SetItem(idx, new PropertyContainer { PropertyId = propertyId, Value = property });
-                }
-            }
-            else
-            {
-                _properties = ImmutableList.Create<PropertyContainer>(new PropertyContainer { PropertyId = propertyId, Value = property });
-            }
-
-            //set the modificationdate
             ModificationDate = DateHelper.GetModificationDate(CreationDate);
-
-            return foundProperty;
         }
 
         /// <summary>
@@ -222,34 +189,17 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> <c>true</c> if the property was removed; otherwise, <c>false</c> if there was no such property. </returns>
         /// <param name='propertyId'> If set to <c>true</c> property identifier. </param>
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
-        internal bool TryRemoveProperty(String propertyId)
+        internal void RemoveProperty(String propertyId)
         {
-            var removedSomething = false;
-
             if (_properties != null)
             {
-                var toBeRemovedIdx = 0;
-
-                for (var i = 0; i < _properties.Count; i++)
+                if (_properties.ContainsKey(propertyId))
                 {
-                    if (_properties[i].PropertyId.Equals(propertyId))
-                    {
-                        toBeRemovedIdx = i;
-                        removedSomething = true;
-                        break;
-                    }
-                }
+                    _properties = _properties.Remove(propertyId);
 
-                if (removedSomething)
-                {
-                    //resize
-                    _properties.RemoveAt(toBeRemovedIdx);
-
-                    //set the modificationdate
                     ModificationDate = DateHelper.GetModificationDate(CreationDate);
                 }
             }
-            return removedSomething;
         }
 
         /// <summary>
@@ -276,6 +226,14 @@ namespace NoSQL.GraphDB.Core.Model
         internal void MarkAsRemoved()
         {
             _removed = true;
+        }
+
+        // <summary>
+        /// Marks the graph element as not removed
+        /// </summary>
+        internal void MarkAsNotRemoved()
+        {
+            _removed = false; 
         }
 
         #endregion

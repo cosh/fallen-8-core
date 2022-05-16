@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// SubGraphPattern.cs
+// Direction.cs
 //
 // Copyright (c) 2022 Henning Rauch
 //
@@ -23,9 +23,22 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
+using System.Runtime.Serialization;
+
+namespace NoSQL.GraphDB.Core.Algorithms
 {
-    public class SubGraphPattern
+    /// <summary>
+    /// The direction enum
+    /// </summary>
+    public enum Direction : byte
     {
+        [EnumMember(Value = "In")]
+        IncomingEdge,
+
+        [EnumMember(Value = "Out")]
+        OutgoingEdge,
+
+        [EnumMember(Value = "Uni")]
+        Bidirectional
     }
 }

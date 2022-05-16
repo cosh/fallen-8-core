@@ -23,13 +23,15 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System.Collections.Generic;
+
 namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
     public class SubGraphDefinition
     {
         public string Id { get; set; }
 
-        public SubGraphPattern Pattern
+        public List<APattern> Pattern
         {
             get;
             set;

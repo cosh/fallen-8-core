@@ -158,7 +158,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     Id = vertex.Id,
                     CreationDate = DateHelper.GetDateTimeFromUnixTimeStamp(vertex.CreationDate),
                     ModificationDate = DateHelper.GetDateTimeFromUnixTimeStamp(vertex.CreationDate + vertex.ModificationDate),
-                    Properties = vertex.GetAllProperties().Select(_ => new Property { PropertyId = _.PropertyId, PropertyValue = _.Value.ToString() }).ToList()
+                    Properties = vertex.GetAllProperties().Select(_ => new Property { PropertyId = _.Key, PropertyValue = _.Value.ToString() }).ToList()
                 };
             }
 
@@ -193,7 +193,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/out")]
         [Produces("application/json")]
-        public List<ushort> GetAllAvailableOutEdgesOnVertex([FromRoute] Int32 vertexIdentifier)
+        public List<String> GetAllAvailableOutEdgesOnVertex([FromRoute] Int32 vertexIdentifier)
         {
             VertexModel vertex;
             return _fallen8.TryGetVertex(out vertex, vertexIdentifier)
@@ -204,7 +204,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/in")]
         [Produces("application/json")]
-        public List<ushort> GetAllAvailableIncEdgesOnVertex([FromRoute] Int32 vertexIdentifier)
+        public List<String> GetAllAvailableIncEdgesOnVertex([FromRoute] Int32 vertexIdentifier)
         {
             VertexModel vertex;
             return _fallen8.TryGetVertex(out vertex, vertexIdentifier)
@@ -214,12 +214,12 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}")]
         [Produces("application/json")]
-        public List<int> GetOutgoingEdges([FromRoute] Int32 vertexIdentifier, [FromRoute] UInt16 edgePropertyIdentifier)
+        public List<int> GetOutgoingEdges([FromRoute] Int32 vertexIdentifier, [FromRoute] String edgePropertyIdentifier)
         {
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
-                ReadOnlyCollection<EdgeModel> edges;
+                ImmutableList<EdgeModel> edges;
                 if (vertex.TryGetOutEdge(out edges, edgePropertyIdentifier))
                 {
                     return edges.Select(_ => _.Id).ToList();
@@ -231,12 +231,12 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}")]
         [Produces("application/json")]
-        public List<int> GetIncomingEdges([FromRoute] Int32 vertexIdentifier, [FromRoute] UInt16 edgePropertyIdentifier)
+        public List<int> GetIncomingEdges([FromRoute] Int32 vertexIdentifier, [FromRoute] String edgePropertyIdentifier)
         {
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
-                ReadOnlyCollection<EdgeModel> edges;
+                ImmutableList<EdgeModel> edges;
                 if (vertex.TryGetInEdge(out edges, edgePropertyIdentifier))
                 {
                     return edges.Select(_ => _.Id).ToList();
@@ -462,8 +462,8 @@ namespace NoSQL.GraphDB.App.Controllers
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
             {
-                ReadOnlyCollection<EdgeModel> edges;
-                if (vertex.TryGetInEdge(out edges, Convert.ToUInt16(edgePropertyIdentifier)))
+                ImmutableList<EdgeModel> edges;
+                if (vertex.TryGetInEdge(out edges, edgePropertyIdentifier))
                 {
                     return Convert.ToUInt32(edges.Count);
                 }
@@ -478,8 +478,8 @@ namespace NoSQL.GraphDB.App.Controllers
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
             {
-                ReadOnlyCollection<EdgeModel> edges;
-                if (vertex.TryGetOutEdge(out edges, Convert.ToUInt16(edgePropertyIdentifier)))
+                ImmutableList<EdgeModel> edges;
+                if (vertex.TryGetOutEdge(out edges, edgePropertyIdentifier))
                 {
                     return Convert.ToUInt32(edges.Count);
                 }

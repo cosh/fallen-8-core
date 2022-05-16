@@ -27,6 +27,7 @@ using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
+using System;
 using System.Collections.Generic;
 
 namespace NoSQL.GraphDB.App.Controllers.Sample
@@ -40,11 +41,12 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
             #region Vertices
 
             var vertexTx = new CreateVerticesTransaction();
-            vertexTx.AddVertex(creationDate, "person", new List<PropertyContainer>(1) { CreateName("Alice") });
-            vertexTx.AddVertex(creationDate, "person", new List<PropertyContainer>(1) { CreateName("Bob") });
-            vertexTx.AddVertex(creationDate, "person", new List<PropertyContainer>(1) { CreateName("Eve") });
-            vertexTx.AddVertex(creationDate, "person", new List<PropertyContainer>(1) { CreateName("Mallory") });
-            vertexTx.AddVertex(creationDate, "person", new List<PropertyContainer>(1) { CreateName("Trent") });
+
+            vertexTx.AddVertex(creationDate, "person", new Dictionary<String, Object>(1) { { "name", "Alice" } });
+            vertexTx.AddVertex(creationDate, "person", new Dictionary<String, Object>(1) { { "name", "Bob" } });
+            vertexTx.AddVertex(creationDate, "person", new Dictionary<String, Object>(1) { { "name", "Eve" } });
+            vertexTx.AddVertex(creationDate, "person", new Dictionary<String, Object>(1) { { "name", "Mallory" } });
+            vertexTx.AddVertex(creationDate, "person", new Dictionary<String, Object>(1) { { "name", "Trent" } });
 
             var vertexTxInfo = f8.EnqueueTransaction(vertexTx);
 
@@ -61,13 +63,12 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             #region Edges
 
-            ushort communicatesWith = 10;
-            ushort trusts = 11;
-            ushort attacks = 12;
+            String communicatesWith = "communicatesWith";
+            String trusts = "trusts";
+            String attacks = "attacks";
 
             var edgesTx = new CreateEdgesTransaction();
             edgesTx.AddEdge(alice.Id, communicatesWith, bob.Id, creationDate);
-            //edgesTx.AddEdge(bob.Id, communicatesWith, alice.Id, creationDate);
             edgesTx.AddEdge(alice.Id, trusts, trent.Id, creationDate);
             edgesTx.AddEdge(bob.Id, trusts, trent.Id, creationDate);
             edgesTx.AddEdge(eve.Id, attacks, alice.Id, creationDate);
@@ -85,11 +86,6 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
             return stats;
         }
 
-        private static PropertyContainer CreateName(string name)
-        {
-            return new PropertyContainer() { PropertyId = "name", Value = name };
-        }
-
         public static SampleStats GenerateAbcGraph(Fallen8 f8)
         {
             uint creationDate = 0;
@@ -97,32 +93,32 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
             #region Vertices
 
             var vertexTx = new CreateVerticesTransaction();
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("a") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("b") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("c") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("d") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("e") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("f") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("g") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("h") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("i") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("j") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("k") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("l") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("m") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("n") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("o") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("p") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("q") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("r") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("s") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("t") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("u") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("v") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("w") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("x") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("y") });
-            vertexTx.AddVertex(creationDate, "letter", new List<PropertyContainer>(1) { CreateName("z") });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "a" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "b" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "c" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "d" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "e" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "f" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "g" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "h" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "i" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "j" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "k" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "l" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "m" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "n" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "o" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "p" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "q" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "r" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "s" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "t" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "u" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "v" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "w" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "x" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "y" } });
+            vertexTx.AddVertex(creationDate, "letter", new Dictionary<String, Object>(1) { { "name", "z" } });
 
             var vertexTxInfo = f8.EnqueueTransaction(vertexTx);
 
@@ -133,7 +129,7 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             #region Edges
 
-            ushort communicatesWith = 0;
+            String communicatesWith = "gefolgtVon";
 
             var edgesTx = new CreateEdgesTransaction();
             for (int i = 0; i < 25; i++)

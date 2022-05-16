@@ -45,7 +45,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             foreach (var aDefinition in Properties)
             {
-                f8.TryAddProperty_internal(aDefinition.GraphElementId, aDefinition.PropertyId, aDefinition.Property);
+                f8.SetProperty_internal(aDefinition.GraphElementId, aDefinition.PropertyId, aDefinition.Property);
             }
 
             return true;

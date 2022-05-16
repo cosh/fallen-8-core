@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// PathDelegates.cs
+// Delegates.cs
 //
 // Copyright (c) 2022 Henning Rauch
 //
@@ -26,12 +26,12 @@
 using System;
 using NoSQL.GraphDB.Core.Model;
 
-namespace NoSQL.GraphDB.Core.Algorithms.Path
+namespace NoSQL.GraphDB.Core.Algorithms
 {
     /// <summary>
     /// Path delegates
     /// </summary>
-    public static class PathDelegates
+    public static class Delegates
     {
         /// <summary>
         /// Filter for edge properties
@@ -39,7 +39,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="edgePropertyId">The edge property identifier.</param>
         /// <param name="direction">The direction of the edge.</param>
         /// <returns>False will filter the edge property</returns>
-        public delegate bool EdgePropertyFilter(UInt16 edgePropertyId, Direction direction);
+        public delegate bool EdgePropertyFilter(String edgePropertyId, Direction direction);
 
         /// <summary>
         /// Filter for edges
@@ -52,9 +52,16 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <summary>
         /// Filter for vertices
         /// </summary>
-        /// <param name="edge">The vertex.</param>
+        /// <param name="vertex">The vertex.</param>
         /// <returns>False will filter the vertex</returns>
-        public delegate bool VertexFilter(VertexModel edge);
+        public delegate bool VertexFilter(VertexModel vertex);
+
+        /// <summary>
+        /// Filter for labels of graph elements
+        /// </summary>
+        /// <param name="label">The label.</param>
+        /// <returns>False will filter the graph element</returns>
+        public delegate bool LabelFilter(String label);
 
         /// <summary>
         /// Sets the cost of for the edge

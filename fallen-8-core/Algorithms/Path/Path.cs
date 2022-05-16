@@ -122,7 +122,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name='edgeCost'>
         /// Edge cost.
         /// </param>
-        public void CalculateWeight(PathDelegates.VertexCost vertexCost, PathDelegates.EdgeCost edgeCost)
+        public void CalculateWeight(Delegates.VertexCost vertexCost, Delegates.EdgeCost edgeCost)
         {
             _pathElements.ForEach(_ => _.CalculateWeight(vertexCost, edgeCost));
             Weight = _pathElements.Sum(_ => _.Weight);

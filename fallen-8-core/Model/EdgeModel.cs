@@ -46,7 +46,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='label'> Label. </param>
         /// <param name='properties'> Properties. </param>
         public EdgeModel(Int32 id, UInt32 creationDate, VertexModel targetVertex, VertexModel sourceVertex,
-                         String label = null, List<PropertyContainer> properties = null)
+                         String label = null, Dictionary<String, Object> properties = null)
             : base(id, creationDate, label, properties)
         {
             TargetVertex = targetVertex;
@@ -64,7 +64,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='label'> Label. </param>
         /// <param name='properties'> Properties. </param>
         internal EdgeModel(Int32 id, UInt32 creationDate, UInt32 modificationDate, VertexModel targetVertex,
-                           VertexModel sourceVertex, String label = null, List<PropertyContainer> properties = null)
+                           VertexModel sourceVertex, String label = null, Dictionary<String, Object> properties = null)
             : base(id, creationDate,label, properties)
         {
             TargetVertex = targetVertex;

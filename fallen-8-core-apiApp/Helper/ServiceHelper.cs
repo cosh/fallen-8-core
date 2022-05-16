@@ -71,29 +71,23 @@ namespace NoSQL.GraphDB.App.Helper
         /// </summary>
         /// <returns> The properties. </returns>
         /// <param name='propertySpecification'> Property specification. </param>
-        public static PropertyContainer[] GenerateProperties(
+        public static Dictionary<String, Object> GenerateProperties(
             Dictionary<String, PropertySpecification> propertySpecification)
         {
-            PropertyContainer[] properties = null;
+            Dictionary<String, Object> properties = null;
 
             if (propertySpecification != null)
             {
-                var propCounter = 0;
-                properties = new PropertyContainer[propertySpecification.Count];
+                properties = new Dictionary<String, Object>(propertySpecification.Count);
 
                 foreach (var aPropertyDefinition in propertySpecification)
                 {
-                    properties[propCounter] = new PropertyContainer
-                    {
-                        PropertyId = aPropertyDefinition.Key,
-                        Value = aPropertyDefinition.Value.FullQualifiedTypeName != null
+                    properties.Add(aPropertyDefinition.Key, aPropertyDefinition.Value.FullQualifiedTypeName != null
                              ? Convert.ChangeType(aPropertyDefinition.Value.PropertyValue,
                                                 Type.GetType(
                                                     aPropertyDefinition.Value.FullQualifiedTypeName,
                                                     true, true))
-                            : aPropertyDefinition.Value.PropertyValue
-                    };
-                    propCounter++;
+                            : aPropertyDefinition.Value.PropertyValue);
                 }
             }
 
@@ -105,28 +99,22 @@ namespace NoSQL.GraphDB.App.Helper
         /// </summary>
         /// <returns> The properties. </returns>
         /// <param name='propertySpecification'> Property specification. </param>
-        public static List<PropertyContainer> GenerateProperties(List<PropertySpecification> propertySpecification)
+        public static Dictionary<String, Object> GenerateProperties(List<PropertySpecification> propertySpecification)
         {
-            List<PropertyContainer> properties = null;
+            Dictionary<String, Object> properties = null;
 
             if (propertySpecification != null)
             {
-                var propCounter = 0;
-                properties = new List<PropertyContainer>(propertySpecification.Count);
+                properties = new Dictionary<String, Object>(propertySpecification.Count);
 
                 foreach (var aPropertyDefinition in propertySpecification)
                 {
-                    properties.Add(new PropertyContainer
-                    {
-                        PropertyId = aPropertyDefinition.PropertyId,
-                        Value = aPropertyDefinition.FullQualifiedTypeName != null
+                    properties.Add(aPropertyDefinition.PropertyId, aPropertyDefinition.FullQualifiedTypeName != null
                              ? Convert.ChangeType(aPropertyDefinition.PropertyValue,
                                                 Type.GetType(
                                                     aPropertyDefinition.FullQualifiedTypeName,
                                                     true, true))
-                            : aPropertyDefinition.PropertyValue
-                    });
-                    propCounter++;
+                            : aPropertyDefinition.PropertyValue);
                 }
             }
 

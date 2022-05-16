@@ -37,7 +37,7 @@ namespace NoSQL.GraphDB.Core.Model
             set;
         }
 
-        public UInt16 EdgePropertyId
+        public String EdgePropertyId
         {
             get;
             set;
@@ -61,7 +61,7 @@ namespace NoSQL.GraphDB.Core.Model
             set;
         }
 
-        public List<PropertyContainer> Properties
+        public Dictionary<String, Object> Properties
         {
             get;
             set;

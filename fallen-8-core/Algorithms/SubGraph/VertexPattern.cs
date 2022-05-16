@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// EdgeContainer.cs
+// VertexPattern.cs
 //
 // Copyright (c) 2022 Henning Rauch
 //
@@ -23,53 +23,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
-using System.Collections.Generic;
-
-namespace NoSQL.GraphDB.Core.Model
+namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
-    /// <summary>
-    /// edge container.
-    /// </summary>
-    public struct EdgeContainer
+    public class VertexPattern : APattern
     {
-        #region Data
-
         /// <summary>
-        /// Gets or sets the edge property identifier.
+        /// Filter for the Vertex
         /// </summary>
-        /// <value>
-        /// The edge property identifier.
-        /// </value>
-        public UInt16 EdgePropertyId { get; private set; }
-
-        /// <summary>
-        /// Gets or sets the value.
-        /// </summary>
-        /// <value>
-        /// The value.
-        /// </value>
-        public List<EdgeModel> Edges { get; private set; }
-
-        #endregion
-
-        #region constructor
-
-        public EdgeContainer(UInt16 edgePropertyId, List<EdgeModel> edges) : this()
+        public Delegates.VertexFilter Vertex
         {
-            EdgePropertyId = edgePropertyId;
-            Edges = edges;
+            get; set;
         }
 
-        #endregion
-
-        #region overrides
-
-        public override string ToString()
+        /// <summary>
+        /// Filter for the edge property
+        /// </summary>
+        public Delegates.EdgePropertyFilter EdgeProperty
         {
-            return EdgePropertyId + ": |E|=" + Edges.Count;
+            get; set;
         }
-
-        #endregion
     }
 }

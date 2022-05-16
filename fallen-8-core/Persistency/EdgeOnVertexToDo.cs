@@ -40,7 +40,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <summary>
         /// The edge property identifier.
         /// </summary>
-        public UInt16 EdgePropertyId;
+        public String EdgePropertyId;
 
         /// <summary>
         /// Is this an incoming edge?

@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// Direction.cs
+// EdgePattern.cs
 //
 // Copyright (c) 2022 Henning Rauch
 //
@@ -23,19 +23,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System.Runtime.Serialization;
-
-namespace NoSQL.GraphDB.Core.Algorithms.Path
+namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
-    /// <summary>
-    /// The direction enum
-    /// </summary>
-    public enum Direction : byte
+    public class EdgePattern : APattern
     {
-        [EnumMember(Value = "In")]
-        IncomingEdge,
-
-        [EnumMember(Value = "Out")]
-        OutgoingEdge
+        public ushort Length
+        {
+            get; set;
+        }
     }
 }

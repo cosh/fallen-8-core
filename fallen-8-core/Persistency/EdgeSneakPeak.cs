@@ -25,7 +25,6 @@
 
 using System;
 using System.Collections.Generic;
-using NoSQL.GraphDB.Core.Model;
 
 namespace NoSQL.GraphDB.Core.Persistency
 {
@@ -52,7 +51,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <summary>
         /// The properties.
         /// </summary>
-        public List<PropertyContainer> Properties;
+        public Dictionary<String, Object> Properties;
 
         /// <summary>
         /// The label.

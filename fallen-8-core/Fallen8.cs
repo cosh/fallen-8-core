@@ -30,6 +30,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using Microsoft.Extensions.Logging;
+using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Expression;
@@ -159,7 +160,7 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
-        internal VertexModel CreateVertex_internal(UInt32 creationDate, String label, List<PropertyContainer> properties = null)
+        internal VertexModel CreateVertex_internal(UInt32 creationDate, String label, Dictionary<String, Object> properties = null)
         {
             //create the new vertex
             var newVertex = new VertexModel(_currentId, creationDate, label, properties);
@@ -398,11 +399,11 @@ namespace NoSQL.GraphDB.Core
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            PathDelegates.EdgePropertyFilter edgePropertyFilter = null,
-            PathDelegates.VertexFilter vertexFilter = null,
-            PathDelegates.EdgeFilter edgeFilter = null,
-            PathDelegates.EdgeCost edgeCost = null,
-            PathDelegates.VertexCost vertexCost = null)
+            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.VertexFilter vertexFilter = null,
+            Delegates.EdgeFilter edgeFilter = null,
+            Delegates.EdgeCost edgeCost = null,
+            Delegates.VertexCost vertexCost = null)
         {
             IShortestPathAlgorithm algo = null;
 
@@ -443,11 +444,11 @@ namespace NoSQL.GraphDB.Core
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            PathDelegates.EdgePropertyFilter edgePropertyFilter = null,
-            PathDelegates.VertexFilter vertexFilter = null,
-            PathDelegates.EdgeFilter edgeFilter = null,
-            PathDelegates.EdgeCost edgeCost = null,
-            PathDelegates.VertexCost vertexCost = null) 
+            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.VertexFilter vertexFilter = null,
+            Delegates.EdgeFilter edgeFilter = null,
+            Delegates.EdgeCost edgeCost = null,
+            Delegates.VertexCost vertexCost = null) 
                 where T : IShortestPathAlgorithm
         {
             Type shortestPathType = typeof(T);
@@ -482,8 +483,8 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, UInt16 edgePropertyId, Int32 targetVertexId, 
-            UInt32 creationDate, String label, List<PropertyContainer> properties)
+        internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, String edgePropertyId, Int32 targetVertexId, 
+            UInt32 creationDate, String label, Dictionary<String, Object> properties)
         {
             EdgeModel outgoingEdge = null;
 
@@ -554,25 +555,23 @@ namespace NoSQL.GraphDB.Core
             return newEdges;
         }
 
-        internal Boolean TryAddProperty_internal(Int32 graphElementId, String propertyId, Object property)
+        internal void SetProperty_internal(Int32 graphElementId, String propertyId, Object property)
         {
-            var success = false;
             AGraphElement graphElement = _graphElements[graphElementId];
             if (graphElement != null)
             {
-                success = graphElement != null && graphElement.TryAddProperty(propertyId, property);
+                graphElement.SetProperty(propertyId, property);
             }
-
-            return success;
         }
 
-        internal bool TryRemoveProperty_internal(Int32 graphElementId, String propertyId)
+        internal void RemoveProperty_internal(Int32 graphElementId, String propertyId)
         {
             var graphElement = _graphElements[graphElementId];
 
-            var success = graphElement != null && graphElement.TryRemoveProperty(propertyId);
-
-            return success;
+            if (graphElement != null)
+            {
+                graphElement.RemoveProperty(propertyId);
+            }
         }
 
         internal bool TryRemoveGraphElement_private(Int32 graphElementId)
@@ -585,8 +584,8 @@ namespace NoSQL.GraphDB.Core
             }
 
             //used if an edge is removed
-            List<UInt16> inEdgeRemovals = null;
-            List<UInt16> outEdgeRemovals = null;
+            List<String> inEdgeRemovals = null;
+            List<String> outEdgeRemovals = null;
 
             try
             {
@@ -605,15 +604,12 @@ namespace NoSQL.GraphDB.Core
                     var outgoingEdgeConatiner = vertex.GetOutgoingEdges();
                     if (outgoingEdgeConatiner != null)
                     {
-                        for (var i = 0; i < outgoingEdgeConatiner.Count; i++)
+                        foreach (var aOutEdgeProperty in outgoingEdgeConatiner)
                         {
-                            var aOutEdgeContainer = outgoingEdgeConatiner[i];
-                            for (var j = 0; j < aOutEdgeContainer.Edges.Count; j++)
+                            foreach (var aOutEdge in aOutEdgeProperty.Value)
                             {
-                                var aOutEdge = aOutEdgeContainer.Edges[j];
-
                                 //remove from incoming edges of target vertex
-                                aOutEdge.TargetVertex.RemoveIncomingEdge(aOutEdgeContainer.EdgePropertyId, aOutEdge);
+                                aOutEdge.TargetVertex.RemoveIncomingEdge(aOutEdgeProperty.Key, aOutEdge);
 
                                 //remove the edge itself
                                 _graphElements[aOutEdge.Id].MarkAsRemoved();
@@ -628,15 +624,12 @@ namespace NoSQL.GraphDB.Core
                     var incomingEdgeContainer = vertex.GetIncomingEdges();
                     if (incomingEdgeContainer != null)
                     {
-                        for (var i = 0; i < incomingEdgeContainer.Count; i++)
+                        foreach (var aInEdgeProperty in incomingEdgeContainer)
                         {
-                            var aInEdgeContainer = incomingEdgeContainer[i];
-                            for (var j = 0; j < aInEdgeContainer.Edges.Count; j++)
+                            foreach (var aInEdge in aInEdgeProperty.Value)
                             {
-                                var aInEdge = aInEdgeContainer.Edges[j];
-
                                 //remove from outgoing edges of source vertex
-                                aInEdge.SourceVertex.RemoveOutGoingEdge(aInEdgeContainer.EdgePropertyId, aInEdge);
+                                aInEdge.SourceVertex.RemoveOutGoingEdge(aInEdgeProperty.Key, aInEdge);
 
                                 //remove the edge itself
                                 _graphElements[aInEdge.Id].MarkAsRemoved();
@@ -688,18 +681,15 @@ namespace NoSQL.GraphDB.Core
                     var outgoingEdgeConatiner = vertex.GetOutgoingEdges();
                     if (outgoingEdgeConatiner != null)
                     {
-                        for (var i = 0; i < outgoingEdgeConatiner.Count; i++)
+                        foreach (var aOutEdgeProperty in outgoingEdgeConatiner)
                         {
-                            var aOutEdgeContainer = outgoingEdgeConatiner[i];
-                            for (var j = 0; j < aOutEdgeContainer.Edges.Count; j++)
+                            foreach (var aOutEdge in aOutEdgeProperty.Value)
                             {
-                                var aOutEdge = aOutEdgeContainer.Edges[j];
-
                                 //remove from incoming edges of target vertex
-                                aOutEdge.TargetVertex.AddIncomingEdge(aOutEdgeContainer.EdgePropertyId, aOutEdge);
+                                aOutEdge.TargetVertex.AddIncomingEdge(aOutEdgeProperty.Key, aOutEdge);
 
                                 //reset the edge
-                                _graphElements.Insert(aOutEdge.Id, aOutEdge);
+                                _graphElements[aOutEdge.Id].MarkAsNotRemoved();
                             }
                         }
                     }
@@ -711,18 +701,15 @@ namespace NoSQL.GraphDB.Core
                     var incomingEdgeContainer = vertex.GetIncomingEdges();
                     if (incomingEdgeContainer != null)
                     {
-                        for (var i = 0; i < incomingEdgeContainer.Count; i++)
+                        foreach (var aInEdgeProperty in incomingEdgeContainer)
                         {
-                            var aInEdgeContainer = incomingEdgeContainer[i];
-                            for (var j = 0; j < aInEdgeContainer.Edges.Count; j++)
+                            foreach (var aInEdge in aInEdgeProperty.Value)
                             {
-                                var aInEdge = aInEdgeContainer.Edges[j];
-
-                                //remove from outgoing edges of source vertex
-                                aInEdge.SourceVertex.AddOutEdge(aInEdgeContainer.EdgePropertyId, aInEdge);
+                                //remove from incoming edges of target vertex
+                                aInEdge.SourceVertex.AddIncomingEdge(aInEdgeProperty.Key, aInEdge);
 
                                 //reset the edge
-                                _graphElements.Insert(aInEdge.Id, aInEdge);
+                                _graphElements[aInEdge.Id].MarkAsNotRemoved();
                             }
                         }
                     }

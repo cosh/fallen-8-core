@@ -614,7 +614,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             writer.WriteOptimized(properties.Count);
             foreach (var aProperty in properties)
             {
-                writer.WriteOptimized(aProperty.PropertyId);
+                writer.WriteOptimized(aProperty.Key);
                 writer.WriteObject(aProperty.Value);
             }
         }
@@ -636,17 +636,17 @@ namespace NoSQL.GraphDB.Core.Persistency
             #region properties
 
             var propertyCount = reader.ReadOptimizedInt32();
-            List<PropertyContainer> properties = null;
+            Dictionary<String, Object> properties = null;
 
             if (propertyCount > 0)
             {
-                properties = new List<PropertyContainer>(propertyCount);
+                properties = new Dictionary<String, Object>(propertyCount);
                 for (var i = 0; i < propertyCount; i++)
                 {
                     var propertyIdentifier = reader.ReadOptimizedString();
                     var propertyValue = reader.ReadObject();
 
-                    properties.Add(new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue });
+                    properties.Add(propertyIdentifier,propertyValue );
                 }
             }
 
@@ -656,15 +656,15 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #region outgoing edges
 
-            List<EdgeContainer> outEdgeProperties = null;
+            Dictionary<String, List<EdgeModel>> outEdgeProperties = null;
             var outEdgeCount = reader.ReadInt32();
 
             if (outEdgeCount > 0)
             {
-                outEdgeProperties = new List<EdgeContainer>(outEdgeCount);
+                outEdgeProperties = new Dictionary<String, List<EdgeModel>>(outEdgeCount);
                 for (var i = 0; i < outEdgeCount; i++)
                 {
-                    var outEdgePropertyId = reader.ReadUInt16();
+                    var outEdgePropertyId = reader.ReadOptimizedString();
                     var outEdgePropertyCount = reader.ReadInt32();
                     var outEdges = new List<EdgeModel>(outEdgePropertyCount);
                     for (var j = 0; j < outEdgePropertyCount; j++)
@@ -695,7 +695,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                                     } );
                         }
                     }
-                    outEdgeProperties.Add(new EdgeContainer(outEdgePropertyId, outEdges));
+                    outEdgeProperties.Add(outEdgePropertyId, outEdges);
                 }
             }
 
@@ -703,15 +703,15 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #region incoming edges
 
-            List<EdgeContainer> incEdgeProperties = null;
+            Dictionary<String, List<EdgeModel>> incEdgeProperties = null;
             var incEdgeCount = reader.ReadInt32();
 
             if (incEdgeCount > 0)
             {
-                incEdgeProperties = new List<EdgeContainer>(incEdgeCount);
+                incEdgeProperties = new Dictionary<String, List<EdgeModel>>(incEdgeCount);
                 for (var i = 0; i < incEdgeCount; i++)
                 {
-                    var incEdgePropertyId = reader.ReadUInt16();
+                    var incEdgePropertyId = reader.ReadOptimizedString();
                     var incEdgePropertyCount = reader.ReadInt32();
                     var incEdges = new List<EdgeModel>(incEdgePropertyCount);
                     for (var j = 0; j < incEdgePropertyCount; j++)
@@ -742,7 +742,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                                  });
                         }
                     }
-                    incEdgeProperties.Add(new EdgeContainer(incEdgePropertyId, incEdges));
+                    incEdgeProperties.Add(incEdgePropertyId, incEdges);
                 }
             }
 
@@ -776,9 +776,9 @@ namespace NoSQL.GraphDB.Core.Persistency
                 writer.Write(outgoingEdges.Count);
                 foreach (var aOutEdgeProperty in outgoingEdges)
                 {
-                    writer.Write(aOutEdgeProperty.EdgePropertyId);
-                    writer.Write(aOutEdgeProperty.Edges.Count);
-                    foreach (var aOutEdge in aOutEdgeProperty.Edges)
+                    writer.WriteOptimized(aOutEdgeProperty.Key);
+                    writer.Write(aOutEdgeProperty.Value.Count);
+                    foreach (var aOutEdge in aOutEdgeProperty.Value)
                     {
                         writer.Write(aOutEdge.Id);
                     }
@@ -795,9 +795,9 @@ namespace NoSQL.GraphDB.Core.Persistency
                 writer.Write(incomingEdges.Count);
                 foreach (var aIncEdgeProperty in incomingEdges)
                 {
-                    writer.Write(aIncEdgeProperty.EdgePropertyId);
-                    writer.Write(aIncEdgeProperty.Edges.Count);
-                    foreach (var aIncEdge in aIncEdgeProperty.Edges)
+                    writer.WriteOptimized(aIncEdgeProperty.Key);
+                    writer.Write(aIncEdgeProperty.Value.Count);
+                    foreach (var aIncEdge in aIncEdgeProperty.Value)
                     {
                         writer.Write(aIncEdge.Id);
                     }
@@ -823,18 +823,18 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #region properties
 
-            List<PropertyContainer> properties = null;
+            Dictionary<String, Object> properties = null;
             var propertyCount = reader.ReadOptimizedInt32();
 
             if (propertyCount > 0)
             {
-                properties = new List<PropertyContainer>(propertyCount);
+                properties = new Dictionary<String, Object>(propertyCount);
                 for (var i = 0; i < propertyCount; i++)
                 {
                     var propertyIdentifier = reader.ReadOptimizedString();
                     var propertyValue = reader.ReadObject();
 
-                    properties.Add(new PropertyContainer { PropertyId = propertyIdentifier, Value = propertyValue });
+                    properties.Add(propertyIdentifier, propertyValue );
                 }
             }
 

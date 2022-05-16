@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
+using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Index.Fulltext;
@@ -168,11 +169,11 @@ namespace NoSQL.GraphDB.Core
             Int32 maxDepth = 1,
             double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            PathDelegates.EdgePropertyFilter edgePropertyFilter = null,
-            PathDelegates.VertexFilter vertexFilter = null,
-            PathDelegates.EdgeFilter edgeFilter = null,
-            PathDelegates.EdgeCost edgeCost = null,
-            PathDelegates.VertexCost vertexCost = null);
+            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.VertexFilter vertexFilter = null,
+            Delegates.EdgeFilter edgeFilter = null,
+            Delegates.EdgeCost edgeCost = null,
+            Delegates.VertexCost vertexCost = null);
 
         /// <summary>
         ///   Calculates the shortest path using a plugin without reflection
@@ -197,11 +198,11 @@ namespace NoSQL.GraphDB.Core
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            PathDelegates.EdgePropertyFilter edgePropertyFilter = null,
-            PathDelegates.VertexFilter vertexFilter = null,
-            PathDelegates.EdgeFilter edgeFilter = null,
-            PathDelegates.EdgeCost edgeCost = null,
-            PathDelegates.VertexCost vertexCost = null)
+            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.VertexFilter vertexFilter = null,
+            Delegates.EdgeFilter edgeFilter = null,
+            Delegates.EdgeCost edgeCost = null,
+            Delegates.VertexCost vertexCost = null)
                 where T : IShortestPathAlgorithm;
 
             #endregion

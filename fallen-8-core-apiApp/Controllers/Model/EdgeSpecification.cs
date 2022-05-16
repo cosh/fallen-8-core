@@ -65,7 +65,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The edge property identifier
         /// </summary>
         [Required]
-        public UInt16 EdgePropertyId
+        public String EdgePropertyId
         {
             get; set;
         }

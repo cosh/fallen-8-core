@@ -49,7 +49,9 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            return f8.TryRemoveProperty_internal(GraphElementId, PropertyId);
+            f8.RemoveProperty_internal(GraphElementId, PropertyId);
+
+            return true;
         }
     }
 }

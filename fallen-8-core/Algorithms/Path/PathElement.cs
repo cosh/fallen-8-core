@@ -71,7 +71,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <summary>
         ///   The edge property identifier.
         /// </summary>
-        public UInt16 EdgePropertyId { get; private set; }
+        public String EdgePropertyId { get; private set; }
 
         /// <summary>
         ///   Direction.
@@ -94,7 +94,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="edgePropertyId"> The edge property identifier. </param>
         /// <param name="direction"> The direction. </param>
         /// <param name="weight"> The weight. </param>
-        public PathElement(EdgeModel edge, UInt16 edgePropertyId, Direction direction, Double weight = 0.0)
+        public PathElement(EdgeModel edge, String edgePropertyId, Direction direction, Double weight = 0.0)
         {
             Edge = edge;
             EdgePropertyId = edgePropertyId;
@@ -113,7 +113,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// </summary>
         /// <param name="vertexCost"> The vertex cost delegate. </param>
         /// <param name="edgeCost"> The edge cost delegate </param>
-        public virtual void CalculateWeight(PathDelegates.VertexCost vertexCost, PathDelegates.EdgeCost edgeCost)
+        public virtual void CalculateWeight(Delegates.VertexCost vertexCost, Delegates.EdgeCost edgeCost)
         {
             Weight = 0;
 

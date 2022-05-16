@@ -43,7 +43,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public override Boolean TryExecute(Fallen8 f8)
         {
-            f8.TryAddProperty_internal(Definition.GraphElementId, Definition.PropertyId, Definition.Property);
+            f8.SetProperty_internal(Definition.GraphElementId, Definition.PropertyId, Definition.Property);
             return true;
         }
     }
