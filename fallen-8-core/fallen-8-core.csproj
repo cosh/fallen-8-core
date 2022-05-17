@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>NoSQL.GraphDB.Core</RootNamespace>
     <PackageId>Fallen-8</PackageId>
-    <Version>0.0.13</Version>
+    <Version>0.0.14</Version>
     <Authors>Henning Rauch</Authors>
     <Company>RauchEntwicklung</Company>
     <Copyright>Copyright (c) 2022 Henning Rauch</Copyright>
@@ -18,6 +18,8 @@
     <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <DebugType>embedded</DebugType>
+    <RepositoryUrl>https://github.com/cosh/fallen-8-core</RepositoryUrl>
+    <PackageTags>graph;database;inmemory</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
