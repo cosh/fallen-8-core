@@ -36,12 +36,12 @@ namespace NoSQL.GraphDB.Core.Transaction
             get; set;
         } = new List<PropertyAddDefinition>();
 
-        public override void Rollback(Fallen8 f8)
+        internal override void Rollback(Fallen8 f8)
         {
             //NOP
         }
 
-        public override Boolean TryExecute(Fallen8 f8)
+        internal override Boolean TryExecute(Fallen8 f8)
         {
             foreach (var aDefinition in Properties)
             {

@@ -39,7 +39,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         private List<EdgeModel> _edgesAdded = new List<EdgeModel>();
 
-        public override void Rollback(Fallen8 f8)
+        internal override void Rollback(Fallen8 f8)
         {
             foreach (var aEdge in _edgesAdded)
             {
@@ -47,7 +47,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             }
         }
 
-        public override Boolean TryExecute(Fallen8 f8)
+        internal override Boolean TryExecute(Fallen8 f8)
         {
             try
             {

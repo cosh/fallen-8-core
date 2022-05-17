@@ -36,12 +36,12 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
-        public override void Rollback(Fallen8 f8)
+        internal override void Rollback(Fallen8 f8)
         {
             //rollback is implemeted in the TryRemoveGraphElement_private method
         }
 
-        public override Boolean TryExecute(Fallen8 f8)
+        internal override Boolean TryExecute(Fallen8 f8)
         {
             f8.TryRemoveGraphElement_private(GraphElementId);
 

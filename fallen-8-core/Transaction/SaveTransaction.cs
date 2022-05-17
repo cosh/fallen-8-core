@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// ITransaction.cs
+// SaveTransaction.cs
 //
 // Copyright (c) 2022 Henning Rauch
 //
@@ -27,10 +27,51 @@ using System;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
-    internal interface ITransaction
+    public class SaveTransaction : ATransaction
     {
-        bool TryExecute(Fallen8 f8);
+        /// <summary>
+        /// Number of partitions which should be used to persist the data
+        /// </summary>
+        public UInt32 SavePartitions
+        {
+            get;
+            set;
+        } = 5;
 
-        void Rollback(Fallen8 f8);
+        /// <summary>
+        /// The path where the data should be persisted
+        /// </summary>
+        public String Path
+        {
+            get;
+            set;
+        } = "Savegame.f8s";
+
+
+        /// <summary>
+        /// The path where the data should be persisted
+        /// </summary>
+        public String ActualPath
+        {
+            get;
+            private set;
+        }
+
+        internal override void Rollback(Fallen8 f8)
+        {
+            //NOP
+        }
+
+        internal override Boolean TryExecute(Fallen8 f8)
+        {
+            ActualPath = f8.Save(Path, SavePartitions);
+
+            return true;
+        }
+
+        public static UInt32 GetOptimalNumberOfPartitions()
+        {
+            return Convert.ToUInt32(Environment.ProcessorCount * 3 / 2);
+        }
     }
 }

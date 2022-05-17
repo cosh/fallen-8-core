@@ -42,12 +42,12 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         } = false;
 
-        public override void Rollback(Fallen8 f8)
+        internal override void Rollback(Fallen8 f8)
         {
             //TODO
         }
 
-        public override Boolean TryExecute(Fallen8 f8)
+        internal override Boolean TryExecute(Fallen8 f8)
         {
             f8.Load_internal(Path, StartServices);
 

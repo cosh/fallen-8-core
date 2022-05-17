@@ -38,12 +38,12 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
-        public override void Rollback(Fallen8 f8)
+        internal override void Rollback(Fallen8 f8)
         {
             //NOP
         }
 
-        public override Boolean TryExecute(Fallen8 f8)
+        internal override Boolean TryExecute(Fallen8 f8)
         {
             VertexCreated = f8.CreateVertex_internal(Definition.CreationDate, Definition.Label, Definition.Properties);
 

@@ -29,11 +29,12 @@ using System.Text;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
-    public abstract class ATransaction : ITransaction
+    public abstract class ATransaction
     {
         public readonly string TransactionId = Guid.NewGuid().ToString();
 
-        public abstract void Rollback(Fallen8 f8);
-        public abstract bool TryExecute(Fallen8 f8);
+        abstract internal void Rollback(Fallen8 f8);
+
+        abstract internal Boolean TryExecute(Fallen8 f8);
     }
 }

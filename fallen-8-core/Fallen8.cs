@@ -386,7 +386,7 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        public string Save(string path, uint savePartitions = 5)
+        internal string Save(string path, uint savePartitions = 5)
         {
             return _persistencyFactory.Save(this, _graphElements, path, savePartitions, _currentId);
         }

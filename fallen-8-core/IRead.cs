@@ -131,18 +131,6 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
-        #region Persistence
-
-        /// <summary>
-        ///   Save Fallen-8 in the specified path.
-        /// </summary>
-        /// <param name='path'> Path. </param>
-        /// <param name='savePartitions'> The number of save partitions. </param>
-        /// <returns>The actual path of the savegame</returns>
-        string Save(String path, UInt32 savePartitions = 5);
-
-        #endregion
-
         #region calculations
 
         /// <summary>

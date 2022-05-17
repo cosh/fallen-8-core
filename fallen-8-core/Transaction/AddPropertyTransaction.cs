@@ -36,12 +36,12 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
-        public override void Rollback(Fallen8 f8)
+        internal override void Rollback(Fallen8 f8)
         {
             //TODO
         }
 
-        public override Boolean TryExecute(Fallen8 f8)
+        internal override Boolean TryExecute(Fallen8 f8)
         {
             f8.SetProperty_internal(Definition.GraphElementId, Definition.PropertyId, Definition.Property);
             return true;

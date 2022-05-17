@@ -154,7 +154,10 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpGet("/save")]
         public String Save()
         {
-            return _fallen8.Save(_savePath, _optimalNumberOfPartitions);
+            SaveTransaction saveTx = new SaveTransaction() { Path = _savePath, SavePartitions = _optimalNumberOfPartitions };
+            _fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+
+            return saveTx.ActualPath;
         }
 
         [HttpHead("/tabularasa")]
