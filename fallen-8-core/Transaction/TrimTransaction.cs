@@ -30,6 +30,11 @@ namespace NoSQL.GraphDB.Core.Transaction
 {
     public class TrimTransaction : ATransaction
     {
+        internal override void Cleanup()
+        {
+            throw new NotImplementedException();
+        }
+
         internal override void Rollback(Fallen8 f8)
         {
             //NOP

@@ -30,6 +30,10 @@ namespace NoSQL.GraphDB.Core.Transaction
 {
     public class TabulaRasaTransaction : ATransaction
     {
+        internal override void Cleanup()
+        {
+            //NOOP
+        }
 
         internal override void Rollback(Fallen8 f8)
         {

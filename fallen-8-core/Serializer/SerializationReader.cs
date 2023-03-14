@@ -33,6 +33,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
+using System.Text.Json;
 
 #endregion
 
@@ -1578,7 +1579,7 @@ namespace NoSQL.GraphDB.Core.Serializer
                 case SerializedType.ZeroSingleType: return (Single)0;
                 case SerializedType.ByteType: return ReadByte();
                 case SerializedType.ZeroByteType: return (Byte)0;
-                case SerializedType.OtherType: return new BinaryFormatter().Deserialize(BaseStream);
+                case SerializedType.OtherType: return JsonSerializer.Deserialize<object>(BaseStream);
                 case SerializedType.UInt16Type: return ReadUInt16();
                 case SerializedType.ZeroUInt16Type: return (UInt16)0;
                 case SerializedType.UInt32Type: return ReadUInt32();

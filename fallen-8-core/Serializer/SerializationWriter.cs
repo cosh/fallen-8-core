@@ -37,6 +37,7 @@ using System.Reflection;
 using System.Runtime.Serialization.Formatters;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
+using System.Text.Json;
 
 #endregion
 
@@ -596,7 +597,7 @@ namespace NoSQL.GraphDB.Core.Serializer
                 else
                 {
                     WriteTypeCode(SerializedType.OtherType);
-                    CreateBinaryFormatter().Serialize(BaseStream, value);
+                    Write(JsonSerializer.Serialize(value));
                 }
             }
         }
@@ -2269,19 +2270,6 @@ namespace NoSQL.GraphDB.Core.Serializer
 
             return null;
         }
-
-        /// <summary>
-        /// Creates the binary formatter.
-        /// </summary>
-        /// <returns></returns>
-        static BinaryFormatter CreateBinaryFormatter()
-        {
-            return new BinaryFormatter
-            {
-                AssemblyFormat = FormatterAssemblyStyle.Full
-            };
-        }
-
 
         /// <summary>
         /// Encodes a TimeSpan into the fewest number of bytes.

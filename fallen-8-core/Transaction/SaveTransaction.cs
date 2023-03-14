@@ -73,5 +73,10 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             return Convert.ToUInt32(Environment.ProcessorCount * 3 / 2);
         }
+
+        internal override void Cleanup()
+        {
+            //NOOP
+        }
     }
 }

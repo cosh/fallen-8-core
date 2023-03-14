@@ -77,5 +77,14 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             return ImmutableList.CreateRange(_verticesCreated);
         }
+
+        internal override void Cleanup()
+        {
+            _verticesCreated.Clear();
+            _verticesCreated = null;
+
+            Vertices.Clear();
+            Vertices = null;
+        }
     }
 }

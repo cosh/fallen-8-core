@@ -47,5 +47,10 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             return true;
         }
+
+        internal override void Cleanup()
+        {
+            //NOOP
+        }
     }
 }

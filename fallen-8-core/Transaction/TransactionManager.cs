@@ -124,7 +124,8 @@ namespace NoSQL.GraphDB.Core.Transaction
             foreach (var aTxId in toBeTrimmed)
             {
                 TransactionInformation txInfo;
-                transactionState.TryRemove(aTxId, out txInfo); 
+                transactionState.TryRemove(aTxId, out txInfo);
+                txInfo.Transaction.Cleanup();
             }
         }
     }

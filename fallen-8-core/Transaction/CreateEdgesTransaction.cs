@@ -81,5 +81,14 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             return ImmutableList.CreateRange(_edgesAdded);
         }
+
+        internal override void Cleanup()
+        {
+            Edges.Clear();
+            Edges = null;
+
+            _edgesAdded.Clear();
+            _edgesAdded = null;
+        }
     }
 }

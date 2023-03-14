@@ -64,5 +64,10 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             return this;
         }
+
+        internal override void Cleanup()
+        {
+            Properties.Clear();
+        }
     }
 }

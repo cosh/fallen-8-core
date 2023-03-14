@@ -36,6 +36,11 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
+        internal override void Cleanup()
+        {
+            Definition = null;
+        }
+
         internal override void Rollback(Fallen8 f8)
         {
             //TODO

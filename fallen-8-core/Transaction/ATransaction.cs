@@ -32,9 +32,8 @@ namespace NoSQL.GraphDB.Core.Transaction
     public abstract class ATransaction
     {
         public readonly string TransactionId = Guid.NewGuid().ToString();
-
+        internal abstract void Cleanup();
         abstract internal void Rollback(Fallen8 f8);
-
         abstract internal Boolean TryExecute(Fallen8 f8);
     }
 }

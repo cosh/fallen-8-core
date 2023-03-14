@@ -29,12 +29,14 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 using System.Text;
 using System.Threading.Tasks;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
+using static NoSQL.GraphDB.Core.Algorithms.Delegates;
 
 namespace NoSQL.GraphDB.App.Controllers.Benchmark
 {
@@ -53,21 +55,21 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// <summary>
         /// Creates a scale free network
         /// </summary>
-        /// <param name="nodeCound"></param>
-        /// <param name="edgeCount"></param>
+        /// <param name="nodeCount"></param>
+        /// <param name="edgeCountPerVertex"></param>
         /// <param name="fallen8"></param>
-        public void CreateScaleFreeNetwork(int nodeCound, int edgeCount)
+        public void CreateScaleFreeNetwork(int nodeCount, int edgeCountPerVertex)
         {
             var creationDate = DateHelper.ConvertDateTime(DateTime.Now);
             var prng = new Random();
-            if (nodeCound < _numberOfToBeTestedVertices)
+            if (nodeCount < _numberOfToBeTestedVertices)
             {
-                _numberOfToBeTestedVertices = nodeCound;
+                _numberOfToBeTestedVertices = nodeCount;
             }
 
             CreateVerticesTransaction vertexTx = new CreateVerticesTransaction();
 
-            for (var i = 0; i < nodeCound; i++)
+            for (var i = 0; i < nodeCount; i++)
             {
                 //                vertexIDs.Add(
                 //                    fallen8.CreateVertex(creationDate, new PropertyContainer[4]
@@ -86,37 +88,49 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
             var verticesCreates = vertexTx.GetCreatedVertices();
 
-            if (edgeCount != 0)
+            if (edgeCountPerVertex != 0)
             {
-                CreateEdgesTransaction edgesCreateTx = new CreateEdgesTransaction();
+                var partitions = Partitioner.Create(0, verticesCreates.Count);
 
-                foreach (var aVertex in verticesCreates)
-                {
-                    var targetVertices = new HashSet<Int32>();
-
-                    do
-                    {
-                        targetVertices.Add(verticesCreates[prng.Next(0, verticesCreates.Count)].Id);
-                    } while (targetVertices.Count < edgeCount);
-
-                    foreach (var aTargetVertex in targetVertices)
-                    {
-                        //                    fallen8.CreateEdge(aVertexId, 0, aTargetVertex, creationDate, new PropertyContainer[2]
-                        //                                                           {
-                        //                                                               new PropertyContainer { PropertyId = 29, Value = 23.4 },
-                        //                                                               new PropertyContainer { PropertyId = 1, Value = 2 },
-                        //                                                           });
-                        //
-                        edgesCreateTx.AddEdge(aVertex.Id, edgeProperty, aTargetVertex, creationDate);
-                    }
-                }
-
-                _f8.EnqueueTransaction(edgesCreateTx).WaitUntilFinished();
+                Parallel.ForEach(partitions, range => {
+                    var verticesInPartition = range.Item2 - range.Item1;
+                    CreateEdges(verticesCreates, verticesCreates.GetRange(range.Item1, verticesInPartition), edgeCountPerVertex, creationDate);
+                });
             }
 
             TrimTransaction tx = new TrimTransaction();
 
             _f8.EnqueueTransaction(tx);
+        }
+
+        private void CreateEdges(ImmutableList<VertexModel> allVertices, ImmutableList<VertexModel> partition, long edgesPerVertex, UInt32 creationDate)
+        {
+            CreateEdgesTransaction edgesCreateTx = new CreateEdgesTransaction();
+
+            var prng = new Random();
+
+            foreach (var aVertex in partition)
+            {
+                var targetVertices = new HashSet<Int32>();
+
+                do
+                {
+                    targetVertices.Add(allVertices[prng.Next(0, allVertices.Count)].Id);
+                } while (targetVertices.Count < edgesPerVertex);
+
+                foreach (var aTargetVertex in targetVertices)
+                {
+                    //                    fallen8.CreateEdge(aVertexId, 0, aTargetVertex, creationDate, new PropertyContainer[2]
+                    //                                                           {
+                    //                                                               new PropertyContainer { PropertyId = 29, Value = 23.4 },
+                    //                                                               new PropertyContainer { PropertyId = 1, Value = 2 },
+                    //                                                           });
+                    //
+                    edgesCreateTx.AddEdge(aVertex.Id, edgeProperty, aTargetVertex, creationDate);
+                }
+            }
+
+            _f8.EnqueueTransaction(edgesCreateTx).WaitUntilFinished();
         }
 
         /// <summary>
