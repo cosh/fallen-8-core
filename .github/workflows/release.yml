@@ -30,9 +30,9 @@ jobs:
     - name: Pack
       run: dotnet pack --configuration Release /p:Version=${VERSION} --no-build --output .
     - name: Push package to github
-      run: dotnet nuget push Fallen-8.${VERSION}.nupkg --api-key ${GITHUB_TOKEN} --source "https://github.com/cosh/fallen-8-core/pkgs/nuget/Fallen-8"
+      run: dotnet nuget push Fallen-8.${VERSION}.nupkg --api-key ${PAT} --source "https://github.com/cosh/fallen-8-core/pkgs/nuget/Fallen-8"
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.PAT }}
     - name: Push package to nuget
       run: dotnet nuget push Fallen-8.${VERSION}.nupkg --source https://api.nuget.org/v3/index.json --api-key ${NUGET_TOKEN}
       env:
