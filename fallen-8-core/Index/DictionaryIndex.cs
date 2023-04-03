@@ -50,7 +50,7 @@ namespace NoSQL.GraphDB.Core.Index
         /// <summary>
         /// The index dictionary.
         /// </summary>
-        private Dictionary<IComparable, ImmutableList<AGraphElement>> _idx;
+        private Dictionary<IComparable, ImmutableList<AGraphElementModel>> _idx;
 
         /// <summary>
         /// The description of the plugin
@@ -114,7 +114,7 @@ namespace NoSQL.GraphDB.Core.Index
             throw new CollisionException();
         }
 
-        public void AddOrUpdate(Object keyObject, AGraphElement graphElement)
+        public void AddOrUpdate(Object keyObject, AGraphElementModel graphElement)
         {
             IComparable key;
             if (!IndexHelper.CheckObject(out key, keyObject))
@@ -127,14 +127,14 @@ namespace NoSQL.GraphDB.Core.Index
                 try
                 {
 
-                    ImmutableList<AGraphElement> values;
+                    ImmutableList<AGraphElementModel> values;
                     if (_idx.TryGetValue(key, out values))
                     {
                         values.Add(graphElement);
                     }
                     else
                     {
-                        values = ImmutableList.Create<AGraphElement>(graphElement);
+                        values = ImmutableList.Create<AGraphElementModel>(graphElement);
                         _idx.Add(key, values);
                     }
                 }
@@ -173,7 +173,7 @@ namespace NoSQL.GraphDB.Core.Index
             throw new CollisionException();
         }
 
-        public void RemoveValue(AGraphElement graphElement)
+        public void RemoveValue(AGraphElementModel graphElement)
         {
             if (WriteResource())
             {
@@ -241,7 +241,7 @@ namespace NoSQL.GraphDB.Core.Index
         }
 
 
-        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElement>>> GetKeyValues()
+        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElementModel>>> GetKeyValues()
         {
             if (ReadResource())
             {
@@ -249,7 +249,7 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     foreach (var aKv in _idx)
                     {
-                        yield return new KeyValuePair<object, ImmutableList<AGraphElement>>(aKv.Key, aKv.Value);
+                        yield return new KeyValuePair<object, ImmutableList<AGraphElementModel>>(aKv.Key, aKv.Value);
                     }
                 }
                 finally
@@ -263,7 +263,7 @@ namespace NoSQL.GraphDB.Core.Index
             throw new CollisionException();
         }
 
-        public bool TryGetValue(out ImmutableList<AGraphElement> result, Object keyObject)
+        public bool TryGetValue(out ImmutableList<AGraphElementModel> result, Object keyObject)
         {
             IComparable key;
             if (!IndexHelper.CheckObject(out key, keyObject))
@@ -276,7 +276,7 @@ namespace NoSQL.GraphDB.Core.Index
             {
                 try
                 {
-                    ImmutableList<AGraphElement> graphElements;
+                    ImmutableList<AGraphElementModel> graphElements;
                     var foundSth = _idx.TryGetValue(key, out graphElements);
 
                     result = foundSth ? graphElements : null;
@@ -334,17 +334,17 @@ namespace NoSQL.GraphDB.Core.Index
 
                     var keyCount = reader.ReadInt32();
 
-                    _idx = new Dictionary<IComparable, ImmutableList<AGraphElement>>(keyCount);
+                    _idx = new Dictionary<IComparable, ImmutableList<AGraphElementModel>>(keyCount);
 
                     for (var i = 0; i < keyCount; i++)
                     {
                         var key = reader.ReadObject();
-                        var value = new List<AGraphElement>();
+                        var value = new List<AGraphElementModel>();
                         var valueCount = reader.ReadInt32();
                         for (var j = 0; j < valueCount; j++)
                         {
                             var graphElementId = reader.ReadInt32();
-                            AGraphElement graphElement;
+                            AGraphElementModel graphElement;
                             if (fallen8.TryGetGraphElement(out graphElement, graphElementId))
                             {
                                 value.Add(graphElement);
@@ -354,7 +354,7 @@ namespace NoSQL.GraphDB.Core.Index
                                 _logger.LogError(String.Format("[DictionaryIndex] Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
                             }
                         }
-                        _idx.Add((IComparable)key, ImmutableList.CreateRange<AGraphElement>(value));
+                        _idx.Add((IComparable)key, ImmutableList.CreateRange<AGraphElementModel>(value));
                     }
                 }
                 finally
@@ -374,7 +374,7 @@ namespace NoSQL.GraphDB.Core.Index
 
         public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
         {
-            _idx = new Dictionary<IComparable, ImmutableList<AGraphElement>>();
+            _idx = new Dictionary<IComparable, ImmutableList<AGraphElementModel>>();
             _logger = fallen8._loggerFactory.CreateLogger<DictionaryIndex>();
         }
 

@@ -38,6 +38,7 @@ using NoSQL.GraphDB.App.Interfaces;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.App.Controllers.Cache;
+using NoSQL.GraphDB.Core.App.Controllers.Model;
 using NoSQL.GraphDB.Core.App.Helper;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
@@ -141,30 +142,20 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
-        /// <summary>
-        ///   Gets the graph element properties.
-        /// </summary>
-        /// <returns> The graph element properties. </returns>
-        /// <param name='graphElementIdentifier'> Vertex identifier. </param>
-        [HttpGet("/graphelement/{graphElementIdentifier}")]
+        [HttpGet("/graph")]
         [Produces("application/json")]
-        public GraphElementProperties GetAllGraphelementProperties([FromRoute] Int32 graphElementIdentifier)
+        public Graph GetGraph([FromQuery] int maxElements = 1000)
         {
-            AGraphElement vertex;
-            if (_fallen8.TryGetGraphElement(out vertex, graphElementIdentifier))
-            {
-                return new GraphElementProperties
-                {
-                    Id = vertex.Id,
-                    CreationDate = DateHelper.GetDateTimeFromUnixTimeStamp(vertex.CreationDate),
-                    ModificationDate = DateHelper.GetDateTimeFromUnixTimeStamp(vertex.CreationDate + vertex.ModificationDate),
-                    Properties = vertex.GetAllProperties().Select(_ => new Property { PropertyId = _.Key, PropertyValue = _.Value.ToString() }).ToList()
-                };
-            }
+            var result = new Graph();
 
-            return null;
+            var edges = _fallen8.GetAllEdges().Take(maxElements);
+            result.Edges = edges.Select(_ => new Edge(_)).ToList();
+
+            var vertices = _fallen8.GetAllVertices().Take(maxElements);
+            result.Vertices = vertices.Select(_ => new Vertex(_)).ToList();
+
+            return result;
         }
-
 
         [HttpGet("/edge/{edgeIdentifier}/source")]
         public int GetSourceVertexForEdge([FromRoute] Int32 edgeIdentifier)
@@ -265,7 +256,7 @@ namespace NoSQL.GraphDB.App.Controllers
                                                          Type.GetType(definition.Literal.FullQualifiedTypeName, true,
                                                                       true));
 
-            List<AGraphElement> graphElements;
+            List<AGraphElementModel> graphElements;
             return _fallen8.GraphScan(out graphElements, propertyId, value, definition.Operator)
                        ? CreateResult(graphElements, definition.ResultType)
                        : Enumerable.Empty<Int32>();
@@ -291,7 +282,7 @@ namespace NoSQL.GraphDB.App.Controllers
                                                          Type.GetType(definition.Literal.FullQualifiedTypeName, true,
                                                                       true));
 
-            ImmutableList<AGraphElement> graphElements;
+            ImmutableList<AGraphElementModel> graphElements;
             return _fallen8.IndexScan(out graphElements, definition.IndexId, value, definition.Operator)
                        ? CreateResult(graphElements, definition.ResultType)
                        : Enumerable.Empty<Int32>();
@@ -316,7 +307,7 @@ namespace NoSQL.GraphDB.App.Controllers
             var right = (IComparable)Convert.ChangeType(definition.RightLimit,
                                                          Type.GetType(definition.FullQualifiedTypeName, true, true));
 
-            ImmutableList<AGraphElement> graphElements;
+            ImmutableList<AGraphElementModel> graphElements;
             return _fallen8.RangeIndexScan(out graphElements, definition.IndexId, left, right, definition.IncludeLeft,
                                            definition.IncludeRight)
                        ? CreateResult(graphElements, definition.ResultType)
@@ -355,7 +346,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             #endregion
 
-            AGraphElement graphElement;
+            AGraphElementModel graphElement;
             if (_fallen8.TryGetGraphElement(out graphElement, definition.GraphElementId))
             {
                 IIndex idx;
@@ -364,7 +355,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     var spatialIndex = idx as ISpatialIndex;
                     if (spatialIndex != null)
                     {
-                        ImmutableList<AGraphElement> result;
+                        ImmutableList<AGraphElementModel> result;
                         return spatialIndex.SearchDistance(out result, definition.Distance, graphElement)
                             ? result.Select(_ => _.Id)
                             : null;
@@ -564,7 +555,7 @@ namespace NoSQL.GraphDB.App.Controllers
             IIndex idx;
             if (_fallen8.IndexFactory.TryGetIndex(out idx, indexId))
             {
-                AGraphElement graphElement;
+                AGraphElementModel graphElement;
                 if (_fallen8.TryGetGraphElement(out graphElement, definition.GraphElementId))
                 {
                     idx.AddOrUpdate(ServiceHelper.CreateObject(definition.Key), graphElement);
@@ -598,7 +589,7 @@ namespace NoSQL.GraphDB.App.Controllers
             IIndex idx;
             if (_fallen8.IndexFactory.TryGetIndex(out idx, indexId))
             {
-                AGraphElement graphElement;
+                AGraphElementModel graphElement;
                 if (_fallen8.TryGetGraphElement(out graphElement, graphElementId))
                 {
                     idx.RemoveValue(graphElement);
@@ -628,7 +619,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="graphElements"> The graph elements </param>
         /// <param name="resultTypeSpecification"> The result specification </param>
         /// <returns> </returns>
-        private static IEnumerable<int> CreateResult(IEnumerable<AGraphElement> graphElements,
+        private static IEnumerable<int> CreateResult(IEnumerable<AGraphElementModel> graphElements,
                                                     ResultTypeSpecification resultTypeSpecification)
         {
             switch (resultTypeSpecification)

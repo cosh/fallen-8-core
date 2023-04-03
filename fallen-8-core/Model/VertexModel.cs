@@ -35,19 +35,19 @@ namespace NoSQL.GraphDB.Core.Model
     /// <summary>
     ///   Vertex model.
     /// </summary>
-    public sealed class VertexModel : AGraphElement
+    public sealed class VertexModel : AGraphElementModel
     {
         #region Data
 
         /// <summary>
         ///   The out edges.
         /// </summary>
-        internal ImmutableDictionary<String, ImmutableList<EdgeModel>> _outEdges;
+        public ImmutableDictionary<String, ImmutableList<EdgeModel>> OutEdges;
 
         /// <summary>
         ///   The in edges.
         /// </summary>
-        internal ImmutableDictionary<String, ImmutableList<EdgeModel>> _inEdges;
+        public ImmutableDictionary<String, ImmutableList<EdgeModel>> InEdges;
 
         #endregion
 
@@ -81,12 +81,12 @@ namespace NoSQL.GraphDB.Core.Model
         {
             if (outEdges != null)
             {
-                _outEdges = outEdges.ToImmutableDictionary(_ => _.Key, __ => __.Value.ToImmutableList());
+                OutEdges = outEdges.ToImmutableDictionary(_ => _.Key, __ => __.Value.ToImmutableList());
             }
 
             if (incEdges != null)
             {
-                _inEdges = incEdges.ToImmutableDictionary(_ => _.Key, __ => __.Value.ToImmutableList());
+                InEdges = incEdges.ToImmutableDictionary(_ => _.Key, __ => __.Value.ToImmutableList());
             }
 
             ModificationDate = modificationDate;
@@ -104,15 +104,15 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void AddOutEdge(String edgePropertyId, EdgeModel outEdge)
         {
-            if (_outEdges == null)
+            if (OutEdges == null)
             {
-                _outEdges = new Dictionary<String, ImmutableList<EdgeModel>> () { { edgePropertyId, ImmutableList.Create<EdgeModel>( outEdge ) } }.ToImmutableDictionary();
+                OutEdges = new Dictionary<String, ImmutableList<EdgeModel>> () { { edgePropertyId, ImmutableList.Create<EdgeModel>( outEdge ) } }.ToImmutableDictionary();
 
                 return;
             }
 
             ImmutableList<EdgeModel> edgePropertyFound;
-            if (_outEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
+            if (OutEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
             {
                 edgePropertyFound = edgePropertyFound.Add(outEdge);
             }
@@ -122,7 +122,7 @@ namespace NoSQL.GraphDB.Core.Model
                 edgePropertyFound = new List<EdgeModel> () { outEdge }.ToImmutableList();
             }
             
-            _outEdges = _outEdges.SetItem(edgePropertyId, edgePropertyFound);
+            OutEdges = OutEdges.SetItem(edgePropertyId, edgePropertyFound);
         }
 
         /// <summary>
@@ -132,7 +132,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void SetOutEdges(Dictionary<String, List<EdgeModel>> outEdges)
         {
-            _outEdges = outEdges.ToImmutableDictionary(_ => _.Key, __ => __.Value.ToImmutableList());
+            OutEdges = outEdges.ToImmutableDictionary(_ => _.Key, __ => __.Value.ToImmutableList());
         }
 
         /// <summary>
@@ -143,15 +143,15 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void AddIncomingEdge(String edgePropertyId, EdgeModel incomingEdge)
         {
-            if (_inEdges == null)
+            if (InEdges == null)
             {
-                _inEdges = new Dictionary<String, ImmutableList<EdgeModel>>() { { edgePropertyId, ImmutableList.Create<EdgeModel>(incomingEdge) } }.ToImmutableDictionary();
+                InEdges = new Dictionary<String, ImmutableList<EdgeModel>>() { { edgePropertyId, ImmutableList.Create<EdgeModel>(incomingEdge) } }.ToImmutableDictionary();
 
                 return;
             }
 
             ImmutableList<EdgeModel> edgePropertyFound;
-            if (_inEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
+            if (InEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
             {
                 edgePropertyFound = edgePropertyFound.Add(incomingEdge);
             }
@@ -161,25 +161,7 @@ namespace NoSQL.GraphDB.Core.Model
                 edgePropertyFound = new List<EdgeModel>() { incomingEdge }.ToImmutableList();
             }
 
-            _inEdges = _inEdges.SetItem(edgePropertyId, edgePropertyFound);
-        }
-
-        /// <summary>
-        ///   Gets the incoming edges.
-        /// </summary>
-        /// <returns> The incoming edges. </returns>
-        internal ImmutableDictionary<String, ImmutableList<EdgeModel>> GetIncomingEdges()
-        {
-            return _inEdges;
-        }
-
-        /// <summary>
-        ///   Gets the outgoing edges.
-        /// </summary>
-        /// <returns> The outgoing edges. </returns>
-        internal ImmutableDictionary<String, ImmutableList<EdgeModel>> GetOutgoingEdges()
-        {
-            return _outEdges;
+            InEdges = InEdges.SetItem(edgePropertyId, edgePropertyFound);
         }
 
         /// <summary>
@@ -189,16 +171,16 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name="toBeRemovedEdge"> The to be removed edge </param>
         internal void RemoveIncomingEdge(String edgePropertyId, EdgeModel toBeRemovedEdge)
         {
-            if (_inEdges == null)
+            if (InEdges == null)
             {
                 return;
             }
 
             ImmutableList<EdgeModel> edgePropertyFound;
-            if (_inEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
+            if (InEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
             {
                 edgePropertyFound = edgePropertyFound.RemoveAll(_ => _.Id == toBeRemovedEdge.Id);
-                _inEdges = _inEdges.SetItem(edgePropertyId, edgePropertyFound);
+                InEdges = InEdges.SetItem(edgePropertyId, edgePropertyFound);
             }
         }
 
@@ -211,14 +193,14 @@ namespace NoSQL.GraphDB.Core.Model
         {
             var result = new List<String>();
 
-            if (_inEdges == null)
+            if (InEdges == null)
             {
                 return result;
             }
 
             var tempDict = new Dictionary<string, ImmutableList<EdgeModel>>();
 
-            foreach (var aEdgeProperty in _inEdges)
+            foreach (var aEdgeProperty in InEdges)
             {
                 if (aEdgeProperty.Value.Contains(toBeRemovedEdge))
                 {
@@ -226,7 +208,7 @@ namespace NoSQL.GraphDB.Core.Model
                 }
             }
 
-            _inEdges = _inEdges.SetItems(tempDict);
+            InEdges = InEdges.SetItems(tempDict);
 
             return tempDict.Select(_ => _.Key).ToList();
         }
@@ -238,16 +220,16 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name="toBeRemovedEdge"> The to be removed edge </param>
         internal void RemoveOutGoingEdge(String edgePropertyId, EdgeModel toBeRemovedEdge)
         {
-            if (_outEdges == null)
+            if (OutEdges == null)
             {
                 return;
             }
 
             ImmutableList<EdgeModel> edgePropertyFound;
-            if (_outEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
+            if (OutEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
             {
                 edgePropertyFound = edgePropertyFound.RemoveAll(_ => _.Id == toBeRemovedEdge.Id);
-                _outEdges = _outEdges.SetItem(edgePropertyId, edgePropertyFound);
+                OutEdges = OutEdges.SetItem(edgePropertyId, edgePropertyFound);
             }
         }
 
@@ -260,14 +242,14 @@ namespace NoSQL.GraphDB.Core.Model
         {
             var result = new List<String>();
 
-            if (_outEdges == null)
+            if (OutEdges == null)
             {
                 return result;
             }
 
             var tempDict = new Dictionary<string, ImmutableList<EdgeModel>>();
 
-            foreach (var aEdgeProperty in _outEdges)
+            foreach (var aEdgeProperty in OutEdges)
             {
                 if (aEdgeProperty.Value.Contains(toBeRemovedEdge))
                 {
@@ -275,7 +257,7 @@ namespace NoSQL.GraphDB.Core.Model
                 }
             }
 
-            _outEdges = _outEdges.SetItems(tempDict);
+            OutEdges = OutEdges.SetItems(tempDict);
 
             return tempDict.Select(_ => _.Key).ToList();
         }
@@ -288,9 +270,9 @@ namespace NoSQL.GraphDB.Core.Model
         {
             UInt32 degree = 0;
 
-            if (_inEdges != null)
+            if (InEdges != null)
             {
-                degree = Convert.ToUInt32(_inEdges.Sum(_ => _.Value.Count));
+                degree = Convert.ToUInt32(InEdges.Sum(_ => _.Value.Count));
             }
             return degree;
         }
@@ -299,9 +281,9 @@ namespace NoSQL.GraphDB.Core.Model
         {
             UInt32 degree = 0;
 
-            if (_outEdges != null)
+            if (OutEdges != null)
             {
-                degree = Convert.ToUInt32(_outEdges.Sum(_ => _.Value.Count));
+                degree = Convert.ToUInt32(OutEdges.Sum(_ => _.Value.Count));
             }
             return degree;
         }
@@ -314,14 +296,14 @@ namespace NoSQL.GraphDB.Core.Model
         {
             var neighbors = new List<VertexModel>();
 
-            if (_outEdges != null)
+            if (OutEdges != null)
             {
-                neighbors.AddRange(_outEdges.SelectMany(_ => _.Value).Select(TargetVertexExtractor));
+                neighbors.AddRange(OutEdges.SelectMany(_ => _.Value).Select(TargetVertexExtractor));
             }
 
-            if (_inEdges != null)
+            if (InEdges != null)
             {
-                neighbors.AddRange(_inEdges.SelectMany(_ => _.Value).Select(TargetVertexExtractor));
+                neighbors.AddRange(InEdges.SelectMany(_ => _.Value).Select(TargetVertexExtractor));
             }
 
             return neighbors;
@@ -335,9 +317,9 @@ namespace NoSQL.GraphDB.Core.Model
         {
             var inEdges = new List<String>();
 
-            if (_inEdges != null)
+            if (InEdges != null)
             {
-                inEdges.AddRange(_inEdges.Select(_ => _.Key));
+                inEdges.AddRange(InEdges.Select(_ => _.Key));
             }
             return inEdges;
         }
@@ -351,9 +333,9 @@ namespace NoSQL.GraphDB.Core.Model
 
             var outEdges = new List<String>();
 
-            if (_outEdges != null)
+            if (OutEdges != null)
             {
-                outEdges.AddRange(_outEdges.Select(_ => _.Key));
+                outEdges.AddRange(OutEdges.Select(_ => _.Key));
             }
             return outEdges;
         }
@@ -368,9 +350,9 @@ namespace NoSQL.GraphDB.Core.Model
         {
             result = null;
 
-            if (_outEdges != null)
+            if (OutEdges != null)
             {
-                return _outEdges.TryGetValue(edgePropertyId, out result);
+                return OutEdges.TryGetValue(edgePropertyId, out result);
             }
 
             return false;
@@ -386,9 +368,9 @@ namespace NoSQL.GraphDB.Core.Model
         {
             result = null;
 
-            if (_inEdges != null)
+            if (InEdges != null)
             {
-                return _inEdges.TryGetValue(edgePropertyId, out result);
+                return InEdges.TryGetValue(edgePropertyId, out result);
             }
 
             return false;

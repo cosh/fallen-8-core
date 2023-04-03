@@ -52,14 +52,14 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   The graph elements
         /// </summary>
-        private ImmutableList<AGraphElement> _graphElements;
+        private ImmutableList<AGraphElementModel> _graphElements;
 
         /// <summary>
         /// The delegate to find elements in the big list
         /// </summary>
         /// <param name="objectOfT">The to be analyzed object of T</param>
         /// <returns>True or false</returns>
-        public delegate Boolean ElementSeeker(AGraphElement objectOfT);
+        public delegate Boolean ElementSeeker(AGraphElementModel objectOfT);
 
         /// <summary>
         ///   The index factory.
@@ -140,7 +140,7 @@ namespace NoSQL.GraphDB.Core
             _loggerFactory = loggerfactory;
 
             IndexFactory = new IndexFactory(loggerfactory);
-            _graphElements = ImmutableList.Create<AGraphElement>();
+            _graphElements = ImmutableList.Create<AGraphElementModel>();
             ServiceFactory = new ServiceFactory(this);
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
@@ -203,7 +203,7 @@ namespace NoSQL.GraphDB.Core
             return newVertices;
         }
 
-        public bool TryGetGraphElement(out AGraphElement result, int id)
+        public bool TryGetGraphElement(out AGraphElementModel result, int id)
         {
 
             try
@@ -255,7 +255,7 @@ namespace NoSQL.GraphDB.Core
 
 
 
-        public bool GraphScan(out List<AGraphElement> result, String propertyId, IComparable literal, 
+        public bool GraphScan(out List<AGraphElementModel> result, String propertyId, IComparable literal, 
             BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null)
         {
             #region binary operation
@@ -287,7 +287,7 @@ namespace NoSQL.GraphDB.Core
                     break;
 
                 default:
-                    result = new List<AGraphElement>();
+                    result = new List<AGraphElementModel>();
 
                     break;
             }
@@ -297,7 +297,7 @@ namespace NoSQL.GraphDB.Core
             return result.Count > 0;
         }
 
-        public bool IndexScan(out ImmutableList<AGraphElement> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
+        public bool IndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
         {
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
@@ -348,7 +348,7 @@ namespace NoSQL.GraphDB.Core
             return result.Count > 0;
         }
 
-        public bool RangeIndexScan(out ImmutableList<AGraphElement> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
+        public bool RangeIndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
         {
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
@@ -557,7 +557,7 @@ namespace NoSQL.GraphDB.Core
 
         internal void SetProperty_internal(Int32 graphElementId, String propertyId, Object property)
         {
-            AGraphElement graphElement = _graphElements[graphElementId];
+            AGraphElementModel graphElement = _graphElements[graphElementId];
             if (graphElement != null)
             {
                 graphElement.SetProperty(propertyId, property);
@@ -576,7 +576,7 @@ namespace NoSQL.GraphDB.Core
 
         internal bool TryRemoveGraphElement_private(Int32 graphElementId)
         {
-            AGraphElement graphElement = _graphElements[graphElementId];
+            AGraphElementModel graphElement = _graphElements[graphElementId];
 
             if (graphElement == null || graphElement._removed)
             {
@@ -601,7 +601,7 @@ namespace NoSQL.GraphDB.Core
 
                     #region out edges
 
-                    var outgoingEdgeConatiner = vertex.GetOutgoingEdges();
+                    var outgoingEdgeConatiner = vertex.OutEdges;
                     if (outgoingEdgeConatiner != null)
                     {
                         foreach (var aOutEdgeProperty in outgoingEdgeConatiner)
@@ -621,7 +621,7 @@ namespace NoSQL.GraphDB.Core
 
                     #region in edges
 
-                    var incomingEdgeContainer = vertex.GetIncomingEdges();
+                    var incomingEdgeContainer = vertex.InEdges;
                     if (incomingEdgeContainer != null)
                     {
                         foreach (var aInEdgeProperty in incomingEdgeContainer)
@@ -678,7 +678,7 @@ namespace NoSQL.GraphDB.Core
 
                     #region out edges
 
-                    var outgoingEdgeConatiner = vertex.GetOutgoingEdges();
+                    var outgoingEdgeConatiner = vertex.OutEdges;
                     if (outgoingEdgeConatiner != null)
                     {
                         foreach (var aOutEdgeProperty in outgoingEdgeConatiner)
@@ -698,7 +698,7 @@ namespace NoSQL.GraphDB.Core
 
                     #region in edges
 
-                    var incomingEdgeContainer = vertex.GetIncomingEdges();
+                    var incomingEdgeContainer = vertex.OutEdges;
                     if (incomingEdgeContainer != null)
                     {
                         foreach (var aInEdgeProperty in incomingEdgeContainer)
@@ -757,7 +757,7 @@ namespace NoSQL.GraphDB.Core
         internal void TabulaRasa_internal()
         {
             _currentId = 0;
-            _graphElements = ImmutableList.Create<AGraphElement>();
+            _graphElements = ImmutableList.Create<AGraphElementModel>();
             IndexFactory.DeleteAllIndices();
             VertexCount = 0;
             EdgeCount = 0;
@@ -782,7 +782,7 @@ namespace NoSQL.GraphDB.Core
             GC.WaitForFullGCComplete(-1);
             GC.WaitForPendingFinalizers();
 
-            _graphElements = ImmutableList.Create<AGraphElement>();
+            _graphElements = ImmutableList.Create<AGraphElementModel>();
 
             var success = _persistencyFactory.Load(this, ref _graphElements, path, ref _currentId, startServices);
 
@@ -834,7 +834,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='literal'> Literal. </param>
         /// <param name='propertyId'> Property identifier. </param>
         /// <param name='interestingLabel'> The interesting label. </param>
-        private List<AGraphElement> FindElements(BinaryOperatorDelegate finder, IComparable literal, String propertyId,
+        private List<AGraphElementModel> FindElements(BinaryOperatorDelegate finder, IComparable literal, String propertyId,
             String interestingLabel = null)
         {
             return FindElements(
@@ -852,7 +852,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name="seeker">A delegate to search for the right element</param>
         /// <param name='interestingLabel'> The interesting label. </param>
         /// <returns>A list of matching graph elements</returns>
-        private List<AGraphElement> FindElements(ElementSeeker seeker, String interestingLabel = null)
+        private List<AGraphElementModel> FindElements(ElementSeeker seeker, String interestingLabel = null)
         {
             return _graphElements.AsParallel()
                 .Where(_ => _ != null && !_._removed)
@@ -861,7 +861,7 @@ namespace NoSQL.GraphDB.Core
                 .ToList();
         }
 
-        private static Func<AGraphElement, Boolean> CheckLabel(String interestingLabel = null)
+        private static Func<AGraphElementModel, Boolean> CheckLabel(String interestingLabel = null)
         {
             return _ => interestingLabel == null || interestingLabel != null && _.Label != null && _.Label.Equals(interestingLabel);
         }
@@ -873,12 +873,12 @@ namespace NoSQL.GraphDB.Core
         /// <param name='finder'> Finder delegate. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='index'> Index. </param>
-        private static ImmutableList<AGraphElement> FindElementsIndex(BinaryOperatorDelegate finder,
+        private static ImmutableList<AGraphElementModel> FindElementsIndex(BinaryOperatorDelegate finder,
                                                                            IComparable literal, IIndex index)
         {
-            return ImmutableList.CreateRange<AGraphElement>(index.GetKeyValues()
+            return ImmutableList.CreateRange<AGraphElementModel>(index.GetKeyValues()
                                                              .AsParallel()
-                                                             .Select(aIndexElement => new KeyValuePair<IComparable, ImmutableList<AGraphElement>>((IComparable)aIndexElement.Key, aIndexElement.Value))
+                                                             .Select(aIndexElement => new KeyValuePair<IComparable, ImmutableList<AGraphElementModel>>((IComparable)aIndexElement.Key, aIndexElement.Value))
                                                              .Where(aTypedIndexElement => finder(aTypedIndexElement.Key, literal))
                                                              .Select(_ => _.Value)
                                                              .SelectMany(__ => __)
@@ -958,14 +958,14 @@ namespace NoSQL.GraphDB.Core
         {
             for (var i = 0; i < _currentId; i++)
             {
-                AGraphElement graphElement = _graphElements[i];
+                AGraphElementModel graphElement = _graphElements[i];
                 if (graphElement != null)
                 {
                     graphElement.Trim();
                 }
             }
 
-            List<AGraphElement> newGraphElementList = new List<AGraphElement>();
+            List<AGraphElementModel> newGraphElementList = new List<AGraphElementModel>();
 
             //copy the list and exclude nulls
             foreach (var aGraphElement in _graphElements)

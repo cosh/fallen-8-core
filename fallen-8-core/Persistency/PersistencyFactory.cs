@@ -70,7 +70,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name="pathToSavePoint">The path to the save point.</param>
         /// <param name="currentId">The maximum graph element id</param>
         /// <param name="startServices">Start the services</param>
-        internal Boolean Load(Fallen8 fallen8, ref ImmutableList<AGraphElement> graphElements, string pathToSavePoint, ref Int32 currentId, Boolean startServices)
+        internal Boolean Load(Fallen8 fallen8, ref ImmutableList<AGraphElementModel> graphElements, string pathToSavePoint, ref Int32 currentId, Boolean startServices)
         {
             //if there is no savepoint file... do nothing
             if (!File.Exists(pathToSavePoint))
@@ -90,7 +90,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 var reader = new SerializationReader(file);
                 currentId = reader.ReadInt32();
 
-                AGraphElement[] graphElementArray = new AGraphElement[currentId];
+                AGraphElementModel[] graphElementArray = new AGraphElementModel[currentId];
 
                 #region graph elements
 
@@ -158,7 +158,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='savePartitions'> The number of save partitions for the graph elements. </param>
         /// <param name="currentId">The current graph elemement identifier.</param>
         /// <returns>The path of the savegame</returns>
-        internal string Save(Fallen8 fallen8, ImmutableList<AGraphElement> graphElements, String path, UInt32 savePartitions, Int32 currentId)
+        internal string Save(Fallen8 fallen8, ImmutableList<AGraphElementModel> graphElements, String path, UInt32 savePartitions, Int32 currentId)
         {
             // Create the new, empty data file.
             if (File.Exists(path))
@@ -339,7 +339,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name="edgeTodoOnVertex"> The edges that have to be added to this vertex </param>
         private List<EdgeSneakPeak> LoadAGraphElementBunch(
             string graphElementBunchPath,
-            AGraphElement[] graphElementsOfFallen8,
+            AGraphElementModel[] graphElementsOfFallen8,
             ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>> edgeTodoOnVertex)
         {
             //if there is no savepoint file... do nothing
@@ -445,7 +445,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='range'> Range. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='pathToSavePoint'> Path to save point basis. </param>
-        private String SaveBunch(Tuple<Int32, Int32> range, ImmutableList<AGraphElement> graphElements,
+        private String SaveBunch(Tuple<Int32, Int32> range, ImmutableList<AGraphElementModel> graphElements,
                                         String pathToSavePoint)
         {
             var partitionFileName = pathToSavePoint + Constants.GraphElementsSaveString + range.Item1 + "_to_" + range.Item2;
@@ -459,7 +459,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 for (var i = range.Item1; i < range.Item2; i++)
                 {
-                    AGraphElement aGraphElement = graphElements[i];
+                    AGraphElementModel aGraphElement = graphElements[i];
                     //there can be nulls
                     if (aGraphElement == null || aGraphElement._removed)
                     {
@@ -491,7 +491,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='graphElements'> Graph elements of Fallen-8. </param>
         /// <param name='graphElementStreams'> Graph element streams. </param>
-        private void LoadGraphElements(AGraphElement[] graphElements, List<String> graphElementStreams)
+        private void LoadGraphElements(AGraphElementModel[] graphElements, List<String> graphElementStreams)
         {
             var edgeTodo = new ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>>();
             var result = new List<EdgeSneakPeak>[graphElementStreams.Count];
@@ -603,7 +603,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='graphElement'> Graph element. </param>
         /// <param name='writer'> Writer. </param>
-        private void WriteAGraphElement(AGraphElement graphElement, SerializationWriter writer)
+        private void WriteAGraphElement(AGraphElementModel graphElement, SerializationWriter writer)
         {
             writer.Write(graphElement.Id);
             writer.Write(graphElement.CreationDate);
@@ -625,7 +625,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='reader'> Reader. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='edgeTodo'> Edge todo. </param>
-        private void LoadVertex(SerializationReader reader, AGraphElement[] graphElements,
+        private void LoadVertex(SerializationReader reader, AGraphElementModel[] graphElements,
                                        ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>> edgeTodo)
         {
             var id = reader.ReadInt32();
@@ -766,7 +766,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #region edges
 
-            var outgoingEdges = vertex._outEdges;
+            var outgoingEdges = vertex.OutEdges;
             if (outgoingEdges == null)
             {
                 writer.Write(0);
@@ -785,7 +785,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 }
             }
 
-            var incomingEdges = vertex._inEdges;
+            var incomingEdges = vertex.InEdges;
             if (incomingEdges == null)
             {
                 writer.Write(0);
@@ -813,7 +813,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='reader'> Reader. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='sneakPeaks'> Sneak peaks. </param>
-        private void LoadEdge(SerializationReader reader, AGraphElement[] graphElements,
+        private void LoadEdge(SerializationReader reader, AGraphElementModel[] graphElements,
                                      ref List<EdgeSneakPeak> sneakPeaks)
         {
             var id = reader.ReadInt32();

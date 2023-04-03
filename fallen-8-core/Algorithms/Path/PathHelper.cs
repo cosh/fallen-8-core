@@ -54,7 +54,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Delegates.EdgeFilter edgeFilter,
             Delegates.VertexFilter vertexFilter)
         {
-            var edgeProperties = direction == Direction.IncomingEdge ? vertex.GetIncomingEdges() : vertex.GetOutgoingEdges();
+            var edgeProperties = direction == Direction.IncomingEdge ? vertex.InEdges : vertex.OutEdges;
             var result = new List<Tuple<String, IEnumerable<EdgeModel>>>();
 
             if (edgeProperties != null)

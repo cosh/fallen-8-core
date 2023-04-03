@@ -42,7 +42,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
         /// <value>
         /// The graph element.
         /// </value>
-        public AGraphElement GraphElement { get; private set; }
+        public AGraphElementModel GraphElement { get; private set; }
 
         /// <summary>
         /// Gets or sets the highlights.
@@ -70,7 +70,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
         /// <param name="graphElement">Graph element</param>
         /// <param name="score">Score</param>
         /// <param name="highlights">Highlights</param>
-        public FulltextSearchResultElement(AGraphElement graphElement, Double score, IEnumerable<String> highlights = null)
+        public FulltextSearchResultElement(AGraphElementModel graphElement, Double score, IEnumerable<String> highlights = null)
         {
             GraphElement = graphElement;
             Score = score;

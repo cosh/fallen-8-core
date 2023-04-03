@@ -50,7 +50,7 @@ namespace NoSQL.GraphDB.Core.Index
         /// <summary>
         /// The index dictionary.
         /// </summary>
-        private Dictionary<IComparable, AGraphElement> _idx;
+        private Dictionary<IComparable, AGraphElementModel> _idx;
 
         /// <summary>
         /// The description of the plugin
@@ -105,7 +105,7 @@ namespace NoSQL.GraphDB.Core.Index
             throw new CollisionException();
         }
 
-        public void AddOrUpdate(Object keyObject, AGraphElement graphElement)
+        public void AddOrUpdate(Object keyObject, AGraphElementModel graphElement)
         {
             IComparable key;
             if (!IndexHelper.CheckObject(out key, keyObject))
@@ -145,7 +145,7 @@ namespace NoSQL.GraphDB.Core.Index
             throw new CollisionException();
         }
 
-        public void RemoveValue(AGraphElement graphElement)
+        public void RemoveValue(AGraphElementModel graphElement)
         {
             if (WriteResource())
             {
@@ -190,14 +190,14 @@ namespace NoSQL.GraphDB.Core.Index
         }
 
 
-        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElement>>> GetKeyValues()
+        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElementModel>>> GetKeyValues()
         {
             if (ReadResource())
             {
                 try
                 {
                     foreach (var aKv in _idx)
-                        yield return new KeyValuePair<object, ImmutableList<AGraphElement>>(aKv.Key, ImmutableList.Create<AGraphElement>(aKv.Value));
+                        yield return new KeyValuePair<object, ImmutableList<AGraphElementModel>>(aKv.Key, ImmutableList.Create<AGraphElementModel>(aKv.Value));
 
                 }
                 finally
@@ -211,7 +211,7 @@ namespace NoSQL.GraphDB.Core.Index
             throw new CollisionException();
         }
 
-        public bool TryGetValue(out ImmutableList<AGraphElement> result, Object keyObject)
+        public bool TryGetValue(out ImmutableList<AGraphElementModel> result, Object keyObject)
         {
             IComparable key;
             if (!IndexHelper.CheckObject(out key, keyObject))
@@ -223,10 +223,10 @@ namespace NoSQL.GraphDB.Core.Index
 
             if (ReadResource())
             {
-                AGraphElement element;
+                AGraphElementModel element;
                 var foundSth = _idx.TryGetValue(key, out element);
 
-                result = foundSth ? ImmutableList.Create<AGraphElement>(element) : null;
+                result = foundSth ? ImmutableList.Create<AGraphElementModel>(element) : null;
 
                 FinishReadResource();
 
@@ -267,13 +267,13 @@ namespace NoSQL.GraphDB.Core.Index
 
                 var keyCount = reader.ReadInt32();
 
-                _idx = new Dictionary<IComparable, AGraphElement>(keyCount);
+                _idx = new Dictionary<IComparable, AGraphElementModel>(keyCount);
 
                 for (var i = 0; i < keyCount; i++)
                 {
                     var key = reader.ReadObject();
                     var graphElementId = reader.ReadInt32();
-                    AGraphElement graphElement;
+                    AGraphElementModel graphElement;
                     if (fallen8.TryGetGraphElement(out graphElement, graphElementId))
                     {
                         _idx.Add((IComparable)key, graphElement);
@@ -298,7 +298,7 @@ namespace NoSQL.GraphDB.Core.Index
 
         public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
         {
-            _idx = new Dictionary<IComparable, AGraphElement>();
+            _idx = new Dictionary<IComparable, AGraphElementModel>();
             _logger = fallen8._loggerFactory.CreateLogger<SingleValueIndex>();
         }
 
@@ -352,7 +352,7 @@ namespace NoSQL.GraphDB.Core.Index
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        public bool TryGetValue(out AGraphElement result, IComparable key)
+        public bool TryGetValue(out AGraphElementModel result, IComparable key)
         {
             if (ReadResource())
             {
@@ -369,11 +369,11 @@ namespace NoSQL.GraphDB.Core.Index
         /// <summary>
         /// The values.
         /// </summary>
-        public List<AGraphElement> Values()
+        public List<AGraphElementModel> Values()
         {
             if (ReadResource())
             {
-                var values = new List<AGraphElement>(_idx.Values);
+                var values = new List<AGraphElementModel>(_idx.Values);
 
                 FinishReadResource();
 

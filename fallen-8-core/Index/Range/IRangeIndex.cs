@@ -50,7 +50,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
         /// <param name='includeKey'>
         /// Include the key.
         /// </param>
-        Boolean LowerThan(out ImmutableList<AGraphElement> result, IComparable key, bool includeKey = true);
+        Boolean LowerThan(out ImmutableList<AGraphElementModel> result, IComparable key, bool includeKey = true);
 
         /// <summary>
         /// Searches for graph elements greater than the the key.
@@ -67,7 +67,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
         /// <param name='includeKey'>
         /// Include the key.
         /// </param>
-        Boolean GreaterThan(out ImmutableList<AGraphElement> result, IComparable key, bool includeKey = true);
+        Boolean GreaterThan(out ImmutableList<AGraphElementModel> result, IComparable key, bool includeKey = true);
 
         /// <summary>
         /// Searches for graph elements between a specified range
@@ -90,6 +90,6 @@ namespace NoSQL.GraphDB.Core.Index.Range
         /// <param name='includeUpperLimit'>
         /// Include the upper limit.
         /// </param>
-        Boolean Between(out ImmutableList<AGraphElement> result, IComparable lowerLimit, IComparable upperLimit, bool includeLowerLimit = true, bool includeUpperLimit = true);
+        Boolean Between(out ImmutableList<AGraphElementModel> result, IComparable lowerLimit, IComparable upperLimit, bool includeLowerLimit = true, bool includeUpperLimit = true);
     }
 }

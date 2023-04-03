@@ -1,8 +1,8 @@
 ﻿// MIT License
 //
-// SpatialDataContainer.cs
+// Graph.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2021 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,46 +22,23 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-//
-// Author:
-//       Andriy Kupershmidt <kuper133@googlemail.com>
 
-#region Usings
+using NoSQL.GraphDB.App.Controllers.Model;
+using System.Collections.Generic;
 
-using NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer;
-using NoSQL.GraphDB.Core.Model;
-
-#endregion
-
-namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
+namespace NoSQL.GraphDB.Core.App.Controllers.Model
 {
-    /// <summary>
-    /// The implementation of spatial container for container with spatial data
-    /// </summary>
-    public sealed class SpatialDataContainer : ASpatialContainer, IRTreeDataContainer
+    public class Graph
     {
-        public SpatialDataContainer(float[] clower,
-                        float[] cupper,
-                         ARTreeContainer parent = null)
-        {
-            if (parent != null)
-                Parent = parent;
-            Lower = clower;
-            Upper = cupper;
-        }
-        public SpatialDataContainer(IMBR mbr,
-                         ARTreeContainer parent = null)
-        {
-            if (parent != null)
-                Parent = parent;
-            Lower = mbr.Lower;
-            Upper = mbr.Upper;
-        }
-        public AGraphElementModel GraphElement
+        public List<Edge> Edges
         {
             get;
-            set;
+            internal set;
         }
-
+        public List<Vertex> Vertices
+        {
+            get;
+            internal set;
+        }
     }
 }

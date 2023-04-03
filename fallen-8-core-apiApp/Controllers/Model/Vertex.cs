@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// GraphElementProperties.cs
+// VertexSpecification.cs
 //
 // Copyright (c) 2022 Henning Rauch
 //
@@ -23,46 +23,47 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using NoSQL.GraphDB.Core.Helper;
+using NoSQL.GraphDB.Core.Model;
 using System;
+using System.Linq;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The Fallen-8 REST properties
+    ///   The vertex specification
     /// </summary>
-    public sealed class GraphElementProperties
+    public class Vertex : AGraphElement
     {
         /// <summary>
-        ///   The identifier
+        ///   The out edges.
         /// </summary>
-        public Int32 Id
+        public Dictionary<String, List<int>> OutEdges
         {
             get; set;
         }
 
         /// <summary>
-        ///   The creation date
+        ///   The in edges.
         /// </summary>
-        public DateTime CreationDate
+        public Dictionary<String, List<int>> InEdges
         {
             get; set;
         }
 
-        /// <summary>
-        ///   The modification date
-        /// </summary>
-        public DateTime ModificationDate
+        public Vertex(VertexModel vertex) : base(vertex.Id, vertex.CreationDate, vertex.ModificationDate, vertex.Label, vertex.GetAllProperties())
         {
-            get; set;
-        }
+            if (vertex.InEdges != null)
+            {
+                InEdges = vertex.InEdges.ToDictionary(_ => _.Key, _ => _.Value.Select(__ => __.Id).ToList());
+            }
 
-        /// <summary>
-        ///   The properties
-        /// </summary>
-        public List<Property> Properties
-        {
-            get; set;
+            if (vertex.OutEdges != null)
+            {
+                OutEdges = vertex.OutEdges.ToDictionary(_ => _.Key, _ => _.Value.Select(__ => __.Id).ToList());
+            }
         }
     }
 }

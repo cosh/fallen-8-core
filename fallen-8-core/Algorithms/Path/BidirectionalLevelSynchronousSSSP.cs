@@ -539,7 +539,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Delegates.VertexFilter vertexFilter,
             HashSet<VertexModel> alreadyVisited)
         {
-            var edgeProperties = vertex.GetIncomingEdges();
+            var edgeProperties = vertex.InEdges;
             var result = new List<FrontierElement>();
 
             if (edgeProperties != null)
@@ -666,7 +666,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Delegates.VertexFilter vertexFilter,
             HashSet<VertexModel> alreadyVisited)
         {
-            var edgeProperties = vertex.GetOutgoingEdges();
+            var edgeProperties = vertex.OutEdges;
             var result = new List<FrontierElement>();
 
             if (edgeProperties != null)

@@ -48,7 +48,7 @@ namespace NoSQL.GraphDB.Core
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
         /// <param name='result'> The graph element. </param>
         /// <param name='id'> System wide unique identifier. </param>
-        Boolean TryGetGraphElement(out AGraphElement result, Int32 id);
+        Boolean TryGetGraphElement(out AGraphElementModel result, Int32 id);
 
         /// <summary>
         ///   Gets an edge by its identifier.
@@ -93,7 +93,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='literal'> Literal. </param>
         /// <param name='binOp'> Binary operator. </param>
         /// <param name="interestingLabel">The interesting label</param>
-        Boolean GraphScan(out List<AGraphElement> result, String propertyId, IComparable literal,
+        Boolean GraphScan(out List<AGraphElementModel> result, String propertyId, IComparable literal,
                           BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null);
 
         /// <summary>
@@ -104,7 +104,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='indexId'> Index identifier. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='binOp'> Binary operator. </param>
-        Boolean IndexScan(out ImmutableList<AGraphElement> result, String indexId, IComparable literal,
+        Boolean IndexScan(out ImmutableList<AGraphElementModel> result, String indexId, IComparable literal,
                           BinaryOperator binOp = BinaryOperator.Equals);
 
         /// <summary>
@@ -117,7 +117,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='rightLimit'> Right limit. </param>
         /// <param name='includeLeft'> Include left. </param>
         /// <param name='includeRight'> Include right. </param>
-        Boolean RangeIndexScan(out ImmutableList<AGraphElement> result, String indexId, IComparable leftLimit,
+        Boolean RangeIndexScan(out ImmutableList<AGraphElementModel> result, String indexId, IComparable leftLimit,
                                IComparable rightLimit, Boolean includeLeft = true, Boolean includeRight = true);
 
         /// <summary>

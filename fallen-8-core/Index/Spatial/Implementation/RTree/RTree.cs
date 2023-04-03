@@ -144,10 +144,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         #region methodes for spatial search
 
         #region universal searching
-        private List<AGraphElement> Searching(IRTreeDataContainer element, SpatialFilter spatialPredicate, SpatialFilter dataContainerPredicate)
+        private List<AGraphElementModel> Searching(IRTreeDataContainer element, SpatialFilter spatialPredicate, SpatialFilter dataContainerPredicate)
         {
             var stack = new Stack<ARTreeContainer>();
-            var currentResult = new List<AGraphElement>();
+            var currentResult = new List<AGraphElementModel>();
             if (spatialPredicate(_root, element))
                 stack.Push(_root);
             while (stack.Count > 0)
@@ -210,10 +210,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         #endregion
 
         #region EqualsSearch
-        private List<AGraphElement> EqualSearch(IRTreeDataContainer element)
+        private List<AGraphElementModel> EqualSearch(IRTreeDataContainer element)
         {
             var stack = new Stack<ARTreeContainer>();
-            var currentResult = new List<AGraphElement>();
+            var currentResult = new List<AGraphElementModel>();
             if (_root.Inclusion(element))
                 stack.Push(_root);
             while (stack.Count > 0)
@@ -306,10 +306,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         /// <returns>
         /// list of result
         /// </returns>
-        private List<AGraphElement> OverlapSearch(IRTreeDataContainer searchContainer)
+        private List<AGraphElementModel> OverlapSearch(IRTreeDataContainer searchContainer)
         {
             var stack = new Stack<ARTreeContainer>();
-            var currentResult = new List<AGraphElement>();
+            var currentResult = new List<AGraphElementModel>();
             if (_root.Intersection(searchContainer))
                 stack.Push(_root);
             while (stack.Count > 0)
@@ -1162,7 +1162,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public void RemoveValue(AGraphElement graphElement)
+        public void RemoveValue(AGraphElementModel graphElement)
         {
             if (WriteResource())
             {
@@ -1206,9 +1206,9 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             return Enumerable.Empty<Object>();
         }
 
-        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElement>>> GetKeyValues()
+        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElementModel>>> GetKeyValues()
         {
-            return Enumerable.Empty<KeyValuePair<object, ImmutableList<AGraphElement>>>();
+            return Enumerable.Empty<KeyValuePair<object, ImmutableList<AGraphElementModel>>>();
         }
 
         #endregion
@@ -1248,7 +1248,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         }
 
         #region TryGetValue
-        public bool TryGetValue(out ImmutableList<AGraphElement> result, Object geometryObject)
+        public bool TryGetValue(out ImmutableList<AGraphElementModel> result, Object geometryObject)
         {
             IGeometry geometry;
             if (!IndexHelper.CheckObject(out geometry, geometryObject))
@@ -1259,7 +1259,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
 
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 IRTreeDataContainer element;
                 if (DimensionTest(geometry.Dimensions) && TestOfGeometry(geometry))
                 {
@@ -1271,7 +1271,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     intermediateResult = EqualSearch(element);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
 
@@ -1297,11 +1297,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        public bool SearchDistance(out ImmutableList<AGraphElement> result, float distance, IGeometry geometry)
+        public bool SearchDistance(out ImmutableList<AGraphElementModel> result, float distance, IGeometry geometry)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 SpatialDataContainer searchContainer;
                 if (DimensionTest(geometry.Dimensions) && TestOfGeometry(geometry))
                 {
@@ -1309,7 +1309,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     intermediateResult = OverlapSearch(searchContainer);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1332,11 +1332,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        public bool SearchDistance(out ImmutableList<AGraphElement> result, float distance, AGraphElement graphElement)
+        public bool SearchDistance(out ImmutableList<AGraphElementModel> result, float distance, AGraphElementModel graphElement)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>(); 
+                var intermediateResult = new List<AGraphElementModel>(); 
                 IRTreeDataContainer element;
                 SpatialDataContainer searchContainer;
                 if (_mapOfContainers.TryGetValue(graphElement.Id, out element))
@@ -1345,7 +1345,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     intermediateResult = OverlapSearch(searchContainer);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1354,7 +1354,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         }
 
 
-        public void AddOrUpdate(Object keyObject, AGraphElement graphElement)
+        public void AddOrUpdate(Object keyObject, AGraphElementModel graphElement)
         {
             IGeometry key;
             if (!IndexHelper.CheckObject(out key, keyObject))
@@ -1423,7 +1423,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public float Distance(AGraphElement graphElement1, AGraphElement graphElement2)
+        public float Distance(AGraphElementModel graphElement1, AGraphElementModel graphElement2)
         {
             if (ReadResource())
             {
@@ -1443,18 +1443,18 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
 
         }
 
-        public bool SearchRegion(out ImmutableList<AGraphElement> result, IMBR minimalBoundedRechtangle)
+        public bool SearchRegion(out ImmutableList<AGraphElementModel> result, IMBR minimalBoundedRechtangle)
         {
             if (ReadResource())
             {
-                var intermediateResult =new List<AGraphElement>();
+                var intermediateResult =new List<AGraphElementModel>();
                 if (TestOfMBR(minimalBoundedRechtangle))
                 {
                     var searchRegion = new SpatialDataContainer(minimalBoundedRechtangle);
                     intermediateResult = OverlapSearch(searchRegion);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 
@@ -1463,11 +1463,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool Overlap(out ImmutableList<AGraphElement> result, IGeometry geometry)
+        public bool Overlap(out ImmutableList<AGraphElementModel> result, IGeometry geometry)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 if (TestOfGeometry(geometry) && DimensionTest(geometry.Dimensions))
                 {
                     IRTreeDataContainer searchContainer;
@@ -1479,7 +1479,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     intermediateResult = OverlapSearch(searchContainer);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1487,18 +1487,18 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool Overlap(out ImmutableList<AGraphElement> result, AGraphElement graphElement)
+        public bool Overlap(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 IRTreeDataContainer output;
                 if (_mapOfContainers.TryGetValue(graphElement.Id, out output))
                 {
                     intermediateResult = OverlapSearch(output);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1506,18 +1506,18 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool Enclosure(out ImmutableList<AGraphElement> result, AGraphElement graphElement)
+        public bool Enclosure(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 IRTreeDataContainer output;
                 if (_mapOfContainers.TryGetValue(graphElement.Id, out output))
                 {
                     intermediateResult = Searching(output, Inclusion, Inclusion);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1525,11 +1525,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool Enclosure(out ImmutableList<AGraphElement> result, IGeometry geometry)
+        public bool Enclosure(out ImmutableList<AGraphElementModel> result, IGeometry geometry)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 if (TestOfGeometry(geometry) && DimensionTest(geometry.Dimensions))
                 {
                     IRTreeDataContainer searchContainer;
@@ -1542,7 +1542,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     intermediateResult = Searching(searchContainer, Inclusion, Inclusion);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1550,11 +1550,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool Containment(out ImmutableList<AGraphElement> result, IGeometry geometry)
+        public bool Containment(out ImmutableList<AGraphElementModel> result, IGeometry geometry)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 if (TestOfGeometry(geometry) && DimensionTest(geometry.Dimensions))
                 {
                     IRTreeDataContainer searchContainer;
@@ -1567,7 +1567,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     intermediateResult = Searching(searchContainer, Intersection, ReInclusion);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1575,18 +1575,18 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool Containment(out ImmutableList<AGraphElement> result, AGraphElement graphElement)
+        public bool Containment(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 IRTreeDataContainer output;
                 if (_mapOfContainers.TryGetValue(graphElement.Id, out output))
                 {
                     intermediateResult = Searching(output, Intersection, ReInclusion);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1594,18 +1594,18 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool GetAllNeighbors(out ImmutableList<AGraphElement> result, AGraphElement graphElement)
+        public bool GetAllNeighbors(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 IRTreeDataContainer output;
                 if (_mapOfContainers.TryGetValue(graphElement.Id, out output))
                 {
                     intermediateResult = Searching(output, Intersection, Adjacency);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1613,11 +1613,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool GetAllNeighbors(out ImmutableList<AGraphElement> result, IGeometry geometry)
+        public bool GetAllNeighbors(out ImmutableList<AGraphElementModel> result, IGeometry geometry)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 if (TestOfGeometry(geometry) && DimensionTest(geometry.Dimensions))
                 {
                     IRTreeDataContainer searchContainer;
@@ -1630,7 +1630,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     intermediateResult = Searching(searchContainer, Intersection, Adjacency);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1638,11 +1638,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool GetNextNeighbors(out ImmutableList<AGraphElement> result, AGraphElement graphElement, int countOfNextNeighbors)
+        public bool GetNextNeighbors(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement, int countOfNextNeighbors)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 IRTreeDataContainer output;
                 if (_mapOfContainers.TryGetValue(graphElement.Id, out output))
                 {
@@ -1764,7 +1764,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     intermediateResult = containers.Select(_ => _.Item2.GraphElement).ToList();
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1773,11 +1773,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
-        public bool GetNextNeighbors(out ImmutableList<AGraphElement> result, IGeometry geometry, int countOfNextNeighbors)
+        public bool GetNextNeighbors(out ImmutableList<AGraphElementModel> result, IGeometry geometry, int countOfNextNeighbors)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 if (TestOfGeometry(geometry) && DimensionTest(geometry.Dimensions))
                 {
                     IRTreeDataContainer output;
@@ -1858,7 +1858,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     intermediateResult = containers.Select(_ => _.Item2.GraphElement).ToList();
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;
@@ -1869,18 +1869,18 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         }
 
 
-        public bool SearchPoint(out ImmutableList<AGraphElement> result, IPoint point)
+        public bool SearchPoint(out ImmutableList<AGraphElementModel> result, IPoint point)
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElement>();
+                var intermediateResult = new List<AGraphElementModel>();
                 if (TestOfGeometry(point) && DimensionTest(point.Dimensions))
                 {
                     var searchContainer = new PointDataContainer(point.PointToSpaceR());
                     intermediateResult = Searching(searchContainer, Intersection, Intersection);
                 }
 
-                result = ImmutableList.CreateRange<AGraphElement>(intermediateResult);
+                result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
                 return result.Count > 0;

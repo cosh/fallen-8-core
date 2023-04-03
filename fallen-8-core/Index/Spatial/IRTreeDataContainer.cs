@@ -39,6 +39,6 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
     /// </summary>
     public interface IRTreeDataContainer : IRTreeContainer
     {
-        AGraphElement GraphElement { get; set; }
+        AGraphElementModel GraphElement { get; set; }
     }
 }

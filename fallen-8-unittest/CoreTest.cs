@@ -61,7 +61,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void FindAlice()
         {
-            List<AGraphElement> result;
+            List<AGraphElementModel> result;
             _fallen8.GraphScan(out result, "name", "Alice", BinaryOperator.Equals);
 
             Assert.IsNotNull(result);

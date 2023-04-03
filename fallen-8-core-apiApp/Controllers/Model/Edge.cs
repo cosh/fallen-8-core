@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// SpatialDataContainer.cs
+// EdgeSpecification.cs
 //
 // Copyright (c) 2022 Henning Rauch
 //
@@ -22,46 +22,44 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
-//
-// Author:
-//       Andriy Kupershmidt <kuper133@googlemail.com>
 
-#region Usings
-
-using NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer;
+using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Model;
+using System;
+using System.Linq;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
-#endregion
-
-namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
+namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    /// The implementation of spatial container for container with spatial data
+    ///   The edge
     /// </summary>
-    public sealed class SpatialDataContainer : ASpatialContainer, IRTreeDataContainer
+    public class Edge : AGraphElement
     {
-        public SpatialDataContainer(float[] clower,
-                        float[] cupper,
-                         ARTreeContainer parent = null)
+        /// <summary>
+        ///   The target vertex.
+        /// </summary>
+        [Required]
+        public int TargetVertex
         {
-            if (parent != null)
-                Parent = parent;
-            Lower = clower;
-            Upper = cupper;
-        }
-        public SpatialDataContainer(IMBR mbr,
-                         ARTreeContainer parent = null)
-        {
-            if (parent != null)
-                Parent = parent;
-            Lower = mbr.Lower;
-            Upper = mbr.Upper;
-        }
-        public AGraphElementModel GraphElement
-        {
-            get;
-            set;
+            get; set;
         }
 
+        /// <summary>
+        ///   The source vertex.
+        /// </summary>
+        [Required]
+        public int SourceVertex
+        {
+            get; set;
+        }
+
+        public Edge(EdgeModel edge) : base(edge.Id, edge.CreationDate, edge.ModificationDate, edge.Label, edge.GetAllProperties())
+        {
+            TargetVertex = edge.TargetVertex.Id;
+            
+            SourceVertex = edge.SourceVertex.Id;
+        }
     }
 }

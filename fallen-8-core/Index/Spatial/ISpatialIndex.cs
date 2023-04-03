@@ -65,7 +65,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// value of distance
         /// </returns>
-        float Distance(AGraphElement graphElement1, AGraphElement graphElement2);
+        float Distance(AGraphElementModel graphElement1, AGraphElementModel graphElement2);
         #endregion
 
         #region SearchRegion
@@ -81,7 +81,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean SearchRegion(out ImmutableList<AGraphElement> result, IMBR minimalBoundedRechtangle);
+        Boolean SearchRegion(out ImmutableList<AGraphElementModel> result, IMBR minimalBoundedRechtangle);
         #endregion
 
         #region Overlap
@@ -97,7 +97,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean Overlap(out ImmutableList<AGraphElement> result, IGeometry geometry);
+        Boolean Overlap(out ImmutableList<AGraphElementModel> result, IGeometry geometry);
 
         /// <summary>
         /// find all objects that have at least one point in common with this element of graph
@@ -111,7 +111,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean Overlap(out ImmutableList<AGraphElement> result, AGraphElement graphElement);
+        Boolean Overlap(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement);
         #endregion
 
         #region Enclosure
@@ -127,7 +127,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean Enclosure(out ImmutableList<AGraphElement> result, AGraphElement graphElement);
+        Boolean Enclosure(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement);
 
         /// <summary>
         /// find all objects (if they exist), which this geometry included.
@@ -141,7 +141,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean Enclosure(out ImmutableList<AGraphElement> result, IGeometry geometry);
+        Boolean Enclosure(out ImmutableList<AGraphElementModel> result, IGeometry geometry);
         #endregion
 
         #region Containment
@@ -158,7 +158,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean Containment(out ImmutableList<AGraphElement> result, IGeometry geometry);
+        Boolean Containment(out ImmutableList<AGraphElementModel> result, IGeometry geometry);
 
         /// <summary>
         /// find all objects, which this element of graph contains. 
@@ -172,7 +172,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean Containment(out ImmutableList<AGraphElement> result, AGraphElement graphElement);
+        Boolean Containment(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement);
         #endregion
 
         #region GetAllNeighbors
@@ -188,7 +188,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean GetAllNeighbors(out ImmutableList<AGraphElement> result, AGraphElement graphElement);
+        Boolean GetAllNeighbors(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement);
 
         /// <summary>
         /// find all neighbors for this geometry
@@ -202,7 +202,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean GetAllNeighbors(out ImmutableList<AGraphElement> result, IGeometry geometry);
+        Boolean GetAllNeighbors(out ImmutableList<AGraphElementModel> result, IGeometry geometry);
         #endregion
 
         #region GetNextNeighbors
@@ -221,7 +221,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean GetNextNeighbors(out ImmutableList<AGraphElement> result, AGraphElement graphElement, int countOfNextNeighbors);
+        Boolean GetNextNeighbors(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement, int countOfNextNeighbors);
         /// <summary>
         /// find k next neighbors for this geometry
         /// </summary>
@@ -237,7 +237,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean GetNextNeighbors(out ImmutableList<AGraphElement> result, IGeometry geometry, int countOfNextNeighbors);
+        Boolean GetNextNeighbors(out ImmutableList<AGraphElementModel> result, IGeometry geometry, int countOfNextNeighbors);
         #endregion
 
         #region SearchDistance
@@ -256,9 +256,9 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean SearchDistance(out ImmutableList<AGraphElement> result,
+        Boolean SearchDistance(out ImmutableList<AGraphElementModel> result,
             float distance,
-            AGraphElement graphElement);
+            AGraphElementModel graphElement);
 
         /// <summary>
         /// find all object which distance less or equal d from this geometry have
@@ -275,7 +275,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean SearchDistance(out ImmutableList<AGraphElement> result,
+        Boolean SearchDistance(out ImmutableList<AGraphElementModel> result,
             float distance,
             IGeometry geometry);
         #endregion
@@ -293,7 +293,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <returns>
         /// <c>true</c> if something was found; otherwise, <c>false</c>.
         /// </returns>
-        Boolean SearchPoint(out ImmutableList<AGraphElement> result, IPoint point);
+        Boolean SearchPoint(out ImmutableList<AGraphElementModel> result, IPoint point);
         #endregion
     }
 }

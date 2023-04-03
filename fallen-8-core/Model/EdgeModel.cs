@@ -32,7 +32,7 @@ namespace NoSQL.GraphDB.Core.Model
     /// <summary>
     ///   Edge model.
     /// </summary>
-    public sealed class EdgeModel : AGraphElement
+    public sealed class EdgeModel : AGraphElementModel
     {
         #region Constructor
 

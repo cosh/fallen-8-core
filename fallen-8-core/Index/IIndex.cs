@@ -55,7 +55,7 @@ namespace NoSQL.GraphDB.Core.Index
         /// </summary>
         /// <param name='key'> Key. </param>
         /// <param name='graphElement'> Graph element. </param>
-        void AddOrUpdate(Object key, AGraphElement graphElement);
+        void AddOrUpdate(Object key, AGraphElementModel graphElement);
 
         /// <summary>
         ///   Tries to remove a key.
@@ -68,7 +68,7 @@ namespace NoSQL.GraphDB.Core.Index
         ///   Remove a value.
         /// </summary>
         /// <param name='graphElement'> Graph element. </param>
-        void RemoveValue(AGraphElement graphElement);
+        void RemoveValue(AGraphElementModel graphElement);
 
         /// <summary>
         ///   Wipe this instance.
@@ -85,7 +85,7 @@ namespace NoSQL.GraphDB.Core.Index
         ///   Gets the key values.
         /// </summary>
         /// <returns> The key values. </returns>
-        IEnumerable<KeyValuePair<object, ImmutableList<AGraphElement>>> GetKeyValues();
+        IEnumerable<KeyValuePair<object, ImmutableList<AGraphElementModel>>> GetKeyValues();
 
         /// <summary>
         ///   Gets the value.
@@ -93,6 +93,6 @@ namespace NoSQL.GraphDB.Core.Index
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
         /// <param name='result'> Result. </param>
         /// <param name='key'> Key. </param>
-        Boolean TryGetValue(out ImmutableList<AGraphElement> result, Object key);
+        Boolean TryGetValue(out ImmutableList<AGraphElementModel> result, Object key);
     }
 }

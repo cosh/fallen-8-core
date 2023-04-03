@@ -47,7 +47,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                 Parent = parent;
             Coordinates = point;
         }
-        public AGraphElement GraphElement
+        public AGraphElementModel GraphElement
         {
             get;
             set;

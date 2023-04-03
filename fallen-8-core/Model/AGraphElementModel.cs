@@ -34,7 +34,7 @@ namespace NoSQL.GraphDB.Core.Model
     /// <summary>
     ///   A graph element.
     /// </summary>
-    public abstract class AGraphElement
+    public abstract class AGraphElementModel
     {
         #region Data
 
@@ -73,13 +73,13 @@ namespace NoSQL.GraphDB.Core.Model
         #region constructor
 
         /// <summary>
-        ///   Initializes a new instance of the <see cref="AGraphElement" /> class.
+        ///   Initializes a new instance of the <see cref="AGraphElementModel" /> class.
         /// </summary>
         /// <param name='id'> Identifier. </param>
         /// <param name='creationDate'> Creation date. </param>
         /// <param name='label'> Label. </param>
         /// <param name='properties'> Properties. </param>
-        protected AGraphElement(Int32 id, UInt32 creationDate, String label = null, Dictionary<String, Object> properties = null)
+        protected AGraphElementModel(Int32 id, UInt32 creationDate, String label = null, Dictionary<String, Object> properties = null)
         {
             Id = id;
             CreationDate = creationDate;
