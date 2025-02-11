@@ -38,7 +38,7 @@ namespace NoSQL.GraphDB.Core.Algorithms
         [EnumMember(Value = "Out")]
         OutgoingEdge,
 
-        [EnumMember(Value = "Uni")]
+        [EnumMember(Value = "Bidirectional")]
         Bidirectional
     }
 }
