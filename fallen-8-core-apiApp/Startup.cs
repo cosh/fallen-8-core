@@ -30,15 +30,13 @@ using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using NoSQL.GraphDB.Core;
-using NoSQL.GraphDB.Core.App.Helper;
-using Swashbuckle.AspNetCore.SwaggerGen;
+using Microsoft.AspNetCore.OpenApi;
 using System.IO;
 using System.Reflection;
-using System.Text.Json.Serialization;
+using System.Threading.Tasks;
+using Scalar.AspNetCore;
 
 namespace NoSQL.GraphDB.App
 {
@@ -63,15 +61,6 @@ namespace NoSQL.GraphDB.App
 
             services.AddMvc();
 
-            services.AddSwaggerGen(c =>
-            {
-                c.SwaggerDoc("0.1", new OpenApiInfo { Title = "fallen-8 api", Version = "0.1" });
-
-                #region  EnumDesc
-                c.SchemaFilter<EnumSchemaFilter>();
-                #endregion
-            });
-
             services.AddApiVersioning(o =>
             {
                 o.AssumeDefaultVersionWhenUnspecified = true;
@@ -90,7 +79,9 @@ namespace NoSQL.GraphDB.App
                 o.SubstituteApiVersionInUrl = true;
             });
 
-            services.AddTransient<IConfigureOptions<SwaggerGenOptions>, ConfigureSwaggerOptions>();
+            services.AddEndpointsApiExplorer();
+            services.AddSwaggerGen();
+            services.AddOpenApi();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -99,12 +90,21 @@ namespace NoSQL.GraphDB.App
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
+                app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapOpenApi();
+                endpoints.MapScalarApiReference();
+            });
+
             }
             else
             {
                 // Only use HTTPS redirection in non-development environments
                 app.UseHttpsRedirection();
             }
+
+            // Enable Swagger and Scalar UI
+            app.UseSwagger();
 
             app.UseRouting();
 
@@ -113,27 +113,7 @@ namespace NoSQL.GraphDB.App
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
-                // Add a redirect from the root to Swagger UI
-                endpoints.MapGet("/", context =>
-                {
-                    context.Response.Redirect("/swagger");
-                    return System.Threading.Tasks.Task.CompletedTask;
-                });
             });
-
-            app.UseSwagger();
-
-            app.UseSwaggerUI(
-                options =>
-                {
-                    // build a swagger endpoint for each discovered API version
-                    foreach (var description in provider.ApiVersionDescriptions)
-                    {
-                        options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
-                    }
-                    // Set the Swagger endpoint path
-                    options.RoutePrefix = "swagger";
-                });
         }
     }
 }
