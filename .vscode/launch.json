@@ -16,7 +16,7 @@
             "serverReadyAction": {
                 "action": "openExternally",
                 "pattern": "\\bNow listening on:\\s+(http://\\S+)",
-                "uriFormat": "%s/swagger"
+                "uriFormat": "%s/scalar/v0.1"
             },
             "env": {
                 "ASPNETCORE_ENVIRONMENT": "Development",
@@ -24,10 +24,10 @@
             },
             "launchBrowser": {
                 "enabled": true,
-                "args": "http://localhost:5000/swagger",
+                "args": "http://localhost:5000/scalar/v0.1",
                 "windows": {
                     "command": "cmd.exe",
-                    "args": "/C start http://localhost:5000/swagger"
+                    "args": "/C start http://localhost:5000/scalar/v0.1"
                 }
             }
         }

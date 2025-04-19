@@ -29,6 +29,7 @@ using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NoSQL.GraphDB.Core;
+using Scalar.AspNetCore;
 
 namespace NoSQL.GraphDB.App
 {
@@ -69,6 +70,7 @@ namespace NoSQL.GraphDB.App
             if (app.Environment.IsDevelopment())
             {
                 app.MapOpenApi();
+                app.MapScalarApiReference();
             }
 
             app.UseHttpsRedirection();
