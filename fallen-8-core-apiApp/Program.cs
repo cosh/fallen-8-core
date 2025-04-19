@@ -38,6 +38,9 @@ namespace NoSQL.GraphDB.App
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+            builder.Services.AddOpenApi("v0.1");
+
             builder.Services.AddApiVersioning(o =>
                        {
                            o.AssumeDefaultVersionWhenUnspecified = true;
@@ -59,8 +62,6 @@ namespace NoSQL.GraphDB.App
             // Add services to the container.
             builder.Services.AddSingleton<Fallen8>();
             builder.Services.AddControllers();
-            // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-            builder.Services.AddOpenApi();
 
             var app = builder.Build();
 
