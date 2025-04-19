@@ -23,8 +23,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Versioning;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using NoSQL.GraphDB.Core;
 
 namespace NoSQL.GraphDB.App
 {
@@ -32,19 +36,47 @@ namespace NoSQL.GraphDB.App
     {
         public static void Main(string[] args)
         {
-            CreateHostBuilder(args).Build().Run();
-        }
+            var builder = WebApplication.CreateBuilder(args);
 
-        public static IHostBuilder CreateHostBuilder(string[] args) =>
-            Host.CreateDefaultBuilder(args)
-                .ConfigureWebHostDefaults(webBuilder =>
-                {
-                    webBuilder.UseStartup<Startup>();
-                    webBuilder.ConfigureKestrel(serverOptions =>
-                    {
-                        // Configure Kestrel to handle HTTPS correctly
-                        serverOptions.AddServerHeader = false;
-                    });
-                });
+            builder.Services.AddApiVersioning(o =>
+                       {
+                           o.AssumeDefaultVersionWhenUnspecified = true;
+                           o.DefaultApiVersion = new Microsoft.AspNetCore.Mvc.ApiVersion(0, 1);
+                           o.ReportApiVersions = true;
+                           o.ApiVersionReader = ApiVersionReader.Combine(
+                               new QueryStringApiVersionReader("api-version"),
+                               new HeaderApiVersionReader("X-Version"),
+                               new MediaTypeApiVersionReader("ver"));
+
+                       });
+
+            builder.Services.AddVersionedApiExplorer(o =>
+            {
+                o.GroupNameFormat = "'v'VVV";
+                o.SubstituteApiVersionInUrl = true;
+            });
+
+            // Add services to the container.
+            builder.Services.AddSingleton<Fallen8>();
+            builder.Services.AddControllers();
+            // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+            builder.Services.AddOpenApi();
+
+            var app = builder.Build();
+
+            // Configure the HTTP request pipeline.
+            if (app.Environment.IsDevelopment())
+            {
+                app.MapOpenApi();
+            }
+
+            app.UseHttpsRedirection();
+
+            app.UseAuthorization();
+
+            app.MapControllers();
+
+            app.Run();
+        }
     }
 }
