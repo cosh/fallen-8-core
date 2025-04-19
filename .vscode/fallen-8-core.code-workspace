@@ -1,0 +1,145 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"settings": {
+		"editor.formatOnSave": true,
+		"editor.formatOnType": true,
+		"editor.insertSpaces": true,
+		"editor.tabSize": 4,
+		"editor.rulers": [
+			120
+		],
+		"files.trimTrailingWhitespace": true,
+		"files.insertFinalNewline": true,
+		"files.exclude": {
+			"**/.git": true,
+			"**/.vs": true,
+			"**/bin": true,
+			"**/obj": true,
+			"**/*.user": true
+		},
+		"files.associations": {
+			"*.cs": "csharp",
+			"*.csproj": "xml",
+			"*.f8s": "json"
+		},
+		"search.exclude": {
+			"**/bin": true,
+			"**/obj": true
+		},
+		"omnisharp.enableRoslynAnalyzers": true,
+		"omnisharp.enableEditorConfigSupport": true,
+		"dotnet-test-explorer.testProjectPath": "**/*unittest.csproj",
+		"csharp.format.enable": true,
+		"csharp.semanticHighlighting.enabled": true
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-dotnettools.csharp",
+			"ms-dotnettools.vscode-dotnet-runtime",
+			"formulahendry.dotnet-test-explorer",
+			"patcx.vscode-nuget-gallery",
+			"streetsidesoftware.code-spell-checker",
+			"visualstudioexptteam.vscodeintellicode",
+			"ms-azuretools.vscode-docker",
+			"eamodio.gitlens"
+		]
+	},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"name": "Launch API App",
+				"type": "coreclr",
+				"request": "launch",
+				"preLaunchTask": "build-api",
+				"program": "${workspaceFolder}/fallen-8-core-apiApp/bin/Debug/net9.0/fallen-8-core-apiApp.dll",
+				"args": [],
+				"cwd": "${workspaceFolder}/fallen-8-core-apiApp",
+				"stopAtEntry": false,
+				"serverReadyAction": {
+					"action": "openExternally",
+					"pattern": "\\bNow listening on:\\s+(https?://\\S+)",
+					"uriFormat": "%s/swagger"
+				},
+				"env": {
+					"ASPNETCORE_ENVIRONMENT": "Development"
+				}
+			},
+			{
+				"name": "Run Unit Tests",
+				"type": "coreclr",
+				"request": "launch",
+				"preLaunchTask": "build-tests",
+				"program": "${workspaceFolder}/fallen-8-unittest/bin/Debug/net9.0/fallen-8-unittest.dll",
+				"args": [],
+				"cwd": "${workspaceFolder}/fallen-8-unittest",
+				"stopAtEntry": false
+			}
+		]
+	},
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "build",
+				"command": "dotnet",
+				"type": "process",
+				"args": [
+					"build",
+					"${workspaceFolder}/fallen-8-core.sln",
+					"/property:GenerateFullPaths=true",
+					"/consoleloggerparameters:NoSummary"
+				],
+				"problemMatcher": "$msCompile",
+				"group": {
+					"kind": "build",
+					"isDefault": true
+				}
+			},
+			{
+				"label": "build-api",
+				"command": "dotnet",
+				"type": "process",
+				"args": [
+					"build",
+					"${workspaceFolder}/fallen-8-core-apiApp/fallen-8-core-apiApp.csproj",
+					"/property:GenerateFullPaths=true",
+					"/consoleloggerparameters:NoSummary"
+				],
+				"problemMatcher": "$msCompile"
+			},
+			{
+				"label": "build-tests",
+				"command": "dotnet",
+				"type": "process",
+				"args": [
+					"build",
+					"${workspaceFolder}/fallen-8-unittest/fallen-8-unittest.csproj",
+					"/property:GenerateFullPaths=true",
+					"/consoleloggerparameters:NoSummary"
+				],
+				"problemMatcher": "$msCompile"
+			},
+			{
+				"label": "test",
+				"command": "dotnet",
+				"type": "process",
+				"args": [
+					"test",
+					"${workspaceFolder}/fallen-8-unittest/fallen-8-unittest.csproj",
+					"/property:GenerateFullPaths=true",
+					"/consoleloggerparameters:NoSummary"
+				],
+				"problemMatcher": "$msCompile",
+				"group": {
+					"kind": "test",
+					"isDefault": true
+				}
+			}
+		]
+	}
+}

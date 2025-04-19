@@ -32,7 +32,7 @@ namespace NoSQL.GraphDB.Core.Transaction
     {
         internal override void Cleanup()
         {
-            throw new NotImplementedException();
+            //NOP
         }
 
         internal override void Rollback(Fallen8 f8)

@@ -40,6 +40,11 @@ namespace NoSQL.GraphDB.App
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.UseStartup<Startup>();
+                    webBuilder.ConfigureKestrel(serverOptions =>
+                    {
+                        // Configure Kestrel to handle HTTPS correctly
+                        serverOptions.AddServerHeader = false;
+                    });
                 });
     }
 }

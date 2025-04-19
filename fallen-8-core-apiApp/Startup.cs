@@ -49,7 +49,10 @@ namespace NoSQL.GraphDB.App
             Configuration = configuration;
         }
 
-        public IConfiguration Configuration { get; }
+        public IConfiguration Configuration
+        {
+            get;
+        }
 
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
@@ -63,7 +66,7 @@ namespace NoSQL.GraphDB.App
             services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("0.1", new OpenApiInfo { Title = "fallen-8 api", Version = "0.1" });
-                
+
                 #region  EnumDesc
                 c.SchemaFilter<EnumSchemaFilter>();
                 #endregion
@@ -97,8 +100,11 @@ namespace NoSQL.GraphDB.App
             {
                 app.UseDeveloperExceptionPage();
             }
-
-            app.UseHttpsRedirection();
+            else
+            {
+                // Only use HTTPS redirection in non-development environments
+                app.UseHttpsRedirection();
+            }
 
             app.UseRouting();
 
@@ -107,6 +113,12 @@ namespace NoSQL.GraphDB.App
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
+                // Add a redirect from the root to Swagger UI
+                endpoints.MapGet("/", context =>
+                {
+                    context.Response.Redirect("/swagger");
+                    return System.Threading.Tasks.Task.CompletedTask;
+                });
             });
 
             app.UseSwagger();
@@ -119,6 +131,8 @@ namespace NoSQL.GraphDB.App
                     {
                         options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json", description.GroupName.ToUpperInvariant());
                     }
+                    // Set the Swagger endpoint path
+                    options.RoutePrefix = "swagger";
                 });
         }
     }

@@ -1,0 +1,35 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "C#: F8 API app Debug",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-api",
+            "program": "${workspaceFolder}/fallen-8-core-apiApp/bin/Debug/net9.0/fallen-8-core-apiApp.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/fallen-8-core-apiApp",
+            "stopAtEntry": false,
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "\\bNow listening on:\\s+(http://\\S+)",
+                "uriFormat": "%s/swagger"
+            },
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "ASPNETCORE_URLS": "http://localhost:5000"
+            },
+            "launchBrowser": {
+                "enabled": true,
+                "args": "http://localhost:5000/swagger",
+                "windows": {
+                    "command": "cmd.exe",
+                    "args": "/C start http://localhost:5000/swagger"
+                }
+            }
+        }
+    ]
+}
