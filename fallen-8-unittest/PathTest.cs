@@ -40,12 +40,7 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class PathTest
     {
-        private readonly Fallen8 _fallen8;
-
-        private readonly GraphController _controller;
-
-        private readonly ILoggerFactory _loggerFactory;
-
+        // Constants used across tests
         private readonly String NAME = "name";
 
         private ScanSpecification ALICESPEC = new ScanSpecification()
@@ -76,9 +71,10 @@ namespace NoSQL.GraphDB.Tests
             ResultType = ResultTypeSpecification.Vertices
         };
 
-        public PathTest()
+        // Helper method to create logger factory consistently
+        private ILoggerFactory CreateLoggerFactory()
         {
-            _loggerFactory = LoggerFactory.Create(builder =>
+            return LoggerFactory.Create(builder =>
             {
                 builder
                     .AddFilter("Microsoft", LogLevel.Warning)
@@ -86,76 +82,88 @@ namespace NoSQL.GraphDB.Tests
                     .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
                     .AddConsole();
             });
-
-            _fallen8 = new Fallen8(_loggerFactory);
-
-            TestGraphGenerator.GenerateSampleGraph(_fallen8);
-
-            _controller = new GraphController(new UnitTestLogger<GraphController>(), _fallen8);
-        }
-
-
-        [TestMethod]
-        public void FindPathToTrent()
-        {
-            var trent = _controller.GraphScan(NAME, TRENTSPEC).First();
-            var mallory = _controller.GraphScan(NAME, MALLORYSPEC).First();
-
-            var result = _controller.GetPaths(mallory, trent, null);
-
-            Assert.AreEqual(2, result.Count);
-
-            //testing it a second time to see if the cache works
-            result = _controller.GetPaths(mallory, trent, null);
-
-            Assert.AreEqual(2, result.Count);
         }
 
         [TestMethod]
-        public void FindAliceToBob()
+        public void FindPathToTrent_ShouldReturnTwoPaths()
         {
-            var bob = _controller.GraphScan(NAME, BOBSPEC).First();
-            var alice = _controller.GraphScan(NAME, ALICESPEC).First();
+            // Arrange - Create a new isolated instance for this test
+            var loggerFactory = CreateLoggerFactory();
+            var fallen8 = new Fallen8(loggerFactory);
+            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
+            var trent = controller.GraphScan(NAME, TRENTSPEC).First();
+            var mallory = controller.GraphScan(NAME, MALLORYSPEC).First();
+
+            // Act
+            var result = controller.GetPaths(mallory, trent, null);
+
+            // Assert
+            Assert.AreEqual(2, result.Count);
+
+            // Test the cache
+            result = controller.GetPaths(mallory, trent, null);
+            Assert.AreEqual(2, result.Count);
+        }
+
+        [TestMethod]
+        public void FindAliceToBob_ShouldReturnOnePath()
+        {
+            // Arrange - Create a new isolated instance for this test
+            var loggerFactory = CreateLoggerFactory();
+            var fallen8 = new Fallen8(loggerFactory);
+            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
+
+            var bob = controller.GraphScan(NAME, BOBSPEC).First();
+            var alice = controller.GraphScan(NAME, ALICESPEC).First();
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 2, MaxResults = 2 };
 
-            var result = _controller.GetPaths(alice, bob, pathSpec);
+            // Act
+            var result = controller.GetPaths(alice, bob, pathSpec);
 
+            // Assert
             Assert.AreEqual(1, result.Count);
 
-            //testing it a second time to see if the cache works
-            result = _controller.GetPaths(bob, alice, pathSpec);
-
+            // Test the cache
+            result = controller.GetPaths(bob, alice, pathSpec);
             Assert.AreEqual(1, result.Count);
         }
 
         [TestMethod]
-        public void MultiHopPaths()
+        public void MultiHopPaths_ShouldCalculateCorrectPath()
         {
-            Fallen8 f8 = new Fallen8(_loggerFactory);
+            // Arrange - Create a new isolated instance for this test
+            var loggerFactory = CreateLoggerFactory();
+            var fallen8 = new Fallen8(loggerFactory);
+            TestGraphGenerator.GenerateAbcGraph(fallen8);
 
-            TestGraphGenerator.GenerateAbcGraph(f8);
-
+            // Act
             List<Path> paths;
-            f8.CalculateShortestPath(out paths, "BLS", 0, 20, maxDepth: 26, maxResults: 2);
+            fallen8.CalculateShortestPath(out paths, "BLS", 0, 20, maxDepth: 26, maxResults: 2);
 
+            // Assert
             Assert.AreEqual(1, paths.Count);
         }
 
         [TestMethod]
-        public void MultiHopPaths_generic()
+        public void MultiHopPaths_Generic_ShouldUseCache()
         {
-            Fallen8 f8 = new Fallen8(_loggerFactory);
+            // Arrange - Create a new isolated instance for this test
+            var loggerFactory = CreateLoggerFactory();
+            var fallen8 = new Fallen8(loggerFactory);
+            TestGraphGenerator.GenerateAbcGraph(fallen8);
 
-            TestGraphGenerator.GenerateAbcGraph(f8);
-
+            // Act
             List<Path> paths;
-            f8.CalculateShortestPath<BidirectionalLevelSynchronousSSSP> (out paths, 0, 20, maxDepth: 26, maxResults: 2);
+            fallen8.CalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
 
+            // Assert
             Assert.AreEqual(1, paths.Count);
 
-            //test the cache
-            f8.CalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
+            // Test the cache
+            fallen8.CalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
             Assert.AreEqual(1, paths.Count);
         }
     }

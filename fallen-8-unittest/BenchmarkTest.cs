@@ -40,13 +40,10 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class BenchmarkTest
     {
-        private readonly Fallen8 _fallen8;
-
-        private readonly ScaleFreeNetwork _benchmark;
-
-        public BenchmarkTest()
+        // Helper method to create logger factory consistently
+        private ILoggerFactory CreateLoggerFactory()
         {
-            var loggerFactory = LoggerFactory.Create(builder =>
+            return LoggerFactory.Create(builder =>
             {
                 builder
                     .AddFilter("Microsoft", LogLevel.Warning)
@@ -54,22 +51,23 @@ namespace NoSQL.GraphDB.Tests
                     .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
                     .AddConsole();
             });
-
-            _fallen8 = new Fallen8(loggerFactory);
-
-            _benchmark = new ScaleFreeNetwork(_fallen8);
         }
 
         [TestMethod]
-        public void ScaleFreeNetwork()
+        public void ScaleFreeNetwork_ShouldCreateExpectedGraph()
         {
-            _benchmark.CreateScaleFreeNetwork(1000, 10);
+            // Arrange - Create a new isolated instance for this test
+            var loggerFactory = CreateLoggerFactory();
+            var fallen8 = new Fallen8(loggerFactory);
+            var benchmark = new ScaleFreeNetwork(fallen8);
 
-            var result = _benchmark.Bench(10);
+            // Act
+            benchmark.CreateScaleFreeNetwork(1000, 10);
+            var result = benchmark.Bench(10);
 
-            Assert.AreEqual(1000, _fallen8.VertexCount);
-
-            Assert.AreEqual(10000, _fallen8.EdgeCount);
+            // Assert
+            Assert.AreEqual(1000, fallen8.VertexCount, "Expected 1000 vertices in the scale free network");
+            Assert.AreEqual(10000, fallen8.EdgeCount, "Expected 10000 edges in the scale free network");
         }
     }
 }

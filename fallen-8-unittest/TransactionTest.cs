@@ -39,11 +39,10 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class TransactionTest
     {
-        private readonly Fallen8 _fallen8;
-
-        public TransactionTest()
+        // Helper method to create logger factory consistently
+        private ILoggerFactory CreateLoggerFactory()
         {
-            var loggerFactory = LoggerFactory.Create(builder =>
+            return LoggerFactory.Create(builder =>
             {
                 builder
                     .AddFilter("Microsoft", LogLevel.Warning)
@@ -51,20 +50,30 @@ namespace NoSQL.GraphDB.Tests
                     .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
                     .AddConsole();
             });
-
-            _fallen8 = new Fallen8(loggerFactory);
         }
 
         [TestMethod]
-        public void AddVertex()
+        public void AddVertex_ShouldCreateVertexSuccessfully()
         {
-            CreateVertexTransaction tx = new CreateVertexTransaction() { Definition = new VertexDefinition() { CreationDate = 1, Properties = null } };
+            // Arrange - Create a new isolated instance for this test
+            var loggerFactory = CreateLoggerFactory();
+            var fallen8 = new Fallen8(loggerFactory);
 
-            var txInfo = _fallen8.EnqueueTransaction(tx);
+            // Act
+            CreateVertexTransaction tx = new CreateVertexTransaction()
+            {
+                Definition = new VertexDefinition()
+                {
+                    CreationDate = 1,
+                    Properties = null
+                }
+            };
 
+            var txInfo = fallen8.EnqueueTransaction(tx);
             txInfo.WaitUntilFinished();
 
-            Assert.AreEqual(1, _fallen8.VertexCount);
+            // Assert
+            Assert.AreEqual(1, fallen8.VertexCount);
         }
     }
 }
