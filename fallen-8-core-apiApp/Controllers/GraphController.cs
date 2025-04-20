@@ -483,58 +483,76 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         public List<PathREST> GetPaths([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {
-            if (definition == null)
+            // Always initialize with empty list to avoid returning null
+            List<PathREST> result = new List<PathREST>();
+
+            try
             {
-                definition = new PathSpecification();
-            }
-
-            IPathTraverser traverser = null;
-
-            Object cachedTraverser;
-            if (!_cache.Traverser.TryGetValue(definition, out cachedTraverser))
-            {
-                //Traverser was not cached
-                var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);
-
-                if (traverser != null)
+                if (definition == null)
                 {
-                    _cache.AddTraverser(definition, traverser);
+                    definition = new PathSpecification();
+                }
+
+                // Special case - when MaxDepth is 0, no paths can be found
+                if (definition.MaxDepth <= 0)
+                {
+                    return result;
+                }
+
+                IPathTraverser traverser = null;
+
+                Object cachedTraverser;
+                if (!_cache.Traverser.TryGetValue(definition, out cachedTraverser))
+                {
+                    //Traverser was not cached
+                    var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);
+
+                    if (traverser != null)
+                    {
+                        _cache.AddTraverser(definition, traverser);
+                    }
+                    else
+                    {
+                        _logger?.LogError(compilerMessage);
+                        return result; // Return empty list if we can't get a traverser
+                    }
                 }
                 else
                 {
-                    _logger.LogError(compilerMessage);
+                    traverser = (IPathTraverser)cachedTraverser;
                 }
-            }
-            else
-            {
-                traverser = (IPathTraverser)cachedTraverser;
-            }
 
-            if (traverser != null)
-            {
-                List<Core.Algorithms.Path.Path> paths;
-                if (_fallen8.CalculateShortestPath(
-                    out paths,
-                    definition.PathAlgorithmName,
-                    from,
-                    to,
-                    definition.MaxDepth,
-                    definition.MaxPathWeight,
-                    definition.MaxResults,
-                    traverser.EdgePropertyFilter(),
-                    traverser.VertexFilter(),
-                    traverser.EdgeFilter(),
-                    traverser.EdgeCost(),
-                    traverser.VertexCost()))
+                if (traverser != null)
                 {
-                    if (paths != null)
+                    List<Core.Algorithms.Path.Path> paths;
+                    if (_fallen8.CalculateShortestPath(
+                        out paths,
+                        definition.PathAlgorithmName ?? "BLS", // Default to BLS if not specified
+                        from,
+                        to,
+                        definition.MaxDepth,
+                        definition.MaxPathWeight,
+                        definition.MaxResults,
+                        traverser.EdgePropertyFilter(),
+                        traverser.VertexFilter(),
+                        traverser.EdgeFilter(),
+                        traverser.EdgeCost(),
+                        traverser.VertexCost()))
                     {
-                        return new List<PathREST>(paths.Select(aPath => new PathREST(aPath)));
+                        if (paths != null && paths.Count > 0)
+                        {
+                            return new List<PathREST>(paths.Select(aPath => new PathREST(aPath)));
+                        }
                     }
                 }
             }
+            catch (Exception ex)
+            {
+                // Log the exception but don't let it propagate
+                _logger?.LogError(ex, "Error calculating path between vertices {0} and {1}", from, to);
+            }
 
-            return null;
+            return result; // Always return the initialized list, never null
         }
 
         [HttpPost("/index")]

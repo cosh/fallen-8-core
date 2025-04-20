@@ -255,7 +255,7 @@ namespace NoSQL.GraphDB.Core
 
 
 
-        public bool GraphScan(out List<AGraphElementModel> result, String propertyId, IComparable literal, 
+        public bool GraphScan(out List<AGraphElementModel> result, String propertyId, IComparable literal,
             BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null)
         {
             #region binary operation
@@ -405,6 +405,9 @@ namespace NoSQL.GraphDB.Core
             Delegates.EdgeCost edgeCost = null,
             Delegates.VertexCost vertexCost = null)
         {
+            // Initialize result to empty list by default
+            result = new List<Path>();
+
             IShortestPathAlgorithm algo = null;
 
             Object cachedAlgo;
@@ -425,15 +428,18 @@ namespace NoSQL.GraphDB.Core
 
             if (algo != null)
             {
-                result = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
+                var calculatedResult = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
                                         edgePropertyFilter,
                                         vertexFilter, edgeFilter, edgeCost, vertexCost);
 
-                return result != null && result.Count > 0;
+                if (calculatedResult != null)
+                {
+                    result = calculatedResult;
+                }
 
+                return result.Count > 0;
             }
 
-            result = null;
             return false;
         }
 
@@ -448,9 +454,12 @@ namespace NoSQL.GraphDB.Core
             Delegates.VertexFilter vertexFilter = null,
             Delegates.EdgeFilter edgeFilter = null,
             Delegates.EdgeCost edgeCost = null,
-            Delegates.VertexCost vertexCost = null) 
+            Delegates.VertexCost vertexCost = null)
                 where T : IShortestPathAlgorithm
         {
+            // Initialize result to empty list by default
+            result = new List<Path>();
+
             Type shortestPathType = typeof(T);
             var algo = Activator.CreateInstance(shortestPathType, false) as IShortestPathAlgorithm;
 
@@ -470,20 +479,23 @@ namespace NoSQL.GraphDB.Core
 
                 if (algo != null)
                 {
-                    result = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
+                    var calculatedResult = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
                                             edgePropertyFilter,
                                             vertexFilter, edgeFilter, edgeCost, vertexCost);
 
-                    return result != null && result.Count > 0;
+                    if (calculatedResult != null)
+                    {
+                        result = calculatedResult;
+                    }
 
+                    return result.Count > 0;
                 }
             }
 
-            result = null;
             return false;
         }
 
-        internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, String edgePropertyId, Int32 targetVertexId, 
+        internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, String edgePropertyId, Int32 targetVertexId,
             UInt32 creationDate, String label, Dictionary<String, Object> properties)
         {
             EdgeModel outgoingEdge = null;
@@ -529,7 +541,7 @@ namespace NoSQL.GraphDB.Core
                     //get the related vertices
                     if (sourceVertex != null && targetVertex != null)
                     {
-                        var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex, 
+                        var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex,
                             aEdgeDefinition.Label, aEdgeDefinition.Properties);
 
                         newEdges.Add(newEdge);

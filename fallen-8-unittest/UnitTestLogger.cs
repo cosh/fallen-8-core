@@ -44,7 +44,9 @@ namespace NoSQL.GraphDB.Tests
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, String> formatter)
         {
-            Console.WriteLine($"level: {logLevel}, id: {eventId}, state: {state}, exception: {exception.Message}");
+            // Check if exception is null to avoid NullReferenceException
+            var exceptionMessage = exception != null ? exception.Message : "none";
+            Console.WriteLine($"level: {logLevel}, id: {eventId}, state: {state}, exception: {exceptionMessage}");
         }
 
         private class SomeIDisposable : IDisposable
