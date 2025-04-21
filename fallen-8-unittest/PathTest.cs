@@ -439,7 +439,7 @@ namespace NoSQL.GraphDB.Tests
             // D->E (weight 3)
 
             var edgesTx = new CreateEdgesTransaction();
-            edgesTx.AddEdge(aId, "path", cId, creationDate, "road", new Dictionary<string, object>() { { "weight", 2 } });
+            edgesTx.AddEdge(aId, "trusts", cId, creationDate, "road", new Dictionary<string, object>() { { "weight", 2 } });
             edgesTx.AddEdge(cId, "path", eId, creationDate, "road", new Dictionary<string, object>() { { "weight", 3 } });
             edgesTx.AddEdge(aId, "path", bId, creationDate, "road", new Dictionary<string, object>() { { "weight", 5 } });
             edgesTx.AddEdge(bId, "path", dId, creationDate, "road", new Dictionary<string, object>() { { "weight", 1 } });

@@ -69,8 +69,8 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             var edgesTx = new CreateEdgesTransaction();
             edgesTx.AddEdge(alice.Id, communicatesWith, bob.Id, creationDate);
-            edgesTx.AddEdge(alice.Id, trusts, trent.Id, creationDate);
-            edgesTx.AddEdge(bob.Id, trusts, trent.Id, creationDate);
+            edgesTx.AddEdge(alice.Id, trusts, trent.Id, creationDate, label: trusts); // Explicitly set label
+            edgesTx.AddEdge(bob.Id, trusts, trent.Id, creationDate, label: trusts); // Explicitly set label
             edgesTx.AddEdge(eve.Id, attacks, alice.Id, creationDate);
             edgesTx.AddEdge(mallory.Id, attacks, alice.Id, creationDate);
             edgesTx.AddEdge(mallory.Id, attacks, bob.Id, creationDate);
