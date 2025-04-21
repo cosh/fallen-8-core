@@ -139,7 +139,7 @@ namespace NoSQL.GraphDB.Core
         {
             _loggerFactory = loggerfactory;
 
-            IndexFactory = new IndexFactory(loggerfactory);
+            IndexFactory = new IndexFactory(this);
             _graphElements = ImmutableList.Create<AGraphElementModel>();
             ServiceFactory = new ServiceFactory(this);
             IndexFactory.Indices.Clear();

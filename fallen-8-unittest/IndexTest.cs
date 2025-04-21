@@ -506,5 +506,322 @@ namespace NoSQL.GraphDB.Tests
         }
 
         #endregion
+
+        #region Index Factory Tests
+
+        [TestMethod]
+        public void IndexFactory_GetAvailableIndexPlugins_ShouldReturnPlugins()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var indexFactory = new IndexFactory(fallen8);
+
+            // Act
+            var availablePlugins = indexFactory.GetAvailableIndexPlugins().ToList();
+
+            // Assert
+            Assert.IsTrue(availablePlugins.Count > 0, "IndexFactory should return available index plugins");
+            Assert.IsTrue(availablePlugins.Contains("DictionaryIndex"), "IndexFactory should include 'DictionaryIndex' in available plugins");
+            Assert.IsTrue(availablePlugins.Contains("SingleValueIndex"), "IndexFactory should include 'SingleValueIndex' in available plugins");
+            Assert.IsTrue(availablePlugins.Contains("RangeIndex"), "IndexFactory should include 'RangeIndex' in available plugins");
+            Assert.IsTrue(availablePlugins.Contains("RegExIndex"), "IndexFactory should include 'RegExIndex' in available plugins");
+        }
+
+        [TestMethod]
+        public void IndexFactory_CreateIndex_ShouldCreateAndRetrieveIndex()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var indexFactory = new IndexFactory(fallen8);
+
+            // Act - Create a dictionary index
+            IIndex dictionaryIndex;
+            bool created = indexFactory.TryCreateIndex(out dictionaryIndex, "testDictionaryIndex", "DictionaryIndex");
+
+            // Assert - Creation successful
+            Assert.IsTrue(created, "IndexFactory should successfully create a dictionary index");
+            Assert.IsNotNull(dictionaryIndex, "Created index should not be null");
+            Assert.AreEqual("DictionaryIndex", dictionaryIndex.PluginName, "Created index should have correct plugin name");
+
+            // Act - Retrieve the created index
+            IIndex retrievedIndex;
+            bool retrieved = indexFactory.TryGetIndex(out retrievedIndex, "testDictionaryIndex");
+
+            // Assert - Retrieval successful
+            Assert.IsTrue(retrieved, "IndexFactory should retrieve the created index");
+            Assert.IsNotNull(retrievedIndex, "Retrieved index should not be null");
+            Assert.AreSame(dictionaryIndex, retrievedIndex, "Retrieved index should be the same instance as created index");
+        }
+
+        [TestMethod]
+        public void IndexFactory_CreateMultipleIndexTypes_ShouldWorkCorrectly()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var indexFactory = new IndexFactory(fallen8);
+
+            // Act - Create different index types
+            IIndex dictionaryIndex;
+            bool createdDictionary = indexFactory.TryCreateIndex(out dictionaryIndex, "testDictionaryIndex", "DictionaryIndex");
+
+            IIndex singleValueIndex;
+            bool createdSingleValue = indexFactory.TryCreateIndex(out singleValueIndex, "testSingleValueIndex", "SingleValueIndex");
+
+            IIndex rangeIndex;
+            bool createdRange = indexFactory.TryCreateIndex(out rangeIndex, "testRangeIndex", "RangeIndex");
+
+            IIndex fulltextIndex;
+            bool createdFulltext = indexFactory.TryCreateIndex(out fulltextIndex, "testFulltextIndex", "RegExIndex");
+
+            // Assert - Creation successful for all index types
+            Assert.IsTrue(createdDictionary, "IndexFactory should create dictionary index");
+            Assert.IsTrue(createdSingleValue, "IndexFactory should create single value index");
+            Assert.IsTrue(createdRange, "IndexFactory should create range index");
+            Assert.IsTrue(createdFulltext, "IndexFactory should create fulltext index");
+
+            // Verify correct plugin types
+            Assert.AreEqual("DictionaryIndex", dictionaryIndex.PluginName, "Dictionary index should have correct plugin name");
+            Assert.AreEqual("SingleValueIndex", singleValueIndex.PluginName, "SingleValue index should have correct plugin name");
+            Assert.AreEqual("RangeIndex", rangeIndex.PluginName, "Range index should have correct plugin name");
+            Assert.IsNotNull(fulltextIndex.PluginName, "Fulltext index should have a valid plugin name");
+        }
+
+        [TestMethod]
+        public void IndexFactory_DeleteIndex_ShouldRemoveIndex()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var indexFactory = new IndexFactory(fallen8);
+
+            // Create a test index
+            IIndex testIndex;
+            indexFactory.TryCreateIndex(out testIndex, "indexToDelete", "DictionaryIndex");
+
+            // Act - Delete the index
+            bool deleted = indexFactory.TryDeleteIndex("indexToDelete");
+
+            // Assert - Deletion successful
+            Assert.IsTrue(deleted, "IndexFactory should successfully delete the index");
+
+            // Verify index is gone
+            IIndex retrievedIndex;
+            bool retrieved = indexFactory.TryGetIndex(out retrievedIndex, "indexToDelete");
+            Assert.IsFalse(retrieved, "IndexFactory should not retrieve deleted index");
+            Assert.IsNull(retrievedIndex, "Retrieved index should be null after deletion");
+        }
+
+        [TestMethod]
+        public void IndexFactory_DeleteAllIndices_ShouldRemoveAllIndices()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var indexFactory = new IndexFactory(fallen8);
+
+            // Create multiple test indices
+            IIndex index1, index2, index3;
+            indexFactory.TryCreateIndex(out index1, "testIndex1", "DictionaryIndex");
+            indexFactory.TryCreateIndex(out index2, "testIndex2", "SingleValueIndex");
+            indexFactory.TryCreateIndex(out index3, "testIndex3", "RangeIndex");
+
+            // Act - Delete all indices
+            indexFactory.DeleteAllIndices();
+
+            // Assert - All indices should be gone
+            IIndex retrievedIndex;
+            bool retrieved1 = indexFactory.TryGetIndex(out retrievedIndex, "testIndex1");
+            bool retrieved2 = indexFactory.TryGetIndex(out retrievedIndex, "testIndex2");
+            bool retrieved3 = indexFactory.TryGetIndex(out retrievedIndex, "testIndex3");
+
+            Assert.IsFalse(retrieved1, "IndexFactory should not retrieve deleted index 1");
+            Assert.IsFalse(retrieved2, "IndexFactory should not retrieve deleted index 2");
+            Assert.IsFalse(retrieved3, "IndexFactory should not retrieve deleted index 3");
+
+            // Verify indices dictionary is empty
+            Assert.AreEqual(0, indexFactory.Indices.Count, "IndexFactory indices dictionary should be empty");
+        }
+
+        [TestMethod]
+        public void IndexFactory_CreateDuplicateIndex_ShouldFail()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var indexFactory = new IndexFactory(fallen8);
+
+            // Create a test index
+            IIndex firstIndex;
+            bool firstCreated = indexFactory.TryCreateIndex(out firstIndex, "duplicateTest", "DictionaryIndex");
+            Assert.IsTrue(firstCreated, "First index creation should succeed");
+
+            // Act - Try to create another index with the same name
+            IIndex duplicateIndex;
+            bool duplicateCreated = indexFactory.TryCreateIndex(out duplicateIndex, "duplicateTest", "SingleValueIndex");
+
+            // Assert
+            Assert.IsFalse(duplicateCreated, "Creating duplicate index should fail");
+            Assert.IsNull(duplicateIndex, "Duplicate index should be null");
+        }
+
+        [TestMethod]
+        public void IndexFactory_UseCreatedIndices_ShouldWorkCorrectly()
+        {
+            // Arrange
+
+            var fallen8 = new Fallen8(_loggerFactory);
+            var testVertices = CreateTestVertices(fallen8);
+            var indexFactory = new IndexFactory(fallen8);
+
+            // Create different index types
+            IIndex dictionaryIndex;
+            indexFactory.TryCreateIndex(out dictionaryIndex, "testDictionary", "DictionaryIndex");
+
+            IIndex singleValueIndex;
+            indexFactory.TryCreateIndex(out singleValueIndex, "testSingleValue", "SingleValueIndex");
+
+            IIndex rangeIndex;
+            indexFactory.TryCreateIndex(out rangeIndex, "testRange", "RangeIndex");
+
+            // Add data to the indices
+            dictionaryIndex.AddOrUpdate("key1", testVertices[0]);
+            singleValueIndex.AddOrUpdate("key2", testVertices[1]);
+            rangeIndex.AddOrUpdate(10, testVertices[2]);
+
+            // Act - Retrieve indices and verify data
+            IIndex retrievedDictionary;
+            indexFactory.TryGetIndex(out retrievedDictionary, "testDictionary");
+
+            IIndex retrievedSingleValue;
+            indexFactory.TryGetIndex(out retrievedSingleValue, "testSingleValue");
+
+            IIndex retrievedRange;
+            indexFactory.TryGetIndex(out retrievedRange, "testRange");
+
+            // Assert - Verify data in retrieved indices
+            ImmutableList<AGraphElementModel> result;
+
+            bool found1 = retrievedDictionary.TryGetValue(out result, "key1");
+            Assert.IsTrue(found1, "Retrieved dictionary index should contain added data");
+            Assert.AreEqual(testVertices[0].Id, result[0].Id, "Retrieved dictionary index should contain correct vertex");
+
+            bool found2 = retrievedSingleValue.TryGetValue(out result, "key2");
+            Assert.IsTrue(found2, "Retrieved single value index should contain added data");
+            Assert.AreEqual(testVertices[1].Id, result[0].Id, "Retrieved single value index should contain correct vertex");
+
+            bool found3 = retrievedRange.TryGetValue(out result, 10);
+            Assert.IsTrue(found3, "Retrieved range index should contain added data");
+            Assert.AreEqual(testVertices[2].Id, result[0].Id, "Retrieved range index should contain correct vertex");
+
+            // Test range-specific functionality
+            IRangeIndex typedRangeIndex = retrievedRange as IRangeIndex;
+            Assert.IsNotNull(typedRangeIndex, "Retrieved range index should be castable to IRangeIndex");
+
+            bool rangeFound = typedRangeIndex.GreaterThan(out result, 5, true);
+            Assert.IsTrue(rangeFound, "Range index should find values greater than 5");
+            Assert.AreEqual(testVertices[2].Id, result[0].Id, "Range index should return correct vertex");
+        }
+
+        [TestMethod]
+        public void IndexFactory_CreateGetDeleteIndices_ShouldWorkCorrectly()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var indexFactory = new IndexFactory(fallen8);
+
+            // Act - Get available index plugins
+            var availablePlugins = indexFactory.GetAvailableIndexPlugins().ToList();
+
+            // Assert - Check that basic index types are available
+            Assert.IsTrue(availablePlugins.Contains("DictionaryIndex"), "DictionaryIndex should be available");
+            Assert.IsTrue(availablePlugins.Contains("SingleValueIndex"), "SingleValueIndex should be available");
+
+            // Act - Create a DictionaryIndex
+            IIndex dictIndex;
+            bool created = indexFactory.TryCreateIndex(out dictIndex, "testDict", "DictionaryIndex");
+
+            // Assert - Index creation
+            Assert.IsTrue(created, "IndexFactory should successfully create DictionaryIndex");
+            Assert.IsInstanceOfType(dictIndex, typeof(DictionaryIndex), "The created index should be a DictionaryIndex");
+
+            // Act - Create a SingleValueIndex
+            IIndex singleIndex;
+            created = indexFactory.TryCreateIndex(out singleIndex, "testSingle", "SingleValueIndex");
+
+            // Assert - Index creation
+            Assert.IsTrue(created, "IndexFactory should successfully create SingleValueIndex");
+            Assert.IsInstanceOfType(singleIndex, typeof(SingleValueIndex), "The created index should be a SingleValueIndex");
+
+            // Act - Try to create index with duplicate name
+            IIndex duplicateIndex;
+            created = indexFactory.TryCreateIndex(out duplicateIndex, "testDict", "DictionaryIndex");
+
+            // Assert - Duplicate index creation should fail
+            Assert.IsFalse(created, "IndexFactory should not create an index with duplicate name");
+            Assert.IsNull(duplicateIndex, "The duplicate index should be null");
+
+            // Act - Get created indices
+            IIndex retrievedDictIndex;
+            bool found = indexFactory.TryGetIndex(out retrievedDictIndex, "testDict");
+
+            // Assert - Index retrieval
+            Assert.IsTrue(found, "IndexFactory should find the created DictionaryIndex");
+            Assert.AreSame(dictIndex, retrievedDictIndex, "The retrieved index should be the same instance");
+
+            // Act - Delete an index
+            bool deleted = indexFactory.TryDeleteIndex("testDict");
+
+            // Assert - Index deletion
+            Assert.IsTrue(deleted, "IndexFactory should successfully delete the index");
+            found = indexFactory.TryGetIndex(out retrievedDictIndex, "testDict");
+            Assert.IsFalse(found, "IndexFactory should not find the deleted index");
+
+            // Act - Delete all indices
+            indexFactory.DeleteAllIndices();
+
+            // Assert - No indices should remain
+            found = indexFactory.TryGetIndex(out retrievedDictIndex, "testSingle");
+            Assert.IsFalse(found, "IndexFactory should not find any indices after DeleteAllIndices");
+        }
+
+        [TestMethod]
+        public void IndexFactory_CreateWithParameters_ShouldInitializeCorrectly()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var indexFactory = new IndexFactory(fallen8);
+            var parameters = new Dictionary<string, object>
+            {
+                { "testParam", "testValue" }
+            };
+
+            // Act - Create an index with parameters
+            IIndex dictIndex;
+            bool created = indexFactory.TryCreateIndex(out dictIndex, "testDict", "DictionaryIndex", parameters);
+
+            // Assert - Index creation with parameters
+            Assert.IsTrue(created, "IndexFactory should successfully create index with parameters");
+            Assert.IsNotNull(dictIndex, "The created index should not be null");
+
+            // Verify the index exists in the factory
+            IIndex retrievedIndex;
+            bool found = indexFactory.TryGetIndex(out retrievedIndex, "testDict");
+            Assert.IsTrue(found, "The index should be retrievable from the factory");
+        }
+
+        [TestMethod]
+        public void IndexFactory_TryGetNonExistentIndex_ShouldReturnFalse()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var indexFactory = new IndexFactory(fallen8);
+
+            // Act
+            IIndex nonExistentIndex;
+            bool found = indexFactory.TryGetIndex(out nonExistentIndex, "nonExistentIndex");
+
+            // Assert
+            Assert.IsFalse(found, "IndexFactory should not find a non-existent index");
+            Assert.IsNull(nonExistentIndex, "The non-existent index should be null");
+        }
+
+        #endregion
     }
 }

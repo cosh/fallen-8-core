@@ -50,6 +50,8 @@ namespace NoSQL.GraphDB.Core.Index
         /// </summary>
         private ILogger<IndexFactory> _logger;
 
+        private Fallen8 _fallen8;
+
         #endregion
 
         #region constructor
@@ -57,10 +59,11 @@ namespace NoSQL.GraphDB.Core.Index
         /// <summary>
         ///   Initializes a new instance of the IndexFactory class.
         /// </summary>
-        public IndexFactory(ILoggerFactory loggerFactory)
+        public IndexFactory(Fallen8 myF8)
         {
             Indices = new Dictionary<String, IIndex>();
-            _logger = loggerFactory.CreateLogger<IndexFactory>();
+            _logger = myF8._loggerFactory.CreateLogger<IndexFactory>();
+            _fallen8 = myF8;
         }
 
         #endregion
@@ -95,7 +98,7 @@ namespace NoSQL.GraphDB.Core.Index
             {
                 try
                 {
-                    index.Initialize(null, parameter);
+                    index.Initialize(_fallen8, parameter);
 
                     if (WriteResource())
                     {
@@ -203,12 +206,12 @@ namespace NoSQL.GraphDB.Core.Index
         /// <param name="indexPluginName"> The index plugin name </param>
         /// <param name="reader"> Serialization reader </param>
         /// <param name="fallen8"> Fallen-8 </param>
-        internal void OpenIndex(string indexName, string indexPluginName, SerializationReader reader, Fallen8 fallen8)
+        internal void OpenIndex(string indexName, string indexPluginName, SerializationReader reader)
         {
             IIndex index;
             if (PluginFactory.TryFindPlugin(out index, indexPluginName))
             {
-                index.Load(reader, fallen8);
+                index.Load(reader, _fallen8);
 
                 if (WriteResource())
                 {

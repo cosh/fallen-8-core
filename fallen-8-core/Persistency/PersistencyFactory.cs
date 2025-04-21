@@ -122,7 +122,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                     indexStreams.Add(indexFilename);
                 }
-                var newIndexFactory = new IndexFactory(fallen8._loggerFactory);
+                var newIndexFactory = new IndexFactory(fallen8);
                 LoadIndices(fallen8, newIndexFactory, indexStreams);
                 fallen8.IndexFactory = newIndexFactory;
 
@@ -434,7 +434,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 var indexName = reader.ReadString();
                 var indexPluginName = reader.ReadString();
 
-                indexFactory.OpenIndex(indexName, indexPluginName, reader, fallen8);
+                indexFactory.OpenIndex(indexName, indexPluginName, reader);
             }
         }
 
