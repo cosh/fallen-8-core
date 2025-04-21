@@ -2,7 +2,7 @@
 //
 // ScaleFreeNetwork.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -92,7 +92,8 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             {
                 var partitions = Partitioner.Create(0, verticesCreates.Count);
 
-                Parallel.ForEach(partitions, range => {
+                Parallel.ForEach(partitions, range =>
+                {
                     var verticesInPartition = range.Item2 - range.Item1;
                     CreateEdges(verticesCreates, verticesCreates.GetRange(range.Item1, verticesInPartition), edgeCountPerVertex, creationDate);
                 });
@@ -179,8 +180,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             Parallel.ForEach(
                 rangePartitioner,
                 () => 0L,
-                delegate (Tuple<int, int> range, ParallelLoopState loopstate, long initialValue)
-                {
+                delegate (Tuple<int, int> range, ParallelLoopState loopstate, long initialValue) {
                     var localCount = initialValue;
 
                     for (var i = range.Item1; i < range.Item2; i++)
@@ -198,8 +198,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
                     return localCount;
                 },
-                delegate (long localSum)
-                {
+                delegate (long localSum) {
                     lock (lockObject)
                     {
                         edgeCount += localSum;

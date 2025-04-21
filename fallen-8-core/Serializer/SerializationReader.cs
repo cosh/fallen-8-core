@@ -2,7 +2,7 @@
 //
 // SerializationReader.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -71,7 +71,7 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Creates a SerializationReader using a byte[] previous created by SerializationWriter
-        /// 
+        ///
         /// A MemoryStream is used to access the data without making a copy of it.
         /// </summary>
         /// <param name="data">The byte[] containining serialized data.</param>
@@ -243,7 +243,7 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Returns a Type or null from the stream.
-        /// 
+        ///
         /// Throws an exception if the Type cannot be found.
         /// </summary>
         /// <returns>A Type instance.</returns>
@@ -254,7 +254,7 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Returns a Type or null from the stream.
-        /// 
+        ///
         /// Throws an exception if the Type cannot be found and throwOnError is true.
         /// </summary>
         /// <returns>A Type instance.</returns>
@@ -434,10 +434,10 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// and the resulting array can be cast to the expected type.
         /// e.g.
         /// string[] myStrings = (string[]) reader.ReadOptimizedObjectArray(typeof(string));
-        /// 
+        ///
         /// An exception will be thrown if any of the deserialized values cannot be
         /// cast to the specified elementType.
-        /// 
+        ///
         /// </summary>
         /// <param name="elementType">The Type of the expected array elements. null will return a plain object[].</param>
         /// <returns>An object[] instance.</returns>
@@ -586,7 +586,7 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Returns a Type from the stream.
-        /// 
+        ///
         /// Throws an exception if the Type cannot be found.
         /// </summary>
         /// <returns>A Type instance.</returns>
@@ -596,7 +596,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         }
         /// <summary>
         /// Returns a Type from the stream.
-        /// 
+        ///
         /// Throws an exception if the Type cannot be found and throwOnError is true.
         /// </summary>
         /// <returns>A Type instance.</returns>
@@ -980,10 +980,10 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// and the resulting array can be cast to the expected type.
         /// e.g.
         /// string[] myStrings = (string[]) reader.ReadObjectArray(typeof(string));
-        /// 
+        ///
         /// An exception will be thrown if any of the deserialized values cannot be
         /// cast to the specified elementType.
-        /// 
+        ///
         /// </summary>
         /// <param name="elementType">The Type of the expected array elements. null will return a plain object[].</param>
         /// <returns>An object[] instance.</returns>
@@ -1405,7 +1405,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         }
 
         /// <summary>
-        /// Allows an existing object, implementing IOwnedDataSerializable, to 
+        /// Allows an existing object, implementing IOwnedDataSerializable, to
         /// retrieve its owned data from the stream.
         /// </summary>
         /// <param name="target">Any IOwnedDataSerializable object.</param>
@@ -1884,13 +1884,16 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <summary>
         /// Returns the number of bytes or serialized remaining to be processed.
         /// Useful for checking that deserialization is complete.
-        /// 
+        ///
         /// Warning: Retrieving the Position in certain stream types can be expensive,
         /// e.g. a FileStream, so use sparingly unless known to be a MemoryStream.
         /// </summary>
         public int BytesRemaining
         {
-            get { return endPosition == 0 ? -1 : endPosition - (int)BaseStream.Position; }
+            get
+            {
+                return endPosition == 0 ? -1 : endPosition - (int)BaseStream.Position;
+            }
         }
         #endregion
     }

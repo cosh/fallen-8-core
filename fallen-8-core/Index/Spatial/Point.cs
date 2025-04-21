@@ -2,7 +2,7 @@
 //
 // Point.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -50,7 +50,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
 		/// <value>
 		/// The longitude.
 		/// </value>
-        public float Longitude { get; private set; }
+        public float Longitude
+        {
+            get; private set;
+        }
 
         /// <summary>
         /// Gets or sets the latitude.
@@ -58,7 +61,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <value>
         /// The latitude.
         /// </value>
-        public float Latitude { get; private set; }
+        public float Latitude
+        {
+            get; private set;
+        }
 
         #endregion
 
@@ -82,12 +88,18 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
 
         public List<IDimension> Dimensions
         {
-            get { return new List<IDimension> { new RealDimension(), new RealDimension() }; }
+            get
+            {
+                return new List<IDimension> { new RealDimension(), new RealDimension() };
+            }
         }
 
         public IEnumerable<object> Coordinates
         {
-            get { return new[] { new[] { Longitude, Latitude } }; }
+            get
+            {
+                return new[] { new[] { Longitude, Latitude } };
+            }
         }
 
         public float[] PointToSpaceR()

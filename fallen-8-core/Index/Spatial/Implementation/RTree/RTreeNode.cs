@@ -2,7 +2,7 @@
 //
 // RTreeNode.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -65,7 +65,13 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             Upper = cupper;
             Children = children != null ? new List<ARTreeContainer>(children) : new List<ARTreeContainer>();
         }
-        override public bool IsLeaf { get { return false; } }
+        override public bool IsLeaf
+        {
+            get
+            {
+                return false;
+            }
+        }
         public List<ARTreeContainer> Children;
 
 

@@ -2,7 +2,7 @@
 //
 // RTree.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -52,19 +52,31 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         /// <summary>
         /// Metric for R-Tree space
         /// </summary>
-        private IMetric Metric { get; set; }
+        private IMetric Metric
+        {
+            get; set;
+        }
         /// <summary>
         /// minimal value of count of kinder in the container
         /// </summary>
-        private int MinCountOfNode { get; set; }
+        private int MinCountOfNode
+        {
+            get; set;
+        }
         /// <summary>
         /// maximal value of count of kinder in the container
         /// </summary>
-        private int MaxCountOfNode { get; set; }
+        private int MaxCountOfNode
+        {
+            get; set;
+        }
         /// <summary>
         /// a space for the r-tree
         /// </summary>
-        private List<IDimension> Space { get; set; }
+        private List<IDimension> Space
+        {
+            get; set;
+        }
 
         #endregion
 
@@ -1336,7 +1348,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         {
             if (ReadResource())
             {
-                var intermediateResult = new List<AGraphElementModel>(); 
+                var intermediateResult = new List<AGraphElementModel>();
                 IRTreeDataContainer element;
                 SpatialDataContainer searchContainer;
                 if (_mapOfContainers.TryGetValue(graphElement.Id, out element))
@@ -1380,7 +1392,9 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                         {
                             var mbr = key.GeometryToMBR();
                             currentContainer = new SpatialDataContainer(mbr.Lower, mbr.Upper)
-                            { GraphElement = graphElement };
+                            {
+                                GraphElement = graphElement
+                            };
                         }
 
                         InsertData(currentContainer);
@@ -1447,7 +1461,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         {
             if (ReadResource())
             {
-                var intermediateResult =new List<AGraphElementModel>();
+                var intermediateResult = new List<AGraphElementModel>();
                 if (TestOfMBR(minimalBoundedRechtangle))
                 {
                     var searchRegion = new SpatialDataContainer(minimalBoundedRechtangle);
@@ -1457,7 +1471,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                 result = ImmutableList.CreateRange<AGraphElementModel>(intermediateResult);
 
                 FinishReadResource();
-                
+
                 return result.Count > 0;
             }
             throw new CollisionException();
@@ -1905,7 +1919,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
 
         public Type PluginCategory
         {
-            get { return typeof(IIndex); }
+            get
+            {
+                return typeof(IIndex);
+            }
         }
 
         public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
@@ -1961,18 +1978,27 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
 
         public string PluginName
         {
-            get { return "SpatialIndex"; }
+            get
+            {
+                return "SpatialIndex";
+            }
         }
 
 
         public string Description
         {
-            get { return "This is the realisation of the spatial index as r*-tree"; }
+            get
+            {
+                return "This is the realisation of the spatial index as r*-tree";
+            }
         }
 
         public string Manufacturer
         {
-            get { return "Andriy Kupershmidt"; }
+            get
+            {
+                return "Andriy Kupershmidt";
+            }
         }
 
         #endregion

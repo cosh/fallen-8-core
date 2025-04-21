@@ -2,7 +2,7 @@
 //
 // CreateVerticesTransaction.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -33,7 +33,9 @@ namespace NoSQL.GraphDB.Core.Transaction
     public class CreateVerticesTransaction : ATransaction
     {
         public List<VertexDefinition> Vertices
-            { get; set; } = new List<VertexDefinition>();
+        {
+            get; set;
+        } = new List<VertexDefinition>();
 
         private List<VertexModel> _verticesCreated = new List<VertexModel>();
 
@@ -56,12 +58,12 @@ namespace NoSQL.GraphDB.Core.Transaction
                 return false;
             }
 
-            return  true;
+            return true;
         }
 
         public CreateVerticesTransaction AddVertex(UInt32 CreationDate, String Label = null, Dictionary<String, Object> Properties = null)
         {
-            Vertices.Add(new VertexDefinition() { CreationDate = CreationDate, Properties = Properties , Label = Label});
+            Vertices.Add(new VertexDefinition() { CreationDate = CreationDate, Properties = Properties, Label = Label });
 
             return this;
         }

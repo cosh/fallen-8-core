@@ -2,7 +2,7 @@
 //
 // CreateVertexTransaction.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -30,7 +30,10 @@ namespace NoSQL.GraphDB.Core.Transaction
 {
     public class CreateVertexTransaction : ATransaction
     {
-        public VertexModel VertexCreated { get; private set; }
+        public VertexModel VertexCreated
+        {
+            get; private set;
+        }
 
         public VertexDefinition Definition
         {

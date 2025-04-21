@@ -2,7 +2,7 @@
 //
 // PersistencyFactory.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -646,7 +646,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                     var propertyIdentifier = reader.ReadOptimizedString();
                     var propertyValue = reader.ReadObject();
 
-                    properties.Add(propertyIdentifier,propertyValue );
+                    properties.Add(propertyIdentifier, propertyValue);
                 }
             }
 
@@ -688,11 +688,11 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                             edgeTodo.AddOrUpdate(edgeId,
                                  new List<EdgeOnVertexToDo> { aEdgeTodo },
-                                 (id, list) => 
-                                    { 
-                                        list.Add(aEdgeTodo); 
-                                        return list; 
-                                    } );
+                                 (id, list) =>
+                                    {
+                                        list.Add(aEdgeTodo);
+                                        return list;
+                                    });
                         }
                     }
                     outEdgeProperties.Add(outEdgePropertyId, outEdges);
@@ -834,7 +834,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                     var propertyIdentifier = reader.ReadOptimizedString();
                     var propertyValue = reader.ReadObject();
 
-                    properties.Add(propertyIdentifier, propertyValue );
+                    properties.Add(propertyIdentifier, propertyValue);
                 }
             }
 

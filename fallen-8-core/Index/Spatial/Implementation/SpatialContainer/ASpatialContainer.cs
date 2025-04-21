@@ -2,7 +2,7 @@
 //
 // ASpatialContainer.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -34,7 +34,13 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
     public abstract class ASpatialContainer : IMBR, IRTreeContainer
     {
         public float Area;
-        public TypeOfContainer Container { get { return TypeOfContainer.MBRContainer; } }
+        public TypeOfContainer Container
+        {
+            get
+            {
+                return TypeOfContainer.MBRContainer;
+            }
+        }
         #region Inclusion of MBR and Point
         virtual public bool Inclusion(ISpatialContainer container)
         {
@@ -176,16 +182,28 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
 
         virtual public float[] LowerPoint
         {
-            get { return Lower; }
-            set { Lower = value; }
+            get
+            {
+                return Lower;
+            }
+            set
+            {
+                Lower = value;
+            }
 
 
         }
 
         virtual public float[] UpperPoint
         {
-            get { return Upper; }
-            set { Upper = value; }
+            get
+            {
+                return Upper;
+            }
+            set
+            {
+                Upper = value;
+            }
 
         }
         #endregion

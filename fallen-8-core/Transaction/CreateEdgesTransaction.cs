@@ -2,7 +2,7 @@
 //
 // CreateEdgesTransaction.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -61,11 +61,18 @@ namespace NoSQL.GraphDB.Core.Transaction
             return true;
         }
 
-        public CreateEdgesTransaction AddEdge(Int32 sourceVertexId, String edgePropertyId, Int32 targetVertexId, 
+        public CreateEdgesTransaction AddEdge(Int32 sourceVertexId, String edgePropertyId, Int32 targetVertexId,
             UInt32 creationDate, String label = null, Dictionary<String, Object> properties = null)
         {
-            Edges.Add(new EdgeDefinition() { SourceVertexId = sourceVertexId, EdgePropertyId = edgePropertyId, 
-                TargetVertexId = targetVertexId, CreationDate = creationDate, Label = label, Properties = properties });
+            Edges.Add(new EdgeDefinition()
+            {
+                SourceVertexId = sourceVertexId,
+                EdgePropertyId = edgePropertyId,
+                TargetVertexId = targetVertexId,
+                CreationDate = creationDate,
+                Label = label,
+                Properties = properties
+            });
 
             return this;
         }
@@ -76,7 +83,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             return this;
         }
-        
+
         public ImmutableList<EdgeModel> GetCreatedEdges()
         {
             return ImmutableList.CreateRange(_edgesAdded);

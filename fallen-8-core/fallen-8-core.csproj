@@ -7,7 +7,7 @@
     <Version>0.0.14</Version>
     <Authors>Henning Rauch</Authors>
     <Company>RauchEntwicklung</Company>
-    <Copyright>Copyright (c) 2022 Henning Rauch</Copyright>
+    <Copyright>Copyright (c) 2025 Henning Rauch</Copyright>
     <Description>Fallen-8 is an in-memory graph database implemented in C#. Its focus is to provide raw speed for heavy graph algorithms.</Description>
     <license>MIT</license>
     <PackageIcon>iconwhite.png</PackageIcon>

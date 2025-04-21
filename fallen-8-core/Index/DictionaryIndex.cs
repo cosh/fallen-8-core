@@ -2,7 +2,7 @@
 //
 // DictionaryIndex.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -380,12 +380,18 @@ namespace NoSQL.GraphDB.Core.Index
 
         public string PluginName
         {
-            get { return "DictionaryIndex"; }
+            get
+            {
+                return "DictionaryIndex";
+            }
         }
 
         public Type PluginCategory
         {
-            get { return typeof(IIndex); }
+            get
+            {
+                return typeof(IIndex);
+            }
         }
 
         public string Description
@@ -398,7 +404,10 @@ namespace NoSQL.GraphDB.Core.Index
 
         public string Manufacturer
         {
-            get { return "Henning Rauch"; }
+            get
+            {
+                return "Henning Rauch";
+            }
         }
 
         #endregion

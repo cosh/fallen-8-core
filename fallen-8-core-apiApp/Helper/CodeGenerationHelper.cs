@@ -2,7 +2,7 @@
 //
 // CodeGenerationHelper.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -93,7 +93,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
                     foreach (Diagnostic codeIssue in compilationResult.Diagnostics)
                     {
-                        string issue = $"ID: {codeIssue.Id}, Message: {codeIssue.GetMessage()}, Location: { codeIssue.Location.GetLineSpan()}, Severity: { codeIssue.Severity}";
+                        string issue = $"ID: {codeIssue.Id}, Message: {codeIssue.GetMessage()}, Location: {codeIssue.Location.GetLineSpan()}, Severity: {codeIssue.Severity}";
 
                         sb.AppendLine(issue);
                     }
@@ -210,7 +210,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
             //The location of the .NET assemblies
             var assemblyPath = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location);
 
-            /* 
+            /*
             * Adding some necessary .NET assemblies
             * These assemblies couldn't be loaded correctly via the same construction as above,
             * in specific the System.Runtime.

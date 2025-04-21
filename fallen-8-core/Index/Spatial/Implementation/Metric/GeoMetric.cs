@@ -2,7 +2,7 @@
 //
 // GeoMetric.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -43,7 +43,10 @@ namespace NNoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric
         /// <summary>
         /// the readius of earth
         /// </summary>
-        public float RadiusOfEarth { get; private set; }
+        public float RadiusOfEarth
+        {
+            get; private set;
+        }
         /// <summary>
         /// Constructor
         /// </summary>

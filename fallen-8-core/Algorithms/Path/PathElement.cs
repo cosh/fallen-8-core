@@ -2,7 +2,7 @@
 //
 // PathElement.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -66,22 +66,34 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <summary>
         ///   The edge.
         /// </summary>
-        public EdgeModel Edge { get; private set; }
+        public EdgeModel Edge
+        {
+            get; private set;
+        }
 
         /// <summary>
         ///   The edge property identifier.
         /// </summary>
-        public String EdgePropertyId { get; private set; }
+        public String EdgePropertyId
+        {
+            get; private set;
+        }
 
         /// <summary>
         ///   Direction.
         /// </summary>
-        public Direction Direction { get; private set; }
+        public Direction Direction
+        {
+            get; private set;
+        }
 
         /// <summary>
         ///   The weight of this path element
         /// </summary>
-        public Double Weight { get; private set; }
+        public Double Weight
+        {
+            get; private set;
+        }
 
         #endregion
 

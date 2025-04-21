@@ -2,7 +2,7 @@
 //
 // IService.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -39,19 +39,28 @@ namespace NoSQL.GraphDB.Core.Service
         ///   Gets the start time.
         /// </summary>
         /// <value> The start time. </value>
-        DateTime StartTime { get; }
+        DateTime StartTime
+        {
+            get;
+        }
 
         /// <summary>
         ///   Gets a value indicating whether this instance is running.
         /// </summary>
         /// <value> <c>true</c> if this instance is running; otherwise, <c>false</c> . </value>
-        Boolean IsRunning { get; }
+        Boolean IsRunning
+        {
+            get;
+        }
 
         /// <summary>
         ///   Gets the metadata.
         /// </summary>
         /// <value> The metadata. </value>
-        IDictionary<String, String> Metadata { get; }
+        IDictionary<String, String> Metadata
+        {
+            get;
+        }
 
         /// <summary>
         ///   Tries to stop this service.

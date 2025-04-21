@@ -2,7 +2,7 @@
 //
 // IDimension.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -42,10 +42,16 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <summary>
         ///gets the type of dimension
         /// </summary>
-        Type ObjectType { get; }
+        Type ObjectType
+        {
+            get;
+        }
         /// <summary>
-        ///gets the count of dimension from real space 
+        ///gets the count of dimension from real space
         /// </summary>
-        int CountOfR { get; }
+        int CountOfR
+        {
+            get;
+        }
     }
 }

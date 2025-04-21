@@ -2,7 +2,7 @@
 //
 // RegExIndex.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -48,7 +48,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
         /// The index dictionary.
         /// </summary>
         private Dictionary<String, ImmutableList<AGraphElementModel>> _idx;
-        
+
         /// <summary>
         /// The description of the plugin
         /// </summary>
@@ -314,7 +314,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                     }
                     else
                     {
-                        values =  ImmutableList.Create<AGraphElementModel>( graphElement );
+                        values = ImmutableList.Create<AGraphElementModel>(graphElement);
                         _idx.Add(key, values);
                     }
                 }
@@ -477,12 +477,18 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 
         public string PluginName
         {
-            get { return "RegExIndex"; }
+            get
+            {
+                return "RegExIndex";
+            }
         }
 
         public Type PluginCategory
         {
-            get { return typeof(IIndex); }
+            get
+            {
+                return typeof(IIndex);
+            }
         }
 
         public string Description
@@ -495,7 +501,10 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 
         public string Manufacturer
         {
-            get { return "Henning Rauch"; }
+            get
+            {
+                return "Henning Rauch";
+            }
         }
 
         public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
@@ -642,12 +651,18 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
             /// <summary>
             /// The highlights
             /// </summary>
-            public HashSet<String> Highlights { get; set; }
+            public HashSet<String> Highlights
+            {
+                get; set;
+            }
 
             /// <summary>
             /// The number of highlights
             /// </summary>
-            public Int32 NumberOfHighlights { get; set; }
+            public Int32 NumberOfHighlights
+            {
+                get; set;
+            }
         }
 
         #endregion

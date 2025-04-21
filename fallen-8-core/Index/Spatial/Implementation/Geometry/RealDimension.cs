@@ -2,7 +2,7 @@
 //
 // RealDimension.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -39,12 +39,18 @@ namespace NNoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry
     {
         public int CountOfR
         {
-            get { return 1; }
+            get
+            {
+                return 1;
+            }
         }
 
         public Type ObjectType
         {
-            get { return typeof(float); }
+            get
+            {
+                return typeof(float);
+            }
         }
     }
 }

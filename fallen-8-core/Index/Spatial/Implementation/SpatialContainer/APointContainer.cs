@@ -2,7 +2,7 @@
 //
 // APointContainer.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -36,7 +36,13 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
         /// <summary>
         /// type of container
         /// </summary>
-        public TypeOfContainer Container { get { return TypeOfContainer.PointContainer; } }
+        public TypeOfContainer Container
+        {
+            get
+            {
+                return TypeOfContainer.PointContainer;
+            }
+        }
 
 
         #region Inclusion of MBR and Point
@@ -125,14 +131,20 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
 
         virtual public float[] LowerPoint
         {
-            get { return Coordinates; }
+            get
+            {
+                return Coordinates;
+            }
 
 
         }
 
         virtual public float[] UpperPoint
         {
-            get { return Coordinates; }
+            get
+            {
+                return Coordinates;
+            }
 
         }
         #endregion

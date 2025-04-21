@@ -2,7 +2,7 @@
 //
 // TransactionManager.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -66,7 +66,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         private TransactionInformation SetTransactionState(ATransaction tx, TransactionState state)
         {
             return transactionState.AddOrUpdate(tx.TransactionId,
-                                        new TransactionInformation(null) { Transaction = tx , TransactionState = state },
+                                        new TransactionInformation(null) { Transaction = tx, TransactionState = state },
                                         (id, info) =>
                                         {
                                             info.TransactionState = state;

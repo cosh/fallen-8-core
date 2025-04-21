@@ -2,7 +2,7 @@
 //
 // ISpatialContainer.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -35,12 +35,12 @@ using NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer;
 namespace NoSQL.GraphDB.Core.Index.Spatial
 {
     /// <summary>
-    /// The container for spatial objects 
+    /// The container for spatial objects
     /// </summary>
     public interface ISpatialContainer
     {
         /// <summary>
-        /// check whether the container parameter-container includes 
+        /// check whether the container parameter-container includes
         /// </summary>
         /// <param name="container"></param>
         /// <returns></returns>
@@ -76,18 +76,27 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// </returns>
         bool EqualTo(ISpatialContainer container);
         /// <summary>
-        /// The type of container: 
+        /// The type of container:
         /// point container for point objects or
         /// spatial container for spatial objects
         /// </summary>
-        TypeOfContainer Container { get; }
+        TypeOfContainer Container
+        {
+            get;
+        }
         /// <summary>
         /// Lower point of minimal bounded rectangel
         /// </summary>
-        float[] LowerPoint { get; }
+        float[] LowerPoint
+        {
+            get;
+        }
         /// <summary>
         /// Upper point of minimal bunded rectangel
         /// </summary>
-        float[] UpperPoint { get; }
+        float[] UpperPoint
+        {
+            get;
+        }
     }
 }

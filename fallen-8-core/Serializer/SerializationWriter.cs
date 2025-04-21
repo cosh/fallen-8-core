@@ -2,7 +2,7 @@
 //
 // SerializationWriter.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -51,8 +51,8 @@ namespace NoSQL.GraphDB.Core.Serializer
     /// ToArray() will return a byte[] containing all of the data required for deserialization.
     /// This can be stored in the SerializationInfo parameter in an ISerializable.GetObjectData() method.
     /// <para/>
-    /// As an alternative to ToArray(), if you want to apply some post-processing to the serialized bytes, 
-    /// such as compression, call UpdateHeader() first to ensure that the string and object token table 
+    /// As an alternative to ToArray(), if you want to apply some post-processing to the serialized bytes,
+    /// such as compression, call UpdateHeader() first to ensure that the string and object token table
     /// sizes are updated in the header, and then cast BaseStream to MemoryStream. You can then access the
     /// MemoryStream's internal buffer as follows:
     /// <para/>
@@ -150,14 +150,20 @@ namespace NoSQL.GraphDB.Core.Serializer
         // type usage member in which counters are stored of all the known types emitted into the output stream. For debugging purposes.
         public int[] TypeUsage
         {
-            get { return typeUsage; }
+            get
+            {
+                return typeUsage;
+            }
         }
         readonly int[] typeUsage = new int[256];
 
         // stores the number of bytes used for tokenized strings and objects
         public int TableBytes
         {
-            get { return tableBytes; }
+            get
+            {
+                return tableBytes;
+            }
         }
         int tableBytes;
 #endif
@@ -215,7 +221,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// If the stream is not seekable then the allowUpdateHeader parameter is ignored
         /// </summary>
         /// <param name="stream">The stream in which to store data</param>
-        /// <param name="allowUpdateHeader">true if token table presize 
+        /// <param name="allowUpdateHeader">true if token table presize
         /// information can be stored; false otherwise</param>
         public SerializationWriter(Stream stream, bool allowUpdateHeader) : base(stream)
         {
@@ -346,39 +352,39 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <summary>
         /// Stores an object into the stream using the fewest number of bytes possible.
         /// Stored Size: 1 byte upwards depending on type and/or content.
-        /// 
+        ///
         /// 1 byte: null, DBNull.Value, Boolean
-        /// 
-        /// 1 to 2 bytes: Int16, UInt16, Byte, SByte, Char, 
-        /// 
+        ///
+        /// 1 to 2 bytes: Int16, UInt16, Byte, SByte, Char,
+        ///
         /// 1 to 4 bytes: Int32, UInt32, Single, BitVector32
-        /// 
+        ///
         /// 1 to 8 bytes: DateTime, TimeSpan, Double, Int64, UInt64
-        /// 
+        ///
         /// 1 or 16 bytes: Guid
-        /// 
+        ///
         /// 1 plus content: string, object[], byte[], char[], BitArray, Type, ArrayList
-        /// 
-        /// Any other object be stored using a .Net Binary formatter but this should 
+        ///
+        /// Any other object be stored using a .Net Binary formatter but this should
         /// only be allowed as a last resort:
-        /// Since this is effectively a different serialization session, there is a 
-        /// possibility of the same shared object being serialized twice or, if the 
-        /// object has a reference directly or indirectly back to the parent object, 
+        /// Since this is effectively a different serialization session, there is a
+        /// possibility of the same shared object being serialized twice or, if the
+        /// object has a reference directly or indirectly back to the parent object,
         /// there is a risk of looping which will throw an exception.
-        /// 
+        ///
         /// The type of object is checked with the most common types being checked first.
         /// Each 'section' can be reordered to provide optimum speed but the check for
         /// null should always be first and the default serialization always last.
-        /// 
+        ///
         /// Once the type is identified, a SerializedType byte is stored in the stream
         /// followed by the data for the object (certain types/values may not require
         /// storage of data as the SerializedType may imply the value).
-        /// 
+        ///
         /// For certain objects, if the value is within a certain range then optimized
         /// storage may be used. If the value doesn't meet the required optimization
         /// criteria then the value is stored directly.
         /// The checks for optimization may be disabled by setting the OptimizeForSize
-        /// property to false in which case the value is stored directly. This could 
+        /// property to false in which case the value is stored directly. This could
         /// result in a slightly larger stream but there will be a speed increate to
         /// compensate.
         /// </summary>
@@ -386,7 +392,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         public void WriteObject(object value)
         {
             // The following routine uses a main if-else tree which is somewhat flattened. Every if/else branch simply
-            // tests for the type of value. If a type match is found, the code uses a normal if/else tree. 
+            // tests for the type of value. If a type match is found, the code uses a normal if/else tree.
 
             if (value == null)
             {
@@ -676,7 +682,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// 22 to 28 bits takes 4 bytes
         /// -------------------------------------------------------------------
         /// 29 to 32 bits takes 5 bytes - use Write(BitVector32) method instead
-        /// 
+        ///
         /// Try to order the BitVector32 masks so that the highest bits are least-likely
         /// to be set.
         /// </summary>
@@ -841,8 +847,8 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// ----------------------------------------------------------------
         /// 0x0400 - 0x7FFF (16,384 to 32,767) takes 3 bytes
         /// All negative numbers take 3 bytes
-        /// 
-        /// Only call this method if the value is known to be between 0 and 
+        ///
+        /// Only call this method if the value is known to be between 0 and
         /// 16,383 otherwise use Write(Int16 value)
         /// </remarks>
         /// <param name="value">The Int16 to store. Must be between 0 and 16,383 inclusive.</param>
@@ -864,8 +870,8 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// ----------------------------------------------------------------
         /// 0x10000000 - 0x07FFFFFF (268,435,456 and above) takes 5 bytes
         /// All negative numbers take 5 bytes
-        /// 
-        /// Only call this method if the value is known to be between 0 and 
+        ///
+        /// Only call this method if the value is known to be between 0 and
         /// 268,435,455 otherwise use Write(Int32 value)
         /// </remarks>
         /// <param name="value">The Int32 to store. Must be between 0 and 268,435,455 inclusive.</param>
@@ -892,7 +898,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// 0x0100000000000000 - 0x7FFFFFFFFFFFFFFF (72,057,594,037,927,936 to 9,223,372,036,854,775,807) takes 9 bytes
         /// 0x7FFFFFFFFFFFFFFF - 0xFFFFFFFFFFFFFFFF (9,223,372,036,854,775,807 and above) takes 10 bytes
         /// All negative numbers take 10 bytes
-        /// 
+        ///
         /// Only call this method if the value is known to be between 0 and
         /// 72,057,594,037,927,935 otherwise use Write(Int64 value)
         /// </remarks>
@@ -911,17 +917,17 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Encodes null, Empty, 'Y', 'N', ' ' values as a single byte
         /// Any other single char string is stored as two bytes
         /// All other strings are stored in a string token list:
-        /// 
-        /// The TypeCode representing the current string token list is written first (1 byte), 
+        ///
+        /// The TypeCode representing the current string token list is written first (1 byte),
         /// followed by the string token itself (1-4 bytes)
-        /// 
+        ///
         /// When the current string list has reached 128 values then a new string list
         /// is generated and that is used for generating future string tokens. This continues
-        /// until the maximum number (128) of string lists is in use, after which the string 
+        /// until the maximum number (128) of string lists is in use, after which the string
         /// lists are used in a round-robin fashion.
-        /// By doing this, more lists are created with fewer items which allows a smaller 
+        /// By doing this, more lists are created with fewer items which allows a smaller
         /// token size to be used for more strings.
-        /// 
+        ///
         /// The first 16,384 strings will use a 1 byte token.
         /// The next 2,097,152 strings will use a 2 byte token. (This should suffice for most uses!)
         /// The next 268,435,456 strings will use a 3 byte token. (My, that is a lot!!)
@@ -1028,8 +1034,8 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// 0x0080 - 0x03FF (128 to 16,383) takes 2 bytes
         /// ----------------------------------------------------------------
         /// 0x0400 - 0xFFFF (16,384 to 65,536) takes 3 bytes
-        /// 
-        /// Only call this method if the value is known to  be between 0 and 
+        ///
+        /// Only call this method if the value is known to  be between 0 and
         /// 16,383 otherwise use Write(UInt16 value)
         /// </remarks>
         /// <param name="value">The UInt16 to store. Must be between 0 and 16,383 inclusive.</param>
@@ -1051,8 +1057,8 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// 0x00200000 - 0x0FFFFFFF (2,097,152 to 268,435,455) takes 4 bytes
         /// ----------------------------------------------------------------
         /// 0x10000000 - 0xFFFFFFFF (268,435,456 and above) takes 5 bytes
-        /// 
-        /// Only call this method if the value is known to  be between 0 and 
+        ///
+        /// Only call this method if the value is known to  be between 0 and
         /// 268,435,455 otherwise use Write(UInt32 value)
         /// </remarks>
         /// <param name="value">The UInt32 to store. Must be between 0 and 268,435,455 inclusive.</param>
@@ -1079,7 +1085,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// ------------------------------------------------------------------
         /// 0x0100000000000000 - 0x7FFFFFFFFFFFFFFF (72,057,594,037,927,936 to 9,223,372,036,854,775,807) takes 9 bytes
         /// 0x7FFFFFFFFFFFFFFF - 0xFFFFFFFFFFFFFFFF (9,223,372,036,854,775,807 and above) takes 10 bytes
-        /// 
+        ///
         /// Only call this method if the value is known to be between 0 and
         /// 72,057,594,037,927,935 otherwise use Write(UInt64 value)
         /// </remarks>
@@ -2049,7 +2055,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Writes a non-null generic Dictionary into the stream.
         /// </summary>
         /// <remarks>
-        /// The key and value types themselves are not stored - they must be 
+        /// The key and value types themselves are not stored - they must be
         /// supplied at deserialization time.
         /// <para/>
         /// An array of keys is stored followed by an array of values.
@@ -2107,7 +2113,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// 1) The total length of serialized data
         /// 2) The number of string tokens
         /// 3) The number of object tokens
-        /// 
+        ///
         /// Does nothing if the stream is not seekable or the constructor
         /// specified not to update the header.
         ///
@@ -2140,9 +2146,9 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <summary>
         /// Returns a byte[] containing all of the serialized data
         /// where the underlying stream is a MemoryStream.
-        /// 
+        ///
         /// Only call this method once all of the data has been serialized.
-        /// 
+        ///
         /// </summary>
         /// <returns>A byte[] containing all serialized data.</returns>
         public byte[] ToArray()
@@ -2174,7 +2180,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Writes a byte[] directly into the stream.
         /// The size of the array is not stored so only use this method when
         /// the number of bytes will be known at deserialization time.
-        /// 
+        ///
         /// A null value will throw an exception
         /// </summary>
         /// <param name="value">The byte[] to store. Must not be null.</param>
@@ -2197,10 +2203,10 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <summary>
         /// Writes a token (an Int32 taking 1 to 4 bytes) into the stream that represents the object instance.
         /// The same token will always be used for the same object instance.
-        /// 
+        ///
         /// The object will be serialized once and recreated at deserialization time.
         /// Calls to SerializationReader.ReadTokenizedObject() will retrieve the same object instance.
-        /// 
+        ///
         /// </summary>
         /// <param name="value">The object to tokenize. Must not be null and must not be a string.</param>
         public void WriteTokenizedObject(object value)
@@ -2211,16 +2217,16 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <summary>
         /// Writes a token (an Int32 taking 1 to 4 bytes) into the stream that represents the object instance.
         /// The same token will always be used for the same object instance.
-        /// 
-        /// When recreateFromType is set to true, the object's Type will be stored and the object recreated using 
+        ///
+        /// When recreateFromType is set to true, the object's Type will be stored and the object recreated using
         /// Activator.GetInstance with a parameterless contructor. This is useful for stateless, factory-type classes.
-        /// 
+        ///
         /// When recreateFromType is set to false, the object will be serialized once and recreated at deserialization time.
-        /// 
+        ///
         /// Calls to SerializationReader.ReadTokenizedObject() will retrieve the same object instance.
         /// </summary>
         /// <param name="value">The object to tokenize. Must not be null and must not be a string.</param>
-        /// <param name="recreateFromType">true if the object can be recreated using a parameterless constructor; 
+        /// <param name="recreateFromType">true if the object can be recreated using a parameterless constructor;
         /// false if the object should be serialized as-is</param>
         public void WriteTokenizedObject(object value, bool recreateFromType)
         {
@@ -2355,12 +2361,12 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Checks whether an optimization condition has been met and throw an exception if not.
-        /// 
+        ///
         /// This method has been made conditional on THROW_IF_NOT_OPTIMIZABLE being set at compile time.
         /// By default, this isn't set but could be set explicitly if exceptions are required and
-        /// the evaluation overhead is acceptable. 
+        /// the evaluation overhead is acceptable.
         /// If not set, then this method and all references to it are removed at compile time.
-        /// 
+        ///
         /// Leave at the default for optimum usage.
         /// </summary>
         /// <param name="condition">An expression evaluating to true if the optimization condition is met, false otherwise.</param>
@@ -2376,10 +2382,10 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Stores a 32-bit signed value into the stream using 7-bit encoding.
-        /// 
+        ///
         /// The value is written 7 bits at a time (starting with the least-significant bits) until there are no more bits to write.
         /// The eighth bit of each byte stored is used to indicate whether there are more bytes following this one.
-        /// 
+        ///
         /// See Write(Int32) for details of the values that are optimizable.
         /// </summary>
         /// <param name="value">The Int32 value to encode.</param>
@@ -2398,10 +2404,10 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Stores a 64-bit signed value into the stream using 7-bit encoding.
-        /// 
+        ///
         /// The value is written 7 bits at a time (starting with the least-significant bits) until there are no more bits to write.
         /// The eighth bit of each byte stored is used to indicate whether there are more bytes following this one.
-        /// 
+        ///
         /// See Write(Int64) for details of the values that are optimizable.
         /// </summary>
         /// <param name="value">The Int64 value to encode.</param>
@@ -2420,10 +2426,10 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Stores a 32-bit unsigned value into the stream using 7-bit encoding.
-        /// 
+        ///
         /// The value is written 7 bits at a time (starting with the least-significant bits) until there are no more bits to write.
         /// The eighth bit of each byte stored is used to indicate whether there are more bytes following this one.
-        /// 
+        ///
         /// See Write(UInt32) for details of the values that are optimizable.
         /// </summary>
         /// <param name="value">The UInt32 value to encode.</param>
@@ -2440,10 +2446,10 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Stores a 64-bit unsigned value into the stream using 7-bit encoding.
-        /// 
+        ///
         /// The value is written 7 bits at a time (starting with the least-significant bits) until there are no more bits to write.
         /// The eighth bit of each byte stored is used to indicate whether there are more bytes following this one.
-        /// 
+        ///
         /// See Write(ULong) for details of the values that are optimizable.
         /// </summary>
         /// <param name="value">The ULong value to encode.</param>
@@ -2499,11 +2505,11 @@ namespace NoSQL.GraphDB.Core.Serializer
         }
 
         /// <summary>
-        /// Internal implementation to write a non, null DateTime[] using a BitArray to 
+        /// Internal implementation to write a non, null DateTime[] using a BitArray to
         /// determine which elements are optimizable.
         /// </summary>
         /// <param name="values">The DateTime[] to store.</param>
-        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable; 
+        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable;
         /// a reference to constant FullyOptimizableValueArray if all the elements are optimizable; or null
         /// if none of the elements are optimizable.</param>
         void WriteArray(DateTime[] values, BitArray optimizeFlags)
@@ -2586,7 +2592,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Internal implementation to write a non-null Int16[] using a BitArray to determine which elements are optimizable.
         /// </summary>
         /// <param name="values">The Int16[] to store.</param>
-        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable; 
+        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable;
         /// a reference to constant FullyOptimizableValueArray if all the elements are optimizable; or null
         /// if none of the elements are optimizable.</param>
         void WriteArray(short[] values, BitArray optimizeFlags)
@@ -2610,7 +2616,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Internal implementation to write a non-null Int32[] using a BitArray to determine which elements are optimizable.
         /// </summary>
         /// <param name="values">The Int32[] to store.</param>
-        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable; 
+        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable;
         /// a reference to constant FullyOptimizableValueArray if all the elements are optimizable; or null
         /// if none of the elements are optimizable.</param>
         void WriteArray(int[] values, BitArray optimizeFlags)
@@ -2634,7 +2640,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Internal implementation to writes a non-null Int64[] using a BitArray to determine which elements are optimizable.
         /// </summary>
         /// <param name="values">The Int64[] to store.</param>
-        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable; 
+        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable;
         /// a reference to constant FullyOptimizableValueArray if all the elements are optimizable; or null
         /// if none of the elements are optimizable.</param>
         void WriteArray(long[] values, BitArray optimizeFlags)
@@ -2686,7 +2692,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Internal implementation to write a non-null TimeSpan[] using a BitArray to determine which elements are optimizable.
         /// </summary>
         /// <param name="values">The TimeSpan[] to store.</param>
-        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable; 
+        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable;
         /// a reference to constant FullyOptimizableValueArray if all the elements are optimizable; or null
         /// if none of the elements are optimizable.</param>
         void WriteArray(TimeSpan[] values, BitArray optimizeFlags)
@@ -2710,7 +2716,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Internal implementation to write a non-null UInt16[] using a BitArray to determine which elements are optimizable.
         /// </summary>
         /// <param name="values">The UInt16[] to store.</param>
-        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable; 
+        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable;
         /// a reference to constant FullyOptimizableValueArray if all the elements are optimizable; or null
         /// if none of the elements are optimizable.</param>
         void WriteArray(ushort[] values, BitArray optimizeFlags)
@@ -2734,7 +2740,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Internal implementation to write a non-null UInt32[] using a BitArray to determine which elements are optimizable.
         /// </summary>
         /// <param name="values">The UInt32[] to store.</param>
-        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable; 
+        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable;
         /// a reference to constant FullyOptimizableValueArray if all the elements are optimizable; or null
         /// if none of the elements are optimizable.</param>
         void WriteArray(uint[] values, BitArray optimizeFlags)
@@ -2772,7 +2778,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Internal implementation to write a non-null UInt64[] using a BitArray to determine which elements are optimizable.
         /// </summary>
         /// <param name="values">The UInt64[] to store.</param>
-        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable; 
+        /// <param name="optimizeFlags">A BitArray indicating which of the elements which are optimizable;
         /// a reference to constant FullyOptimizableValueArray if all the elements are optimizable; or null
         /// if none of the elements are optimizable.</param>
         void WriteArray(ulong[] values, BitArray optimizeFlags)
@@ -2794,10 +2800,10 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Writes the values in the non-null object[] into the stream.
-        /// 
+        ///
         /// Sequences of null values and sequences of DBNull.Values are stored with a flag and optimized count.
         /// Other values are stored using WriteObject().
-        /// 
+        ///
         /// This routine is called by the Write(object[]), WriteOptimized(object[]) and Write(object[], object[])) methods.
         /// </summary>
         /// <param name="values"></param>
@@ -2856,10 +2862,10 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         /// <summary>
         /// Stores the specified SerializedType code into the stream.
-        /// 
+        ///
         /// By using a centralized method, it is possible to collect statistics for the
         /// type of data being stored in DEBUG mode.
-        /// 
+        ///
         /// Use the DumpTypeUsage() method to show a list of used SerializedTypes and
         /// the number of times each has been used. This method and the collection code
         /// will be optimized out when compiling in Release mode.
@@ -2877,7 +2883,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Internal implementation to write a non-null typed array into the stream.
         /// </summary>
         /// <remarks>
-        /// Checks first to see if the element type is a primitive type and calls the 
+        /// Checks first to see if the element type is a primitive type and calls the
         /// correct routine if so. Otherwise determines the best, optimized method
         /// to store the array contents.
         /// <para/>
@@ -3118,7 +3124,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Checks whether instances of a Type can be created.
         /// </summary>
         /// <remarks>
-        /// A Value Type only needs to implement IOwnedDataSerializable. 
+        /// A Value Type only needs to implement IOwnedDataSerializable.
         /// A Reference Type needs to implement IOwnedDataSerializableAndRecreatable and provide a default constructor.
         /// </remarks>
         /// <param name="type">The Type to check</param>
@@ -3187,7 +3193,10 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         public static List<IFastSerializationTypeSurrogate> TypeSurrogates
         {
-            get { return typeSurrogates; }
+            get
+            {
+                return typeSurrogates;
+            }
         }
 
         /// <summary>
@@ -3195,7 +3204,10 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         public int StringTokenTableSize
         {
-            get { return stringLookup.Count; }
+            get
+            {
+                return stringLookup.Count;
+            }
         }
 
         internal int GetTotalStringSize()
@@ -3216,7 +3228,10 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         public int ObjectTokenTableSize
         {
-            get { return objectTokenLookup.Count; }
+            get
+            {
+                return objectTokenLookup.Count;
+            }
         }
 
         /// <summary>
@@ -3230,28 +3245,40 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         public bool OptimizeForSize
         {
-            get { return optimizeForSize; }
-            set { optimizeForSize = value; }
+            get
+            {
+                return optimizeForSize;
+            }
+            set
+            {
+                optimizeForSize = value;
+            }
         }
 
         /// <summary>
         /// Gets or Sets a boolean flag to indicate whether to preserve the scale within
         /// a Decimal value when it would have no effect on the represented value.
-        /// Note: a 2m value and a 2.00m value represent the same value but internally they 
+        /// Note: a 2m value and a 2.00m value represent the same value but internally they
         /// are stored differently - the former has a value of 2 and a scale of 0 and
-        /// the latter has a value of 200 and a scale of 2. 
-        /// The scaling factor also preserves any trailing zeroes in a Decimal number. 
-        /// Trailing zeroes do not affect the value of a Decimal number in arithmetic or 
-        /// comparison operations. However, trailing zeroes can be revealed by the ToString 
+        /// the latter has a value of 200 and a scale of 2.
+        /// The scaling factor also preserves any trailing zeroes in a Decimal number.
+        /// Trailing zeroes do not affect the value of a Decimal number in arithmetic or
+        /// comparison operations. However, trailing zeroes can be revealed by the ToString
         /// method if an appropriate format string is applied.
-        /// From a serialization point of view, the former will take 2 bytes whereas the 
+        /// From a serialization point of view, the former will take 2 bytes whereas the
         /// latter would take 4 bytes, therefore it is preferable to not save the scale where
         /// it doesn't affect the represented value.
         /// </summary>
         public bool PreserveDecimalScale
         {
-            get { return preserveDecimalScale; }
-            set { preserveDecimalScale = value; }
+            get
+            {
+                return preserveDecimalScale;
+            }
+            set
+            {
+                preserveDecimalScale = value;
+            }
         }
 
         #region Private Classes
@@ -3300,14 +3327,17 @@ namespace NoSQL.GraphDB.Core.Serializer
             /// <value>The type of the wrapped.</value>
             public Type WrappedType
             {
-                get { return wrappedType; }
+                get
+                {
+                    return wrappedType;
+                }
             }
         }
 
         /// <summary>
         /// Provides a faster way to store string tokens both maintaining the order that they were added and
         /// providing a fast lookup.
-        /// 
+        ///
         /// Based on code developed by ewbi at http://ewbi.blogs.com/develops/2006/10/uniquestringlis.html
         /// </summary>
         sealed class UniqueStringList
@@ -3420,7 +3450,10 @@ namespace NoSQL.GraphDB.Core.Serializer
             /// <value>The count.</value>
             public int Count
             {
-                get { return stringListIndex; }
+                get
+                {
+                    return stringListIndex;
+                }
             }
         }
         #endregion

@@ -2,7 +2,7 @@
 //
 // BidirectionalLevelSynchronousSSSP.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -805,12 +805,18 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
         public string PluginName
         {
-            get { return "BLS"; }
+            get
+            {
+                return "BLS";
+            }
         }
 
         public Type PluginCategory
         {
-            get { return typeof(IShortestPathAlgorithm); }
+            get
+            {
+                return typeof(IShortestPathAlgorithm);
+            }
         }
 
         public string Description
@@ -823,7 +829,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
         public string Manufacturer
         {
-            get { return "Henning Rauch"; }
+            get
+            {
+                return "Henning Rauch";
+            }
         }
 
         public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)

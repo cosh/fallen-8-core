@@ -2,7 +2,7 @@
 //
 // WebFastSerializationHelper.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -47,8 +47,8 @@ namespace NoSQL.GraphDB.Core.Serializer
         internal static readonly BitVector32.Section UnitIsNegativeValue = BitVector32.CreateSection(1, UnitIsZeroValue);
         internal static readonly BitVector32.Section UnitIsOptimizedValue = BitVector32.CreateSection(1, UnitIsNegativeValue);
 
-        // Since Zero and Negative are mutually exclusive, we can use their combined masks and offsets 
-        // as a Pseudo-BitVector32.Section rather than use an explicit UnitIsDouble BitVector32.Section which would 
+        // Since Zero and Negative are mutually exclusive, we can use their combined masks and offsets
+        // as a Pseudo-BitVector32.Section rather than use an explicit UnitIsDouble BitVector32.Section which would
         // require an extra bit and cause the BitVector32 to be written as 2 bytes depending on the value
         internal static readonly int UnitIsDoubleValue = UnitIsZeroValue.Mask << UnitIsZeroValue.Offset |
                                                          UnitIsNegativeValue.Mask << UnitIsNegativeValue.Offset;

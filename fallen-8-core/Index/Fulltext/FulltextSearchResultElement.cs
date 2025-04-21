@@ -2,7 +2,7 @@
 //
 // FulltextSearchResultElement.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -42,7 +42,10 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
         /// <value>
         /// The graph element.
         /// </value>
-        public AGraphElementModel GraphElement { get; private set; }
+        public AGraphElementModel GraphElement
+        {
+            get; private set;
+        }
 
         /// <summary>
         /// Gets or sets the highlights.
@@ -50,7 +53,10 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
         /// <value>
         /// The highlights.
         /// </value>
-        public IList<string> Highlights { get; private set; }
+        public IList<string> Highlights
+        {
+            get; private set;
+        }
 
         /// <summary>
         /// Gets or sets the score.
@@ -58,7 +64,10 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
         /// <value>
         /// The score.
         /// </value>
-        public Double Score { get; private set; }
+        public Double Score
+        {
+            get; private set;
+        }
 
         #endregion
 

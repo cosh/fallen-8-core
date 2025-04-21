@@ -2,7 +2,7 @@
 //
 // SerializedType.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -115,13 +115,13 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         BitVector32Type,           // Specific optimization for BitVector32 type
 
-        DuplicateValueType,        // Used internally by Optimized object[] pair to identify values in the 
+        DuplicateValueType,        // Used internally by Optimized object[] pair to identify values in the
                                    // second array that are identical to those in the first
         DuplicateValueSequenceType,
 
         BitArrayType,              // Specific optimization for BitArray
 
-        TypeType,                  // Identifies a Type type 
+        TypeType,                  // Identifies a Type type
 
         SingleInstanceType,        // Used internally to identify that a single instance object should be created
                                    // (by storing the Type and using Activator.GetInstance() at deserialization time)

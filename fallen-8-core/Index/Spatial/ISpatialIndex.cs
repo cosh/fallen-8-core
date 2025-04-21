@@ -2,7 +2,7 @@
 //
 // ISpatialIndex.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -147,7 +147,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         #region Containment
 
         /// <summary>
-        /// find all objects, which this geometry contains. 
+        /// find all objects, which this geometry contains.
         /// </summary>
         /// <param name="result">
         /// result
@@ -161,7 +161,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         Boolean Containment(out ImmutableList<AGraphElementModel> result, IGeometry geometry);
 
         /// <summary>
-        /// find all objects, which this element of graph contains. 
+        /// find all objects, which this element of graph contains.
         /// </summary>
         /// <param name="result">
         /// result

@@ -2,7 +2,7 @@
 //
 // IPlugin.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -35,25 +35,37 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   Gets the name.
         /// </summary>
         /// <value> The name. </value>
-        String PluginName { get; }
+        String PluginName
+        {
+            get;
+        }
 
         /// <summary>
         ///   Gets or sets the plugin category.
         /// </summary>
         /// <value> The plugin category. </value>
-        Type PluginCategory { get; }
+        Type PluginCategory
+        {
+            get;
+        }
 
         /// <summary>
         ///   Gets the description.
         /// </summary>
         /// <value> The description. </value>
-        String Description { get; }
+        String Description
+        {
+            get;
+        }
 
         /// <summary>
         ///   Gets the manufacturer.
         /// </summary>
         /// <value> The manufacturer. </value>
-        String Manufacturer { get; }
+        String Manufacturer
+        {
+            get;
+        }
 
         /// <summary>
         ///   Tries to inititialize the plugin.

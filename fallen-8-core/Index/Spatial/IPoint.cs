@@ -2,7 +2,7 @@
 //
 // IPoint.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -41,14 +41,17 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
     public interface IPoint : IGeometry
     {
         /// <summary>
-        /// gets coordinates of point 
+        /// gets coordinates of point
         /// </summary>
-        IEnumerable<Object> Coordinates { get; }
+        IEnumerable<Object> Coordinates
+        {
+            get;
+        }
         /// <summary>
         /// reflection point from any space in to n-dimensional real space
         /// </summary>
         /// <returns>
-        /// coordinates of point from n-dimensional real space 
+        /// coordinates of point from n-dimensional real space
         /// </returns>
         float[] PointToSpaceR();
     }

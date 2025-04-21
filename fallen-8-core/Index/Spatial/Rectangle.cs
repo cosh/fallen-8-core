@@ -2,7 +2,7 @@
 //
 // Rectangle.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -58,7 +58,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
 		/// <value>
 		/// The lower left corner.
 		/// </value>
-		public IPoint LowerLeft { get; private set; }
+		public IPoint LowerLeft
+        {
+            get; private set;
+        }
 
         /// <summary>
         /// Gets or sets the upper right corner.
@@ -66,7 +69,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// <value>
         /// The upper right corner.
         /// </value>
-        public IPoint UpperRight { get; private set; }
+        public IPoint UpperRight
+        {
+            get; private set;
+        }
 
         #endregion
 
@@ -79,7 +85,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
 
         public List<IDimension> Dimensions
         {
-            get { return LowerLeft.Dimensions; }
+            get
+            {
+                return LowerLeft.Dimensions;
+            }
         }
 
         #endregion

@@ -2,7 +2,7 @@
 //
 // VertexModel.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -106,7 +106,7 @@ namespace NoSQL.GraphDB.Core.Model
         {
             if (OutEdges == null)
             {
-                OutEdges = new Dictionary<String, ImmutableList<EdgeModel>> () { { edgePropertyId, ImmutableList.Create<EdgeModel>( outEdge ) } }.ToImmutableDictionary();
+                OutEdges = new Dictionary<String, ImmutableList<EdgeModel>>() { { edgePropertyId, ImmutableList.Create<EdgeModel>(outEdge) } }.ToImmutableDictionary();
 
                 return;
             }
@@ -119,9 +119,9 @@ namespace NoSQL.GraphDB.Core.Model
             else
             {
                 //not yet found
-                edgePropertyFound = new List<EdgeModel> () { outEdge }.ToImmutableList();
+                edgePropertyFound = new List<EdgeModel>() { outEdge }.ToImmutableList();
             }
-            
+
             OutEdges = OutEdges.SetItem(edgePropertyId, edgePropertyFound);
         }
 

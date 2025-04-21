@@ -2,7 +2,7 @@
 //
 // EdgeModel.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -65,7 +65,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name='properties'> Properties. </param>
         internal EdgeModel(Int32 id, UInt32 creationDate, UInt32 modificationDate, VertexModel targetVertex,
                            VertexModel sourceVertex, String label = null, Dictionary<String, Object> properties = null)
-            : base(id, creationDate,label, properties)
+            : base(id, creationDate, label, properties)
         {
             TargetVertex = targetVertex;
             SourceVertex = sourceVertex;

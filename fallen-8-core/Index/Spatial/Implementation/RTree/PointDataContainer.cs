@@ -2,7 +2,7 @@
 //
 // PointDataContainer.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -36,7 +36,7 @@ using NoSQL.GraphDB.Core.Model;
 namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
 {
     /// <summary>
-    /// the realisation of point-container for the container with element of graph 
+    /// the realisation of point-container for the container with element of graph
     /// </summary>
     public sealed class PointDataContainer : APointContainer, IRTreeDataContainer
     {

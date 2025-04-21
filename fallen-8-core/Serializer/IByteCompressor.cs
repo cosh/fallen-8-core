@@ -2,7 +2,7 @@
 //
 // IByteCompressor.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -26,7 +26,7 @@
 namespace NoSQL.GraphDB.Core.Serializer
 {
     /// <summary>
-    /// Interface to implement on a compressor class which can be used to compress/decompress the resulting byte array of the Fast serializer. 
+    /// Interface to implement on a compressor class which can be used to compress/decompress the resulting byte array of the Fast serializer.
     /// </summary>
     public interface IByteCompressor
     {

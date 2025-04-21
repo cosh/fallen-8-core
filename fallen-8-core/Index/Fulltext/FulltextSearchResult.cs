@@ -2,7 +2,7 @@
 //
 // FulltextSearchResult.cs
 //
-// Copyright (c) 2022 Henning Rauch
+// Copyright (c) 2025 Henning Rauch
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -41,7 +41,10 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 		/// <value>
 		/// The maximum score.
 		/// </value>
-		public Double MaximumScore { get; set; }
+		public Double MaximumScore
+        {
+            get; set;
+        }
 
         /// <summary>
         /// Gets or sets the elements.
@@ -49,7 +52,10 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
         /// <value>
         /// The elements.
         /// </value>
-        public List<FulltextSearchResultElement> Elements { get; set; }
+        public List<FulltextSearchResultElement> Elements
+        {
+            get; set;
+        }
 
         #endregion
 
