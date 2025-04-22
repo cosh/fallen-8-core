@@ -29,7 +29,7 @@
 #region Usings
 
 using System.Collections.Generic;
-using NNoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry;
+using NoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry;
 using NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer;
 
 #endregion

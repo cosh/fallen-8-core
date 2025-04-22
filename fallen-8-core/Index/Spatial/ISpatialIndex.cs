@@ -115,19 +115,6 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         #endregion
 
         #region Enclosure
-        /// <summary>
-        /// find all objects (if they exist), which this element of graph included.
-        /// </summary>
-        /// <param name="result">
-        /// result
-        /// </param>
-        /// <param name="graphElement">
-        /// element of graph
-        /// </param>
-        /// <returns>
-        /// <c>true</c> if something was found; otherwise, <c>false</c>.
-        /// </returns>
-        Boolean Enclosure(out ImmutableList<AGraphElementModel> result, AGraphElementModel graphElement);
 
         /// <summary>
         /// find all objects (if they exist), which this geometry included.

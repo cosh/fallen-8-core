@@ -33,7 +33,7 @@ using NoSQL.GraphDB.Core.Index.Spatial;
 
 #endregion
 
-namespace NNoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry
+namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry
 {
     public sealed class RealDimension : IDimension
     {

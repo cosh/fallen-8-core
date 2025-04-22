@@ -33,7 +33,7 @@ using NoSQL.GraphDB.Core.Index.Spatial;
 
 #endregion
 
-namespace NNoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric
+namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric
 {
     /// <summary>
     /// Metric for geo data with lantidude and longiutude
