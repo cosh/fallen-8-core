@@ -25,30 +25,68 @@
 
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    /// The REST pendant to Path
+    /// Represents a path between two vertices in the graph
     /// </summary>
+    /// <remarks>
+    /// A path consists of an ordered sequence of vertices and connecting edges with a total weight
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "pathElements": [
+    ///     {
+    ///       "vertexId": 1,
+    ///       "edgeId": 10,
+    ///       "direction": "Outgoing",
+    ///       "weight": 1.0
+    ///     },
+    ///     {
+    ///       "vertexId": 2,
+    ///       "edgeId": 15,
+    ///       "direction": "Outgoing",
+    ///       "weight": 2.5
+    ///     },
+    ///     {
+    ///       "vertexId": 5,
+    ///       "edgeId": null,
+    ///       "direction": null,
+    ///       "weight": 0.0
+    ///     }
+    ///   ],
+    ///   "totalWeight": 3.5
+    /// }
+    /// </example>
     public sealed class PathREST
     {
         #region data
 
         /// <summary>
-        /// The path elements
+        /// The ordered sequence of path elements (vertices and edges) that form the path
         /// </summary>
+        /// <remarks>
+        /// The first element represents the starting vertex, the last element represents the destination vertex
+        /// </remarks>
         [Required]
+        [JsonPropertyName("pathElements")]
         public List<PathElementREST> PathElements
         {
             get; set;
         }
 
         /// <summary>
-        /// The weight of the path
+        /// The aggregate weight/cost of the entire path
         /// </summary>
+        /// <remarks>
+        /// Calculated based on the weights of individual vertices and edges in the path
+        /// </remarks>
+        /// <example>3.5</example>
         [Required]
+        [JsonPropertyName("totalWeight")]
         public double TotalWeight
         {
             get; set;
@@ -59,8 +97,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         #region constructor
 
         /// <summary>
-        /// Creates a new PathREST instance
+        /// Creates a new PathREST instance from an internal Path object
         /// </summary>
+        /// <param name="toBeTransferredResult">The internal path object to convert</param>
         public PathREST(Path toBeTransferredResult)
         {
             var toBeTransferredPathElements = toBeTransferredResult.GetPathElements();

@@ -30,6 +30,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Controllers.Model;
@@ -87,8 +88,31 @@ namespace NoSQL.GraphDB.App.Controllers
 
         #region IGraphService implementation
 
+        /// <summary>
+        /// Creates a new vertex in the graph
+        /// </summary>
+        /// <param name="definition">The vertex specification containing label and property information</param>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     PUT /vertex
+        ///     {
+        ///        "label": "person",
+        ///        "creationDate": "2025-04-22T00:00:00",
+        ///        "properties": {
+        ///          "name": {
+        ///            "propertyValue": "John Doe",
+        ///            "fullQualifiedTypeName": "System.String"
+        ///          }
+        ///        }
+        ///     }
+        /// </remarks>
+        /// <response code="204">Vertex successfully created</response>
+        /// <response code="400">Invalid vertex specification</response>
         [HttpPut("/vertex")]
         [Consumes("application/json")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public void AddVertex([FromBody] VertexSpecification definition)
         {
             #region initial checks
@@ -113,8 +137,34 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
+        /// <summary>
+        /// Creates a new edge between two vertices in the graph
+        /// </summary>
+        /// <param name="definition">The edge specification containing source, target and property information</param>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     PUT /edge
+        ///     {
+        ///        "label": "knows",
+        ///        "creationDate": "2025-04-22T00:00:00",
+        ///        "sourceVertex": 1,
+        ///        "targetVertex": 2,
+        ///        "edgePropertyId": "friendship",
+        ///        "properties": {
+        ///          "since": {
+        ///            "propertyValue": "2024-01-01",
+        ///            "fullQualifiedTypeName": "System.DateTime"
+        ///          }
+        ///        }
+        ///     }
+        /// </remarks>
+        /// <response code="204">Edge successfully created</response>
+        /// <response code="400">Invalid edge specification or referenced vertices do not exist</response>
         [HttpPut("/edge")]
         [Consumes("application/json")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public void AddEdge(EdgeSpecification definition)
         {
             #region initial checks
@@ -142,8 +192,15 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
+        /// <summary>
+        /// Retrieves the complete graph data including vertices and edges
+        /// </summary>
+        /// <param name="maxElements">Maximum number of elements to return (default: 1000)</param>
+        /// <returns>A graph object containing lists of vertices and edges</returns>
+        /// <response code="200">Returns the graph data with vertices and edges</response>
         [HttpGet("/graph")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(Graph), StatusCodes.Status200OK)]
         public Graph GetGraph([FromQuery] int maxElements = 1000)
         {
             var result = new Graph();
@@ -157,7 +214,17 @@ namespace NoSQL.GraphDB.App.Controllers
             return result;
         }
 
+        /// <summary>
+        /// Gets the source vertex ID for a specific edge
+        /// </summary>
+        /// <param name="edgeIdentifier">The ID of the edge</param>
+        /// <returns>The ID of the source vertex</returns>
+        /// <response code="200">Returns the source vertex ID</response>
+        /// <response code="404">Edge with the specified ID was not found</response>
         [HttpGet("/edge/{edgeIdentifier}/source")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public int GetSourceVertexForEdge([FromRoute] Int32 edgeIdentifier)
         {
             EdgeModel edge;
@@ -169,7 +236,17 @@ namespace NoSQL.GraphDB.App.Controllers
             throw new WebException(String.Format("Could not find edge with id {0}.", edgeIdentifier));
         }
 
+        /// <summary>
+        /// Gets the target vertex ID for a specific edge
+        /// </summary>
+        /// <param name="edgeIdentifier">The ID of the edge</param>
+        /// <returns>The ID of the target vertex</returns>
+        /// <response code="200">Returns the target vertex ID</response>
+        /// <response code="404">Edge with the specified ID was not found</response>
         [HttpGet("/edge/{edgeIdentifier}/target")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public int GetTargetVertexForEdge([FromRoute] Int32 edgeIdentifier)
         {
             EdgeModel edge;
@@ -181,9 +258,17 @@ namespace NoSQL.GraphDB.App.Controllers
             throw new WebException(String.Format("Could not find edge with id {0}.", edgeIdentifier));
         }
 
-
+        /// <summary>
+        /// Gets all available outgoing edge property IDs for a vertex
+        /// </summary>
+        /// <param name="vertexIdentifier">The ID of the vertex</param>
+        /// <returns>A list of edge property IDs for outgoing edges</returns>
+        /// <response code="200">Returns the list of outgoing edge property IDs</response>
+        /// <response code="204">Vertex has no outgoing edges or vertex not found</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/out")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(List<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         public List<String> GetAllAvailableOutEdgesOnVertex([FromRoute] Int32 vertexIdentifier)
         {
             VertexModel vertex;
@@ -192,9 +277,17 @@ namespace NoSQL.GraphDB.App.Controllers
                        : null;
         }
 
-
+        /// <summary>
+        /// Gets all available incoming edge property IDs for a vertex
+        /// </summary>
+        /// <param name="vertexIdentifier">The ID of the vertex</param>
+        /// <returns>A list of edge property IDs for incoming edges</returns>
+        /// <response code="200">Returns the list of incoming edge property IDs</response>
+        /// <response code="204">Vertex has no incoming edges or vertex not found</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/in")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(List<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         public List<String> GetAllAvailableIncEdgesOnVertex([FromRoute] Int32 vertexIdentifier)
         {
             VertexModel vertex;
@@ -203,8 +296,18 @@ namespace NoSQL.GraphDB.App.Controllers
                        : null;
         }
 
+        /// <summary>
+        /// Gets outgoing edges of a specific type from a vertex
+        /// </summary>
+        /// <param name="vertexIdentifier">The ID of the vertex</param>
+        /// <param name="edgePropertyIdentifier">The edge property identifier/type to filter by</param>
+        /// <returns>A list of edge IDs for matching outgoing edges</returns>
+        /// <response code="200">Returns the list of matching outgoing edge IDs</response>
+        /// <response code="204">No matching edges found or vertex not found</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(List<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         public List<int> GetOutgoingEdges([FromRoute] Int32 vertexIdentifier, [FromRoute] String edgePropertyIdentifier)
         {
             VertexModel vertex;
@@ -219,9 +322,18 @@ namespace NoSQL.GraphDB.App.Controllers
             return null;
         }
 
-
+        /// <summary>
+        /// Gets incoming edges of a specific type to a vertex
+        /// </summary>
+        /// <param name="vertexIdentifier">The ID of the vertex</param>
+        /// <param name="edgePropertyIdentifier">The edge property identifier/type to filter by</param>
+        /// <returns>A list of edge IDs for matching incoming edges</returns>
+        /// <response code="200">Returns the list of matching incoming edge IDs</response>
+        /// <response code="204">No matching edges found or vertex not found</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(List<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         public List<int> GetIncomingEdges([FromRoute] Int32 vertexIdentifier, [FromRoute] String edgePropertyIdentifier)
         {
             VertexModel vertex;
@@ -236,9 +348,31 @@ namespace NoSQL.GraphDB.App.Controllers
             return null;
         }
 
-
+        /// <summary>
+        /// Scans the graph for elements with a specific property value
+        /// </summary>
+        /// <param name="propertyId">The property ID to scan for</param>
+        /// <param name="definition">Scan specification with comparison operator and value</param>
+        /// <returns>A collection of graph element IDs matching the criteria</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /scan/graph/property/name
+        ///     {
+        ///        "operator": "Equal",
+        ///        "literal": {
+        ///          "value": "John Doe",
+        ///          "fullQualifiedTypeName": "System.String"
+        ///        },
+        ///        "resultType": "Vertices"
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns the matching element IDs</response>
+        /// <response code="400">Invalid scan specification</response>
         [HttpPost("/scan/graph/property/{propertyId}")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public IEnumerable<int> GraphScan([FromRoute] String propertyId, [FromBody] ScanSpecification definition)
         {
             #region initial checks
@@ -262,9 +396,32 @@ namespace NoSQL.GraphDB.App.Controllers
                        : Enumerable.Empty<Int32>();
         }
 
+        /// <summary>
+        /// Performs a scan operation on an index with a specific value and operator
+        /// </summary>
+        /// <param name="definition">Index scan specification with index ID, operator and value</param>
+        /// <returns>A collection of graph element IDs matching the criteria</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /scan/index/all
+        ///     {
+        ///        "indexId": "userNameIndex",
+        ///        "operator": "Equal",
+        ///        "literal": {
+        ///          "value": "Jane",
+        ///          "fullQualifiedTypeName": "System.String"
+        ///        },
+        ///        "resultType": "Vertices"
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns the matching element IDs</response>
+        /// <response code="400">Invalid scan specification or index not found</response>
         [HttpPost("/scan/index/all")]
         [Produces("application/json")]
         [Consumes("application/json")]
+        [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public IEnumerable<int> IndexScan([FromBody] IndexScanSpecification definition)
         {
             #region initial checks
@@ -288,8 +445,31 @@ namespace NoSQL.GraphDB.App.Controllers
                        : Enumerable.Empty<Int32>();
         }
 
+        /// <summary>
+        /// Performs a range-based scan on an index between two values
+        /// </summary>
+        /// <param name="definition">Range scan specification with index ID, limits and include/exclude options</param>
+        /// <returns>A collection of graph element IDs within the specified range</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /scan/index/range
+        ///     {
+        ///        "indexId": "ageIndex",
+        ///        "leftLimit": 18,
+        ///        "rightLimit": 30,
+        ///        "includeLeft": true,
+        ///        "includeRight": false,
+        ///        "fullQualifiedTypeName": "System.Int32",
+        ///        "resultType": "Vertices"
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns the matching element IDs within the range</response>
+        /// <response code="400">Invalid range specification or index not found</response>
         [HttpPost("/scan/index/range")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public IEnumerable<int> RangeIndexScan([FromBody] RangeIndexScanSpecification definition)
         {
             #region initial checks
@@ -314,8 +494,28 @@ namespace NoSQL.GraphDB.App.Controllers
                        : Enumerable.Empty<Int32>();
         }
 
+        /// <summary>
+        /// Performs a fulltext search on an indexed property
+        /// </summary>
+        /// <param name="definition">Fulltext search specification with index ID and search terms</param>
+        /// <returns>A result object containing matched elements and highlighting information</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /scan/index/fulltext
+        ///     {
+        ///        "indexId": "documentIndex",
+        ///        "requestString": "graph database nosql"
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns the search results with highlighting</response>
+        /// <response code="400">Invalid search specification or index not found</response>
+        /// <response code="404">Index not found or is not a fulltext index</response>
         [HttpPost("/scan/index/fulltext")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(FulltextSearchResultREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public FulltextSearchResultREST FulltextIndexScan([FromBody] FulltextIndexScanSpecification definition)
         {
             #region initial checks
@@ -333,8 +533,29 @@ namespace NoSQL.GraphDB.App.Controllers
                        : null;
         }
 
+        /// <summary>
+        /// Performs a spatial distance search using a spatial index
+        /// </summary>
+        /// <param name="definition">Spatial search specification with index ID, reference element and distance</param>
+        /// <returns>A collection of graph element IDs within the specified distance</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /scan/index/spatial
+        ///     {
+        ///        "indexId": "locationIndex",
+        ///        "graphElementId": 123,
+        ///        "distance": 5.0
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns the element IDs within the specified distance</response>
+        /// <response code="400">Invalid search specification</response>
+        /// <response code="404">Index not found, is not a spatial index, or reference element not found</response>
         [HttpPost("/scan/index/spatial")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public IEnumerable<int> SpatialIndexScanSearchDistance([FromBody] SearchDistanceSpecification definition)
         {
             #region initial checks
@@ -370,11 +591,30 @@ namespace NoSQL.GraphDB.App.Controllers
             return null;
         }
 
+        /// <summary>
+        /// Adds or updates a property on a graph element (vertex or edge)
+        /// </summary>
+        /// <param name="graphElementIdentifier">The ID of the graph element</param>
+        /// <param name="propertyIdString">The ID/key of the property</param>
+        /// <param name="definition">Property value specification</param>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     PUT /graphelement/123/age
+        ///     {
+        ///        "propertyValue": 35,
+        ///        "fullQualifiedTypeName": "System.Int32"
+        ///     }
+        /// </remarks>
+        /// <response code="204">Property successfully added</response>
+        /// <response code="400">Invalid property specification or graph element not found</response>
         [HttpPut("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
         [Consumes("application/json")]
-        public void AddProperty([FromRoute] string graphElementIdString, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition)
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public void AddProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition)
         {
-            var graphElementId = Convert.ToInt32(graphElementIdString);
+            var graphElementId = Convert.ToInt32(graphElementIdentifier);
             var propertyId = propertyIdString;
 
             var property = Convert.ChangeType(
@@ -394,7 +634,21 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
+        /// <summary>
+        /// Removes a property from a graph element (vertex or edge)
+        /// </summary>
+        /// <param name="graphElementIdentifier">The ID of the graph element</param>
+        /// <param name="propertyIdString">The ID/key of the property to remove</param>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     DELETE /graphelement/123/age
+        /// </remarks>
+        /// <response code="204">Property successfully removed</response>
+        /// <response code="400">Graph element or property not found</response>
         [HttpDelete("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public void TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
@@ -409,7 +663,20 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
+        /// <summary>
+        /// Removes a graph element (vertex or edge) from the graph
+        /// </summary>
+        /// <param name="graphElementIdentifier">The ID of the graph element to remove</param>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     DELETE /graphelement/123
+        /// </remarks>
+        /// <response code="204">Graph element successfully removed</response>
+        /// <response code="400">Graph element not found</response>
         [HttpDelete("/graphelement/{graphElementIdentifier}")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public void TryRemoveGraphElement([FromRoute] string graphElementIdentifier)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
@@ -422,8 +689,15 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
+        /// <summary>
+        /// Gets the total count of incoming edges for a vertex
+        /// </summary>
+        /// <param name="vertexIdentifier">The ID of the vertex</param>
+        /// <returns>The count of incoming edges</returns>
+        /// <response code="200">Returns the count of incoming edges</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/indegree")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(uint), StatusCodes.Status200OK)]
         public uint GetInDegree([FromRoute] string vertexIdentifier)
         {
             VertexModel vertex;
@@ -434,8 +708,15 @@ namespace NoSQL.GraphDB.App.Controllers
             return 0;
         }
 
+        /// <summary>
+        /// Gets the total count of outgoing edges for a vertex
+        /// </summary>
+        /// <param name="vertexIdentifier">The ID of the vertex</param>
+        /// <returns>The count of outgoing edges</returns>
+        /// <response code="200">Returns the count of outgoing edges</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/outdegree")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(uint), StatusCodes.Status200OK)]
         public uint GetOutDegree([FromRoute] string vertexIdentifier)
         {
             VertexModel vertex;
@@ -446,8 +727,16 @@ namespace NoSQL.GraphDB.App.Controllers
             return 0;
         }
 
+        /// <summary>
+        /// Gets the count of incoming edges of a specific type for a vertex
+        /// </summary>
+        /// <param name="vertexIdentifier">The ID of the vertex</param>
+        /// <param name="edgePropertyIdentifier">The edge property identifier/type to count</param>
+        /// <returns>The count of incoming edges matching the specified type</returns>
+        /// <response code="200">Returns the count of matching incoming edges</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}/degree")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(uint), StatusCodes.Status200OK)]
         public uint GetInEdgeDegree([FromRoute] string vertexIdentifier, [FromRoute] string edgePropertyIdentifier)
         {
             VertexModel vertex;
@@ -462,8 +751,16 @@ namespace NoSQL.GraphDB.App.Controllers
             return 0;
         }
 
+        /// <summary>
+        /// Gets the count of outgoing edges of a specific type from a vertex
+        /// </summary>
+        /// <param name="vertexIdentifier">The ID of the vertex</param>
+        /// <param name="edgePropertyIdentifier">The edge property identifier/type to count</param>
+        /// <returns>The count of outgoing edges matching the specified type</returns>
+        /// <response code="200">Returns the count of matching outgoing edges</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}/degree")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(uint), StatusCodes.Status200OK)]
         public uint GetOutEdgeDegree([FromRoute] string vertexIdentifier, [FromRoute] string edgePropertyIdentifier)
         {
             VertexModel vertex;
@@ -478,9 +775,35 @@ namespace NoSQL.GraphDB.App.Controllers
             return 0;
         }
 
+        /// <summary>
+        /// Finds paths between two vertices in the graph
+        /// </summary>
+        /// <param name="from">The ID of the source vertex</param>
+        /// <param name="to">The ID of the target vertex</param>
+        /// <param name="definition">Path specification with algorithm, depth, filters and other constraints</param>
+        /// <returns>A list of paths between the vertices</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /path/1/to/5
+        ///     {
+        ///        "pathAlgorithmName": "BLS",
+        ///        "maxDepth": 5,
+        ///        "maxPathWeight": 100.0,
+        ///        "maxResults": 10,
+        ///        "edgePropertyFilter": "friendship",
+        ///        "vertexFilter": "Person"
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns the found paths between the vertices</response>
+        /// <response code="400">Invalid path specification</response>
+        /// <response code="404">Source or target vertex not found</response>
         [HttpPost("/path/{from}/to/{to}")]
         [Produces("application/json")]
         [Consumes("application/json")]
+        [ProducesResponseType(typeof(List<PathREST>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public List<PathREST> GetPaths([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {
             // Always initialize with empty list to avoid returning null
@@ -555,9 +878,31 @@ namespace NoSQL.GraphDB.App.Controllers
             return result; // Always return the initialized list, never null
         }
 
+        /// <summary>
+        /// Creates a new index for the graph
+        /// </summary>
+        /// <param name="definition">Plugin specification with index type and configuration options</param>
+        /// <returns>True if the index was successfully created, false otherwise</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /index
+        ///     {
+        ///        "uniqueId": "nameIndex",
+        ///        "pluginType": "DictionaryIndex",
+        ///        "pluginOptions": {
+        ///           "propertyId": "name",
+        ///           "type": "System.String"
+        ///        }
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns true if the index was created successfully</response>
+        /// <response code="400">Invalid index specification</response>
         [HttpPost("/index")]
         [Consumes("application/json")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public bool CreateIndex([FromBody] PluginSpecification definition)
         {
             //TODO: return IIndex object representation
@@ -565,9 +910,31 @@ namespace NoSQL.GraphDB.App.Controllers
             return _fallen8.IndexFactory.TryCreateIndex(out result, definition.UniqueId, definition.PluginType, ServiceHelper.CreatePluginOptions(definition.PluginOptions));
         }
 
+        /// <summary>
+        /// Adds a graph element to an existing index
+        /// </summary>
+        /// <param name="indexId">The ID of the index</param>
+        /// <param name="definition">Specification containing graph element ID and key information</param>
+        /// <returns>True if the element was successfully added to the index, false otherwise</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     PUT /index/nameIndex
+        ///     {
+        ///        "graphElementId": 123,
+        ///        "key": {
+        ///          "propertyValue": "John Smith",
+        ///          "fullQualifiedTypeName": "System.String"
+        ///        }
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns true if the element was successfully added to the index</response>
+        /// <response code="400">Invalid specification, index not found, or graph element not found</response>
         [HttpPut("/index/{indexId}")]
         [Consumes("application/json")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public bool AddToIndex([FromRoute] String indexId, [FromBody] IndexAddToSpecification definition)
         {
             IIndex idx;
@@ -587,9 +954,28 @@ namespace NoSQL.GraphDB.App.Controllers
             return false;
         }
 
+        /// <summary>
+        /// Removes a key from an index
+        /// </summary>
+        /// <param name="indexId">The ID of the index</param>
+        /// <param name="property">The property specification representing the key to remove</param>
+        /// <returns>True if the key was successfully removed, false otherwise</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     DELETE /index/nameIndex/propertyValue
+        ///     {
+        ///        "propertyValue": "John Smith",
+        ///        "fullQualifiedTypeName": "System.String"
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns true if the key was successfully removed</response>
+        /// <response code="400">Invalid property specification or index not found</response>
         [HttpDelete("/index/{indexId}/propertyValue")]
         [Consumes("application/json")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public bool RemoveKeyFromIndex([FromRoute] String indexId, [FromBody] PropertySpecification property)
         {
             IIndex idx;
@@ -601,7 +987,23 @@ namespace NoSQL.GraphDB.App.Controllers
             return false;
         }
 
+        /// <summary>
+        /// Removes a graph element from an index
+        /// </summary>
+        /// <param name="indexId">The ID of the index</param>
+        /// <param name="graphElementId">The ID of the graph element to remove</param>
+        /// <returns>True if the graph element was successfully removed from the index, false otherwise</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     DELETE /index/nameIndex/123
+        /// </remarks>
+        /// <response code="200">Returns true if the element was successfully removed from the index</response>
+        /// <response code="404">Index not found or graph element not found</response>
         [HttpDelete("/index/{indexId}/{graphElementId}")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public bool RemoveGraphElementFromIndex([FromRoute] String indexId, [FromRoute] Int32 graphElementId)
         {
             IIndex idx;
@@ -621,7 +1023,22 @@ namespace NoSQL.GraphDB.App.Controllers
             return false;
         }
 
+        /// <summary>
+        /// Deletes an index from the system
+        /// </summary>
+        /// <param name="indexId">The ID of the index to delete</param>
+        /// <returns>True if the index was successfully deleted, false otherwise</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     DELETE /index/nameIndex
+        /// </remarks>
+        /// <response code="200">Returns true if the index was successfully deleted</response>
+        /// <response code="404">Index not found</response>
         [HttpDelete("/index/{indexId}")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public bool DeleteIndex([FromRoute] String indexId)
         {
             return _fallen8.IndexFactory.TryDeleteIndex(indexId);

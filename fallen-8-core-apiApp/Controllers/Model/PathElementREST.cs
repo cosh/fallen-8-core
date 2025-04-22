@@ -24,68 +24,104 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    /// The REST pendant to PathElement
+    /// Represents a single segment of a path between vertices in the graph
     /// </summary>
+    /// <remarks>
+    /// Each path element consists of a source vertex, target vertex, and the edge connecting them
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "sourceVertexId": 1,
+    ///   "targetVertexId": 2,
+    ///   "edgeId": 10,
+    ///   "edgePropertyId": "knows",
+    ///   "direction": "Outgoing",
+    ///   "weight": 1.5
+    /// }
+    /// </example>
     public sealed class PathElementREST
     {
         #region data
 
         /// <summary>
-        /// The source vertex identifier
+        /// The identifier of the vertex where this path segment begins
         /// </summary>
+        /// <example>1</example>
         [Required]
-        public Int64 SourceVertexId
+        [DefaultValue(1)]
+        [JsonPropertyName("sourceVertexId")]
+        public Int32 SourceVertexId
         {
             get; set;
         }
 
         /// <summary>
-        /// The target vertex identifier
+        /// The identifier of the vertex where this path segment ends
         /// </summary>
+        /// <example>2</example>
         [Required]
-        public Int64 TargetVertexId
+        [DefaultValue(2)]
+        [JsonPropertyName("targetVertexId")]
+        public Int32 TargetVertexId
         {
             get; set;
         }
 
         /// <summary>
-        /// The edge identifier
+        /// The identifier of the edge connecting the source and target vertices
         /// </summary>
+        /// <example>10</example>
         [Required]
-        public Int64 EdgeId
+        [DefaultValue(10)]
+        [JsonPropertyName("edgeId")]
+        public Int32 EdgeId
         {
             get; set;
         }
 
         /// <summary>
-        /// The edge property identifier
+        /// The property identifier/type of the edge in this path segment
         /// </summary>
+        /// <example>knows</example>
         [Required]
+        [DefaultValue("knows")]
+        [JsonPropertyName("edgePropertyId")]
         public String EdgePropertyId
         {
             get; set;
         }
 
         /// <summary>
-        /// The direction of the edge
+        /// The direction in which the edge is traversed (Outgoing, Incoming, or Both)
         /// </summary>
+        /// <example>Outgoing</example>
         [Required]
+        [DefaultValue(0)] // 0 = Direction.Outgoing enum value
+        [JsonPropertyName("direction")]
         public Direction Direction
         {
             get; set;
         }
 
         /// <summary>
-        /// The weight of the pathelement
+        /// The cost/weight associated with traversing this path segment
         /// </summary>
+        /// <remarks>
+        /// Used for calculating the total cost of the path
+        /// </remarks>
+        /// <example>1.5</example>
         [Required]
+        [DefaultValue(1.5)]
+        [JsonPropertyName("weight")]
         public double Weight
         {
             get; set;
@@ -96,13 +132,14 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         #region constructor
 
         /// <summary>
-        /// Creates a new PathElementREST instance
+        /// Creates a new PathElementREST instance from an internal PathElement
         /// </summary>
+        /// <param name="toBeTransferredResult">The internal path element to convert</param>
         public PathElementREST(PathElement toBeTransferredResult)
         {
             SourceVertexId = toBeTransferredResult.SourceVertex.Id;
             TargetVertexId = toBeTransferredResult.TargetVertex.Id;
-            EdgeId = toBeTransferredResult.Edge.Id;
+            EdgeId = (int)toBeTransferredResult.Edge.Id;
             EdgePropertyId = toBeTransferredResult.EdgePropertyId;
             Direction = toBeTransferredResult.Direction;
             Weight = toBeTransferredResult.Weight;

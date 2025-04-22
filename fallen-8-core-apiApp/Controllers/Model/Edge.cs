@@ -29,36 +29,67 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The edge
+    /// Represents an edge (relationship) between two vertices in the graph
     /// </summary>
+    /// <remarks>
+    /// Edges define the connections and relationships between vertices in the graph
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "id": 10,
+    ///   "creationDate": 1713862800,
+    ///   "modificationDate": 1713862800,
+    ///   "label": "friendship",
+    ///   "properties": {
+    ///     "since": "2024-01-15T00:00:00",
+    ///     "strength": 0.85
+    ///   },
+    ///   "sourceVertex": 1,
+    ///   "targetVertex": 2
+    /// }
+    /// </example>
     public class Edge : AGraphElement
     {
         /// <summary>
-        ///   The target vertex.
+        /// The identifier of the vertex where this edge ends
         /// </summary>
+        /// <remarks>
+        /// Represents the destination of the relationship
+        /// </remarks>
+        /// <example>2</example>
         [Required]
+        [JsonPropertyName("targetVertex")]
         public int TargetVertex
         {
             get; set;
         }
 
         /// <summary>
-        ///   The source vertex.
+        /// The identifier of the vertex where this edge starts
         /// </summary>
+        /// <remarks>
+        /// Represents the origin of the relationship
+        /// </remarks>
+        /// <example>1</example>
         [Required]
+        [JsonPropertyName("sourceVertex")]
         public int SourceVertex
         {
             get; set;
         }
 
+        /// <summary>
+        /// Creates a new Edge instance from an internal EdgeModel
+        /// </summary>
+        /// <param name="edge">The internal edge model to convert</param>
         public Edge(EdgeModel edge) : base(edge.Id, edge.CreationDate, edge.ModificationDate, edge.Label, edge.GetAllProperties())
         {
             TargetVertex = edge.TargetVertex.Id;
-
             SourceVertex = edge.SourceVertex.Id;
         }
     }

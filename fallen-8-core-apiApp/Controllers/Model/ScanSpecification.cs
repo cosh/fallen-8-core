@@ -24,46 +24,67 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using NoSQL.GraphDB.Core.Expression;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The scan specification
+    ///   Specification for scanning the graph for elements with specific property values
     /// </summary>
+    /// <example>
+    /// {
+    ///   "operator": "Equal",
+    ///   "literal": {
+    ///     "value": "John Doe",
+    ///     "fullQualifiedTypeName": "System.String"
+    ///   },
+    ///   "label": "person",
+    ///   "resultType": "Vertices"
+    /// }
+    /// </example>
     public class ScanSpecification
     {
         /// <summary>
-        ///   Binary Operator
+        ///   The binary operator to use for comparing property values
         /// </summary>
+        /// <example>Equal</example>
         [Required]
+        [JsonPropertyName("operator")]
         public BinaryOperator Operator
         {
             get; set;
         }
 
         /// <summary>
-        ///   Literal specification
+        ///   The literal value to compare against
         /// </summary>
         [Required]
+        [JsonPropertyName("literal")]
         public LiteralSpecification Literal
         {
             get; set;
         }
 
         /// <summary>
-        /// The label
+        ///   Optional label filter to restrict the scan to specific element types
         /// </summary>
+        /// <example>person</example>
+        [JsonPropertyName("label")]
         public String Label
         {
             get; set;
         } = null;
 
         /// <summary>
-        ///   Result type specification
+        ///   Specifies which types of graph elements to include in the results
         /// </summary>
+        /// <example>Vertices</example>
         [Required]
+        [DefaultValue(ResultTypeSpecification.Vertices)]
+        [JsonPropertyName("resultType")]
         public ResultTypeSpecification ResultType
         {
             get; set;

@@ -25,35 +25,61 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The vertex specification
+    ///   Specification for creating a new vertex in the graph
     /// </summary>
+    /// <example>
+    /// {
+    ///   "label": "person",
+    ///   "creationDate": 1713862800,
+    ///   "properties": [
+    ///     {
+    ///       "propertyId": "name",
+    ///       "propertyValue": "John Doe",
+    ///       "fullQualifiedTypeName": "System.String"
+    ///     },
+    ///     {
+    ///       "propertyId": "age",
+    ///       "propertyValue": 30,
+    ///       "fullQualifiedTypeName": "System.Int32"
+    ///     }
+    ///   ]
+    /// }
+    /// </example>
     public class VertexSpecification
     {
         /// <summary>
-        ///   The creation date
+        ///   The creation date of the vertex as a Unix timestamp
         /// </summary>
+        /// <example>1713862800</example>
         [Required]
+        [DefaultValue((ushort)0)]
+        [JsonPropertyName("creationDate")]
         public UInt32 CreationDate
         {
             get; set;
         }
 
         /// <summary>
-        ///   The label of the vertex
+        ///   The label of the vertex used for categorization
         /// </summary>
+        /// <example>person</example>
+        [JsonPropertyName("label")]
         public String Label
         {
             get; set;
         }
 
         /// <summary>
-        ///   The properties of the vertex
+        ///   The properties of the vertex as key-value pairs
         /// </summary>
+        [JsonPropertyName("properties")]
         public List<PropertySpecification> Properties
         {
             get; set;

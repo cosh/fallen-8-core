@@ -24,25 +24,42 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The path cost specification
+    ///   Specification for defining cost functions used in path calculations
     /// </summary>
+    /// <remarks>
+    ///   Cost functions determine how paths are weighted during shortest path calculations
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "vertex": "age",
+    ///   "edge": "distance"
+    /// }
+    /// </example>
     public sealed class PathCostSpecification : IEquatable<PathCostSpecification>
     {
         /// <summary>
-        /// The vertex cost function
+        /// Property name to use for calculating vertex traversal costs
         /// </summary>
+        /// <example>age</example>
+        [JsonPropertyName("vertexCost")]
+        [DefaultValue(null)]
         public String Vertex
         {
             get; set;
         }
 
         /// <summary>
-        /// The edge cost function
+        /// Property name to use for calculating edge traversal costs
         /// </summary>
+        /// <example>distance</example>
+        [JsonPropertyName("edgeCost")]
+        [DefaultValue(null)]
         public String Edge
         {
             get; set;

@@ -6,7 +6,9 @@
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
+// of the Software without restriction, including without limitation the rights
+// of the Software and associated documentation files (the "Software"), to deal
+// of the Software without restriction, including without limitation the rights
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
@@ -24,20 +26,36 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
 
     /// <summary>
-    ///   The index scan specification
+    ///   Specification for scanning an index for elements with specific property values
     /// </summary>
+    /// <example>
+    /// {
+    ///   "indexId": "nameIndex",
+    ///   "operator": "Equal",
+    ///   "literal": {
+    ///     "value": "John Doe",
+    ///     "fullQualifiedTypeName": "System.String"
+    ///   },
+    ///   "resultType": "Vertices"
+    /// }
+    /// </example>
     public sealed class IndexScanSpecification : ScanSpecification
     {
         /// <summary>
-        ///   Index identifier
+        ///   The identifier of the index to scan
         /// </summary>
+        /// <example>nameIndex</example>
         [Required]
+        [DefaultValue("nameIndex")]
+        [JsonPropertyName("indexId")]
         public String IndexId
         {
             get; set;

@@ -26,36 +26,57 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The pendant to the embedded FulltextSearchResult
+    ///   Result container for fulltext search operations with scoring and highlighting
     /// </summary>
+    /// <remarks>
+    ///   Contains scored results with text fragments showing search term matches
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "maximumScore": 0.87,
+    ///   "elements": [
+    ///     {
+    ///       "graphElementId": 123,
+    ///       "score": 0.87,
+    ///       "highlight": "This is a <em>graph</em> <em>database</em> document about <em>NoSQL</em>"
+    ///     },
+    ///     {
+    ///       "graphElementId": 456,
+    ///       "score": 0.65,
+    ///       "highlight": "Introduction to <em>graph</em> theory and <em>database</em> systems"
+    ///     }
+    ///   ]
+    /// }
+    /// </example>
     public sealed class FulltextSearchResultREST
     {
         #region data
 
         /// <summary>
-        /// Gets or sets the maximum score.
+        /// The highest relevance score among all matching elements
         /// </summary>
-        /// <value>
-        /// The maximum score.
-        /// </value>
+        /// <remarks>
+        /// Can be used for normalizing scores across different queries
+        /// </remarks>
+        /// <example>0.87</example>
         [Required]
+        [JsonPropertyName("maximumScore")]
         public Double MaximumScore
         {
             get; set;
         }
 
         /// <summary>
-        /// Gets or sets the elements.
+        /// Collection of matching elements with their relevance scores and highlighted content
         /// </summary>
-        /// <value>
-        /// The elements.
-        /// </value>
         [Required]
+        [JsonPropertyName("elements")]
         public List<FulltextSearchResultElementREST> Elements
         {
             get; set;
@@ -66,8 +87,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         #region constructor
 
         /// <summary>
-        /// Creates a new FulltextSearchResultREST instance
+        /// Creates a new FulltextSearchResultREST instance from an internal FulltextSearchResult
         /// </summary>
+        /// <param name="toBeTransferredResult">The internal search result to convert</param>
         public FulltextSearchResultREST(FulltextSearchResult toBeTransferredResult)
         {
             if (toBeTransferredResult != null)

@@ -25,60 +25,93 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The path specification
+    ///   Specification for finding paths between vertices in the graph
     /// </summary>
+    /// <example>
+    /// {
+    ///   "pathAlgorithmName": "BLS",
+    ///   "maxDepth": 5,
+    ///   "maxResults": 10,
+    ///   "maxPathWeight": 100.0,
+    ///   "filter": {
+    ///     "edgePropertyFilter": "knows",
+    ///     "vertexFilter": "person",
+    ///     "edgeFilter": "friendship"
+    ///   },
+    ///   "cost": {
+    ///     "vertexCost": "age",
+    ///     "edgeCost": "weight"
+    ///   }
+    /// }
+    /// </example>
     public sealed class PathSpecification : IEquatable<PathSpecification>
     {
         /// <summary>
-        ///   The desired path algorithm plugin name
+        ///   The algorithm to use for path finding
         /// </summary>
+        /// <example>BLS</example>
         [Required]
+        [DefaultValue("BLS")]
+        [JsonPropertyName("pathAlgorithmName")]
         public String PathAlgorithmName
         {
             get; set;
         } = "BLS";
 
         /// <summary>
-        ///   The maximum depth
+        ///   The maximum number of edges in paths to consider
         /// </summary>
+        /// <example>5</example>
         [Required]
+        [DefaultValue((ushort)7)]
+        [JsonPropertyName("maxDepth")]
         public UInt16 MaxDepth
         {
             get; set;
         } = 7;
 
         /// <summary>
-        ///   The maximum result count
+        ///   The maximum number of paths to return in the result
         /// </summary>
+        /// <example>10</example>
+        [DefaultValue((ushort)100)]
+        [JsonPropertyName("maxResults")]
         public UInt16 MaxResults
         {
             get; set;
         } = UInt16.MaxValue;
 
         /// <summary>
-        ///   The maximum path weight
+        ///   The maximum allowed weight for a path to be included in results
         /// </summary>
+        /// <example>100.0</example>
+        [DefaultValue(100.0)]
+        [JsonPropertyName("maxPathWeight")]
         public Double MaxPathWeight
         {
             get; set;
         } = Double.MaxValue;
 
         /// <summary>
-        ///   The path filter specification
+        ///   Filtering criteria for elements to include in path calculations
         /// </summary>
+        [JsonPropertyName("filter")]
         public PathFilterSpecification Filter
         {
             get; set;
         }
 
         /// <summary>
-        ///   The path cost specification
+        ///   Cost function specifications for weighting paths
         /// </summary>
+        [JsonPropertyName("cost")]
         public PathCostSpecification Cost
         {
             get; set;

@@ -23,19 +23,38 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System.ComponentModel;
 using System.Runtime.Serialization;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The result type specification
+    ///   Specifies which types of graph elements to include in query results
     /// </summary>
+    /// <example>Vertices</example>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum ResultTypeSpecification
     {
+        /// <summary>
+        /// Only include vertices in the result set
+        /// </summary>
+        [EnumMember(Value = "Vertices")]
+        [Description("Return only vertex elements")]
         Vertices,
 
+        /// <summary>
+        /// Only include edges in the result set
+        /// </summary>
+        [EnumMember(Value = "Edges")]
+        [Description("Return only edge elements")]
         Edges,
 
+        /// <summary>
+        /// Include both vertices and edges in the result set
+        /// </summary>
+        [EnumMember(Value = "Both")]
+        [Description("Return both vertex and edge elements")]
         Both,
     }
 }

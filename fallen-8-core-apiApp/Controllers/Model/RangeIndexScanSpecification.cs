@@ -24,71 +24,105 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The range scan specification
+    ///   Specification for performing a range-based scan on an index
     /// </summary>
+    /// <example>
+    /// {
+    ///   "indexId": "ageIndex",
+    ///   "leftLimit": "18",
+    ///   "rightLimit": "30",
+    ///   "fullQualifiedTypeName": "System.Int32",
+    ///   "includeLeft": true,
+    ///   "includeRight": false,
+    ///   "resultType": "Vertices"
+    /// }
+    /// </example>
     public sealed class RangeIndexScanSpecification
     {
         /// <summary>
-        ///   Index identifier
+        ///   The identifier of the index to scan
         /// </summary>
+        /// <example>ageIndex</example>
         [Required]
+        [DefaultValue("ageIndex")]
+        [JsonPropertyName("indexId")]
         public String IndexId
         {
             get; set;
         }
 
         /// <summary>
-        ///   Left limit
+        ///   The lower bound of the range as a string representation
         /// </summary>
+        /// <example>18</example>
         [Required]
+        [DefaultValue("18")]
+        [JsonPropertyName("leftLimit")]
         public String LeftLimit
         {
             get; set;
         }
 
         /// <summary>
-        ///   Right limit
+        ///   The upper bound of the range as a string representation
         /// </summary>
+        /// <example>30</example>
         [Required]
+        [DefaultValue("30")]
+        [JsonPropertyName("rightLimit")]
         public String RightLimit
         {
             get; set;
         }
 
         /// <summary>
-        ///   The type of the literals
+        ///   The fully qualified .NET type name of the range values
         /// </summary>
+        /// <example>System.Int32</example>
         [Required]
+        [DefaultValue("System.Int32")]
+        [JsonPropertyName("fullQualifiedTypeName")]
         public String FullQualifiedTypeName
         {
             get; set;
         }
 
         /// <summary>
-        ///   Include left limit
+        ///   Whether to include the lower bound value in the range (inclusive)
         /// </summary>
+        /// <example>true</example>
+        [DefaultValue(true)]
+        [JsonPropertyName("includeLeft")]
         public Boolean IncludeLeft
         {
             get; set;
         }
 
         /// <summary>
-        ///   Include right limit
+        ///   Whether to include the upper bound value in the range (inclusive)
         /// </summary>
+        /// <example>false</example>
+        [DefaultValue(false)]
+        [JsonPropertyName("includeRight")]
         public Boolean IncludeRight
         {
             get; set;
         }
 
         /// <summary>
-        ///   Result type specification
+        ///   Specifies which types of graph elements to include in the results
         /// </summary>
+        /// <example>Vertices</example>
         [Required]
+        [DefaultValue(ResultTypeSpecification.Vertices)]
+        [JsonPropertyName("resultType")]
         public ResultTypeSpecification ResultType
         {
             get; set;

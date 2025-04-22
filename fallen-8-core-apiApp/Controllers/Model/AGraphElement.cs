@@ -25,18 +25,32 @@
 
 using NoSQL.GraphDB.Core.Helper;
 using System;
+using System.ComponentModel;
 using System.Linq;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The Fallen-8 REST properties
+    /// Abstract base class for all graph elements (vertices and edges)
     /// </summary>
+    /// <remarks>
+    /// Provides common properties shared by all graph elements such as
+    /// identifiers, timestamps, labels, and property collections
+    /// </remarks>
     public abstract class AGraphElement
     {
+        /// <summary>
+        /// Base constructor for graph elements
+        /// </summary>
+        /// <param name="id">The unique identifier of the graph element</param>
+        /// <param name="creationDate">The creation timestamp</param>
+        /// <param name="modificationDate">The last modification timestamp</param>
+        /// <param name="label">The element's type label</param>
+        /// <param name="properties">The element's properties</param>
         protected AGraphElement(Int32 id, UInt32 creationDate, UInt32 modificationDate, String label, ImmutableDictionary<String, Object> properties)
         {
             Id = id;
@@ -52,43 +66,54 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        ///   The identifier
+        /// The unique identifier of the graph element
         /// </summary>
+        /// <example>123</example>
         [Required]
+        [DefaultValue(123)]
+        [JsonPropertyName("id")]
         public Int32 Id
         {
             get; set;
         }
 
         /// <summary>
-        ///   The creation date
+        /// The date and time when the element was created
         /// </summary>
+        /// <example>2025-04-22T10:00:00Z</example>
         [Required]
+        [JsonPropertyName("creationDate")]
         public DateTime CreationDate
         {
             get; set;
         }
 
         /// <summary>
-        ///   The modification date
+        /// The date and time when the element was last modified
         /// </summary>
+        /// <example>2025-04-22T10:00:00Z</example>
         [Required]
+        [JsonPropertyName("modificationDate")]
         public DateTime ModificationDate
         {
             get; set;
         }
 
         /// <summary>
-        ///   The label of the vertex
+        /// The type label of the graph element used for categorization
         /// </summary>
+        /// <example>person</example>
+        [DefaultValue("person")]
+        [JsonPropertyName("label")]
         public String Label
         {
             get; set;
         }
 
         /// <summary>
-        ///   The properties of the vertex
+        /// The collection of properties (key-value pairs) associated with the graph element
         /// </summary>
+        [JsonPropertyName("properties")]
         public List<PropertySpecification> Properties
         {
             get; set;

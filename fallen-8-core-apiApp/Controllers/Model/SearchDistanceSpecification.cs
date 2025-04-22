@@ -24,39 +24,66 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    /// The search distance request object for spatial queries
+    /// Specification for performing spatial distance searches in the graph
     /// </summary>
+    /// <remarks>
+    /// Used to find graph elements within a specified distance from a reference element
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "indexId": "locationIndex",
+    ///   "graphElementId": 123,
+    ///   "distance": 5.0
+    /// }
+    /// </example>
     public sealed class SearchDistanceSpecification
     {
         #region data
 
         /// <summary>
-        ///   Index identifier
+        ///   The identifier of the spatial index to search
         /// </summary>
+        /// <example>locationIndex</example>
         [Required]
+        [DefaultValue("locationIndex")]
+        [JsonPropertyName("indexId")]
         public String IndexId
         {
             get; set;
         }
 
         /// <summary>
-        /// The graph element identifier.
+        /// The identifier of the reference graph element for the distance calculation
         /// </summary>
+        /// <remarks>
+        /// Distance will be measured from this element to other elements in the spatial index
+        /// </remarks>
+        /// <example>123</example>
         [Required]
+        [DefaultValue(123)]
+        [JsonPropertyName("graphElementId")]
         public Int32 GraphElementId
         {
             get; set;
         }
 
         /// <summary>
-        /// The distance.
+        /// The maximum distance to search within
         /// </summary>
+        /// <remarks>
+        /// Unit depends on the spatial index implementation
+        /// </remarks>
+        /// <example>5.0</example>
         [Required]
+        [DefaultValue(5.0f)]
+        [JsonPropertyName("distance")]
         public float Distance
         {
             get; set;

@@ -24,30 +24,49 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    /// The fulltext index request object
+    /// Specification for performing fulltext search queries on indexed content
     /// </summary>
+    /// <remarks>
+    /// Used to search for text patterns in textual properties indexed by a fulltext index
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "indexId": "documentIndex",
+    ///   "requestString": "graph database nosql"
+    /// }
+    /// </example>
     public class FulltextIndexScanSpecification
     {
         #region data
 
         /// <summary>
-        ///   Index identifier
+        /// The identifier of the fulltext index to search
         /// </summary>
+        /// <example>documentIndex</example>
         [Required]
+        [DefaultValue("documentIndex")]
+        [JsonPropertyName("indexId")]
         public String IndexId
         {
             get; set;
         }
 
         /// <summary>
-        /// The request string
+        /// The search query text to look for in the indexed content
         /// </summary>
-		[Required]
+        /// <remarks>
+        /// The syntax depends on the underlying fulltext index implementation
+        /// </remarks>
+        /// <example>graph database nosql</example>
+        [Required]
+        [JsonPropertyName("requestString")]
         public String RequestString
         {
             get; set;

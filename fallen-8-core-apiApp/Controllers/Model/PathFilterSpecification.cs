@@ -24,37 +24,64 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The path filter specification
+    ///   Specification for filtering graph elements during path finding operations
     /// </summary>
+    /// <remarks>
+    ///   Used to constrain which vertices and edges are considered during path traversal
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "edgeProperty": "knows",
+    ///   "vertex": "person",
+    ///   "edge": "friendship"
+    /// }
+    /// </example>
     public sealed class PathFilterSpecification : IEquatable<PathFilterSpecification>
     {
         /// <summary>
-        /// The edge property filter function (JS)
+        /// Filter to apply on edge properties during path traversal
         /// </summary>
+        /// <remarks>
+        /// Only edges with this property identifier will be traversed
+        /// </remarks>
+        /// <example>knows</example>
         [Required]
+        [JsonPropertyName("edgePropertyFilter")]
         public String EdgeProperty
         {
             get; set;
         }
 
         /// <summary>
-        /// The vertex filter function (JS)
+        /// Filter to apply on vertices during path traversal
         /// </summary>
+        /// <remarks>
+        /// Only vertices with this label will be included in paths
+        /// </remarks>
+        /// <example>person</example>
         [Required]
+        [JsonPropertyName("vertexFilter")]
         public String Vertex
         {
             get; set;
         }
 
         /// <summary>
-        /// The edge filter function (JS)
+        /// Filter to apply on edges during path traversal
         /// </summary>
+        /// <remarks>
+        /// Only edges with this label will be traversed
+        /// </remarks>
+        /// <example>friendship</example>
         [Required]
+        [JsonPropertyName("edgeFilter")]
         public String Edge
         {
             get; set;

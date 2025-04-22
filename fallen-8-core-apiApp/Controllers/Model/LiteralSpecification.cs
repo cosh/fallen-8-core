@@ -24,27 +24,46 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The scan specification
+    ///   Specification for literal values used in graph queries and scans
     /// </summary>
+    /// <remarks>
+    ///   LiteralSpecification represents a typed value that can be used for comparison operations
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "value": "John Doe",
+    ///   "fullQualifiedTypeName": "System.String"
+    /// }
+    /// </example>
     public sealed class LiteralSpecification
     {
         /// <summary>
-        ///   The value of the literal
+        ///   The string representation of the value to use in comparisons
         /// </summary>
+        /// <example>John Doe</example>
         [Required]
+        [JsonPropertyName("value")]
         public String Value
         {
             get; set;
         }
 
         /// <summary>
-        ///   The type of the literal
+        ///   The fully qualified .NET type name of the value
         /// </summary>
+        /// <remarks>
+        ///   Used for type conversion before comparison operations
+        /// </remarks>
+        /// <example>System.String</example>
+        [DefaultValue("System.String")]
+        [JsonPropertyName("fullQualifiedTypeName")]
         public String FullQualifiedTypeName
         {
             get; set;

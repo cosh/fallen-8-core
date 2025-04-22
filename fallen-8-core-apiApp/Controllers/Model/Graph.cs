@@ -23,18 +23,75 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using NoSQL.GraphDB.App.Controllers.Model;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
+using NoSQL.GraphDB.App.Controllers.Model;
 
 namespace NoSQL.GraphDB.Core.App.Controllers.Model
 {
+    /// <summary>
+    /// Represents an entire graph structure with vertices and edges
+    /// </summary>
+    /// <remarks>
+    /// The primary response model for retrieving graph data through the API
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "vertices": [
+    ///     {
+    ///       "id": 1,
+    ///       "label": "person",
+    ///       "properties": {
+    ///         "name": "John Doe",
+    ///         "age": 30
+    ///       }
+    ///     },
+    ///     {
+    ///       "id": 2,
+    ///       "label": "person",
+    ///       "properties": {
+    ///         "name": "Jane Smith",
+    ///         "age": 28
+    ///       }
+    ///     }
+    ///   ],
+    ///   "edges": [
+    ///     {
+    ///       "id": 10,
+    ///       "label": "friendship",
+    ///       "sourceVertex": 1,
+    ///       "targetVertex": 2,
+    ///       "edgePropertyId": "knows",
+    ///       "properties": {
+    ///         "since": "2024-01-15T00:00:00"
+    ///       }
+    ///     }
+    ///   ]
+    /// }
+    /// </example>
     public class Graph
     {
+        /// <summary>
+        /// Collection of all edges in the graph
+        /// </summary>
+        /// <remarks>
+        /// Each edge connects two vertices and represents a relationship between them
+        /// </remarks>
+        [JsonPropertyName("edges")]
         public List<Edge> Edges
         {
             get;
             internal set;
         }
+
+        /// <summary>
+        /// Collection of all vertices in the graph
+        /// </summary>
+        /// <remarks>
+        /// Vertices (nodes) are the fundamental entities in the graph
+        /// </remarks>
+        [JsonPropertyName("vertices")]
         public List<Vertex> Vertices
         {
             get;

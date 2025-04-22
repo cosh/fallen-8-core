@@ -24,28 +24,49 @@
 // SOFTWARE.
 
 using System;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The index update specification
+    ///   Specification for adding or updating a graph element in an index
     /// </summary>
+    /// <remarks>
+    ///   Used to manually associate a graph element with a key in an index
+    /// </remarks>
+    /// <example>
+    /// {
+    ///   "graphElementId": 123,
+    ///   "key": {
+    ///     "propertyValue": "John Doe",
+    ///     "fullQualifiedTypeName": "System.String"
+    ///   }
+    /// }
+    /// </example>
     public class IndexAddToSpecification
     {
         /// <summary>
-        ///   The graph element identifier
+        ///   The identifier of the graph element to index
         /// </summary>
+        /// <example>123</example>
         [Required]
+        [DefaultValue(123)]
+        [JsonPropertyName("graphElementId")]
         public Int32 GraphElementId
         {
             get; set;
         }
 
         /// <summary>
-        ///   The specification of the index key
+        ///   The key under which to index the graph element
         /// </summary>
+        /// <remarks>
+        ///   The key's type must match the index's expected type
+        /// </remarks>
         [Required]
+        [JsonPropertyName("key")]
         public PropertySpecification Key
         {
             get; set;
