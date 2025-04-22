@@ -62,7 +62,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// </summary>
         /// <example>1713862800</example>
         [Required]
-        [DefaultValue((ushort)0)]
+        [DefaultValue((uint)0)]
         [JsonPropertyName("creationDate")]
         public UInt32 CreationDate
         {

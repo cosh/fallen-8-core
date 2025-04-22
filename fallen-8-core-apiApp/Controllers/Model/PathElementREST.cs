@@ -44,7 +44,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   "targetVertexId": 2,
     ///   "edgeId": 10,
     ///   "edgePropertyId": "knows",
-    ///   "direction": "Outgoing",
+    ///   "direction": "OutgoingEdge",
     ///   "weight": 1.5
     /// }
     /// </example>
@@ -101,11 +101,11 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        /// The direction in which the edge is traversed (Outgoing, Incoming, or Both)
+        /// The direction in which the edge is traversed (OutgoingEdge, IncomingEdge, or UndirectedEdge)
         /// </summary>
-        /// <example>Outgoing</example>
+        /// <example>OutgoingEdge</example>
         [Required]
-        [DefaultValue(0)] // 0 = Direction.Outgoing enum value
+        [DefaultValue(Direction.OutgoingEdge)]
         [JsonPropertyName("direction")]
         public Direction Direction
         {
