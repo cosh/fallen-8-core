@@ -25,39 +25,48 @@
 
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The property specification
+    ///   Defines a property with name, type, and value for plugin configuration
     /// </summary>
+    /// <example>
+    /// {
+    ///   "propertyId": "cacheSize",
+    ///   "fullQualifiedTypeName": "System.Int32",
+    ///   "propertyValue": "1000"
+    /// }
+    /// </example>
     public class PropertySpecification
     {
-        // <summary>
-        ///   The property id
+        /// <summary>
+        ///   The identifier name of the property
         /// </summary>
+        /// <example>cacheSize</example>
         [Required]
-        public String PropertyId
-        {
-            get; set;
-        }
-
-        // <summary>
-        ///   The type name
-        /// </summary>
-        [Required]
-        public String FullQualifiedTypeName
-        {
-            get; set;
-        }
+        [DefaultValue("cacheSize")]
+        [JsonPropertyName("propertyId")]
+        public String PropertyId { get; set; } = "cacheSize";
 
         /// <summary>
-        ///   The property string representation
+        ///   The fully qualified .NET type name of the property
         /// </summary>
+        /// <example>System.Int32</example>
         [Required]
-        public String PropertyValue
-        {
-            get; set;
-        }
+        [DefaultValue("System.Int32")]
+        [JsonPropertyName("fullQualifiedTypeName")]
+        public String FullQualifiedTypeName { get; set; } = "System.Int32";
+
+        /// <summary>
+        ///   The string representation of the property value
+        /// </summary>
+        /// <example>1000</example>
+        [Required]
+        [DefaultValue("1000")]
+        [JsonPropertyName("propertyValue")]
+        public String PropertyValue { get; set; } = "1000";
     }
 }

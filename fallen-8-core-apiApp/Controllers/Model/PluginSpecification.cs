@@ -26,38 +26,51 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The plugin creation specification
+    ///   Specification for creating and configuring a plugin service
     /// </summary>
+    /// <example>
+    /// {
+    ///   "uniqueId": "indexService1",
+    ///   "pluginType": "DictionaryIndex",
+    ///   "pluginOptions": {
+    ///     "indexProperty": {
+    ///       "propertyId": "propertyName",
+    ///       "fullQualifiedTypeName": "System.String",
+    ///       "propertyValue": "propertyValue"
+    ///     }
+    ///   }
+    /// }
+    /// </example>
     public sealed class PluginSpecification
     {
         /// <summary>
-        ///   The unique plugin identifier
+        ///   A unique identifier for this plugin instance
         /// </summary>
+        /// <example>indexService1</example>
         [Required]
-        public String UniqueId
-        {
-            get; set;
-        }
+        [DefaultValue("indexService1")]
+        [JsonPropertyName("uniqueId")]
+        public String UniqueId { get; set; } = "indexService1";
 
         /// <summary>
-        ///   The name of the plugin type
+        ///   The name of the plugin type to instantiate
         /// </summary>
+        /// <example>DictionaryIndex</example>
         [Required]
-        public String PluginType
-        {
-            get; set;
-        }
+        [DefaultValue("DictionaryIndex")]
+        [JsonPropertyName("pluginType")]
+        public String PluginType { get; set; } = "DictionaryIndex";
 
         /// <summary>
-        ///   The specification of the plugin options
+        ///   Configuration options for the plugin as key-value pairs
         /// </summary>
-        public Dictionary<String, PropertySpecification> PluginOptions
-        {
-            get; set;
-        }
+        [JsonPropertyName("pluginOptions")]
+        public Dictionary<String, PropertySpecification> PluginOptions { get; set; } = new Dictionary<String, PropertySpecification>();
     }
 }

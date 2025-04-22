@@ -31,6 +31,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
@@ -100,9 +101,14 @@ namespace NoSQL.GraphDB.App.Controllers
 
         #endregion
 
-
+        /// <summary>
+        /// Gets the current status of the Fallen-8 database
+        /// </summary>
+        /// <returns>Status information including counts, available plugins and memory usage</returns>
+        /// <response code="200">Returns the database status information</response>
         [HttpGet("/status")]
         [Produces("application/json")]
+        [ProducesResponseType(typeof(StatusREST), StatusCodes.Status200OK)]
         public StatusREST Status()
         {
             var totalBytesOfMemoryUsed = Process.GetCurrentProcess().VirtualMemorySize64;
@@ -130,7 +136,12 @@ namespace NoSQL.GraphDB.App.Controllers
             };
         }
 
+        /// <summary>
+        /// Trims the database, releasing unused memory
+        /// </summary>
+        /// <response code="204">Trim operation successfully initiated</response>
         [HttpHead("/trim")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         public void Trim()
         {
             TrimTransaction tx = new TrimTransaction();
@@ -138,8 +149,25 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
+        /// <summary>
+        /// Loads a Fallen-8 database from a saved file
+        /// </summary>
+        /// <param name="definition">Load specification including file path and service start options</param>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     PUT /load
+        ///     {
+        ///        "startServices": true,
+        ///        "saveGameLocation": "C:/Fallen8/database.f8s"
+        ///     }
+        /// </remarks>
+        /// <response code="204">Database loaded successfully</response>
+        /// <response code="400">Invalid load specification or file not found</response>
         [HttpPut("/load")]
         [Consumes("application/json")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public void Load([FromBody] LoadSpecification definition)
         {
             _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", definition.StartServices));
@@ -151,7 +179,14 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
         }
 
+        /// <summary>
+        /// Saves the current database state to a file
+        /// </summary>
+        /// <returns>The path where the database was saved</returns>
+        /// <response code="200">Returns the path where the database was saved</response>
         [HttpGet("/save")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         public String Save()
         {
             SaveTransaction saveTx = new SaveTransaction() { Path = _savePath, SavePartitions = _optimalNumberOfPartitions };
@@ -160,7 +195,12 @@ namespace NoSQL.GraphDB.App.Controllers
             return saveTx.ActualPath;
         }
 
+        /// <summary>
+        /// Clears all data from the database (resets to empty state)
+        /// </summary>
+        /// <response code="204">Database successfully cleared</response>
         [HttpHead("/tabularasa")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         public void TabulaRasa()
         {
             TabulaRasaTransaction tx = new TabulaRasaTransaction();
@@ -168,38 +208,78 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
+        /// <summary>
+        /// Gets the total number of vertices in the database
+        /// </summary>
+        /// <returns>Count of vertices in the database</returns>
+        /// <response code="200">Returns the number of vertices</response>
         [HttpGet("/vertex/count")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
         public int VertexCount()
         {
             return _fallen8.VertexCount;
         }
 
+        /// <summary>
+        /// Gets the total number of edges in the database
+        /// </summary>
+        /// <returns>Count of edges in the database</returns>
+        /// <response code="200">Returns the number of edges</response>
         [HttpGet("/edge/count")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
         public int EdgeCount()
         {
             return _fallen8.EdgeCount;
         }
 
+        /// <summary>
+        /// Creates a new service based on the specified plugin
+        /// </summary>
+        /// <param name="definition">Plugin specification including type, ID and options</param>
+        /// <returns>True if service was successfully created, false otherwise</returns>
+        /// <response code="200">Returns whether the service was successfully created</response>
+        /// <response code="400">Invalid plugin specification</response>
         [HttpPost("/service")]
         [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public bool CreateService([FromBody] PluginSpecification definition)
         {
             IService service;
             return _fallen8.ServiceFactory.TryAddService(out service, definition.PluginType, definition.UniqueId, ServiceHelper.CreatePluginOptions(definition.PluginOptions));
         }
 
+        /// <summary>
+        /// Deletes a service with the specified key
+        /// </summary>
+        /// <param name="key">The unique identifier of the service to delete</param>
+        /// <returns>True if the service was successfully deleted, false if it wasn't found</returns>
+        /// <response code="200">Returns whether the service was successfully deleted</response>
         [HttpDelete("/service/{key}")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
         public bool DeleteService([FromRoute] string key)
         {
             return _fallen8.ServiceFactory.Services.Remove(key);
         }
 
+        /// <summary>
+        /// Uploads and registers a new plugin to the database
+        /// </summary>
+        /// <param name="dllStream">The plugin DLL binary content as a stream</param>
+        /// <response code="204">Plugin successfully uploaded and registered</response>
+        /// <response code="400">Invalid plugin data or incompatible plugin</response>
         [HttpPut("/plugin")]
+        [Consumes("application/octet-stream")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public void UploadPlugin([FromBody] Stream dllStream)
         {
             PluginFactory.Assimilate(dllStream);
         }
-
 
         #region private helper
 

@@ -25,57 +25,77 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The Fallen-8 status
+    ///   Represents the current status of the Fallen-8 database
     /// </summary>
+    /// <example>
+    /// {
+    ///   "usedMemory": 1073741824,
+    ///   "vertexCount": 10000,
+    ///   "edgeCount": 25000,
+    ///   "availableIndexPlugins": ["DictionaryIndex", "SpatialIndex"],
+    ///   "availablePathPlugins": ["Dijkstra", "AStar"],
+    ///   "availableServicePlugins": ["ImportService", "ExportService"]
+    /// }
+    /// </example>
     public sealed class StatusREST
     {
         /// <summary>
-        ///   The used memory
+        ///   The amount of memory currently used by the database process in bytes
         /// </summary>
+        /// <example>1073741824</example>
+        [DefaultValue(1073741824L)] // Using long literal by adding 'L' suffix
         public Int64 UsedMemory
         {
             get; set;
         }
 
         /// <summary>
-        ///   Vertex count
+        ///   The total number of vertices in the database
         /// </summary>
+        /// <example>10000</example>
+        [DefaultValue(10000)]
         public Int32 VertexCount
         {
             get; set;
         }
 
         /// <summary>
-        ///   Edge count
+        ///   The total number of edges in the database
         /// </summary>
+        /// <example>25000</example>
+        [DefaultValue(25000)]
         public Int32 EdgeCount
         {
             get; set;
         }
 
         /// <summary>
-        ///   Available index plugins
+        ///   List of available index plugins that can be used with the database
         /// </summary>
+        /// <example>["DictionaryIndex", "SpatialIndex", "FullTextIndex"]</example>
         public List<String> AvailableIndexPlugins
         {
             get; set;
         }
 
         /// <summary>
-        ///   Available path plugins
+        ///   List of available path-finding algorithm plugins
         /// </summary>
+        /// <example>["Dijkstra", "AStar", "BellmanFord"]</example>
         public List<String> AvailablePathPlugins
         {
             get; set;
         }
 
         /// <summary>
-        ///   Available index plugins
+        ///   List of available service plugins that can be started with the database
         /// </summary>
+        /// <example>["ImportService", "ExportService", "AnalyticsService"]</example>
         public List<String> AvailableServicePlugins
         {
             get; set;

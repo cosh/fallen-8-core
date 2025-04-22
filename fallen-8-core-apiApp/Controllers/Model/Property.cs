@@ -25,30 +25,38 @@
 
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The property
+    ///   Represents a property with an ID and value
     /// </summary>
+    /// <example>
+    /// {
+    ///   "propertyId": "name",
+    ///   "propertyValue": "John Doe"
+    /// }
+    /// </example>
     public class Property
     {
-        // <summary>
-        ///   The property id
+        /// <summary>
+        ///   The identifier of the property
         /// </summary>
+        /// <example>name</example>
         [Required]
-        public String PropertyId
-        {
-            get; set;
-        }
+        [DefaultValue("name")]
+        [JsonPropertyName("propertyId")]
+        public String PropertyId { get; set; } = "name";
 
         /// <summary>
-        ///   The property string representation
+        ///   The string representation of the property value
         /// </summary>
+        /// <example>John Doe</example>
         [Required]
-        public String PropertyValue
-        {
-            get; set;
-        }
+        [DefaultValue("John Doe")]
+        [JsonPropertyName("propertyValue")]
+        public String PropertyValue { get; set; } = "John Doe";
     }
 }

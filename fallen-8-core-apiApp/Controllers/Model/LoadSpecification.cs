@@ -25,30 +25,38 @@
 
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   The plugin creation specification
+    ///   Specification for loading a Fallen-8 database from disk
     /// </summary>
+    /// <example>
+    /// {
+    ///   "startServices": true,
+    ///   "saveGameLocation": "C:/Fallen8/database.f8s"
+    /// }
+    /// </example>
     public sealed class LoadSpecification
     {
         /// <summary>
-        ///   Should the services be started?
+        ///   Indicates whether services should be automatically started after loading
         /// </summary>
+        /// <example>true</example>
         [Required]
-        public Boolean StartServices
-        {
-            get; set;
-        }
+        [DefaultValue(true)]
+        [JsonPropertyName("startServices")]
+        public Boolean StartServices { get; set; } = true;
 
         /// <summary>
-        ///   The name of the plugin type
+        ///   The file path location of the Fallen-8 database save file
         /// </summary>
+        /// <example>C:/Fallen8/database.f8s</example>
         [Required]
-        public String SaveGameLocation
-        {
-            get; set;
-        }
+        [DefaultValue("C:/Fallen8/database.f8s")]
+        [JsonPropertyName("saveGameLocation")]
+        public String SaveGameLocation { get; set; } = "C:/Fallen8/database.f8s";
     }
 }
