@@ -1,0 +1,88 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"settings": {
+		"dotnet.defaultSolution": "fallen-8-ux.sln",
+		"files.exclude": {
+			"**/.git": true,
+			"**/.vs": true,
+			"**/bin": true,
+			"**/obj": true
+		},
+		"omnisharp.enableRoslynAnalyzers": true,
+		"omnisharp.enableEditorConfigSupport": true
+	},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"name": "Run AppHost",
+				"type": "coreclr",
+				"request": "launch",
+				"preLaunchTask": "build",
+				"program": "${workspaceFolder}/fallen-8-ux.AppHost/bin/Debug/net9.0/fallen-8-ux.AppHost.dll",
+				"args": [],
+				"cwd": "${workspaceFolder}/fallen-8-ux.AppHost",
+				"stopAtEntry": false,
+				"console": "internalConsole"
+			},
+			{
+				"name": "Run Web",
+				"type": "coreclr",
+				"request": "launch",
+				"preLaunchTask": "build",
+				"program": "${workspaceFolder}/fallen-8-ux.Web/bin/Debug/net9.0/fallen-8-ux.Web.dll",
+				"args": [],
+				"cwd": "${workspaceFolder}/fallen-8-ux.Web",
+				"stopAtEntry": false,
+				"serverReadyAction": {
+					"action": "openExternally",
+					"pattern": "\\bNow listening on:\\s+(https?://\\S+)"
+				},
+				"env": {
+					"ASPNETCORE_ENVIRONMENT": "Development"
+				}
+			}
+		]
+	},
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "build",
+				"command": "dotnet",
+				"type": "process",
+				"args": [
+					"build",
+					"${workspaceFolder}/fallen-8-ux.sln",
+					"/property:GenerateFullPaths=true",
+					"/consoleloggerparameters:NoSummary"
+				],
+				"problemMatcher": "$msCompile",
+				"group": {
+					"kind": "build",
+					"isDefault": true
+				}
+			},
+			{
+				"label": "test",
+				"command": "dotnet",
+				"type": "process",
+				"args": [
+					"test",
+					"${workspaceFolder}/fallen-8-ux.Tests/fallen-8-ux.Tests.csproj",
+					"/property:GenerateFullPaths=true",
+					"/consoleloggerparameters:NoSummary"
+				],
+				"problemMatcher": "$msCompile",
+				"group": {
+					"kind": "test",
+					"isDefault": true
+				}
+			}
+		]
+	}
+}

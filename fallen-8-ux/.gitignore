@@ -1,0 +1,28 @@
+# .NET Core/.NET build folders 
+bin/ 
+obj/ 
+# Visual Studio files 
+.vs/ 
+*.user 
+*.userosscache 
+*.suo 
+*.userprefs 
+*.dbmdl 
+*.dbproj.schemaview 
+# ReSharper files 
+_ReSharper*/ 
+*.[Rr]e[Ss]harper 
+*.DotSettings.user 
+# NuGet packages 
+packages/ 
+*.nupkg 
+# Test Results 
+[Tt]est[Rr]esult*/ 
+[Bb]uild[Ll]og.* 
+# Logs and databases 
+*.log 
+*.sqlite 
+# OS generated files 
+.DS_Store* 
+Thumbs.db 
+Desktop.ini 
