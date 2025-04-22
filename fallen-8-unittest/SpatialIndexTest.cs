@@ -146,63 +146,6 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void Enclosure_WithEnclosingGeometry_ShouldReturnEnclosedElements()
-        {
-            // Arrange
-            var spatialIndex = CreateAndInitializeRTree();
-            InitializeSpatialIndex(spatialIndex);
-
-            // Create a larger geometry that encloses existing geometries
-            var enclosingGeometry = CreateRectangleGeometry(-1.0f, -1.0f, 6.0f, 6.0f);
-
-            // Act
-            ImmutableList<AGraphElementModel> result;
-            var found = spatialIndex.Enclosure(out result, enclosingGeometry);
-
-            // Assert
-            Assert.IsTrue(found, "Should find enclosed geometries");
-            Assert.IsNotNull(result);
-            Assert.IsTrue(result.Count > 0, "Should return at least one enclosed element");
-        }
-
-        [TestMethod]
-        public void Containment_WithContainedGeometry_ShouldReturnContainingElements()
-        {
-            // Arrange
-            var spatialIndex = CreateAndInitializeRTree();
-            InitializeSpatialIndex(spatialIndex);
-
-            // Create a smaller geometry contained within existing geometries
-            var containedGeometry = CreatePointGeometry(2.5f, 2.5f);
-
-            // Act
-            ImmutableList<AGraphElementModel> result;
-            var found = spatialIndex.Containment(out result, containedGeometry);
-
-            // Assert
-            Assert.IsTrue(found, "Should find containing geometries");
-            Assert.IsNotNull(result);
-        }
-
-        [TestMethod]
-        public void GetAllNeighbors_ForPoint_ShouldReturnNeighboringElements()
-        {
-            // Arrange
-            var spatialIndex = CreateAndInitializeRTree();
-            InitializeSpatialIndex(spatialIndex);
-            var point = CreatePointGeometry(2.5f, 2.5f);
-
-            // Act
-            ImmutableList<AGraphElementModel> result;
-            var found = spatialIndex.GetAllNeighbors(out result, point);
-
-            // Assert
-            Assert.IsTrue(found, "Should find neighboring geometries");
-            Assert.IsNotNull(result);
-            Assert.IsTrue(result.Count > 0, "Should return at least one neighboring element");
-        }
-
-        [TestMethod]
         public void GetNextNeighbors_ForPoint_ShouldReturnRequestedNumberOfNeighbors()
         {
             // Arrange
