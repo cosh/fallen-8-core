@@ -47,6 +47,11 @@ namespace NoSQL.GraphDB.App.Helper
         /// </param>
         internal static IDictionary<string, object> CreatePluginOptions(Dictionary<string, PropertySpecification> options)
         {
+            if (options == null || options.Count == 0)
+            {
+                return null;
+            }
+
             return options.ToDictionary(key => key.Key, value => CreateObject(value.Value));
         }
 

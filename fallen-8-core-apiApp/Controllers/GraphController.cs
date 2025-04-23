@@ -137,6 +137,21 @@ namespace NoSQL.GraphDB.App.Controllers
             _fallen8.EnqueueTransaction(tx);
         }
 
+        [HttpGet("/vertex/{vertexIdentifier}")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(Vertex), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public Vertex GetVertex([FromRoute] Int32 vertexIdentifier)
+        {
+            VertexModel vertex;
+            if (_fallen8.TryGetVertex(out vertex, vertexIdentifier))
+            {
+                return new Vertex(vertex);
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// Creates a new edge between two vertices in the graph
         /// </summary>
@@ -190,6 +205,44 @@ namespace NoSQL.GraphDB.App.Controllers
             };
 
             _fallen8.EnqueueTransaction(tx);
+        }
+
+        [HttpGet("/edge/{edgeIdentifier}")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(Edge), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public Edge GetEdge([FromRoute] Int32 edgeIdentifier)
+        {
+            EdgeModel edge;
+            if (_fallen8.TryGetEdge(out edge, edgeIdentifier))
+            {
+                return new Edge(edge);
+            }
+
+            return null;
+        }
+
+        [HttpGet("/graphelement/{graphElementIdentifier}")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(AGraphElement), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public AGraphElement GetGraphElement([FromRoute] Int32 graphElementIdentifier)
+        {
+            AGraphElementModel ge;
+            if (_fallen8.TryGetGraphElement(out ge, graphElementIdentifier))
+            {
+                if (ge is VertexModel vertex)
+                {
+                    return new Vertex(vertex);
+                }
+
+                if (ge is EdgeModel edge)
+                {
+                    return new Edge(edge);
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
