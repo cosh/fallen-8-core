@@ -680,7 +680,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public void AddProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition)
+        public async Task<IActionResult> AddProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
             var propertyId = propertyIdString;
@@ -699,7 +699,15 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             };
 
-            _fallen8.EnqueueTransaction(tx);
+            var transactionTask = _fallen8.EnqueueTransaction(tx);
+
+            if (waitForCompletion)
+            {
+                transactionTask.WaitUntilFinished();
+            }
+
+            return Accepted();
+
         }
 
         /// <summary>
@@ -717,7 +725,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpDelete("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public void TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString)
+        public async Task<IActionResult> TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
             var propertyId = propertyIdString;
@@ -728,7 +736,15 @@ namespace NoSQL.GraphDB.App.Controllers
                 PropertyId = propertyId
             };
 
-            _fallen8.EnqueueTransaction(tx);
+            var transactionTask = _fallen8.EnqueueTransaction(tx);
+
+            if (waitForCompletion)
+            {
+                transactionTask.WaitUntilFinished();
+            }
+
+            return Accepted();
+
         }
 
         /// <summary>
@@ -745,7 +761,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpDelete("/graphelement/{graphElementIdentifier}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public void TryRemoveGraphElement([FromRoute] string graphElementIdentifier)
+        public async Task<IActionResult> TryRemoveGraphElement([FromRoute] string graphElementIdentifier, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
 
@@ -754,7 +770,14 @@ namespace NoSQL.GraphDB.App.Controllers
                 GraphElementId = graphElementId
             };
 
-            _fallen8.EnqueueTransaction(tx);
+            var transactionTask = _fallen8.EnqueueTransaction(tx);
+
+            if (waitForCompletion)
+            {
+                transactionTask.WaitUntilFinished();
+            }
+
+            return Accepted();
         }
 
         /// <summary>
