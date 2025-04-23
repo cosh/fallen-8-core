@@ -33,37 +33,67 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   Specification for defining cost functions used in path calculations
     /// </summary>
     /// <remarks>
-    ///   Cost functions determine how paths are weighted during shortest path calculations
+    ///   Cost functions determine how paths are weighted during shortest path calculations.
+    ///   The string properties in this class are C# code fragments that are dynamically compiled
+    ///   at runtime into delegate methods of an IPathTraverser implementation.
+    ///
+    ///   Each code fragment should be valid C# code that returns a numeric value representing
+    ///   the cost of traversing a vertex or edge. Lower costs are preferred during path finding.
+    ///
+    ///   IMPORTANT: Each code fragment MUST use the 'return' keyword followed by a lambda expression:
+    ///   1. Simple lambda expressions: "return (vertex) => vertex.TryGetProperty(out var age, \"age\") ? (double)age : 1.0;"
+    ///   2. More complex logic: "return (vertex) => { if (vertex.Label == \"important\") return 0.5; return 1.0; };"
+    ///   3. Default behavior: "return (vertex) => 1.0;" (uniform cost for all elements)
+    ///
+    ///   If no cost functions are provided, all elements will have a default cost of 1.0.
     /// </remarks>
     /// <example>
     /// {
-    ///   "vertex": "age",
-    ///   "edge": "distance"
+    ///   "vertexCost": "return (v) => v.TryGetProperty(out var age, \"age\") ? (double)age : 1.0;",
+    ///   "edgeCost": "return (e) => e.TryGetProperty(out var weight, \"weight\") ? (double)weight : 1.0;"
     /// }
     /// </example>
     public sealed class PathCostSpecification : IEquatable<PathCostSpecification>
     {
         /// <summary>
-        /// Property name to use for calculating vertex traversal costs
+        /// Cost function for vertices during path traversal
         /// </summary>
-        /// <example>age</example>
+        /// <remarks>
+        /// Provide a C# expression that returns a numeric cost value for vertices.
+        /// Lower costs are preferred in path calculations.
+        ///
+        /// Examples:
+        /// - "return (vertex) => vertex.TryGetProperty(out var age, \"age\") ? (double)age : 1.0;" - Use age property as cost
+        /// - "return (vertex) => vertex.Label == \"priority\" ? 0.5 : 1.0;" - Lower cost for priority vertices
+        /// - "return (vertex) => 1.0;" - Uniform cost for all vertices (default)
+        /// </remarks>
+        /// <example>return (vertex) => vertex.TryGetProperty(out var age, "age") ? (double)age : 1.0;</example>
         [JsonPropertyName("vertexCost")]
-        [DefaultValue(null)]
+        [DefaultValue("return (vertex) => 1.0;")]
         public String Vertex
         {
             get; set;
-        }
+        } = "return (vertex) => 1.0;";
 
         /// <summary>
-        /// Property name to use for calculating edge traversal costs
+        /// Cost function for edges during path traversal
         /// </summary>
-        /// <example>distance</example>
+        /// <remarks>
+        /// Provide a C# expression that returns a numeric cost value for edges.
+        /// Lower costs are preferred in path calculations.
+        ///
+        /// Examples:
+        /// - "return (edge) => edge.TryGetProperty(out var weight, \"weight\") ? (double)weight : 1.0;" - Use weight property as cost
+        /// - "return (edge) => edge.Label == \"highway\" ? 0.5 : 2.0;" - Lower cost for highway edges
+        /// - "return (edge) => 1.0;" - Uniform cost for all edges (default)
+        /// </remarks>
+        /// <example>return (edge) => edge.TryGetProperty(out var weight, "weight") ? (double)weight : 1.0;</example>
         [JsonPropertyName("edgeCost")]
-        [DefaultValue(null)]
+        [DefaultValue("return (edge) => 1.0;")]
         public String Edge
         {
             get; set;
-        }
+        } = "return (edge) => 1.0;";
 
         public override Boolean Equals(Object obj)
         {

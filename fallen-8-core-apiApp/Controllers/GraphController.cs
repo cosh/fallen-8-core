@@ -783,6 +783,17 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="definition">Path specification with algorithm, depth, filters and other constraints</param>
         /// <returns>A list of paths between the vertices</returns>
         /// <remarks>
+        /// The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.
+        ///
+        /// IMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a "return" statement.
+        /// These are compiled at runtime into delegate methods.
+        ///
+        /// Correct format for filter expressions:
+        /// - "return (parameter) => boolean_expression;"
+        ///
+        /// Correct format for cost expressions:
+        /// - "return (parameter) => numeric_expression;"
+        ///
         /// Sample request:
         ///
         ///     POST /path/1/to/5
@@ -791,8 +802,15 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        "maxDepth": 5,
         ///        "maxPathWeight": 100.0,
         ///        "maxResults": 10,
-        ///        "edgePropertyFilter": "friendship",
-        ///        "vertexFilter": "Person"
+        ///        "filter": {
+        ///          "vertexFilter": "return (v) => v.Label == \"Person\";",
+        ///          "edgeFilter": "return (e,d) => e.Label == \"friendship\";",
+        ///          "edgePropertyFilter": "return (p,d) => p == \"knows\";"
+        ///        },
+        ///        "cost": {
+        ///          "vertexCost": "return (v) => v.TryGetProperty(out var age, \"age\") ? (double)age : 1.0;",
+        ///          "edgeCost": "return (e) => e.TryGetProperty(out var weight, \"weight\") ? (double)weight : 1.0;"
+        ///        }
         ///     }
         /// </remarks>
         /// <response code="200">Returns the found paths between the vertices</response>

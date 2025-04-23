@@ -41,13 +41,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   "maxResults": 10,
     ///   "maxPathWeight": 100.0,
     ///   "filter": {
-    ///     "edgePropertyFilter": "knows",
-    ///     "vertexFilter": "person",
-    ///     "edgeFilter": "friendship"
+    ///     "edgePropertyFilter": "return (p,d) => true;",
+    ///     "vertexFilter": "return (v) => true;",
+    ///     "edgeFilter": "return (e,d) => true;"
     ///   },
     ///   "cost": {
-    ///     "vertexCost": "age",
-    ///     "edgeCost": "weight"
+    ///     "vertexCost": "return (v) => 1.0;",
+    ///     "edgeCost": "return (e) => 1.0;"
     ///   }
     /// }
     /// </example>
