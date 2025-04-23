@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
@@ -69,7 +70,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void AddVertex_WhenValidVertexSpecificationProvided_ShouldCreateVertex()
+        public async Task AddVertex_WhenValidVertexSpecificationProvided_ShouldCreateVertex()
         {
             // Arrange
             var vertexSpec = new VertexSpecification
@@ -87,7 +88,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             // Act
-            _controller.AddVertex(vertexSpec);
+            await _controller.AddVertex(vertexSpec, true);
 
             // Assert - Check if vertex is added by running a graph scan
             var scanDef = new ScanSpecification();
@@ -96,9 +97,6 @@ namespace NoSQL.GraphDB.Tests
                 Value = "John Doe",
                 FullQualifiedTypeName = "System.String"
             };
-
-            //we need to wait a bit
-            System.Threading.Thread.Sleep(100);
 
             scanDef.Operator = BinaryOperator.Equals;
             var result = _controller.GraphScan("name", scanDef);
@@ -121,7 +119,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void AddEdge_WhenValidEdgeSpecificationProvided_ShouldCreateEdge()
+        public async Task AddEdge_WhenValidEdgeSpecificationProvided_ShouldCreateEdge()
         {
             // Arrange - Create two vertices first
             var sourceVertexSpec = new VertexSpecification
@@ -153,12 +151,8 @@ namespace NoSQL.GraphDB.Tests
             };
 
             // Add the vertices
-            _controller.AddVertex(sourceVertexSpec);
-            _controller.AddVertex(targetVertexSpec);
-
-            //we need to wait a bit
-            System.Threading.Thread.Sleep(10);
-
+            await _controller.AddVertex(sourceVertexSpec, true);
+            await _controller.AddVertex(targetVertexSpec, true);
 
             // Get the created vertices to get their IDs
             var graph = _controller.GetGraph(100);
@@ -191,10 +185,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             // Act
-            _controller.AddEdge(edgeSpec);
-
-            //we need to wait a bit
-            Thread.Sleep(100);
+            await _controller.AddEdge(edgeSpec, true);
 
             // Assert
             // Refresh the graph
@@ -274,7 +265,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void GetGraph_ShouldReturnGraphWithVerticesAndEdges()
+        public async Task GetGraph_ShouldReturnGraphWithVerticesAndEdges()
         {
             // Arrange
             // Create two vertices
@@ -306,11 +297,8 @@ namespace NoSQL.GraphDB.Tests
                 }
             };
 
-            _controller.AddVertex(sourceVertexSpec);
-            _controller.AddVertex(targetVertexSpec);
-
-            //we need to wait a bit
-            System.Threading.Thread.Sleep(10);
+            await _controller.AddVertex(sourceVertexSpec, true);
+            await _controller.AddVertex(targetVertexSpec, true);
 
             // Get the created vertices to get their IDs
             var initialGraph = _controller.GetGraph(100);
@@ -336,10 +324,8 @@ namespace NoSQL.GraphDB.Tests
                     }
                 }
             };
-            _controller.AddEdge(edgeSpec);
 
-            //we need to wait a bit
-            Thread.Sleep(100);
+            await _controller.AddEdge(edgeSpec, true);
 
             // Act
             Graph result = _controller.GetGraph(10);
@@ -368,7 +354,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void GetAllAvailableOutEdgesOnVertex_WhenVertexExists_ShouldReturnEdgePropertyIds()
+        public async Task GetAllAvailableOutEdgesOnVertex_WhenVertexExists_ShouldReturnEdgePropertyIds()
         {
             // Arrange - Create vertex with outgoing edges
             var sourceVertexSpec = new VertexSpecification
@@ -399,11 +385,8 @@ namespace NoSQL.GraphDB.Tests
                 }
             };
 
-            _controller.AddVertex(sourceVertexSpec);
-            _controller.AddVertex(targetVertexSpec);
-
-            //we need to wait a bit
-            System.Threading.Thread.Sleep(10);
+            await _controller.AddVertex(sourceVertexSpec, true);
+            await _controller.AddVertex(targetVertexSpec, true);
 
             // Get the created vertices to get their IDs
             var initialGraph = _controller.GetGraph(100);
@@ -433,11 +416,8 @@ namespace NoSQL.GraphDB.Tests
                 Properties = new List<PropertySpecification>()
             };
 
-            _controller.AddEdge(edgeSpec1);
-            _controller.AddEdge(edgeSpec2);
-
-            //we need to wait a bit
-            Thread.Sleep(100);
+            await _controller.AddEdge(edgeSpec1, true);
+            await _controller.AddEdge(edgeSpec2, true);
 
             // Act
             List<string> result = _controller.GetAllAvailableOutEdgesOnVertex(sourceId.Id);
@@ -450,7 +430,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void GetAllAvailableIncEdgesOnVertex_WhenVertexExists_ShouldReturnEdgePropertyIds()
+        public async Task GetAllAvailableIncEdgesOnVertex_WhenVertexExists_ShouldReturnEdgePropertyIds()
         {
             // Arrange - Create vertices with incoming edges to target
             var sourceVertexSpec = new VertexSpecification
@@ -481,11 +461,8 @@ namespace NoSQL.GraphDB.Tests
                 }
             };
 
-            _controller.AddVertex(sourceVertexSpec);
-            _controller.AddVertex(targetVertexSpec);
-
-            //we need to wait a bit
-            System.Threading.Thread.Sleep(10);
+            await _controller.AddVertex(sourceVertexSpec, true);
+            await _controller.AddVertex(targetVertexSpec, true);
 
             // Get the created vertices to get their IDs
             var initialGraph = _controller.GetGraph(100);
@@ -515,11 +492,8 @@ namespace NoSQL.GraphDB.Tests
                 Properties = new List<PropertySpecification>()
             };
 
-            _controller.AddEdge(edgeSpec1);
-            _controller.AddEdge(edgeSpec2);
-
-            //we need to wait a bit
-            Thread.Sleep(100);
+            await _controller.AddEdge(edgeSpec1, true);
+            await _controller.AddEdge(edgeSpec2, true);
 
             // Act
             List<string> result = _controller.GetAllAvailableIncEdgesOnVertex(targetId.Id);
@@ -532,7 +506,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void GetIncomingEdges_WhenEdgeExists_ShouldReturnEdgeIds()
+        public async Task GetIncomingEdges_WhenEdgeExists_ShouldReturnEdgeIds()
         {
             // Arrange - Create vertices and edge
             var sourceVertexSpec = new VertexSpecification
@@ -563,11 +537,8 @@ namespace NoSQL.GraphDB.Tests
                 }
             };
 
-            _controller.AddVertex(sourceVertexSpec);
-            _controller.AddVertex(targetVertexSpec);
-
-            //we need to wait a bit
-            System.Threading.Thread.Sleep(10);
+            await _controller.AddVertex(sourceVertexSpec, true);
+            await _controller.AddVertex(targetVertexSpec, true);
 
             // Get the created vertices to get their IDs
             var initialGraph = _controller.GetGraph(100);
@@ -586,10 +557,7 @@ namespace NoSQL.GraphDB.Tests
                 EdgePropertyId = "friendship",
                 Properties = new List<PropertySpecification>()
             };
-            _controller.AddEdge(edgeSpec);
-
-            //we need to wait a bit
-            Thread.Sleep(100);
+            await _controller.AddEdge(edgeSpec, true);
 
             // Act
             var result = _controller.GetIncomingEdges(targetId.Id, "friendship");

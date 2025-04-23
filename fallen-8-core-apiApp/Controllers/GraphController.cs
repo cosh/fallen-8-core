@@ -48,6 +48,7 @@ using NoSQL.GraphDB.Core.Index.Spatial;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Transaction;
+using System.Threading.Tasks;
 
 namespace NoSQL.GraphDB.App.Controllers
 {
@@ -113,7 +114,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public void AddVertex([FromBody] VertexSpecification definition)
+        public async Task<IActionResult> AddVertex([FromBody] VertexSpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             #region initial checks
 
@@ -134,7 +135,14 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             };
 
-            _fallen8.EnqueueTransaction(tx);
+            var transactionTask = _fallen8.EnqueueTransaction(tx);
+
+            if (waitForCompletion)
+            {
+                transactionTask.WaitUntilFinished();
+            }
+
+            return Accepted();
         }
 
         [HttpGet("/vertex/{vertexIdentifier}")]
@@ -180,7 +188,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public void AddEdge(EdgeSpecification definition)
+        public async Task<IActionResult> AddEdge(EdgeSpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             #region initial checks
 
@@ -204,7 +212,14 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             };
 
-            _fallen8.EnqueueTransaction(tx);
+            var transactionTask = _fallen8.EnqueueTransaction(tx);
+
+            if (waitForCompletion)
+            {
+                transactionTask.WaitUntilFinished();
+            }
+
+            return Accepted();
         }
 
         [HttpGet("/edge/{edgeIdentifier}")]
