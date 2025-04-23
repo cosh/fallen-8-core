@@ -93,6 +93,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Creates a new vertex in the graph
         /// </summary>
         /// <param name="definition">The vertex specification containing label and property information</param>
+        /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
         /// <remarks>
         /// Sample request:
         ///
@@ -145,6 +146,13 @@ namespace NoSQL.GraphDB.App.Controllers
             return Accepted();
         }
 
+        /// <summary>
+        /// Retrieves a vertex from the graph by its identifier
+        /// </summary>
+        /// <param name="vertexIdentifier">The ID of the vertex to retrieve</param>
+        /// <returns>The vertex object if found, null otherwise</returns>
+        /// <response code="200">Returns the vertex object</response>
+        /// <response code="204">Vertex with the specified ID was not found</response>
         [HttpGet("/vertex/{vertexIdentifier}")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(Vertex), StatusCodes.Status200OK)]
@@ -161,9 +169,32 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
+        /// Retrieves an edge from the graph by its identifier
+        /// </summary>
+        /// <param name="edgeIdentifier">The ID of the edge to retrieve</param>
+        /// <returns>The edge object if found, null otherwise</returns>
+        /// <response code="200">Returns the edge object</response>
+        /// <response code="204">Edge with the specified ID was not found</response>
+        [HttpGet("/edge/{edgeIdentifier}")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(Edge), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public Edge GetEdge([FromRoute] Int32 edgeIdentifier)
+        {
+            EdgeModel edge;
+            if (_fallen8.TryGetEdge(out edge, edgeIdentifier))
+            {
+                return new Edge(edge);
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Creates a new edge between two vertices in the graph
         /// </summary>
         /// <param name="definition">The edge specification containing source, target and property information</param>
+        /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
         /// <remarks>
         /// Sample request:
         ///
@@ -222,21 +253,13 @@ namespace NoSQL.GraphDB.App.Controllers
             return Accepted();
         }
 
-        [HttpGet("/edge/{edgeIdentifier}")]
-        [Produces("application/json")]
-        [ProducesResponseType(typeof(Edge), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
-        public Edge GetEdge([FromRoute] Int32 edgeIdentifier)
-        {
-            EdgeModel edge;
-            if (_fallen8.TryGetEdge(out edge, edgeIdentifier))
-            {
-                return new Edge(edge);
-            }
-
-            return null;
-        }
-
+        /// <summary>
+        /// Retrieves a graph element (vertex or edge) by its identifier
+        /// </summary>
+        /// <param name="graphElementIdentifier">The ID of the graph element to retrieve</param>
+        /// <returns>The graph element object if found, null otherwise</returns>
+        /// <response code="200">Returns the graph element object</response>
+        /// <response code="204">Graph element with the specified ID was not found</response>
         [HttpGet("/graphelement/{graphElementIdentifier}")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(AGraphElement), StatusCodes.Status200OK)]
@@ -665,6 +688,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="graphElementIdentifier">The ID of the graph element</param>
         /// <param name="propertyIdString">The ID/key of the property</param>
         /// <param name="definition">Property value specification</param>
+        /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
         /// <remarks>
         /// Sample request:
         ///
@@ -715,6 +739,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         /// <param name="graphElementIdentifier">The ID of the graph element</param>
         /// <param name="propertyIdString">The ID/key of the property to remove</param>
+        /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
         /// <remarks>
         /// Sample request:
         ///
@@ -751,6 +776,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Removes a graph element (vertex or edge) from the graph
         /// </summary>
         /// <param name="graphElementIdentifier">The ID of the graph element to remove</param>
+        /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
         /// <remarks>
         /// Sample request:
         ///
