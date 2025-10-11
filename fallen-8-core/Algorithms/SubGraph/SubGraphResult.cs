@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System;
 using System.Collections.Generic;
 
 namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
@@ -51,6 +52,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// </remarks>
     public class SubGraphResult
     {
+        /// <summary>
+        /// The Guid of the fallen-8 this subgraph was created on
+        /// </summary>
+        public Guid IdOfOriginalFallen8
+        {
+            get; set;
+        }
+
         /// <summary>
         /// Gets or sets the subgraph definition that was used to generate this result.
         /// </summary>
