@@ -223,7 +223,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Act
             List<Path> paths;
-            fallen8.CalculateShortestPath(out paths, "BLS", 0, 20, maxDepth: 26, maxResults: 2);
+            fallen8.TryCalculateShortestPath(out paths, "BLS", 0, 20, maxDepth: 26, maxResults: 2);
 
             // Assert
             Assert.AreEqual(1, paths.Count);
@@ -239,13 +239,13 @@ namespace NoSQL.GraphDB.Tests
 
             // Act
             List<Path> paths;
-            fallen8.CalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
+            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
 
             // Assert
             Assert.AreEqual(1, paths.Count);
 
             // Test the cache
-            fallen8.CalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
+            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
             Assert.AreEqual(1, paths.Count);
         }
 
@@ -340,7 +340,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Use the traverser
             List<Path> paths;
-            fallen8.CalculateShortestPath(out paths, "BLS", 0, 10, maxDepth: 10, maxResults: 5,
+            fallen8.TryCalculateShortestPath(out paths, "BLS", 0, 10, maxDepth: 10, maxResults: 5,
                 edgePropertyFilter: traverser.EdgePropertyFilter(),
                 vertexFilter: traverser.VertexFilter(),
                 edgeFilter: traverser.EdgeFilter());
@@ -366,7 +366,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Act - Calculate paths with the first traverser
             List<Path> paths1;
-            fallen8.CalculateShortestPath(out paths1, "BLS", 0, 15, maxDepth: 15, maxResults: 3,
+            fallen8.TryCalculateShortestPath(out paths1, "BLS", 0, 15, maxDepth: 15, maxResults: 3,
                 edgePropertyFilter: traverser1.EdgePropertyFilter(),
                 vertexFilter: traverser1.VertexFilter(),
                 edgeFilter: traverser1.EdgeFilter());
@@ -374,7 +374,7 @@ namespace NoSQL.GraphDB.Tests
             // Record timing for second call which should use cache
             var sw = System.Diagnostics.Stopwatch.StartNew();
             List<Path> paths2;
-            fallen8.CalculateShortestPath(out paths2, "BLS", 0, 15, maxDepth: 15, maxResults: 3,
+            fallen8.TryCalculateShortestPath(out paths2, "BLS", 0, 15, maxDepth: 15, maxResults: 3,
                 edgePropertyFilter: traverser2.EdgePropertyFilter(),
                 vertexFilter: traverser2.VertexFilter(),
                 edgeFilter: traverser2.EdgeFilter());
@@ -457,7 +457,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Find the shortest weighted path from A to E
             List<Path> paths;
-            fallen8.CalculateShortestPath(out paths, "BLS", aId, eId, maxDepth: 10, maxResults: 1,
+            fallen8.TryCalculateShortestPath(out paths, "BLS", aId, eId, maxDepth: 10, maxResults: 1,
                 edgePropertyFilter: costTraverser.EdgePropertyFilter(),
                 vertexFilter: costTraverser.VertexFilter(),
                 edgeFilter: costTraverser.EdgeFilter(),
@@ -536,7 +536,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Act - Try to find a path between disconnected subgraphs
             List<Path> paths;
-            fallen8.CalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, aId, xId, maxDepth: 10, maxResults: 5);
+            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, aId, xId, maxDepth: 10, maxResults: 5);
 
             // Assert
             Assert.IsNotNull(paths, "Paths should be initialized to an empty list, not null");
@@ -567,7 +567,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Act - Calculate paths with the edge filter
             List<Path> paths;
-            fallen8.CalculateShortestPath(out paths, "BLS", alice.Id, trent.Id,
+            fallen8.TryCalculateShortestPath(out paths, "BLS", alice.Id, trent.Id,
                 maxDepth: 10, maxResults: 5,
                 edgePropertyFilter: traverser.EdgePropertyFilter(),
                 vertexFilter: traverser.VertexFilter(),
@@ -632,7 +632,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Act & Assert - Should find path from Node1 to Node4 through Node2 and Node3
             List<Path> paths;
-            fallen8.CalculateShortestPath(out paths, "BLS", node1Id, node4Id, maxDepth: 3);
+            fallen8.TryCalculateShortestPath(out paths, "BLS", node1Id, node4Id, maxDepth: 3);
 
             // Assert
             Assert.IsNotNull(paths, "Paths should not be null");

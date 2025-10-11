@@ -983,7 +983,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 if (traverser != null)
                 {
                     List<Core.Algorithms.Path.Path> paths;
-                    if (_fallen8.CalculateShortestPath(
+                    if (_fallen8.TryCalculateShortestPath(
                         out paths,
                         definition.PathAlgorithmName ?? "BLS", // Default to BLS if not specified
                         from,

@@ -149,7 +149,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name="edgeCost"> The edge cost. </param>
         /// <param name="vertexCost"> The vertex cost. </param>
         /// <returns> True if the plugin was found, otherwise false. </returns>
-        bool CalculateShortestPath(
+        bool TryCalculateShortestPath(
             out List<Path> result,
             string algorithmname,
             Int32 sourceVertexId,
@@ -179,7 +179,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name="edgeCost"> The edge cost. </param>
         /// <param name="vertexCost"> The vertex cost. </param>
         /// <returns> True if the plugin was found, otherwise false. </returns>
-        public bool CalculateShortestPath<T>(
+        public bool TryCalculateShortestPath<T>(
             out List<Path> result,
             Int32 sourceVertexId,
             Int32 destinationVertexId,
