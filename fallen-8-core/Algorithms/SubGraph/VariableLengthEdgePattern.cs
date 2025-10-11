@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// EdgePattern.cs
+// VariableLengthEdgePattern.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -26,20 +26,55 @@
 namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
     /// <summary>
-    /// Defines a pattern for matching single edges in a subgraph query.
+    /// Defines a pattern for matching edges in a subgraph query.
     /// </summary>
     /// <remarks>
     /// <para>
     /// EdgePattern extends <see cref="APattern"/> to provide edge-specific matching capabilities.
-    /// It allows for matching individual edges based on direction, edge properties, and custom filtering logic.
+    /// It allows for sophisticated edge matching including variable-length paths, directional constraints,
+    /// property filtering, and custom edge filtering logic.
     /// </para>
     /// <para>
-    /// This pattern type is essential for defining direct relationships between vertices in graph queries,
-    /// representing a single hop connection from one vertex to another.
+    /// This pattern type is essential for defining relationships between vertices in graph queries,
+    /// supporting both simple single-edge connections and complex path expressions.
     /// </para>
     /// </remarks>
-    public class EdgePattern : APattern
+    public class VariableLengthEdgePattern : APattern
     {
+        /// <summary>
+        /// Gets or sets the maximum path length for this edge pattern.
+        /// </summary>
+        /// <value>
+        /// The maximum number of edges to traverse when matching this pattern.
+        /// Used in variable-length path matching scenarios.
+        /// </value>
+        /// <remarks>
+        /// This property enables matching paths of variable length between vertices.
+        /// When combined with <see cref="MinLength"/>, it defines a range of acceptable path lengths.
+        /// For example, setting MinLength to 1 and MaxLength to 3 would match paths with 1, 2, or 3 edges.
+        /// </remarks>
+        public ushort MaxLength
+        {
+            get; set;
+        }
+
+        /// <summary>
+        /// Gets or sets the minimum path length for this edge pattern.
+        /// </summary>
+        /// <value>
+        /// The minimum number of edges required when matching this pattern.
+        /// Used in variable-length path matching scenarios.
+        /// </value>
+        /// <remarks>
+        /// This property defines the lower bound for path length matching.
+        /// Together with <see cref="MaxLength"/>, it creates a range for variable-length path queries.
+        /// A value of 1 represents a direct edge connection, while higher values allow for indirect paths.
+        /// </remarks>
+        public ushort MinLength
+        {
+            get; set;
+        }
+
         /// <summary>
         /// Gets or sets the direction constraint for edge traversal.
         /// </summary>
