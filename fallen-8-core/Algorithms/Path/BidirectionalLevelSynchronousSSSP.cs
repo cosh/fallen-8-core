@@ -51,7 +51,33 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
         #region IShortestPathAlgorithm Members
 
-        public List<Path> Calculate(
+        public bool TryCalculateShortestPath(
+            out List<Path> result,
+            ShortestPathDefinition definition)
+        {
+            var calculatedResult = Calculate(
+                definition.SourceVertexId,
+                definition.DestinationVertexId,
+                definition.MaxDepth,
+                definition.MaxPathWeight,
+                definition.MaxResults,
+                definition.EdgePropertyFilter,
+                definition.VertexFilter,
+                definition.EdgeFilter,
+                definition.EdgeCost,
+                definition.VertexCost);
+
+            if (calculatedResult != null && calculatedResult.Count > 0)
+            {
+                result = calculatedResult;
+                return true;
+            }
+
+            result = new List<Path>();
+            return false;
+        }
+
+        private List<Path> Calculate(
             Int32 sourceVertexId,
             Int32 destinationVertexId,
             Int32 maxDepth = 1,

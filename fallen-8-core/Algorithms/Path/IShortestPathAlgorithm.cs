@@ -39,29 +39,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
     public interface IShortestPathAlgorithm : IPlugin
     {
         /// <summary>
-        /// Calculates shortest paths
+        /// Tries to calculate shortest paths between two vertices
         /// </summary>
-        /// <param name="sourceVertexId">The source vertex identifier.</param>
-        /// <param name="destinationVertexId">The destination vertex identifier.</param>
-        /// <param name="maxDepth">The maximum depth.</param>
-        /// <param name="maxPathWeight">The maximum path weight.</param>
-        /// <param name="maxResults">The maximum number of results.</param>
-        /// <param name="edgePropertyFilter">Edge property filter delegate.</param>
-        /// <param name="vertexFilter">Vertex filter delegate.</param>
-        /// <param name="edgeFilter">Edge filter delegate.</param>
-        /// <param name="edgeCost">The edge cost delegate.</param>
-        /// <param name="vertexCost">The vertex cost delegate.</param>
-        /// <returns>Paths</returns>
-        List<Path> Calculate(
-            Int32 sourceVertexId,
-            Int32 destinationVertexId,
-            Int32 maxDepth = 1,
-            Double maxPathWeight = Double.MaxValue,
-            Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
-            Delegates.VertexFilter vertexFilter = null,
-            Delegates.EdgeFilter edgeFilter = null,
-            Delegates.EdgeCost edgeCost = null,
-            Delegates.VertexCost vertexCost = null);
+        /// <param name="result">The resulting list of paths if any were found.</param>
+        /// <param name="definition">The shortest path calculation parameters.</param>
+        /// <returns>True if at least one path was found; otherwise, false.</returns>
+        bool TryCalculateShortestPath(
+            out List<Path> result,
+            ShortestPathDefinition definition);
     }
 }

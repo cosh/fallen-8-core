@@ -982,20 +982,25 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (traverser != null)
                 {
+                    var pathDefinition = new ShortestPathDefinition
+                    {
+                        SourceVertexId = from,
+                        DestinationVertexId = to,
+                        MaxDepth = definition.MaxDepth,
+                        MaxPathWeight = definition.MaxPathWeight,
+                        MaxResults = definition.MaxResults,
+                        EdgePropertyFilter = traverser.EdgePropertyFilter(),
+                        VertexFilter = traverser.VertexFilter(),
+                        EdgeFilter = traverser.EdgeFilter(),
+                        EdgeCost = traverser.EdgeCost(),
+                        VertexCost = traverser.VertexCost()
+                    };
+
                     List<Core.Algorithms.Path.Path> paths;
                     if (_fallen8.TryCalculateShortestPath(
                         out paths,
                         definition.PathAlgorithmName ?? "BLS", // Default to BLS if not specified
-                        from,
-                        to,
-                        definition.MaxDepth,
-                        definition.MaxPathWeight,
-                        definition.MaxResults,
-                        traverser.EdgePropertyFilter(),
-                        traverser.VertexFilter(),
-                        traverser.EdgeFilter(),
-                        traverser.EdgeCost(),
-                        traverser.VertexCost()))
+                        pathDefinition))
                     {
                         if (paths != null && paths.Count > 0)
                         {

@@ -393,25 +393,16 @@ namespace NoSQL.GraphDB.Core
 
         public bool TryCalculateShortestPath(
             out List<Path> result,
-            string algorithmname,
-            Int32 sourceVertexId,
-            Int32 destinationVertexId,
-            Int32 maxDepth = 1,
-            Double maxPathWeight = Double.MaxValue,
-            Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
-            Delegates.VertexFilter vertexFilter = null,
-            Delegates.EdgeFilter edgeFilter = null,
-            Delegates.EdgeCost edgeCost = null,
-            Delegates.VertexCost vertexCost = null)
+            string plugin,
+            ShortestPathDefinition definition)
         {
             IShortestPathAlgorithm algo = null;
 
             Object cachedAlgo;
-            if (!_pluginCache.ShortestPath.TryGetValue(algorithmname, out cachedAlgo))
+            if (!_pluginCache.ShortestPath.TryGetValue(plugin, out cachedAlgo))
             {
                 //Shortest path plugin was not cached
-                if (PluginFactory.TryFindPlugin(out algo, algorithmname))
+                if (PluginFactory.TryFindPlugin(out algo, plugin))
                 {
                     algo.Initialize(this, null);
                     _pluginCache.AddShortestPath(algo);
@@ -422,23 +413,18 @@ namespace NoSQL.GraphDB.Core
                 algo = (IShortestPathAlgorithm)cachedAlgo;
             }
 
-            return CalculateShortestPathInternal(out result, algo, sourceVertexId, destinationVertexId,
-                maxDepth, maxPathWeight, maxResults, edgePropertyFilter, vertexFilter, edgeFilter,
-                edgeCost, vertexCost);
+            if (algo != null)
+            {
+                return algo.TryCalculateShortestPath(out result, definition);
+            }
+
+            result = new List<Path>();
+            return false;
         }
 
         public bool TryCalculateShortestPath<T>(
             out List<Path> result,
-            Int32 sourceVertexId,
-            Int32 destinationVertexId,
-            Int32 maxDepth = 1,
-            Double maxPathWeight = Double.MaxValue,
-            Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
-            Delegates.VertexFilter vertexFilter = null,
-            Delegates.EdgeFilter edgeFilter = null,
-            Delegates.EdgeCost edgeCost = null,
-            Delegates.VertexCost vertexCost = null)
+            ShortestPathDefinition definition)
                 where T : IShortestPathAlgorithm
         {
             Type shortestPathType = typeof(T);
@@ -457,42 +443,11 @@ namespace NoSQL.GraphDB.Core
                 {
                     algo = (IShortestPathAlgorithm)cachedAlgo;
                 }
+
+                return algo.TryCalculateShortestPath(out result, definition);
             }
 
-            return CalculateShortestPathInternal(out result, algo, sourceVertexId, destinationVertexId,
-                maxDepth, maxPathWeight, maxResults, edgePropertyFilter, vertexFilter, edgeFilter,
-                edgeCost, vertexCost);
-        }
-
-        private bool CalculateShortestPathInternal(
-            out List<Path> result,
-            IShortestPathAlgorithm algo,
-            Int32 sourceVertexId,
-            Int32 destinationVertexId,
-            Int32 maxDepth,
-            Double maxPathWeight,
-            Int32 maxResults,
-            Delegates.EdgePropertyFilter edgePropertyFilter,
-            Delegates.VertexFilter vertexFilter,
-            Delegates.EdgeFilter edgeFilter,
-            Delegates.EdgeCost edgeCost,
-            Delegates.VertexCost vertexCost)
-        {
             result = new List<Path>();
-
-            if (algo != null)
-            {
-                var calculatedResult = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
-                                        edgePropertyFilter, vertexFilter, edgeFilter, edgeCost, vertexCost);
-
-                if (calculatedResult != null)
-                {
-                    result = calculatedResult;
-                }
-
-                return result.Count > 0;
-            }
-
             return false;
         }
 

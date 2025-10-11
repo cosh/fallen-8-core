@@ -137,60 +137,24 @@ namespace NoSQL.GraphDB.Core
         ///   Calculates the shortest path using a plugin
         /// </summary>
         /// <param name="result"> The resulting path. </param>
-        /// <param name="algorithmname"> The name of the algorithm. </param>
-        /// <param name="sourceVertexId"> The source vertex identifier. </param>
-        /// <param name="destinationVertexId"> The destination vertex identifier. </param>
-        /// <param name="maxDepth"> The maximum depth. </param>
-        /// <param name="maxPathWeight"> The maximum path weight. </param>
-        /// <param name="maxResults"> The maximum number of results. </param>
-        /// <param name="edgePropertyFilter"> The edge property filter. </param>
-        /// <param name="vertexFilter"> The vertex filter. </param>
-        /// <param name="edgeFilter"> The edge filter. </param>
-        /// <param name="edgeCost"> The edge cost. </param>
-        /// <param name="vertexCost"> The vertex cost. </param>
-        /// <returns> True if the plugin was found, otherwise false. </returns>
+        /// <param name="plugin"> The name of the algorithm. </param>
+        /// <param name="definition"> The shortest path calculation parameters. </param>
+        /// <returns> True if at least one path was found, otherwise false. </returns>
         bool TryCalculateShortestPath(
             out List<Path> result,
-            string algorithmname,
-            Int32 sourceVertexId,
-            Int32 destinationVertexId,
-            Int32 maxDepth = 1,
-            double maxPathWeight = Double.MaxValue,
-            Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
-            Delegates.VertexFilter vertexFilter = null,
-            Delegates.EdgeFilter edgeFilter = null,
-            Delegates.EdgeCost edgeCost = null,
-            Delegates.VertexCost vertexCost = null);
+            string plugin,
+            ShortestPathDefinition definition);
 
         /// <summary>
         ///   Calculates the shortest path using a plugin without reflection
         /// </summary>
         /// <typeparam name="T">The generic variable for the IShortestPathPlugin type</typeparam>
         /// <param name="result"> The resulting path. </param>
-        /// <param name="sourceVertexId"> The source vertex identifier. </param>
-        /// <param name="destinationVertexId"> The destination vertex identifier. </param>
-        /// <param name="maxDepth"> The maximum depth. </param>
-        /// <param name="maxPathWeight"> The maximum path weight. </param>
-        /// <param name="maxResults"> The maximum number of results. </param>
-        /// <param name="edgePropertyFilter"> The edge property filter. </param>
-        /// <param name="vertexFilter"> The vertex filter. </param>
-        /// <param name="edgeFilter"> The edge filter. </param>
-        /// <param name="edgeCost"> The edge cost. </param>
-        /// <param name="vertexCost"> The vertex cost. </param>
-        /// <returns> True if the plugin was found, otherwise false. </returns>
+        /// <param name="definition"> The shortest path calculation parameters. </param>
+        /// <returns> True if at least one path was found, otherwise false. </returns>
         public bool TryCalculateShortestPath<T>(
             out List<Path> result,
-            Int32 sourceVertexId,
-            Int32 destinationVertexId,
-            Int32 maxDepth = 1,
-            Double maxPathWeight = Double.MaxValue,
-            Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
-            Delegates.VertexFilter vertexFilter = null,
-            Delegates.EdgeFilter edgeFilter = null,
-            Delegates.EdgeCost edgeCost = null,
-            Delegates.VertexCost vertexCost = null)
+            ShortestPathDefinition definition)
                 where T : IShortestPathAlgorithm;
 
         #endregion

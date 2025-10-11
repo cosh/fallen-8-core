@@ -223,7 +223,14 @@ namespace NoSQL.GraphDB.Tests
 
             // Act
             List<Path> paths;
-            fallen8.TryCalculateShortestPath(out paths, "BLS", 0, 20, maxDepth: 26, maxResults: 2);
+            var definition = new ShortestPathDefinition
+            {
+                SourceVertexId = 0,
+                DestinationVertexId = 20,
+                MaxDepth = 26,
+                MaxResults = 2
+            };
+            fallen8.TryCalculateShortestPath(out paths, "BLS", definition);
 
             // Assert
             Assert.AreEqual(1, paths.Count);
@@ -239,13 +246,20 @@ namespace NoSQL.GraphDB.Tests
 
             // Act
             List<Path> paths;
-            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
+            var definition = new ShortestPathDefinition
+            {
+                SourceVertexId = 0,
+                DestinationVertexId = 20,
+                MaxDepth = 26,
+                MaxResults = 2
+            };
+            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, definition);
 
             // Assert
             Assert.AreEqual(1, paths.Count);
 
             // Test the cache
-            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, 0, 20, maxDepth: 26, maxResults: 2);
+            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, definition);
             Assert.AreEqual(1, paths.Count);
         }
 
@@ -340,10 +354,17 @@ namespace NoSQL.GraphDB.Tests
 
             // Use the traverser
             List<Path> paths;
-            fallen8.TryCalculateShortestPath(out paths, "BLS", 0, 10, maxDepth: 10, maxResults: 5,
-                edgePropertyFilter: traverser.EdgePropertyFilter(),
-                vertexFilter: traverser.VertexFilter(),
-                edgeFilter: traverser.EdgeFilter());
+            var definition = new ShortestPathDefinition
+            {
+                SourceVertexId = 0,
+                DestinationVertexId = 10,
+                MaxDepth = 10,
+                MaxResults = 5,
+                EdgePropertyFilter = traverser.EdgePropertyFilter(),
+                VertexFilter = traverser.VertexFilter(),
+                EdgeFilter = traverser.EdgeFilter()
+            };
+            fallen8.TryCalculateShortestPath(out paths, "BLS", definition);
 
             // No specific assertion needed, we're just ensuring the method executes without exceptions
         }
@@ -366,18 +387,32 @@ namespace NoSQL.GraphDB.Tests
 
             // Act - Calculate paths with the first traverser
             List<Path> paths1;
-            fallen8.TryCalculateShortestPath(out paths1, "BLS", 0, 15, maxDepth: 15, maxResults: 3,
-                edgePropertyFilter: traverser1.EdgePropertyFilter(),
-                vertexFilter: traverser1.VertexFilter(),
-                edgeFilter: traverser1.EdgeFilter());
+            var definition1 = new ShortestPathDefinition
+            {
+                SourceVertexId = 0,
+                DestinationVertexId = 15,
+                MaxDepth = 15,
+                MaxResults = 3,
+                EdgePropertyFilter = traverser1.EdgePropertyFilter(),
+                VertexFilter = traverser1.VertexFilter(),
+                EdgeFilter = traverser1.EdgeFilter()
+            };
+            fallen8.TryCalculateShortestPath(out paths1, "BLS", definition1);
 
             // Record timing for second call which should use cache
             var sw = System.Diagnostics.Stopwatch.StartNew();
             List<Path> paths2;
-            fallen8.TryCalculateShortestPath(out paths2, "BLS", 0, 15, maxDepth: 15, maxResults: 3,
-                edgePropertyFilter: traverser2.EdgePropertyFilter(),
-                vertexFilter: traverser2.VertexFilter(),
-                edgeFilter: traverser2.EdgeFilter());
+            var definition2 = new ShortestPathDefinition
+            {
+                SourceVertexId = 0,
+                DestinationVertexId = 15,
+                MaxDepth = 15,
+                MaxResults = 3,
+                EdgePropertyFilter = traverser2.EdgePropertyFilter(),
+                VertexFilter = traverser2.VertexFilter(),
+                EdgeFilter = traverser2.EdgeFilter()
+            };
+            fallen8.TryCalculateShortestPath(out paths2, "BLS", definition2);
             sw.Stop();
 
             // Assert - paths should not be null
@@ -457,12 +492,19 @@ namespace NoSQL.GraphDB.Tests
 
             // Find the shortest weighted path from A to E
             List<Path> paths;
-            fallen8.TryCalculateShortestPath(out paths, "BLS", aId, eId, maxDepth: 10, maxResults: 1,
-                edgePropertyFilter: costTraverser.EdgePropertyFilter(),
-                vertexFilter: costTraverser.VertexFilter(),
-                edgeFilter: costTraverser.EdgeFilter(),
-                edgeCost: costTraverser.EdgeCost(),
-                vertexCost: costTraverser.VertexCost());
+            var definition = new ShortestPathDefinition
+            {
+                SourceVertexId = aId,
+                DestinationVertexId = eId,
+                MaxDepth = 10,
+                MaxResults = 1,
+                EdgePropertyFilter = costTraverser.EdgePropertyFilter(),
+                VertexFilter = costTraverser.VertexFilter(),
+                EdgeFilter = costTraverser.EdgeFilter(),
+                EdgeCost = costTraverser.EdgeCost(),
+                VertexCost = costTraverser.VertexCost()
+            };
+            fallen8.TryCalculateShortestPath(out paths, "BLS", definition);
 
             // Assert
             Assert.IsNotNull(paths, "Paths should not be null");
@@ -536,7 +578,14 @@ namespace NoSQL.GraphDB.Tests
 
             // Act - Try to find a path between disconnected subgraphs
             List<Path> paths;
-            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, aId, xId, maxDepth: 10, maxResults: 5);
+            var definition = new ShortestPathDefinition
+            {
+                SourceVertexId = aId,
+                DestinationVertexId = xId,
+                MaxDepth = 10,
+                MaxResults = 5
+            };
+            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, definition);
 
             // Assert
             Assert.IsNotNull(paths, "Paths should be initialized to an empty list, not null");
@@ -567,11 +616,17 @@ namespace NoSQL.GraphDB.Tests
 
             // Act - Calculate paths with the edge filter
             List<Path> paths;
-            fallen8.TryCalculateShortestPath(out paths, "BLS", alice.Id, trent.Id,
-                maxDepth: 10, maxResults: 5,
-                edgePropertyFilter: traverser.EdgePropertyFilter(),
-                vertexFilter: traverser.VertexFilter(),
-                edgeFilter: traverser.EdgeFilter());
+            var definition = new ShortestPathDefinition
+            {
+                SourceVertexId = alice.Id,
+                DestinationVertexId = trent.Id,
+                MaxDepth = 10,
+                MaxResults = 5,
+                EdgePropertyFilter = traverser.EdgePropertyFilter(),
+                VertexFilter = traverser.VertexFilter(),
+                EdgeFilter = traverser.EdgeFilter()
+            };
+            fallen8.TryCalculateShortestPath(out paths, "BLS", definition);
 
             // Assert
             Assert.IsNotNull(paths, "Paths should not be null");
@@ -632,7 +687,13 @@ namespace NoSQL.GraphDB.Tests
 
             // Act & Assert - Should find path from Node1 to Node4 through Node2 and Node3
             List<Path> paths;
-            fallen8.TryCalculateShortestPath(out paths, "BLS", node1Id, node4Id, maxDepth: 3);
+            var definition = new ShortestPathDefinition
+            {
+                SourceVertexId = node1Id,
+                DestinationVertexId = node4Id,
+                MaxDepth = 3
+            };
+            fallen8.TryCalculateShortestPath(out paths, "BLS", definition);
 
             // Assert
             Assert.IsNotNull(paths, "Paths should not be null");
