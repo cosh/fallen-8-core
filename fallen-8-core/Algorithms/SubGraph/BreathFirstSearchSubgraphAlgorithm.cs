@@ -27,6 +27,7 @@
 
 using System;
 using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
@@ -50,11 +51,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         public string Manufacturer => "Henning Rauch";
 
         private IFallen8 _fallen8;
+        private ILogger<BreathFirstSearchSubgraphAlgorithm> _logger;
 
         /// <inheritdoc />
-        public void Initialize(IFallen8 fallen8, IDictionary<string, object> configuration)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> configuration, ILoggerFactory loggerFactory)
         {
             _fallen8 = fallen8;
+            _logger = loggerFactory.CreateLogger<BreathFirstSearchSubgraphAlgorithm>();
         }
 
         /// <inheritdoc />
@@ -526,7 +529,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
         private Fallen8 CreateSubgraphInstance(HashSet<VertexModel> vertices, HashSet<EdgeModel> edges)
         {
-            var subgraph = new Fallen8(_fallen8.LoggerFactory);
+            // Cast to Fallen8 to access internal GetLoggerFactory method
+            var fallen8Concrete = _fallen8 as Fallen8;
+            if (fallen8Concrete == null)
+            {
+                throw new InvalidOperationException("Cannot create subgraph: Fallen8 instance required");
+            }
+
+            var subgraph = new Fallen8(fallen8Concrete.GetLoggerFactory());
 
             // Create a mapping from old vertex IDs to new vertex IDs
             var vertexIdMapping = new Dictionary<int, int>();

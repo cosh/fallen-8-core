@@ -59,10 +59,10 @@ namespace NoSQL.GraphDB.Core.Index
         /// <summary>
         ///   Initializes a new instance of the IndexFactory class.
         /// </summary>
-        public IndexFactory(Fallen8 myF8)
+        public IndexFactory(Fallen8 myF8, ILogger<IndexFactory> logger)
         {
             Indices = new Dictionary<String, IIndex>();
-            _logger = myF8.LoggerFactory.CreateLogger<IndexFactory>();
+            _logger = logger;
             _fallen8 = myF8;
         }
 
@@ -98,7 +98,7 @@ namespace NoSQL.GraphDB.Core.Index
             {
                 try
                 {
-                    index.Initialize(_fallen8, parameter);
+                    index.Initialize(_fallen8, parameter, ((Fallen8)_fallen8).GetLoggerFactory());
 
                     if (WriteResource())
                     {

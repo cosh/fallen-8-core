@@ -64,11 +64,12 @@ namespace NoSQL.GraphDB.Core.Service
         /// Creates a new service factory
         /// </summary>
         /// <param name="fallen8">Fallen-8</param>
-        public ServiceFactory(IFallen8 fallen8)
+        /// <param name="logger">Logger instance</param>
+        public ServiceFactory(IFallen8 fallen8, ILogger<ServiceFactory> logger)
         {
             _fallen8 = fallen8;
             Services = new Dictionary<string, IService>();
-            _logger = _fallen8.LoggerFactory.CreateLogger<ServiceFactory>();
+            _logger = logger;
         }
 
         #endregion
@@ -115,7 +116,7 @@ namespace NoSQL.GraphDB.Core.Service
                             return false;
                         }
 
-                        service.Initialize(_fallen8, parameter);
+                        service.Initialize(_fallen8, parameter, ((Fallen8)_fallen8).GetLoggerFactory());
                         Services.Add(serviceName, service);
 
                         FinishWriteResource();

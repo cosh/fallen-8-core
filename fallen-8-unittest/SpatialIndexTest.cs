@@ -226,7 +226,7 @@ namespace NoSQL.GraphDB.Tests
             parameters["Space"] = spaceDimensions;
 
             // Initialize the RTree with the parameters
-            rTree.Initialize(null, parameters);
+            rTree.Initialize(null, parameters, _loggerFactory);
 
             return rTree;
         }

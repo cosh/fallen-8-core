@@ -33,6 +33,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer;
@@ -86,6 +87,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         private int _countOfReInsert;
         private Dictionary<int, IRTreeDataContainer> _mapOfContainers;
         private ARTreeContainer _root;
+        private ILogger<RTree> _logger;
 
         private delegate bool SpatialFilter(ISpatialContainer spatialContainer1, ISpatialContainer spatialContainer2);
 
@@ -1793,8 +1795,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             }
         }
 
-        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter, ILoggerFactory loggerFactory)
         {
+            _logger = loggerFactory.CreateLogger<RTree>();
+
             if (parameter == null) throw new ArgumentNullException("parameter");
 
             if (!parameter.ContainsKey("IMetric") || !(parameter["IMetric"] is IMetric))

@@ -26,7 +26,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Index;
@@ -80,14 +79,6 @@ namespace NoSQL.GraphDB.Core
         public abstract Int32 EdgeCount
         {
             get; protected set;
-        }
-
-        /// <summary>
-        ///   Gets the logger factory.
-        /// </summary>
-        public abstract ILoggerFactory LoggerFactory
-        {
-            get;
         }
 
         /// <summary>

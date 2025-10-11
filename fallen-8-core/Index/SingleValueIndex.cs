@@ -296,10 +296,10 @@ namespace NoSQL.GraphDB.Core.Index
 
         #region IPlugin implementation
 
-        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter, ILoggerFactory loggerFactory)
         {
             _idx = new Dictionary<IComparable, AGraphElementModel>();
-            _logger = fallen8.LoggerFactory.CreateLogger<SingleValueIndex>();
+            _logger = loggerFactory.CreateLogger<SingleValueIndex>();
         }
 
         public string PluginName

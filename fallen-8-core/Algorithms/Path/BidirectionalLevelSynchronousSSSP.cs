@@ -28,6 +28,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Model;
 
 
@@ -46,6 +47,11 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         ///   The Fallen-8
         /// </summary>
         private IFallen8 _fallen8;
+
+        /// <summary>
+        /// The logger
+        /// </summary>
+        private ILogger<BidirectionalLevelSynchronousSSSP> _logger;
 
         #endregion
 
@@ -861,9 +867,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             }
         }
 
-        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter, ILoggerFactory loggerFactory)
         {
             _fallen8 = fallen8;
+            _logger = loggerFactory.CreateLogger<BidirectionalLevelSynchronousSSSP>();
         }
 
         #endregion

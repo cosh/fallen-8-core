@@ -129,7 +129,7 @@ namespace NoSQL.GraphDB.Tests
             var testVertex3 = testVertices[2];
 
             var dictionaryIndex = new DictionaryIndex();
-            dictionaryIndex.Initialize(fallen8, null);
+            dictionaryIndex.Initialize(fallen8, null, _loggerFactory);
 
             // Act - Add elements to index
             dictionaryIndex.AddOrUpdate("key1", testVertex1);
@@ -217,7 +217,7 @@ namespace NoSQL.GraphDB.Tests
             var testVertex3 = testVertices[2];
 
             var singleValueIndex = new SingleValueIndex();
-            singleValueIndex.Initialize(fallen8, null);
+            singleValueIndex.Initialize(fallen8, null, _loggerFactory);
 
             // Act - Add elements to index
             singleValueIndex.AddOrUpdate("key1", testVertex1);
@@ -312,7 +312,7 @@ namespace NoSQL.GraphDB.Tests
             var testVertex3 = testVertices[2];
 
             var rangeIndex = new RangeIndex();
-            rangeIndex.Initialize(fallen8, null);
+            rangeIndex.Initialize(fallen8, null, _loggerFactory);
 
             // Act - Add elements to index
             rangeIndex.AddOrUpdate(10, testVertex1);
@@ -429,7 +429,7 @@ namespace NoSQL.GraphDB.Tests
             var testVertex3 = testVertices[2];
 
             var regExIndex = new RegExIndex();
-            regExIndex.Initialize(fallen8, null);
+            regExIndex.Initialize(fallen8, null, _loggerFactory);
 
             // Act - Add elements to index
             regExIndex.AddOrUpdate("The quick brown fox jumps over the lazy dog", testVertex1);
@@ -514,7 +514,8 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
 
             // Act
             var availablePlugins = indexFactory.GetAvailableIndexPlugins().ToList();
@@ -532,7 +533,8 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
 
             // Act - Create a dictionary index
             IIndex dictionaryIndex;
@@ -558,7 +560,8 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
 
             // Act - Create different index types
             IIndex dictionaryIndex;
@@ -591,7 +594,8 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
 
             // Create a test index
             IIndex testIndex;
@@ -615,7 +619,8 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
 
             // Create multiple test indices
             IIndex index1, index2, index3;
@@ -645,7 +650,8 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
 
             // Create a test index
             IIndex firstIndex;
@@ -668,7 +674,8 @@ namespace NoSQL.GraphDB.Tests
 
             var fallen8 = new Fallen8(_loggerFactory);
             var testVertices = CreateTestVertices(fallen8);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
 
             // Create different index types
             IIndex dictionaryIndex;
@@ -724,7 +731,8 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
 
             // Act - Get available index plugins
             var availablePlugins = indexFactory.GetAvailableIndexPlugins().ToList();
@@ -786,7 +794,8 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
             var parameters = new Dictionary<string, object>
             {
                 { "testParam", "testValue" }
@@ -811,7 +820,8 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var indexFactory = new IndexFactory(fallen8);
+            var indexLogger = _loggerFactory.CreateLogger<IndexFactory>();
+            var indexFactory = new IndexFactory(fallen8, indexLogger);
 
             // Act
             IIndex nonExistentIndex;

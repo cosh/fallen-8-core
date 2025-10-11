@@ -56,7 +56,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
         /// <summary>
         /// The logger
         /// </summary>
-        private ILogger<DictionaryIndex> _logger;
+        private ILogger<RangeIndex> _logger;
 
         #endregion
 
@@ -80,10 +80,10 @@ namespace NoSQL.GraphDB.Core.Index.Range
         #endregion
 
         #region IPlugin implementation
-        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter, ILoggerFactory loggerFactory)
         {
             _idx = new Dictionary<IComparable, ImmutableList<AGraphElementModel>>();
-            _logger = fallen8.LoggerFactory.CreateLogger<DictionaryIndex>();
+            _logger = loggerFactory.CreateLogger<RangeIndex>();
         }
 
         public string PluginName

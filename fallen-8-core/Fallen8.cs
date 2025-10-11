@@ -124,11 +124,29 @@ namespace NoSQL.GraphDB.Core
         private readonly ILogger<Fallen8> _logger;
 
         /// <summary>
-        /// The logger factory
+        /// The logger factory (kept private for internal use)
         /// </summary>
-        public override ILoggerFactory LoggerFactory => _loggerFactory;
-
         private readonly ILoggerFactory _loggerFactory;
+
+        #endregion
+
+        #region Internal Helper Methods
+
+        /// <summary>
+        /// Creates a logger for the specified type. Used internally by persistence factory.
+        /// </summary>
+        internal ILogger<T> CreateLogger<T>()
+        {
+            return _loggerFactory.CreateLogger<T>();
+        }
+
+        /// <summary>
+        /// Gets the logger factory. Used internally for creating subgraph instances.
+        /// </summary>
+        internal ILoggerFactory GetLoggerFactory()
+        {
+            return _loggerFactory;
+        }
 
         #endregion
 
@@ -140,14 +158,19 @@ namespace NoSQL.GraphDB.Core
         public Fallen8(ILoggerFactory loggerfactory)
         {
             _loggerFactory = loggerfactory;
+            _logger = loggerfactory.CreateLogger<Fallen8>();
 
-            IndexFactory = new IndexFactory(this);
+            // Create loggers for factories
+            var indexLogger = loggerfactory.CreateLogger<IndexFactory>();
+            var serviceLogger = loggerfactory.CreateLogger<ServiceFactory>();
+            var persistencyLogger = loggerfactory.CreateLogger<PersistencyFactory>();
+
+            IndexFactory = new IndexFactory(this, indexLogger);
             _graphElements = ImmutableList.Create<AGraphElementModel>();
-            ServiceFactory = new ServiceFactory(this);
+            ServiceFactory = new ServiceFactory(this, serviceLogger);
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
-            _logger = loggerfactory.CreateLogger<Fallen8>();
-            _persistencyFactory = new PersistencyFactory(loggerfactory);
+            _persistencyFactory = new PersistencyFactory(persistencyLogger);
         }
 
         /// <summary>
@@ -406,7 +429,7 @@ namespace NoSQL.GraphDB.Core
                 //Shortest path plugin was not cached
                 if (PluginFactory.TryFindPlugin(out algo, plugin))
                 {
-                    algo.Initialize(this, null);
+                    algo.Initialize(this, null, _loggerFactory);
                     _pluginCache.AddShortestPath(algo);
                 }
             }
@@ -437,7 +460,7 @@ namespace NoSQL.GraphDB.Core
                 if (!_pluginCache.ShortestPath.TryGetValue(algo.PluginName, out cachedAlgo))
                 {
                     //Shortest path plugin was not cached
-                    algo.Initialize(this, null);
+                    algo.Initialize(this, null, _loggerFactory);
                     _pluginCache.AddShortestPath(algo);
                 }
                 else

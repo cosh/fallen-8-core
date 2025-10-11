@@ -24,7 +24,6 @@
 // SOFTWARE.
 
 using System;
-using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Service;
 
@@ -71,14 +70,6 @@ namespace NoSQL.GraphDB.Core
         ///   Gets the count of edges.
         /// </summary>
         Int32 EdgeCount
-        {
-            get;
-        }
-
-        /// <summary>
-        ///   Gets the logger factory.
-        /// </summary>
-        ILoggerFactory LoggerFactory
         {
             get;
         }

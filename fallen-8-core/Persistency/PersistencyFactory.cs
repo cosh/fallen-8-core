@@ -55,9 +55,9 @@ namespace NoSQL.GraphDB.Core.Persistency
 
         #endregion
 
-        public PersistencyFactory(ILoggerFactory loggerFactory)
+        public PersistencyFactory(ILogger<PersistencyFactory> logger)
         {
-            _logger = loggerFactory.CreateLogger<PersistencyFactory>();
+            _logger = logger;
         }
 
         #region internal methods
@@ -122,7 +122,8 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                     indexStreams.Add(indexFilename);
                 }
-                var newIndexFactory = new IndexFactory(fallen8);
+                var indexLogger = ((Fallen8)fallen8).CreateLogger<IndexFactory>();
+                var newIndexFactory = new IndexFactory(fallen8, indexLogger);
                 LoadIndices(fallen8, newIndexFactory, indexStreams);
                 fallen8.IndexFactory = newIndexFactory;
 
@@ -139,7 +140,8 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                     serviceStreams.Add(serviceFilename);
                 }
-                var newServiceFactory = new ServiceFactory(fallen8);
+                var serviceLogger = ((Fallen8)fallen8).CreateLogger<ServiceFactory>();
+                var newServiceFactory = new ServiceFactory(fallen8, serviceLogger);
                 fallen8.ServiceFactory = newServiceFactory;
                 LoadServices(fallen8, newServiceFactory, serviceStreams, startServices);
 
