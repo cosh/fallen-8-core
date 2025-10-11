@@ -399,7 +399,8 @@ namespace NoSQL.GraphDB.Core
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.PropertyFilter vertexPropertyFilter = null,
+            Delegates.PropertyFilter edgePropertyFilter = null,
             Delegates.VertexFilter vertexFilter = null,
             Delegates.EdgeFilter edgeFilter = null,
             Delegates.EdgeCost edgeCost = null,
@@ -429,7 +430,7 @@ namespace NoSQL.GraphDB.Core
             if (algo != null)
             {
                 var calculatedResult = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
-                                        edgePropertyFilter,
+                                        vertexPropertyFilter, edgePropertyFilter,
                                         vertexFilter, edgeFilter, edgeCost, vertexCost);
 
                 if (calculatedResult != null)
@@ -450,7 +451,8 @@ namespace NoSQL.GraphDB.Core
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.PropertyFilter vertexPropertyFilter = null,
+            Delegates.PropertyFilter edgePropertyFilter = null,
             Delegates.VertexFilter vertexFilter = null,
             Delegates.EdgeFilter edgeFilter = null,
             Delegates.EdgeCost edgeCost = null,
@@ -480,7 +482,7 @@ namespace NoSQL.GraphDB.Core
                 if (algo != null)
                 {
                     var calculatedResult = algo.Calculate(sourceVertexId, destinationVertexId, maxDepth, maxPathWeight, maxResults,
-                                            edgePropertyFilter,
+                                            vertexPropertyFilter, edgePropertyFilter,
                                             vertexFilter, edgeFilter, edgeCost, vertexCost);
 
                     if (calculatedResult != null)

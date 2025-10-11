@@ -97,7 +97,7 @@ namespace NoSQL.GraphDB.Core
                           BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null);
 
         /// <summary>
-        ///   Scan for graph elements by a specified index identifiert, a literal and a binary operation
+        ///   Scan for graph elements by a specified index identifier, a literal and a binary operation
         /// </summary>
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
         /// <param name='result'> Result. </param>
@@ -126,7 +126,7 @@ namespace NoSQL.GraphDB.Core
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
         /// <param name='result'> The resulting fulltext result. </param>
         /// <param name='indexId'> Index identifier. </param>
-        /// <param name='searchQuery'> GraphScan query. </param>
+        /// <param name='searchQuery'> Search query. </param>
         Boolean FulltextIndexScan(out FulltextSearchResult result, String indexId, String searchQuery);
 
         #endregion
@@ -144,6 +144,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name="maxPathWeight"> The maximum path weight. </param>
         /// <param name="maxResults"> The maximum number of results. </param>
         /// <param name="edgePropertyFilter"> The edge property filter. </param>
+        /// <param name="vertexPropertyFilter"> The vertex property filter. </param>
         /// <param name="vertexFilter"> The vertex filter. </param>
         /// <param name="edgeFilter"> The edge filter. </param>
         /// <param name="edgeCost"> The edge cost. </param>
@@ -157,7 +158,8 @@ namespace NoSQL.GraphDB.Core
             Int32 maxDepth = 1,
             double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.PropertyFilter edgePropertyFilter = null,
+            Delegates.PropertyFilter vertexPropertyFilter = null,
             Delegates.VertexFilter vertexFilter = null,
             Delegates.EdgeFilter edgeFilter = null,
             Delegates.EdgeCost edgeCost = null,
@@ -173,6 +175,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name="maxDepth"> The maximum depth. </param>
         /// <param name="maxPathWeight"> The maximum path weight. </param>
         /// <param name="maxResults"> The maximum number of results. </param>
+        /// <param name="vertexPropertyFilter"> The vertex property filter. </param>
         /// <param name="edgePropertyFilter"> The edge property filter. </param>
         /// <param name="vertexFilter"> The vertex filter. </param>
         /// <param name="edgeFilter"> The edge filter. </param>
@@ -186,7 +189,8 @@ namespace NoSQL.GraphDB.Core
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.PropertyFilter vertexPropertyFilter = null,
+            Delegates.PropertyFilter edgePropertyFilter = null,
             Delegates.VertexFilter vertexFilter = null,
             Delegates.EdgeFilter edgeFilter = null,
             Delegates.EdgeCost edgeCost = null,

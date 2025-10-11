@@ -56,9 +56,14 @@ namespace NoSQL.GraphDB.Tests
             _edgeCost = edgeCost;
         }
 
-        public Delegates.EdgePropertyFilter EdgePropertyFilter()
+        public Delegates.PropertyFilter EdgePropertyFilter()
         {
-            return (propertyId, direction) => true;
+            return (propertyId) => true;
+        }
+
+        public Delegates.PropertyFilter VertexPropertyFilter()
+        {
+            return (propertyId) => true;
         }
 
         public Delegates.VertexFilter VertexFilter()
@@ -70,9 +75,9 @@ namespace NoSQL.GraphDB.Tests
         {
             if (_edgeFilter == "trusts")
             {
-                return (e, direction) => e.Label == "trusts";
+                return (e) => e.Label == "trusts";
             }
-            return (e, direction) => true;
+            return (e) => true;
         }
 
         public Delegates.EdgeCost EdgeCost()

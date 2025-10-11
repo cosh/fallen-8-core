@@ -57,7 +57,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.PropertyFilter vertexPropertyFilter = null,
+            Delegates.PropertyFilter edgePropertyFilter = null,
             Delegates.VertexFilter vertexFilter = null,
             Delegates.EdgeFilter edgeFilter = null,
             Delegates.EdgeCost edgeCost = null,
@@ -104,7 +105,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 #region maxdepth == 1
 
-                var depthOneFrontier = GetGlobalFrontier(new List<VertexModel> { sourceVertex }, sourceVisitedVertices, edgePropertyFilter, edgeFilter, vertexFilter);
+                var depthOneFrontier = GetGlobalFrontier(new List<VertexModel> { sourceVertex }, sourceVisitedVertices,
+                    vertexPropertyFilter, edgePropertyFilter, edgeFilter, vertexFilter);
 
                 if (depthOneFrontier != null && depthOneFrontier.Count > 0 && depthOneFrontier.ContainsKey(targetVertex))
                 {
@@ -142,7 +144,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     #region source --> target
 
-                    currentSourceFrontier = GetGlobalFrontier(currentSourceVertices, sourceVisitedVertices, edgePropertyFilter, edgeFilter, vertexFilter);
+                    currentSourceFrontier = GetGlobalFrontier(currentSourceVertices, sourceVisitedVertices,
+                        vertexPropertyFilter, edgePropertyFilter, edgeFilter, vertexFilter);
                     sourceFrontiers.Add(currentSourceFrontier);
                     currentSourceVertices = sourceFrontiers[sourceLevel].Keys;
                     sourceLevel++;
@@ -166,7 +169,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     #region target --> source
 
-                    currentTargetFrontier = GetGlobalFrontier(currentTargetVertices, targetVisitedVertices, edgePropertyFilter, edgeFilter, vertexFilter);
+                    currentTargetFrontier = GetGlobalFrontier(currentTargetVertices, targetVisitedVertices,
+                        vertexPropertyFilter, edgePropertyFilter, edgeFilter, vertexFilter);
                     targetFrontiers.Add(currentTargetFrontier);
                     currentTargetVertices = targetFrontiers[targetLevel].Keys;
                     targetLevel++;
@@ -340,7 +344,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     default:
                         //recursion
-                        result = CreatePathsRecusive(middleToSourcePaths, targetFrontiers, previousTargetLevel, Direction.OutgoingEdge, Direction.IncomingEdge, false);
+                        result = CreatePathsRecursive(middleToSourcePaths, targetFrontiers, previousTargetLevel, Direction.OutgoingEdge, Direction.IncomingEdge, false);
 
                         break;
 
@@ -389,7 +393,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
             var newSourceLevel = sourceLevel - 1;
 
-            return CreatePathsRecusive(firstPaths, sourceFrontiers, newSourceLevel, Direction.IncomingEdge, Direction.OutgoingEdge, true);
+            return CreatePathsRecursive(firstPaths, sourceFrontiers, newSourceLevel, Direction.IncomingEdge, Direction.OutgoingEdge, true);
         }
 
         /// <summary>
@@ -401,7 +405,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="incomingPredDirection">The direction of the incoming predecessors (depends on the frontier)</param>
         /// <param name="outgoingPredDirection">The direction of the outgoing predecessors (depends on the frontier)</param>
         /// <returns>List of paths</returns>
-        private static List<Path> CreatePathsRecusive(List<Path> currentPaths, List<Dictionary<VertexModel, VertexPredecessor>> frontier, int level, Direction incomingPredDirection, Direction outgoingPredDirection, bool toSource)
+        private static List<Path> CreatePathsRecursive(List<Path> currentPaths, List<Dictionary<VertexModel, VertexPredecessor>> frontier, int level, Direction incomingPredDirection, Direction outgoingPredDirection, bool toSource)
         {
             var result = new List<Path>();
 
@@ -453,7 +457,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     var newPredLevel = level - 1;
 
-                    result = CreatePathsRecusive(newMiddlePaths, frontier, newPredLevel, incomingPredDirection, outgoingPredDirection, toSource);
+                    result = CreatePathsRecursive(newMiddlePaths, frontier, newPredLevel, incomingPredDirection, outgoingPredDirection, toSource);
 
                     break;
             }
@@ -472,7 +476,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="vertexFilter">The vertex filter</param>
         /// <returns>The frontier vertices and their predecessors</returns>
         private static Dictionary<VertexModel, VertexPredecessor> GetGlobalFrontier(IEnumerable<VertexModel> startingVertices, HashSet<VertexModel> visitedVertices,
-            Delegates.EdgePropertyFilter edgepropertyFilter,
+            Delegates.PropertyFilter vertexPropertyFilter,
+            Delegates.PropertyFilter edgePropertyFilter,
             Delegates.EdgeFilter edgeFilter,
             Delegates.VertexFilter vertexFilter)
         {
@@ -480,7 +485,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
             foreach (var aKv in startingVertices)
             {
-                foreach (var aFrontierElement in GetLocalFrontier(aKv, visitedVertices, edgepropertyFilter, edgeFilter, vertexFilter))
+                foreach (var aFrontierElement in GetLocalFrontier(aKv, visitedVertices, edgePropertyFilter, edgeFilter, vertexFilter))
                 {
                     VertexPredecessor pred;
                     if (frontier.TryGetValue(aFrontierElement.FrontierVertex, out pred))
@@ -534,7 +539,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <returns>A number of frontier elements</returns>
         private static IEnumerable<FrontierElement> GetValidIncomingEdges(
             VertexModel vertex,
-            Delegates.EdgePropertyFilter edgepropertyFilter,
+            Delegates.PropertyFilter edgepropertyFilter,
             Delegates.EdgeFilter edgeFilter,
             Delegates.VertexFilter vertexFilter,
             HashSet<VertexModel> alreadyVisited)
@@ -546,7 +551,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 foreach (var edgeContainer in edgeProperties)
                 {
-                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key, Direction.IncomingEdge))
+                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key))
                     {
                         continue;
                     }
@@ -556,7 +561,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         for (var i = 0; i < edgeContainer.Value.Count; i++)
                         {
                             var aEdge = edgeContainer.Value[i];
-                            if (edgeFilter(aEdge, Direction.IncomingEdge))
+                            if (edgeFilter(aEdge))
                             {
                                 if (alreadyVisited.Add(aEdge.SourceVertex))
                                 {
@@ -661,7 +666,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <returns>A number of frontier elements</returns>
         private static IEnumerable<FrontierElement> GetValidOutgoingEdges(
             VertexModel vertex,
-            Delegates.EdgePropertyFilter edgepropertyFilter,
+            Delegates.PropertyFilter edgepropertyFilter,
             Delegates.EdgeFilter edgeFilter,
             Delegates.VertexFilter vertexFilter,
             HashSet<VertexModel> alreadyVisited)
@@ -673,7 +678,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 foreach (var edgeContainer in edgeProperties)
                 {
-                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key, Direction.OutgoingEdge))
+                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key))
                     {
                         continue;
                     }
@@ -683,7 +688,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         for (var i = 0; i < edgeContainer.Value.Count; i++)
                         {
                             var aEdge = edgeContainer.Value[i];
-                            if (edgeFilter(aEdge, Direction.OutgoingEdge))
+                            if (edgeFilter(aEdge))
                             {
                                 if (alreadyVisited.Add(aEdge.TargetVertex))
                                 {
@@ -787,7 +792,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="vertexFilter">The vertex filter</param>
         /// <returns>The local frontier</returns>
         private static IEnumerable<FrontierElement> GetLocalFrontier(VertexModel vertex, HashSet<VertexModel> alreadyVisitedVertices,
-            Delegates.EdgePropertyFilter edgepropertyFilter,
+            Delegates.PropertyFilter edgepropertyFilter,
             Delegates.EdgeFilter edgeFilter,
             Delegates.VertexFilter vertexFilter)
         {

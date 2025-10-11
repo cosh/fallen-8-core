@@ -27,7 +27,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 {
     public interface IPathTraverser
     {
-        Delegates.EdgePropertyFilter EdgePropertyFilter();
+        Delegates.PropertyFilter VertexPropertyFilter();
+        Delegates.PropertyFilter EdgePropertyFilter();
         Delegates.VertexFilter VertexFilter();
         Delegates.EdgeFilter EdgeFilter();
         Delegates.EdgeCost EdgeCost();

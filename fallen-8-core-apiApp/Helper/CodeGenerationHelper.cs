@@ -48,6 +48,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
         private const String VertexFilterMethodName = "VertexFilter";
         private const String EdgeFilterMethodName = "EdgeFilter";
+        private const String VertexPropertyFilterMethodName = "VertexPropertyFilter";
         private const String EdgePropertyFilterMethodName = "EdgePropertyFilter";
         private const String VertexCostMethodName = "VertexCost";
         private const String EdgeCostMethodName = "EdgeCost";
@@ -140,13 +141,15 @@ namespace NoSQL.GraphDB.Core.App.Helper
             {
                 methods.Add(GenerateMethodSyntax("Delegates.VertexFilter", VertexFilterMethodName, definition.Filter.Vertex));
                 methods.Add(GenerateMethodSyntax("Delegates.EdgeFilter", EdgeFilterMethodName, definition.Filter.Edge));
-                methods.Add(GenerateMethodSyntax("Delegates.EdgePropertyFilter", EdgePropertyFilterMethodName, definition.Filter.EdgeProperty));
+                methods.Add(GenerateMethodSyntax("Delegates.PropertyFilter", VertexPropertyFilterMethodName, definition.Filter.VertexProperty));
+                methods.Add(GenerateMethodSyntax("Delegates.PropertyFilter", EdgePropertyFilterMethodName, definition.Filter.EdgeProperty));
             }
             else
             {
                 methods.Add(GenerateMethodSyntax("Delegates.VertexFilter", VertexFilterMethodName, null));
                 methods.Add(GenerateMethodSyntax("Delegates.EdgeFilter", EdgeFilterMethodName, null));
-                methods.Add(GenerateMethodSyntax("Delegates.EdgePropertyFilter", EdgePropertyFilterMethodName, null));
+                methods.Add(GenerateMethodSyntax("Delegates.PropertyFilter", EdgePropertyFilterMethodName, null));
+                methods.Add(GenerateMethodSyntax("Delegates.PropertyFilter", VertexPropertyFilterMethodName, null));
             }
 
             if (definition.Cost != null)

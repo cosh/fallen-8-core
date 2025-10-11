@@ -46,6 +46,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="maxDepth">The maximum depth.</param>
         /// <param name="maxPathWeight">The maximum path weight.</param>
         /// <param name="maxResults">The maximum number of results.</param>
+        /// <param name="vertexPropertyFilter">Vertex property filter delegate.</param>
         /// <param name="edgePropertyFilter">Edge property filter delegate.</param>
         /// <param name="vertexFilter">Vertex filter delegate.</param>
         /// <param name="edgeFilter">Edge filter delegate.</param>
@@ -58,7 +59,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
-            Delegates.EdgePropertyFilter edgePropertyFilter = null,
+            Delegates.PropertyFilter vertexPropertyFilter = null,
+            Delegates.PropertyFilter edgePropertyFilter = null,
             Delegates.VertexFilter vertexFilter = null,
             Delegates.EdgeFilter edgeFilter = null,
             Delegates.EdgeCost edgeCost = null,

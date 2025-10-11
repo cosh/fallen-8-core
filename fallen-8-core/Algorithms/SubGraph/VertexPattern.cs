@@ -38,7 +38,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// <summary>
         /// Filter for the edge property
         /// </summary>
-        public Delegates.EdgePropertyFilter EdgeProperty
+        public Delegates.PropertyFilter EdgeProperty
         {
             get; set;
         }

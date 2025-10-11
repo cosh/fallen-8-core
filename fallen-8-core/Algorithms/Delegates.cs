@@ -34,20 +34,18 @@ namespace NoSQL.GraphDB.Core.Algorithms
     public static class Delegates
     {
         /// <summary>
-        /// Filter for edge properties
+        /// Filter for properties
         /// </summary>
-        /// <param name="edgePropertyId">The edge property identifier.</param>
-        /// <param name="direction">The direction of the edge.</param>
-        /// <returns>False will filter the edge property</returns>
-        public delegate bool EdgePropertyFilter(String edgePropertyId, Direction direction);
+        /// <param name="PropertyId">The property identifier.</param>
+        /// <returns>False will filter the property</returns>
+        public delegate bool PropertyFilter(String PropertyId);
 
         /// <summary>
         /// Filter for edges
         /// </summary>
         /// <param name="edge">The edge.</param>
-        /// <param name="direction">The direction of the edge.</param>
         /// <returns>False will filter the edge</returns>
-        public delegate bool EdgeFilter(EdgeModel edge, Direction direction);
+        public delegate bool EdgeFilter(EdgeModel edge);
 
         /// <summary>
         /// Filter for vertices

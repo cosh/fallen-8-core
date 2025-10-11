@@ -80,6 +80,27 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         } = "return (p,d) => true;";
 
         /// <summary>
+        /// Filter to apply on vertex properties during path traversal
+        /// </summary>
+        /// <remarks>
+        /// Provide a C# expression that returns true for vertex property identifiers to include
+        /// in the traversal, or false to exclude them.
+        ///
+        /// Examples:
+        /// - "return (p,d) => p == \"name\";" - Include only "name" properties
+        /// - "return (p,d) => p.StartsWith(\"attr_\");" - Include properties starting with "attr_"
+        /// - "return (p,d) => true;" - Include all properties (default)
+        /// </remarks>
+        /// <example>return (p,d) => p == "name";</example>
+        [Required]
+        [JsonPropertyName("vertexPropertyFilter")]
+        [DefaultValue("return (p,d) => true;")]
+        public String VertexProperty
+        {
+            get; set;
+        } = "return (p,d) => true;";
+
+        /// <summary>
         /// Filter to apply on vertices during path traversal
         /// </summary>
         /// <remarks>
@@ -130,13 +151,14 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             return other != null &&
                    EdgeProperty == other.EdgeProperty &&
+                   VertexProperty == other.VertexProperty &&
                    Vertex == other.Vertex &&
                    Edge == other.Edge;
         }
 
         public override Int32 GetHashCode()
         {
-            return HashCode.Combine(EdgeProperty, Vertex, Edge);
+            return HashCode.Combine(EdgeProperty, VertexProperty, Vertex, Edge);
         }
     }
 }

@@ -992,6 +992,7 @@ namespace NoSQL.GraphDB.App.Controllers
                         definition.MaxPathWeight,
                         definition.MaxResults,
                         traverser.EdgePropertyFilter(),
+                        traverser.VertexPropertyFilter(),
                         traverser.VertexFilter(),
                         traverser.EdgeFilter(),
                         traverser.EdgeCost(),
