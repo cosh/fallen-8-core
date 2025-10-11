@@ -44,7 +44,7 @@ namespace NoSQL.GraphDB.Core.Service
         /// <summary>
         /// The Fallen-8 instance
         /// </summary>
-        private readonly Fallen8 _fallen8;
+        private readonly IFallen8 _fallen8;
 
         /// <summary>
         ///   The created services.
@@ -64,11 +64,11 @@ namespace NoSQL.GraphDB.Core.Service
         /// Creates a new service factory
         /// </summary>
         /// <param name="fallen8">Fallen-8</param>
-        public ServiceFactory(Fallen8 fallen8)
+        public ServiceFactory(IFallen8 fallen8)
         {
             _fallen8 = fallen8;
             Services = new Dictionary<string, IService>();
-            _logger = _fallen8._loggerFactory.CreateLogger<ServiceFactory>();
+            _logger = _fallen8.LoggerFactory.CreateLogger<ServiceFactory>();
         }
 
         #endregion
@@ -208,7 +208,7 @@ namespace NoSQL.GraphDB.Core.Service
         /// <param name="reader">Serialization reader</param>
         /// <param name="fallen8">Fallen-8</param>
         /// <param name="startService">Start the service?</param>
-        internal void OpenService(string serviceName, string servicePluginName, SerializationReader reader, Fallen8 fallen8, Boolean startService)
+        internal void OpenService(string serviceName, string servicePluginName, SerializationReader reader, IFallen8 fallen8, Boolean startService)
         {
             IService service;
             if (PluginFactory.TryFindPlugin(out service, servicePluginName))

@@ -34,7 +34,7 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 {
     public static class TestGraphGenerator
     {
-        public static SampleStats GenerateSampleGraph(Fallen8 f8)
+        public static SampleStats GenerateSampleGraph(IFallen8 f8)
         {
             uint creationDate = 0;
 
@@ -86,7 +86,7 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
             return stats;
         }
 
-        public static SampleStats GenerateAbcGraph(Fallen8 f8)
+        public static SampleStats GenerateAbcGraph(IFallen8 f8)
         {
             uint creationDate = 0;
 

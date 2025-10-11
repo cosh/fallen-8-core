@@ -45,7 +45,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <summary>
         ///   The Fallen-8
         /// </summary>
-        private Fallen8 _fallen8;
+        private IFallen8 _fallen8;
 
         #endregion
 
@@ -861,7 +861,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             }
         }
 
-        public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
         {
             _fallen8 = fallen8;
         }

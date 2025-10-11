@@ -73,6 +73,6 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <param name='fallen8'> A fallen-8 session. </param>
         /// <param name='parameter'> Parameter. </param>
         /// <returns> The initialized plugin </returns>
-        void Initialize(Fallen8 fallen8, IDictionary<String, Object> parameter);
+        void Initialize(IFallen8 fallen8, IDictionary<String, Object> parameter);
     }
 }

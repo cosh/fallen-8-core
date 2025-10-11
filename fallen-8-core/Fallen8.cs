@@ -45,7 +45,7 @@ using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Core
 {
-    public sealed class Fallen8 : IRead, IWrite, IDisposable
+    public sealed class Fallen8 : AFallen8
     {
         #region Data
 
@@ -64,7 +64,7 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   The index factory.
         /// </summary>
-        public IndexFactory IndexFactory
+        public override IndexFactory IndexFactory
         {
             get; internal set;
         }
@@ -72,7 +72,7 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   The index factory.
         /// </summary>
-        public ServiceFactory ServiceFactory
+        public override ServiceFactory ServiceFactory
         {
             get; internal set;
         }
@@ -80,17 +80,17 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         /// The count of edges
         /// </summary>
-        public Int32 EdgeCount
+        public override Int32 EdgeCount
         {
-            get; private set;
+            get; protected set;
         }
 
         /// <summary>
         /// The count of vertices
         /// </summary>
-        public Int32 VertexCount
+        public override Int32 VertexCount
         {
-            get; private set;
+            get; protected set;
         }
 
         /// <summary>
@@ -126,7 +126,9 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         /// The logger factory
         /// </summary>
-        internal readonly ILoggerFactory _loggerFactory;
+        public override ILoggerFactory LoggerFactory => _loggerFactory;
+
+        private readonly ILoggerFactory _loggerFactory;
 
         #endregion
 
@@ -203,7 +205,7 @@ namespace NoSQL.GraphDB.Core
             return newVertices;
         }
 
-        public bool TryGetGraphElement(out AGraphElementModel result, int id)
+        public override bool TryGetGraphElement(out AGraphElementModel result, int id)
         {
 
             try
@@ -220,7 +222,7 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        public bool TryGetEdge(out EdgeModel result, int id)
+        public override bool TryGetEdge(out EdgeModel result, int id)
         {
 
             try
@@ -237,7 +239,7 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        public bool TryGetVertex(out VertexModel result, int id)
+        public override bool TryGetVertex(out VertexModel result, int id)
         {
 
             try
@@ -255,7 +257,7 @@ namespace NoSQL.GraphDB.Core
 
 
 
-        public bool GraphScan(out List<AGraphElementModel> result, String propertyId, IComparable literal,
+        public override bool GraphScan(out List<AGraphElementModel> result, String propertyId, IComparable literal,
             BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null)
         {
             #region binary operation
@@ -297,7 +299,7 @@ namespace NoSQL.GraphDB.Core
             return result.Count > 0;
         }
 
-        public bool IndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
+        public override bool IndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
         {
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
@@ -348,7 +350,7 @@ namespace NoSQL.GraphDB.Core
             return result.Count > 0;
         }
 
-        public bool RangeIndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
+        public override bool RangeIndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
         {
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
@@ -367,7 +369,7 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        public bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery)
+        public override bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery)
         {
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
@@ -391,7 +393,7 @@ namespace NoSQL.GraphDB.Core
             return _persistencyFactory.Save(this, _graphElements, path, savePartitions, _currentId);
         }
 
-        public bool TryCalculateShortestPath(
+        public override bool TryCalculateShortestPath(
             out List<Path> result,
             string plugin,
             ShortestPathDefinition definition)
@@ -422,10 +424,9 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        public bool TryCalculateShortestPath<T>(
+        public override bool TryCalculateShortestPath<T>(
             out List<Path> result,
             ShortestPathDefinition definition)
-                where T : IShortestPathAlgorithm
         {
             Type shortestPathType = typeof(T);
             var algo = Activator.CreateInstance(shortestPathType, false) as IShortestPathAlgorithm;
@@ -769,17 +770,17 @@ namespace NoSQL.GraphDB.Core
             Trim_internal();
         }
 
-        public TransactionInformation EnqueueTransaction(ATransaction tx)
+        public override TransactionInformation EnqueueTransaction(ATransaction tx)
         {
             return _txManager.AddTransaction(tx);
         }
 
-        public TransactionState GetTransactionState(String txId)
+        public override TransactionState GetTransactionState(String txId)
         {
             return _txManager.GetState(txId);
         }
 
-        public void Dispose()
+        public override void Dispose()
         {
             TabulaRasa_internal();
 
@@ -982,7 +983,7 @@ namespace NoSQL.GraphDB.Core
                 .Where(_ => _ != null && _ is TInteresting).Count();
         }
 
-        public ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null)
+        public override ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null)
         {
             return ImmutableList.CreateRange<VertexModel>(
                  _graphElements
@@ -992,7 +993,7 @@ namespace NoSQL.GraphDB.Core
                  .Select(_ => (VertexModel)_));
         }
 
-        public ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null)
+        public override ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null)
         {
             return ImmutableList.CreateRange<EdgeModel>(
                         _graphElements

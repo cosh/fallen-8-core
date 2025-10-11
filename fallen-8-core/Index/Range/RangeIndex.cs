@@ -80,10 +80,10 @@ namespace NoSQL.GraphDB.Core.Index.Range
         #endregion
 
         #region IPlugin implementation
-        public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
         {
             _idx = new Dictionary<IComparable, ImmutableList<AGraphElementModel>>();
-            _logger = fallen8._loggerFactory.CreateLogger<DictionaryIndex>();
+            _logger = fallen8.LoggerFactory.CreateLogger<DictionaryIndex>();
         }
 
         public string PluginName
@@ -145,7 +145,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
             throw new CollisionException();
         }
 
-        public void Load(SerializationReader reader, Fallen8 fallen8)
+        public void Load(SerializationReader reader, IFallen8 fallen8)
         {
 
             if (WriteResource())

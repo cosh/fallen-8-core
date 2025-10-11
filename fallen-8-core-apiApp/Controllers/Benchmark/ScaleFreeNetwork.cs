@@ -43,11 +43,11 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
     public class ScaleFreeNetwork
     {
         private int _numberOfToBeTestedVertices = 10000000;
-        private Fallen8 _f8;
+        private IFallen8 _f8;
 
         private static string edgeProperty = "A";
 
-        public ScaleFreeNetwork(Fallen8 fallen8)
+        public ScaleFreeNetwork(IFallen8 fallen8)
         {
             _f8 = fallen8;
         }
@@ -146,6 +146,20 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             var tps = new List<double>();
             long edgeCount = 0;
             var sb = new StringBuilder();
+
+            // Handle edge case: no vertices
+            if (vertices == null || vertices.Count == 0)
+            {
+                sb.AppendLine("No vertices found in the graph.");
+                return sb.ToString();
+            }
+
+            // Handle edge case: zero or negative iterations
+            if (myIterations <= 0)
+            {
+                sb.AppendLine("Number of iterations must be greater than 0.");
+                return sb.ToString();
+            }
 
             Int32 range = ((vertices.Count / Environment.ProcessorCount) * 3) / 2;
 

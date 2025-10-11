@@ -44,7 +44,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>
         ///   The internal Fallen-8 instance
         /// </summary>
-        private readonly Fallen8 _fallen8;
+        private readonly IFallen8 _fallen8;
 
         /// <summary>
         /// The intro provider.
@@ -55,7 +55,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         #endregion
 
-        public BenchmarkController(ILogger<BenchmarkController> logger, Fallen8 fallen8)
+        public BenchmarkController(ILogger<BenchmarkController> logger, IFallen8 fallen8)
         {
             _logger = logger;
 
@@ -95,7 +95,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         [NonAction]
-        public void Load(SerializationReader reader, Fallen8 fallen8)
+        public void Load(SerializationReader reader, IFallen8 fallen8)
         {
         }
 

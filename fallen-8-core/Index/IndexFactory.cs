@@ -62,7 +62,7 @@ namespace NoSQL.GraphDB.Core.Index
         public IndexFactory(Fallen8 myF8)
         {
             Indices = new Dictionary<String, IIndex>();
-            _logger = myF8._loggerFactory.CreateLogger<IndexFactory>();
+            _logger = myF8.LoggerFactory.CreateLogger<IndexFactory>();
             _fallen8 = myF8;
         }
 

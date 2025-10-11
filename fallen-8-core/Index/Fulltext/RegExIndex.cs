@@ -507,10 +507,10 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
             }
         }
 
-        public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
         {
             _idx = new Dictionary<String, ImmutableList<AGraphElementModel>>();
-            _logger = fallen8._loggerFactory.CreateLogger<RegExIndex>();
+            _logger = fallen8.LoggerFactory.CreateLogger<RegExIndex>();
         }
 
         #endregion
@@ -556,7 +556,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
             throw new CollisionException();
         }
 
-        public void Load(SerializationReader reader, Fallen8 fallen8)
+        public void Load(SerializationReader reader, IFallen8 fallen8)
         {
             if (WriteResource())
             {

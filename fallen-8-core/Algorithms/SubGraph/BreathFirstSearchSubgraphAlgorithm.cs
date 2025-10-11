@@ -49,10 +49,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// <inheritdoc />
         public string Manufacturer => "Henning Rauch";
 
-        private Fallen8 _fallen8;
+        private IFallen8 _fallen8;
 
         /// <inheritdoc />
-        public void Initialize(Fallen8 fallen8, IDictionary<string, object> configuration)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> configuration)
         {
             _fallen8 = fallen8;
         }
@@ -526,7 +526,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
         private Fallen8 CreateSubgraphInstance(HashSet<VertexModel> vertices, HashSet<EdgeModel> edges)
         {
-            var subgraph = new Fallen8(_fallen8._loggerFactory);
+            var subgraph = new Fallen8(_fallen8.LoggerFactory);
 
             // Create a mapping from old vertex IDs to new vertex IDs
             var vertexIdMapping = new Dictionary<int, int>();

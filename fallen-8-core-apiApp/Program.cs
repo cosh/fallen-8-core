@@ -61,7 +61,7 @@ namespace NoSQL.GraphDB.App
             });
 
             // Add services to the container.
-            builder.Services.AddSingleton<Fallen8>();
+            builder.Services.AddSingleton<IFallen8, Fallen8>();
             builder.Services.AddControllers();
 
             var app = builder.Build();

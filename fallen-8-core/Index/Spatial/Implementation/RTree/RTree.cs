@@ -1793,7 +1793,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             }
         }
 
-        public void Initialize(Fallen8 fallen8, IDictionary<string, object> parameter)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
         {
             if (parameter == null) throw new ArgumentNullException("parameter");
 
@@ -1879,7 +1879,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new NotImplementedException();
         }
 
-        public void Load(SerializationReader reader, Fallen8 fallen8)
+        public void Load(SerializationReader reader, IFallen8 fallen8)
         {
             throw new NotImplementedException();
         }

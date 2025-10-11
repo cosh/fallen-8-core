@@ -1,6 +1,6 @@
-﻿// MIT License
+// MIT License
 //
-// IFallen8Serializable.cs
+// IFallen8.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -23,28 +23,64 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using NoSQL.GraphDB.Core.Serializer;
+using System;
+using Microsoft.Extensions.Logging;
+using NoSQL.GraphDB.Core.Index;
+using NoSQL.GraphDB.Core.Service;
 
-namespace NoSQL.GraphDB.Core.Persistency
+namespace NoSQL.GraphDB.Core
 {
     /// <summary>
-    /// The interface for serializable things in Fallen-8
+    ///   Fallen8 interface combining read, write, and disposable capabilities.
     /// </summary>
-    public interface IFallen8Serializable
+    public interface IFallen8 : IRead, IWrite, IDisposable
     {
         /// <summary>
-        /// Save the plugin.
+        ///   Gets the unique identifier for this Fallen8 instance.
         /// </summary>
-        /// <param name='writer'>
-        /// Writer.
-        /// </param>
-        void Save(SerializationWriter writer);
+        Guid Id
+        {
+            get;
+        }
 
         /// <summary>
-        ///   Load the plugin.
+        ///   Gets the index factory.
         /// </summary>
-        /// <param name="reader">The reader</param>
-        /// <param name="fallen8">Fallen-8</param>
-        void Load(SerializationReader reader, IFallen8 fallen8);
+        IndexFactory IndexFactory
+        {
+            get;
+        }
+
+        /// <summary>
+        ///   Gets the service factory.
+        /// </summary>
+        ServiceFactory ServiceFactory
+        {
+            get;
+        }
+
+        /// <summary>
+        ///   Gets the count of vertices.
+        /// </summary>
+        Int32 VertexCount
+        {
+            get;
+        }
+
+        /// <summary>
+        ///   Gets the count of edges.
+        /// </summary>
+        Int32 EdgeCount
+        {
+            get;
+        }
+
+        /// <summary>
+        ///   Gets the logger factory.
+        /// </summary>
+        ILoggerFactory LoggerFactory
+        {
+            get;
+        }
     }
 }
