@@ -122,7 +122,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                         SubGraphs.Add(subGraphName, subGraph);
                         return true;
                     }
-                    
+
                     _logger.LogError(String.Format("The subgraph with name \"{0}\" already exists.", subGraphName));
                     return false;
                 }
