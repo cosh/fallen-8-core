@@ -893,7 +893,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        /// Finds paths between two vertices in the graph
+        /// Calculates the shortest path between two vertices in the graph
         /// </summary>
         /// <param name="from">The ID of the source vertex</param>
         /// <param name="to">The ID of the target vertex</param>
@@ -939,7 +939,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(List<PathREST>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public List<PathREST> GetPaths([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
+        public List<PathREST> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {
             // Always initialize with empty list to avoid returning null
             List<PathREST> result = new List<PathREST>();
