@@ -48,11 +48,6 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly IFallen8 _fallen8;
 
-        /// <summary>
-        /// The intro provider.
-        /// </summary>
-        private readonly ScaleFreeNetwork _introProvider;
-
         private readonly ILogger<SampleGraphController> _logger;
 
         #endregion

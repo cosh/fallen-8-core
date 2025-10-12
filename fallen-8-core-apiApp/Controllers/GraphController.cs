@@ -115,7 +115,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> AddVertex([FromBody] VertexSpecification definition, [FromQuery] bool waitForCompletion = false)
+        public Task<IActionResult> AddVertex([FromBody] VertexSpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             #region initial checks
 
@@ -143,7 +143,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 transactionTask.WaitUntilFinished();
             }
 
-            return Accepted();
+            return Task.FromResult<IActionResult>(Accepted());
         }
 
         /// <summary>
@@ -219,7 +219,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> AddEdge(EdgeSpecification definition, [FromQuery] bool waitForCompletion = false)
+        public Task<IActionResult> AddEdge(EdgeSpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             #region initial checks
 
@@ -250,7 +250,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 transactionTask.WaitUntilFinished();
             }
 
-            return Accepted();
+            return Task.FromResult<IActionResult>(Accepted());
         }
 
         /// <summary>
@@ -704,7 +704,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> AddProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition, [FromQuery] bool waitForCompletion = false)
+        public Task<IActionResult> AddProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
             var propertyId = propertyIdString;
@@ -730,7 +730,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 transactionTask.WaitUntilFinished();
             }
 
-            return Accepted();
+            return Task.FromResult<IActionResult>(Accepted());
 
         }
 
@@ -750,7 +750,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpDelete("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromQuery] bool waitForCompletion = false)
+        public Task<IActionResult> TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
             var propertyId = propertyIdString;
@@ -768,7 +768,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 transactionTask.WaitUntilFinished();
             }
 
-            return Accepted();
+            return Task.FromResult<IActionResult>(Accepted());
 
         }
 
@@ -787,7 +787,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [HttpDelete("/graphelement/{graphElementIdentifier}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> TryRemoveGraphElement([FromRoute] string graphElementIdentifier, [FromQuery] bool waitForCompletion = false)
+        public Task<IActionResult> TryRemoveGraphElement([FromRoute] string graphElementIdentifier, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
 
@@ -803,7 +803,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 transactionTask.WaitUntilFinished();
             }
 
-            return Accepted();
+            return Task.FromResult<IActionResult>(Accepted());
         }
 
         /// <summary>

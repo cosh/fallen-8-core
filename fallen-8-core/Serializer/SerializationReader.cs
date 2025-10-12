@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // SerializationReader.cs
 //
@@ -609,7 +609,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a UInt16 value from the stream that was stored optimized.
         /// </summary>
         /// <returns>A UInt16 value.</returns>
-        [CLSCompliant(false)]
+
         public ushort ReadOptimizedUInt16()
         {
             return (ushort)ReadOptimizedUInt32();
@@ -619,7 +619,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a UInt32 value from the stream that was stored optimized.
         /// </summary>
         /// <returns>A UInt32 value.</returns>
-        [CLSCompliant(false)]
+
         public uint ReadOptimizedUInt32()
         {
             uint result = 0;
@@ -640,7 +640,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a UInt64 value from the stream that was stored optimized.
         /// </summary>
         /// <returns>A UInt64 value.</returns>
-        [CLSCompliant(false)]
+
         public ulong ReadOptimizedUInt64()
         {
             ulong result = 0;
@@ -818,7 +818,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a Nullable SByte from the stream.
         /// </summary>
         /// <returns>A Nullable SByte.</returns>
-        [CLSCompliant(false)]
+
         public SByte? ReadNullableSByte()
         {
             return (sbyte?)ReadObject();
@@ -846,7 +846,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a Nullable UInt16 from the stream.
         /// </summary>
         /// <returns>A Nullable UInt16.</returns>
-        [CLSCompliant(false)]
+
         public UInt16? ReadNullableUInt16()
         {
             return (ushort?)ReadObject();
@@ -856,7 +856,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a Nullable UInt32 from the stream.
         /// </summary>
         /// <returns>A Nullable UInt32.</returns>
-        [CLSCompliant(false)]
+
         public UInt32? ReadNullableUInt32()
         {
             return (uint?)ReadObject();
@@ -866,7 +866,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a Nullable UInt64 from the stream.
         /// </summary>
         /// <returns>A Nullable UInt64.</returns>
-        [CLSCompliant(false)]
+
         public UInt64? ReadNullableUInt64()
         {
             return (ulong?)ReadObject();
@@ -1018,7 +1018,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns an SByte[] from the stream.
         /// </summary>
         /// <returns>An SByte[] instance; or null.</returns>
-        [CLSCompliant(false)]
+
         public sbyte[] ReadSByteArray()
         {
             switch (ReadTypeCode())
@@ -1043,7 +1043,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a UInt16[] from the stream.
         /// </summary>
         /// <returns>A UInt16[] instance; or null.</returns>
-        [CLSCompliant(false)]
+
         public ushort[] ReadUInt16Array()
         {
             var typeCode = ReadTypeCode();
@@ -1247,7 +1247,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a UInt[] from the stream.
         /// </summary>
         /// <returns>A UInt[] instance; or null.</returns>
-        [CLSCompliant(false)]
+
         public uint[] ReadUInt32Array()
         {
             var typeCode = ReadTypeCode();
@@ -1281,7 +1281,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a UInt64[] from the stream.
         /// </summary>
         /// <returns>A UInt64[] instance; or null.</returns>
-        [CLSCompliant((false))]
+
         public ulong[] ReadUInt64Array()
         {
             var typeCode = ReadTypeCode();
@@ -1378,7 +1378,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a UInt16[] from the stream.
         /// </summary>
         /// <returns>A UInt16[] instance; or null.</returns>
-        [CLSCompliant(false)]
+
         public ushort[] ReadOptimizedUInt16Array()
         {
             return ReadUInt16Array();
@@ -1388,7 +1388,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a UInt32[] from the stream.
         /// </summary>
         /// <returns>A UInt32[] instance; or null.</returns>
-        [CLSCompliant(false)]
+
         public uint[] ReadOptimizedUInt32Array()
         {
             return ReadUInt32Array();
@@ -1398,7 +1398,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a UInt64[] from the stream.
         /// </summary>
         /// <returns>A UInt64[] instance; or null.</returns>
-        [CLSCompliant(false)]
+
         public ulong[] ReadOptimizedUInt64Array()
         {
             return ReadUInt64Array();

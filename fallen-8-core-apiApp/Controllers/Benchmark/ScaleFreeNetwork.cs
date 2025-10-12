@@ -55,9 +55,8 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// <summary>
         /// Creates a scale free network
         /// </summary>
-        /// <param name="nodeCount"></param>
-        /// <param name="edgeCountPerVertex"></param>
-        /// <param name="fallen8"></param>
+        /// <param name="nodeCount">The number of nodes to create</param>
+        /// <param name="edgeCountPerVertex">The number of edges per vertex</param>
         public void CreateScaleFreeNetwork(int nodeCount, int edgeCountPerVertex)
         {
             var creationDate = DateHelper.ConvertDateTime(DateTime.Now);
@@ -137,9 +136,8 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// <summary>
         /// Benchmark
         /// </summary>
-        /// <param name="fallen8"></param>
-        /// <param name="myIterations"></param>
-        /// <returns></returns>
+        /// <param name="myIterations">Number of iterations for the benchmark</param>
+        /// <returns>Benchmark results as a string</returns>
         public String Bench(int myIterations = 1000)
         {
             ImmutableList<VertexModel> vertices = _f8.GetAllVertices();

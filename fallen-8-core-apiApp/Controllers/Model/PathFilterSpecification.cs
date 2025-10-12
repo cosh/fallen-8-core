@@ -88,7 +88,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///
         /// Examples:
         /// - "return (v) => v.Label == \"person\";" - Include only vertices labeled "person"
-        /// - "return (v) => v.TryGetProperty(out var age, \"age\") && (int)age > 18;" - Include only vertices with age > 18
+        /// - "return (v) => v.TryGetProperty(out var age, \"age\") &amp;&amp; (int)age > 18;" - Include only vertices with age > 18
         /// - "return (v) => true;" - Include all vertices (default)
         /// </remarks>
         /// <example>return (v) => v.Label == "person";</example>
@@ -109,7 +109,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///
         /// Examples:
         /// - "return (e,d) => e.Label == \"friendship\";" - Include only edges labeled "friendship"
-        /// - "return (e,d) => e.TryGetProperty(out var weight, \"weight\") && (double)weight < 10;" - Include only edges with weight < 10
+        /// - "return (e,d) => e.TryGetProperty(out var weight, \"weight\") &amp;&amp; (double)weight &lt; 10;" - Include only edges with weight &lt; 10
         /// - "return (e,d) => true;" - Include all edges (default)
         /// </remarks>
         /// <example>return (e,d) => e.Label == "friendship";</example>

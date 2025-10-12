@@ -252,7 +252,7 @@ namespace NoSQL.GraphDB.Core.Plugin
                 AssemblyName assemblyName = new AssemblyName(Path.GetFileNameWithoutExtension(file));
                 assembly = Assembly.Load(assemblyName);
             }
-            catch (FileLoadException e)
+            catch (FileLoadException)
             {
                 yield break;
             }
