@@ -1,6 +1,6 @@
 // MIT License
 //
-// IFallen8Admin.cs
+// CreateSubGraphTransaction.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -23,39 +23,60 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using NoSQL.GraphDB.Core.Index;
-using NoSQL.GraphDB.Core.Service;
-using NoSQL.GraphDB.Core.SubGraph;
+using NoSQL.GraphDB.Core.Algorithms.SubGraph;
+using System;
 
-namespace NoSQL.GraphDB.Core
+namespace NoSQL.GraphDB.Core.Transaction
 {
     /// <summary>
-    ///   Fallen8 administrative interface for managing factories.
+    /// Transaction for creating a subgraph based on a subgraph definition.
     /// </summary>
-    public interface IFallen8Admin
+    public class CreateSubGraphTransaction : ATransaction
     {
         /// <summary>
-        ///   Gets the index factory.
+        /// Gets the created subgraph result.
         /// </summary>
-        IndexFactory IndexFactory
+        public SubGraphResult SubGraphCreated
         {
-            get;
+            get; private set;
         }
 
         /// <summary>
-        ///   Gets the service factory.
+        /// Gets or sets the subgraph definition.
         /// </summary>
-        ServiceFactory ServiceFactory
+        public SubGraphDefinition Definition
         {
             get;
+            set;
         }
 
         /// <summary>
-        ///   Gets the subgraph factory.
+        /// Cleans up the transaction resources.
         /// </summary>
-        SubGraphFactory SubGraphFactory
+        internal override void Cleanup()
         {
-            get;
+            Definition = null;
+            SubGraphCreated = null;
+        }
+
+        /// <summary>
+        /// Rolls back the transaction.
+        /// </summary>
+        /// <param name="f8">The Fallen8 instance.</param>
+        internal override void Rollback(Fallen8 f8)
+        {
+            // TODO: Implement rollback logic
+        }
+
+        /// <summary>
+        /// Tries to execute the transaction.
+        /// </summary>
+        /// <param name="f8">The Fallen8 instance.</param>
+        /// <returns>True if successful, false otherwise.</returns>
+        internal override Boolean TryExecute(Fallen8 f8)
+        {
+            // TODO: Implement subgraph creation logic
+            throw new NotImplementedException();
         }
     }
 }

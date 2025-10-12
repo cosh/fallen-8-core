@@ -33,6 +33,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Core
@@ -62,6 +63,14 @@ namespace NoSQL.GraphDB.Core
         ///   Gets the service factory.
         /// </summary>
         public abstract ServiceFactory ServiceFactory
+        {
+            get; internal set;
+        }
+
+        /// <summary>
+        ///   Gets the subgraph factory.
+        /// </summary>
+        public abstract SubGraphFactory SubGraphFactory
         {
             get; internal set;
         }

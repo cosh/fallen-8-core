@@ -42,6 +42,7 @@ using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Core
@@ -71,9 +72,17 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   The index factory.
+        ///   The service factory.
         /// </summary>
         public override ServiceFactory ServiceFactory
+        {
+            get; internal set;
+        }
+
+        /// <summary>
+        ///   The subgraph factory.
+        /// </summary>
+        public override SubGraphFactory SubGraphFactory
         {
             get; internal set;
         }
@@ -164,11 +173,13 @@ namespace NoSQL.GraphDB.Core
             // Create loggers for factories
             var indexLogger = loggerfactory.CreateLogger<IndexFactory>();
             var serviceLogger = loggerfactory.CreateLogger<ServiceFactory>();
+            var subGraphLogger = loggerfactory.CreateLogger<SubGraphFactory>();
             var persistencyLogger = loggerfactory.CreateLogger<PersistencyFactory>();
 
             IndexFactory = new IndexFactory(this, indexLogger);
             _graphElements = ImmutableList.Create<AGraphElementModel>();
             ServiceFactory = new ServiceFactory(this, serviceLogger);
+            SubGraphFactory = new SubGraphFactory(this, subGraphLogger);
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
             _persistencyFactory = new PersistencyFactory(persistencyLogger);
@@ -827,6 +838,7 @@ namespace NoSQL.GraphDB.Core
 
             var oldIndexFactory = IndexFactory;
             var oldServiceFactory = ServiceFactory;
+            var oldSubGraphFactory = SubGraphFactory;
             oldServiceFactory.ShutdownAllServices();
             var oldGraphElements = _graphElements;
             GC.Collect();
@@ -841,12 +853,14 @@ namespace NoSQL.GraphDB.Core
             if (success)
             {
                 oldIndexFactory.DeleteAllIndices();
+                oldSubGraphFactory.DeleteAllSubGraphs();
             }
             else
             {
                 _graphElements = oldGraphElements;
                 IndexFactory = oldIndexFactory;
                 ServiceFactory = oldServiceFactory;
+                SubGraphFactory = oldSubGraphFactory;
                 ServiceFactory.StartAllServices();
             }
 
@@ -874,6 +888,9 @@ namespace NoSQL.GraphDB.Core
 
             ServiceFactory.ShutdownAllServices();
             ServiceFactory = null;
+
+            SubGraphFactory.DeleteAllSubGraphs();
+            SubGraphFactory = null;
         }
 
         #region private helper methods
