@@ -74,7 +74,7 @@ namespace NoSQL.GraphDB.Tests
             }).First();
 
             // Act
-            var result = controller.GetPaths(alice, bob, null);
+            var result = controller.CalculateShortestPath(alice, bob, null);
 
             // Assert
             Assert.IsNotNull(result, "Result should not be null");
@@ -102,7 +102,7 @@ namespace NoSQL.GraphDB.Tests
             }).First();
 
             var spec = new PathSpecification { MaxDepth = 0, MaxResults = 10 };
-            var result = controller.GetPaths(alice, bob, spec);
+            var result = controller.CalculateShortestPath(alice, bob, spec);
             Assert.IsNotNull(result, "Result should not be null");
             Assert.AreEqual(0, result.Count, "No path should be found with MaxDepth=0");
         }
@@ -119,7 +119,7 @@ namespace NoSQL.GraphDB.Tests
             int nonexistentFrom = 9999;
             int nonexistentTo = 8888;
             var spec = new PathSpecification { MaxDepth = 5, MaxResults = 10 };
-            var result = controller.GetPaths(nonexistentFrom, nonexistentTo, spec);
+            var result = controller.CalculateShortestPath(nonexistentFrom, nonexistentTo, spec);
             Assert.IsNotNull(result, "Result should not be null");
             Assert.AreEqual(0, result.Count, "No path should be found between nonexistent vertices");
         }
@@ -154,7 +154,7 @@ namespace NoSQL.GraphDB.Tests
                 ResultType = ResultTypeSpecification.Vertices
             }).First();
             var spec = new PathSpecification { MaxDepth = 5, MaxResults = 10 };
-            var result = controller.GetPaths(a, x, spec);
+            var result = controller.CalculateShortestPath(a, x, spec);
             Assert.IsNotNull(result, "Result should not be null");
             Assert.AreEqual(0, result.Count, "No path should be found between disconnected subgraphs");
         }
