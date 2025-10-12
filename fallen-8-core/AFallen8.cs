@@ -90,7 +90,7 @@ namespace NoSQL.GraphDB.Core
             Id = Guid.NewGuid();
         }
 
-        #region IRead Members
+        #region IFallen8Read Members
 
         public abstract bool TryGetGraphElement(out AGraphElementModel result, int id);
         public abstract bool TryGetEdge(out EdgeModel result, int id);
@@ -108,7 +108,7 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
-        #region IWrite Members
+        #region IFallen8Write Members
 
         public abstract TransactionInformation EnqueueTransaction(ATransaction tx);
         public abstract TransactionState GetTransactionState(string txId);

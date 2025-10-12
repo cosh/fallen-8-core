@@ -199,7 +199,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
             var assemblies = new[]
                 {
                 typeof(System.Linq.Enumerable).Assembly,
-                typeof(IRead).Assembly,
+                typeof(IFallen8Read).Assembly,
                 typeof(object).Assembly
             };
 

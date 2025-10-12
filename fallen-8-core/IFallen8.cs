@@ -32,28 +32,12 @@ namespace NoSQL.GraphDB.Core
     /// <summary>
     ///   Fallen8 interface combining read, write, and disposable capabilities.
     /// </summary>
-    public interface IFallen8 : IRead, IWrite, IDisposable
+    public interface IFallen8 : IFallen8Read, IFallen8Write, IDisposable, IFallen8Admin
     {
         /// <summary>
         ///   Gets the unique identifier for this Fallen8 instance.
         /// </summary>
         Guid Id
-        {
-            get;
-        }
-
-        /// <summary>
-        ///   Gets the index factory.
-        /// </summary>
-        IndexFactory IndexFactory
-        {
-            get;
-        }
-
-        /// <summary>
-        ///   Gets the service factory.
-        /// </summary>
-        ServiceFactory ServiceFactory
         {
             get;
         }

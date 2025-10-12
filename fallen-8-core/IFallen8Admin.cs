@@ -1,6 +1,6 @@
-﻿// MIT License
+// MIT License
 //
-// IFallen8Write.cs
+// IFallen8Admin.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -23,34 +23,30 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
-using System.Threading.Tasks;
-using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Transaction;
+using NoSQL.GraphDB.Core.Index;
+using NoSQL.GraphDB.Core.Service;
 
 namespace NoSQL.GraphDB.Core
 {
     /// <summary>
-    ///   Fallen8 write interface.
+    ///   Fallen8 administrative interface for managing factories.
     /// </summary>
-    public interface IFallen8Write
+    public interface IFallen8Admin
     {
-        #region Transaction
+        /// <summary>
+        ///   Gets the index factory.
+        /// </summary>
+        IndexFactory IndexFactory
+        {
+            get;
+        }
 
         /// <summary>
-        /// Exqueues a new transaction
+        ///   Gets the service factory.
         /// </summary>
-        /// <param name="tx">The transaction</param>
-        /// <returns>The transaction information</returns>
-        TransactionInformation EnqueueTransaction(ATransaction tx);
-
-        /// <summary>
-        /// Gets the state of a transaction
-        /// </summary>
-        /// <param name="txId">The transaction id</param>
-        /// <returns>The state of the transaction</returns>
-        TransactionState GetTransactionState(String txId);
-
-        #endregion
+        ServiceFactory ServiceFactory
+        {
+            get;
+        }
     }
 }
