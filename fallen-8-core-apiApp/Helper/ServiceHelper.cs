@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core.Model;
@@ -64,6 +65,7 @@ namespace NoSQL.GraphDB.App.Helper
         /// <param name='key'>
         /// Key.
         /// </param>
+        [UnconditionalSuppressMessage("Trimming", "IL2096:Call to 'System.Type.GetType' can perform case insensitive lookup of the type", Justification = "Type names are provided by API users and need case-insensitive lookup. Trimming is disabled for this application.")]
         internal static object CreateObject(PropertySpecification key)
         {
             return Convert.ChangeType(
@@ -76,6 +78,7 @@ namespace NoSQL.GraphDB.App.Helper
         /// </summary>
         /// <returns> The properties. </returns>
         /// <param name='propertySpecification'> Property specification. </param>
+        [UnconditionalSuppressMessage("Trimming", "IL2096:Call to 'System.Type.GetType' can perform case insensitive lookup of the type", Justification = "Type names are provided by API users and need case-insensitive lookup. Trimming is disabled for this application.")]
         public static Dictionary<String, Object> GenerateProperties(
             Dictionary<String, PropertySpecification> propertySpecification)
         {
@@ -104,6 +107,7 @@ namespace NoSQL.GraphDB.App.Helper
         /// </summary>
         /// <returns> The properties. </returns>
         /// <param name='propertySpecification'> Property specification. </param>
+        [UnconditionalSuppressMessage("Trimming", "IL2096:Call to 'System.Type.GetType' can perform case insensitive lookup of the type", Justification = "Type names are provided by API users and need case-insensitive lookup. Trimming is disabled for this application.")]
         public static Dictionary<String, Object> GenerateProperties(List<PropertySpecification> propertySpecification)
         {
             Dictionary<String, Object> properties = null;
@@ -126,6 +130,7 @@ namespace NoSQL.GraphDB.App.Helper
             return properties;
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2096:Call to 'System.Type.GetType' can perform case insensitive lookup of the type", Justification = "Type names are provided by API users and need case-insensitive lookup. Trimming is disabled for this application.")]
         public static Object Transform(PropertySpecification definition)
         {
             return definition.FullQualifiedTypeName == null

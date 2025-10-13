@@ -30,11 +30,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NoSQL.GraphDB.Core;
 using Scalar.AspNetCore;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NoSQL.GraphDB.App
 {
     public class Program
     {
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "MVC Controllers use reflection which is incompatible with trimming. Trimming is disabled for this application.")]
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);

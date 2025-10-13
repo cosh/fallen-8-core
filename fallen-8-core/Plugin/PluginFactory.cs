@@ -138,7 +138,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// </param>
         public static String Assimilate(Stream dllStream, String path = null)
         {
-            var assimilationPath = path ?? Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) + Path.DirectorySeparatorChar + Path.GetRandomFileName() + ".dll";
+            var assimilationPath = path ?? Path.Combine(AppContext.BaseDirectory, Path.GetRandomFileName() + ".dll");
 
             using (var dllFileStream = File.Create(assimilationPath, 1024))
             {
@@ -177,7 +177,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         {
             var result = new List<Type>();
 
-            string currentAssemblyDirectoryName = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string currentAssemblyDirectoryName = AppContext.BaseDirectory;
 
             var files = Directory.EnumerateFiles(currentAssemblyDirectoryName, "*.dll");
 

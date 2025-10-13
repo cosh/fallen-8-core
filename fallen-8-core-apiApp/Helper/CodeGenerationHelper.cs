@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -54,6 +55,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
         #endregion
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "This method dynamically generates and loads code at runtime, which is incompatible with trimming")]
+        [UnconditionalSuppressMessage("Trimming", "IL2072:Target parameter argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.", Justification = "Dynamic code generation requires runtime type creation")]
         public static String GeneratePathTraverser(out IPathTraverser traverser, PathSpecification definition)
         {
             var sourceCode = CreateSource(definition);
@@ -194,6 +197,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
                .WithBody(SyntaxFactory.Block(syntax));
         }
 
+        [UnconditionalSuppressMessage("SingleFile", "IL3000:Avoid accessing Assembly file path when publishing as a single file", Justification = "This method handles the single-file case by checking for empty Location and uses AppContext.BaseDirectory as fallback")]
         private static IEnumerable<MetadataReference> GetGlobalReferences()
         {
             var assemblies = new[]
@@ -203,12 +207,24 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 typeof(object).Assembly
             };
 
-            var refs = from a in assemblies
-                       select MetadataReference.CreateFromFile(a.Location);
-            var returnList = refs.ToList();
+            var returnList = new List<MetadataReference>();
+            
+            // For single-file apps, assembly.Location may be empty, so we need to handle this carefully
+            foreach (var assembly in assemblies)
+            {
+                var location = assembly.Location;
+                if (!string.IsNullOrEmpty(location))
+                {
+                    returnList.Add(MetadataReference.CreateFromFile(location));
+                }
+            }
 
             //The location of the .NET assemblies
-            var assemblyPath = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location);
+            // Use the location of the core runtime assembly to find the runtime directory
+            var runtimeAssembly = typeof(object).Assembly;
+            var assemblyPath = string.IsNullOrEmpty(runtimeAssembly.Location) 
+                ? AppContext.BaseDirectory 
+                : System.IO.Path.GetDirectoryName(runtimeAssembly.Location);
 
             /*
             * Adding some necessary .NET assemblies

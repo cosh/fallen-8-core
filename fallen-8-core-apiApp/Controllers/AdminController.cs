@@ -86,9 +86,9 @@ namespace NoSQL.GraphDB.App.Controllers
 
             _saveFile = "Temp.f8s";
 
-            string currentAssemblyDirectoryName = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string currentAssemblyDirectoryName = AppContext.BaseDirectory;
 
-            _savePath = currentAssemblyDirectoryName + System.IO.Path.DirectorySeparatorChar + _saveFile;
+            _savePath = System.IO.Path.Combine(currentAssemblyDirectoryName, _saveFile);
 
             _optimalNumberOfPartitions = Convert.ToUInt32(Environment.ProcessorCount * 3 / 2);
         }
@@ -290,7 +290,7 @@ namespace NoSQL.GraphDB.App.Controllers
         private string FindLatestFallen8()
         {
             _logger.LogInformation("Trying to find the latest Fallen-8 savegame");
-            string currentAssemblyDirectoryName = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string currentAssemblyDirectoryName = AppContext.BaseDirectory;
             _logger.LogInformation(String.Format("Save directory: {0}", currentAssemblyDirectoryName));
 
             var versions = Directory.EnumerateFiles(currentAssemblyDirectoryName,
