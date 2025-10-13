@@ -26,13 +26,10 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using Microsoft.Extensions.Logging;
-using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Algorithms.Path;
-using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Index;
@@ -52,7 +49,7 @@ namespace NoSQL.GraphDB.Core
         #region Data
 
         /// <summary>
-        ///   The graph elements
+        ///   The graph elements storage. Thread safety is provided by the TransactionManager.
         /// </summary>
         private ImmutableList<AGraphElementModel> _graphElements;
 
@@ -210,6 +207,7 @@ namespace NoSQL.GraphDB.Core
 
             //Increase the vertex count
             VertexCount++;
+
             return newVertex;
         }
 
@@ -217,7 +215,7 @@ namespace NoSQL.GraphDB.Core
         {
             var newVertices = new List<VertexModel>();
 
-            if (definitions != null)
+            if (definitions != null && definitions.Count > 0)
             {
                 foreach (var aVertexDef in definitions)
                 {
@@ -232,62 +230,74 @@ namespace NoSQL.GraphDB.Core
                     //Increase the vertex count
                     VertexCount++;
                 }
-            }
 
-            //insert it
-            _graphElements = _graphElements.AddRange(newVertices);
+                //insert all vertices in batch
+                _graphElements = _graphElements.AddRange(newVertices);
+            }
 
             return newVertices;
         }
 
         public override bool TryGetGraphElement(out AGraphElementModel result, int id)
         {
+            if (id < 0 || id >= _graphElements.Count)
+            {
+                result = null;
+                return false;
+            }
 
             try
             {
-
                 result = _graphElements[id];
-                return result != null;
+                return result != null && !result._removed;
             }
             catch (ArgumentOutOfRangeException)
             {
                 result = null;
+                return false;
             }
-
-            return false;
         }
 
         public override bool TryGetEdge(out EdgeModel result, int id)
         {
+            if (id < 0 || id >= _graphElements.Count)
+            {
+                result = null;
+                return false;
+            }
 
             try
             {
-                result = _graphElements[id] as EdgeModel;
-                return result != null;
+                var element = _graphElements[id];
+                result = element as EdgeModel;
+                return result != null && !result._removed;
             }
             catch (ArgumentOutOfRangeException)
             {
                 result = null;
-
+                return false;
             }
-
-            return false;
         }
 
         public override bool TryGetVertex(out VertexModel result, int id)
         {
+            if (id < 0 || id >= _graphElements.Count)
+            {
+                result = null;
+                return false;
+            }
 
             try
             {
-                result = _graphElements[id] as VertexModel;
-                return result != null;
+                var element = _graphElements[id];
+                result = element as VertexModel;
+                return result != null && !result._removed;
             }
             catch (ArgumentOutOfRangeException)
             {
                 result = null;
+                return false;
             }
-            return false;
-
         }
 
 
@@ -295,6 +305,16 @@ namespace NoSQL.GraphDB.Core
         public override bool GraphScan(out List<AGraphElementModel> result, String propertyId, IComparable literal,
             BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null)
         {
+            if (string.IsNullOrWhiteSpace(propertyId))
+            {
+                throw new ArgumentException("Property ID cannot be null or whitespace.", nameof(propertyId));
+            }
+
+            if (literal == null)
+            {
+                throw new ArgumentNullException(nameof(literal));
+            }
+
             #region binary operation
 
             switch (binOp)
@@ -325,7 +345,6 @@ namespace NoSQL.GraphDB.Core
 
                 default:
                     result = new List<AGraphElementModel>();
-
                     break;
             }
 
@@ -336,6 +355,16 @@ namespace NoSQL.GraphDB.Core
 
         public override bool IndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
         {
+            if (string.IsNullOrWhiteSpace(indexId))
+            {
+                throw new ArgumentException("Index ID cannot be null or whitespace.", nameof(indexId));
+            }
+
+            if (literal == null)
+            {
+                throw new ArgumentNullException(nameof(literal));
+            }
+
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
             {
@@ -387,6 +416,21 @@ namespace NoSQL.GraphDB.Core
 
         public override bool RangeIndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
         {
+            if (string.IsNullOrWhiteSpace(indexId))
+            {
+                throw new ArgumentException("Index ID cannot be null or whitespace.", nameof(indexId));
+            }
+
+            if (leftLimit == null)
+            {
+                throw new ArgumentNullException(nameof(leftLimit));
+            }
+
+            if (rightLimit == null)
+            {
+                throw new ArgumentNullException(nameof(rightLimit));
+            }
+
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
             {
@@ -406,6 +450,16 @@ namespace NoSQL.GraphDB.Core
 
         public override bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery)
         {
+            if (string.IsNullOrWhiteSpace(indexId))
+            {
+                throw new ArgumentException("Index ID cannot be null or whitespace.", nameof(indexId));
+            }
+
+            if (string.IsNullOrWhiteSpace(searchQuery))
+            {
+                throw new ArgumentException("Search query cannot be null or whitespace.", nameof(searchQuery));
+            }
+
             IIndex index;
             if (!IndexFactory.TryGetIndex(out index, indexId))
             {
@@ -433,6 +487,16 @@ namespace NoSQL.GraphDB.Core
             string plugin,
             ShortestPathDefinition definition)
         {
+            if (string.IsNullOrWhiteSpace(plugin))
+            {
+                throw new ArgumentException("Plugin name cannot be null or whitespace.", nameof(plugin));
+            }
+
+            if (definition == null)
+            {
+                throw new ArgumentNullException(nameof(definition));
+            }
+
             IShortestPathAlgorithm algo = null;
 
             Object cachedAlgo;
@@ -463,6 +527,11 @@ namespace NoSQL.GraphDB.Core
             out List<Path> result,
             ShortestPathDefinition definition)
         {
+            if (definition == null)
+            {
+                throw new ArgumentNullException(nameof(definition));
+            }
+
             Type shortestPathType = typeof(T);
             var algo = Activator.CreateInstance(shortestPathType, false) as IShortestPathAlgorithm;
 
@@ -523,7 +592,7 @@ namespace NoSQL.GraphDB.Core
         {
             var newEdges = new List<EdgeModel>();
 
-            if (definitions != null)
+            if (definitions != null && definitions.Count > 0)
             {
                 foreach (var aEdgeDefinition in definitions)
                 {
@@ -552,8 +621,11 @@ namespace NoSQL.GraphDB.Core
                     }
                 }
 
-                //add the edge to the graph elements
-                _graphElements = _graphElements.AddRange(newEdges);
+                //add the edges to the graph elements in batch
+                if (newEdges.Count > 0)
+                {
+                    _graphElements = _graphElements.AddRange(newEdges);
+                }
             }
 
             return newEdges;
@@ -771,21 +843,17 @@ namespace NoSQL.GraphDB.Core
         {
             if (String.IsNullOrWhiteSpace(path))
             {
-                _logger.LogInformation(String.Format("There is no path given, so nothing will be loaded."));
+                _logger.LogInformation("There is no path given, so nothing will be loaded.");
                 return;
             }
 
-            _logger.LogInformation(String.Format("Fallen-8 now loads a savegame from path \"{0}\"", path));
+            _logger.LogInformation("Fallen-8 now loads a savegame from path \"{Path}\"", path);
 
             var oldIndexFactory = IndexFactory;
             var oldServiceFactory = ServiceFactory;
             var oldSubGraphFactory = SubGraphFactory;
             oldServiceFactory.ShutdownAllServices();
             var oldGraphElements = _graphElements;
-            GC.Collect();
-            GC.Collect();
-            GC.WaitForFullGCComplete(-1);
-            GC.WaitForPendingFinalizers();
 
             _graphElements = ImmutableList.Create<AGraphElementModel>();
 
@@ -962,50 +1030,38 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Trims the Fallen-8.
+        ///   Trims the Fallen-8 by removing null entries and compacting IDs.
         /// </summary>
         internal void Trim_internal()
         {
-            for (var i = 0; i < _currentId; i++)
+            // Trim individual graph elements
+            for (var i = 0; i < _currentId && i < _graphElements.Count; i++)
             {
                 AGraphElementModel graphElement = _graphElements[i];
-                if (graphElement != null)
-                {
-                    graphElement.Trim();
-                }
+                graphElement?.Trim();
             }
 
-            List<AGraphElementModel> newGraphElementList = new List<AGraphElementModel>();
+            // Create new list excluding nulls and removed elements
+            var newGraphElementList = _graphElements
+                .Where(element => element != null && !element._removed)
+                .ToList();
 
-            //copy the list and exclude nulls
-            foreach (var aGraphElement in _graphElements)
-            {
-                if (aGraphElement != null)
-                {
-                    newGraphElementList.Add(aGraphElement);
-                }
-            }
-
-            //check the IDs
+            // Reassign IDs sequentially
             for (int i = 0; i < newGraphElementList.Count; i++)
             {
                 newGraphElementList[i].SetId(i);
             }
 
-            //set the correct currentID
+            // Update current ID
             _currentId = newGraphElementList.Count;
 
-            //cleanup and switch
-            _graphElements.Clear();
+            // Replace the graph elements list
             _graphElements = newGraphElementList.ToImmutableList();
 
+            // Trim transaction manager
             _txManager.Trim();
 
-            GC.Collect();
-            GC.Collect();
-            GC.WaitForFullGCComplete(-1);
-            GC.WaitForPendingFinalizers();
-
+            // Recalculate counters
             RecalculateGraphElementCounter();
         }
 
@@ -1021,7 +1077,8 @@ namespace NoSQL.GraphDB.Core
         public int GetCountOf<TInteresting>()
         {
             return _graphElements.AsParallel()
-                .Where(_ => _ != null && _ is TInteresting).Count();
+                .Where(_ => _ != null && !_._removed && _ is TInteresting)
+                .Count();
         }
 
         public override ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null)
@@ -1029,7 +1086,7 @@ namespace NoSQL.GraphDB.Core
             return ImmutableList.CreateRange<VertexModel>(
                  _graphElements
                  .AsParallel()
-                 .Where(_ => _ != null && _ is VertexModel)
+                 .Where(_ => _ != null && !_._removed && _ is VertexModel)
                  .Where(CheckLabel(interestingLabel))
                  .Select(_ => (VertexModel)_));
         }
@@ -1039,7 +1096,7 @@ namespace NoSQL.GraphDB.Core
             return ImmutableList.CreateRange<EdgeModel>(
                         _graphElements
                         .AsParallel()
-                        .Where(_ => _ != null && _ is EdgeModel)
+                        .Where(_ => _ != null && !_._removed && _ is EdgeModel)
                         .Where(CheckLabel(interestingLabel))
                         .Select(_ => (EdgeModel)_));
         }
