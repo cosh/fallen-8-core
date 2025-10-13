@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // TransactionTest.cs
 //
@@ -40,19 +40,6 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class TransactionTest
     {
-        // Helper method to create logger factory consistently
-        private ILoggerFactory CreateLoggerFactory()
-        {
-            return LoggerFactory.Create(builder =>
-            {
-                builder
-                    .AddFilter("Microsoft", LogLevel.Warning)
-                    .AddFilter("System", LogLevel.Warning)
-                    .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
-                    .AddConsole();
-            });
-        }
-
         // Helper method to get property value from a graph element
         private object GetProperty(Fallen8 fallen8, int graphElementId, string propertyId)
         {
@@ -72,7 +59,7 @@ namespace NoSQL.GraphDB.Tests
         public void VerifyVertexIdAssignment()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Act: Create a vertex and get its ID
@@ -122,7 +109,7 @@ namespace NoSQL.GraphDB.Tests
         public void AddVertex_ShouldCreateVertexSuccessfully()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Act
@@ -150,7 +137,7 @@ namespace NoSQL.GraphDB.Tests
         public void CreateVertices_ShouldCreateMultipleVerticesSuccessfully()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             var definitions = new List<VertexDefinition>
             {
@@ -176,7 +163,7 @@ namespace NoSQL.GraphDB.Tests
         public void CreateEdge_ShouldCreateEdgeSuccessfully()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Add two vertices first
@@ -222,7 +209,7 @@ namespace NoSQL.GraphDB.Tests
         public void CreateEdges_ShouldCreateMultipleEdgesSuccessfully()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Add vertices first
@@ -280,7 +267,7 @@ namespace NoSQL.GraphDB.Tests
         public void AddProperty_ShouldAddPropertyToVertex()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Create a vertex first - use empty dictionary instead of null for properties
@@ -322,7 +309,7 @@ namespace NoSQL.GraphDB.Tests
         public void AddProperties_ShouldAddMultipleProperties()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Create a vertex first - use empty dictionary instead of null for properties
@@ -360,7 +347,7 @@ namespace NoSQL.GraphDB.Tests
         public void RemoveProperty_ShouldRemovePropertyFromVertex()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Create a vertex with a property
@@ -402,7 +389,7 @@ namespace NoSQL.GraphDB.Tests
         public void RemoveGraphElement_ShouldMarkVertexAsRemoved()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Create a vertex with a property
@@ -444,7 +431,7 @@ namespace NoSQL.GraphDB.Tests
         public void TabulaRasa_ShouldClearAllGraphData()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Create some vertices and edges
@@ -498,7 +485,7 @@ namespace NoSQL.GraphDB.Tests
         public void SaveAndLoadTransaction_ShouldPersistAndRestoreGraphData()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             var tempFile = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "fallen8_test.f8s"));
 
@@ -581,7 +568,7 @@ namespace NoSQL.GraphDB.Tests
         public void TrimTransaction_ShouldOptimizeMemoryUsage()
         {
             // Arrange
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Create some test data

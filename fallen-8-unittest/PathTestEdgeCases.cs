@@ -39,22 +39,10 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class PathTestEdgeCases
     {
-        private ILoggerFactory CreateLoggerFactory()
-        {
-            return LoggerFactory.Create(builder =>
-            {
-                builder
-                    .AddFilter("Microsoft", LogLevel.Warning)
-                    .AddFilter("System", LogLevel.Warning)
-                    .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
-                    .AddConsole();
-            });
-        }
-
         [TestMethod]
         public void GetPaths_NullSpecification_ShouldNotThrowAndReturnPathsOrEmpty()
         {
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
@@ -83,7 +71,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void GetPaths_MaxDepthZero_ShouldReturnEmptyList()
         {
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
@@ -110,7 +98,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void GetPaths_NonexistentVertices_ShouldReturnEmptyList()
         {
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
@@ -127,7 +115,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void GetPaths_NoPossiblePath_ShouldReturnEmptyList()
         {
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             // Create two disconnected subgraphs
             var creationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds());

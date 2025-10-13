@@ -153,24 +153,11 @@ namespace NoSQL.GraphDB.Tests
             ResultType = ResultTypeSpecification.Vertices
         };
 
-        // Helper method to create logger factory consistently
-        private ILoggerFactory CreateLoggerFactory()
-        {
-            return LoggerFactory.Create(builder =>
-            {
-                builder
-                    .AddFilter("Microsoft", LogLevel.Warning)
-                    .AddFilter("System", LogLevel.Warning)
-                    .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
-                    .AddConsole();
-            });
-        }
-
         [TestMethod]
         public void FindPathToTrent_ShouldReturnTwoPaths()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
@@ -193,7 +180,7 @@ namespace NoSQL.GraphDB.Tests
         public void FindAliceToBob_ShouldReturnOnePath()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
@@ -217,7 +204,7 @@ namespace NoSQL.GraphDB.Tests
         public void MultiHopPaths_ShouldCalculateCorrectPath()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateAbcGraph(fallen8);
 
@@ -240,7 +227,7 @@ namespace NoSQL.GraphDB.Tests
         public void MultiHopPaths_Generic_ShouldUseCache()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateAbcGraph(fallen8);
 
@@ -267,7 +254,7 @@ namespace NoSQL.GraphDB.Tests
         public void FindPathWithRestrictions_ShouldLimitResults()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
@@ -289,7 +276,7 @@ namespace NoSQL.GraphDB.Tests
         public void FindPathWithMaxDepthZero_ShouldReturnNoPath()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
@@ -312,7 +299,7 @@ namespace NoSQL.GraphDB.Tests
         public void FindPathBetweenDistantVertices_ShouldReturnCorrectPath()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
@@ -342,7 +329,7 @@ namespace NoSQL.GraphDB.Tests
         public void PathTraversalWithCustomFilters_ShouldRespectFilters()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateAbcGraph(fallen8);
 
@@ -373,7 +360,7 @@ namespace NoSQL.GraphDB.Tests
         public void EqualPathSpecifications_ShouldShareCache()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateAbcGraph(fallen8);
 
@@ -441,7 +428,7 @@ namespace NoSQL.GraphDB.Tests
         public void PathWithWeightedEdges_ShouldFindShortestWeightedPath()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Create a graph with weighted edges
@@ -528,7 +515,7 @@ namespace NoSQL.GraphDB.Tests
         public void NonexistentPath_ShouldReturnEmptyList()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Create two disconnected subgraphs
@@ -596,7 +583,7 @@ namespace NoSQL.GraphDB.Tests
         public void PathWithEdgeFilter_ShouldFilterUnwantedEdges()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
             TestGraphGenerator.GenerateSampleGraph(fallen8);
 
@@ -647,7 +634,7 @@ namespace NoSQL.GraphDB.Tests
         public void PathTraversalWithBidirectionalEdges_ShouldFindPathsInBothDirections()
         {
             // Arrange - Create a new isolated instance for this test
-            var loggerFactory = CreateLoggerFactory();
+            var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
 
             // Create a graph with bidirectional relationships

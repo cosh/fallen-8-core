@@ -1,6 +1,6 @@
-﻿// MIT License
+// MIT License
 //
-// BenchmarkTest.cs
+// TestLoggerFactory.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -23,38 +23,36 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
-using System.Collections.Generic;
-using System.Threading;
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App.Controllers.Benchmark;
-using NoSQL.GraphDB.App.Controllers.Sample;
-using NoSQL.GraphDB.Core;
-using NoSQL.GraphDB.Core.Expression;
-using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
 {
-    [TestClass]
-    public class BenchmarkTest
+    /// <summary>
+    /// Helper class to create consistently configured logger factories for unit tests.
+    /// </summary>
+    public static class TestLoggerFactory
     {
-        [TestMethod]
-        public void ScaleFreeNetwork_ShouldCreateExpectedGraph()
+        /// <summary>
+        /// Creates a logger factory with enhanced console logging including timestamps,
+        /// class names, and structured output suitable for debugging and testing.
+        /// </summary>
+        /// <returns>A configured ILoggerFactory instance.</returns>
+        public static ILoggerFactory Create()
         {
-            // Arrange - Create a new isolated instance for this test
-            var loggerFactory = TestLoggerFactory.Create();
-            var fallen8 = new Fallen8(loggerFactory);
-            var benchmark = new ScaleFreeNetwork(fallen8);
-
-            // Act
-            benchmark.CreateScaleFreeNetwork(1000, 10);
-            var result = benchmark.Bench(10);
-
-            // Assert
-            Assert.AreEqual(1000, fallen8.VertexCount, "Expected 1000 vertices in the scale free network");
-            Assert.AreEqual(10000, fallen8.EdgeCount, "Expected 10000 edges in the scale free network");
+            return LoggerFactory.Create(builder =>
+            {
+                builder
+                    .AddFilter("Microsoft", LogLevel.Warning)
+                    .AddFilter("System", LogLevel.Warning)
+                    .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
+                    .AddSimpleConsole(options =>
+                    {
+                        options.IncludeScopes = false;
+                        options.SingleLine = true;
+                        options.TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff ";
+                        options.UseUtcTimestamp = true;
+                    });
+            });
         }
     }
 }

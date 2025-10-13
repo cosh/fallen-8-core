@@ -48,14 +48,7 @@ namespace NoSQL.GraphDB.Tests
         public void TestInitialize()
         {
             // Set up a fresh test environment before each test
-            _loggerFactory = LoggerFactory.Create(builder =>
-            {
-                builder
-                    .AddFilter("Microsoft", LogLevel.Warning)
-                    .AddFilter("System", LogLevel.Warning)
-                    .AddFilter("NoSQL.GraphDB", LogLevel.Debug)
-                    .AddConsole();
-            });
+            _loggerFactory = TestLoggerFactory.Create();
         }
 
         private VertexModel[] CreateTestVertices(Fallen8 fallen8)
