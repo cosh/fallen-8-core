@@ -26,6 +26,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.Cache;
@@ -397,14 +400,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 // Set the ID of the new subgraph to match the old one (using internal setter)
                 newSubGraph.SubGraph.SetId(oldSubGraphId);
 
-                // Preserve metadata for future recalculations
-                newSubGraph.SourceFallen8 = outdatedSubGraphResult.SourceFallen8;
-                newSubGraph.AlgorithmPluginName = outdatedSubGraphResult.AlgorithmPluginName;
-                newSubGraph.AlgorithmParameters = outdatedSubGraphResult.AlgorithmParameters;
-
-                // Update the registries (name and ID remain the same)
-                _subGraphsByName[subGraphName] = newSubGraph;
-                _subGraphsById[oldSubGraphId] = newSubGraph;
+                outdatedSubGraphResult.SourceFallen8 = newSubGraph.SourceFallen8;
+                outdatedSubGraphResult.AlgorithmPluginName = newSubGraph.AlgorithmPluginName;
+                outdatedSubGraphResult.AlgorithmParameters = newSubGraph.AlgorithmParameters;
+                outdatedSubGraphResult.Definitions = newSubGraph.Definitions;
+                outdatedSubGraphResult.SubGraph = newSubGraph.SubGraph;
 
                 _logger.LogInformation(String.Format("Successfully recalculated subgraph \"{0}\".", subGraphName));
                 return true;
@@ -416,91 +416,79 @@ namespace NoSQL.GraphDB.Core.SubGraph
             }
         }
 
-        /// <summary>
-        /// Recalculates all subgraphs that have stored definitions and algorithms.
-        /// </summary>
-        /// <returns>The number of subgraphs successfully recalculated.</returns>
-        /// <remarks>
-        /// This method iterates through all registered subgraphs and recalculates those that have
-        /// the necessary definition and algorithm information. Subgraphs that cannot be recalculated
-        /// are skipped with a warning logged. Algorithm plugins will be loaded from the plugin system if not already cached.
-        /// </remarks>
         public int RecalculateAllSubGraphs()
         {
-            _logger.LogInformation("Starting recalculation of all subgraphs...");
-            int successCount = 0;
-            int totalCount = _subGraphsByName.Count;
-            int skippedCount = 0;
+            int successes = 0;
+            int failures = 0;
 
-            foreach (var kvp in _subGraphsByName)
+            // Start with subgraphs that depend on the root Fallen8 instance
+            var rootSubGraphs = _subGraphsById.Where(_ => _.Value.SourceFallen8Id.Equals(_fallen8.Id)).ToList();
+
+            Parallel.ForEach(rootSubGraphs, _ =>
             {
-                var subGraphName = kvp.Key;
-                var result = kvp.Value;
+                _.Value.SourceFallen8 = _fallen8;
 
-                if (result.Definitions == null || string.IsNullOrEmpty(result.AlgorithmPluginName) || result.SourceFallen8 == null)
+                if (TryRecalculateSubGraph(_.Value.Definitions.Name))
                 {
-                    _logger.LogWarning(String.Format("Skipping subgraph \"{0}\" - cannot be recalculated (missing definition, algorithm plugin name, or source Fallen8).", subGraphName));
-                    skippedCount++;
-                    continue;
-                }
+                    Interlocked.Increment(ref successes);
 
-                try
+                    // Recursively recalculate all dependent subgraphs
+                    var (nestedSuccesses, nestedFailures) = RecalculateSubGraphsRecursive(_.Value.SubGraph.Id);
+                    Interlocked.Add(ref successes, nestedSuccesses);
+                    Interlocked.Add(ref failures, nestedFailures);
+                }
+                else
                 {
-                    _logger.LogInformation(String.Format("Recalculating subgraph \"{0}\" using algorithm \"{1}\"...", subGraphName, result.AlgorithmPluginName));
-
-                    // Load the algorithm from the plugin system
-                    ISubGraphAlgorithm algo = null;
-                    Object cachedAlgo;
-                    if (!_pluginCache.SubGraph.TryGetValue(result.AlgorithmPluginName, out cachedAlgo))
-                    {
-                        // Algorithm was not cached - find and initialize it
-                        if (!PluginFactory.TryFindPlugin(out algo, result.AlgorithmPluginName))
-                        {
-                            _logger.LogError(String.Format("Could not find subgraph algorithm plugin with name \"{0}\" for recalculation.", result.AlgorithmPluginName));
-                            skippedCount++;
-                            continue;
-                        }
-
-                        if (!InitializeAndCacheAlgorithm(result.SourceFallen8, algo, result.AlgorithmParameters, result.AlgorithmPluginName))
-                        {
-                            skippedCount++;
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        algo = (ISubGraphAlgorithm)cachedAlgo;
-                    }
-
-                    // Re-initialize the algorithm with the correct source Fallen8
-                    algo.Initialize(result.SourceFallen8, result.AlgorithmParameters);
-
-                    // Create a new subgraph using the algorithm and definition on the original source
-                    if (algo.TryCreateSubgraph(out var newSubGraph, result.Definitions))
-                    {
-                        // Update the result properties to maintain recalculation metadata
-                        newSubGraph.SourceFallen8 = result.SourceFallen8;
-                        newSubGraph.AlgorithmPluginName = result.AlgorithmPluginName;
-                        newSubGraph.AlgorithmParameters = result.AlgorithmParameters;
-                        _subGraphsByName[subGraphName] = newSubGraph;
-                        successCount++;
-                        _logger.LogInformation(String.Format("Successfully recalculated subgraph \"{0}\".", subGraphName));
-                    }
-                    else
-                    {
-                        _logger.LogError(String.Format("Failed to recalculate subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, result.AlgorithmPluginName));
-                    }
+                    Interlocked.Increment(ref failures);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, String.Format("Exception occurred while recalculating subgraph \"{0}\": {1}", subGraphName, ex.Message));
-                }
+            });
+
+            _logger.LogInformation(String.Format("Recalculated {0} subgraph(s) with {1} successes and {2} failure(s).", successes + failures, successes, failures));
+            return successes;
+        }
+
+        /// <summary>
+        /// Recursively recalculates all subgraphs that depend on a given source graph.
+        /// </summary>
+        /// <param name="sourceGraphId">The ID of the source graph whose dependent subgraphs should be recalculated.</param>
+        /// <returns>A tuple containing the number of successful recalculations and failures.</returns>
+        private (int successes, int failures) RecalculateSubGraphsRecursive(Guid sourceGraphId)
+        {
+            int successes = 0;
+            int failures = 0;
+
+            // Find all subgraphs that depend on the given source graph
+            var dependentSubGraphs = _subGraphsById.Where(_ => _.Value.SourceFallen8Id.Equals(sourceGraphId)).ToList();
+
+            if (dependentSubGraphs.Count == 0)
+            {
+                return (0, 0); // Base case: no more dependent subgraphs
             }
 
-            _logger.LogInformation(String.Format("Recalculation complete: {0} of {1} subgraphs recalculated successfully ({2} skipped).",
-                successCount, totalCount, skippedCount));
+            Parallel.ForEach(dependentSubGraphs, _ =>
+            {
+                // Update the source reference
+                if (_subGraphsById.TryGetValue(sourceGraphId, out var sourceSubGraph))
+                {
+                    _.Value.SourceFallen8 = sourceSubGraph.SubGraph;
+                }
 
-            return successCount;
+                if (TryRecalculateSubGraph(_.Value.Definitions.Name))
+                {
+                    Interlocked.Increment(ref successes);
+
+                    // Recursively recalculate subgraphs that depend on this one
+                    var (nestedSuccesses, nestedFailures) = RecalculateSubGraphsRecursive(_.Value.SubGraph.Id);
+                    Interlocked.Add(ref successes, nestedSuccesses);
+                    Interlocked.Add(ref failures, nestedFailures);
+                }
+                else
+                {
+                    Interlocked.Increment(ref failures);
+                }
+            });
+
+            return (successes, failures);
         }
 
         /// <summary>

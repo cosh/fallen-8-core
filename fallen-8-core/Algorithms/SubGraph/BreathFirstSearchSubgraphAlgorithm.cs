@@ -203,7 +203,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                 {
                     Definitions = definition,
                     SubGraph = subgraph,
-                    SourceFallen8Id = _fallen8.Id
+                    SourceFallen8Id = _fallen8.Id,
+                    SourceFallen8 = _fallen8,
+                    AlgorithmPluginName = PluginName,
+                    AlgorithmParameters = null
                 };
                 return true;
             }
