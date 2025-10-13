@@ -205,8 +205,8 @@ namespace NoSQL.GraphDB.App.Controllers
         public String Save([FromBody] SaveSpecification definition)
         {
             // Use provided path or fall back to default
-            string savePath = !string.IsNullOrWhiteSpace(definition?.SaveGameLocation) 
-                ? definition.SaveGameLocation 
+            string savePath = !string.IsNullOrWhiteSpace(definition?.SaveGameLocation)
+                ? definition.SaveGameLocation
                 : _savePath;
 
             // Use provided partitions or fall back to optimal

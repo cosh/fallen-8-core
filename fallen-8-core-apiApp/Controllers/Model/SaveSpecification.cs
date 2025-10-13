@@ -46,13 +46,19 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// </summary>
         /// <example>C:/Fallen8/database.f8s</example>
         [JsonPropertyName("saveGameLocation")]
-        public String SaveGameLocation { get; set; }
+        public String SaveGameLocation
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   The number of partitions to use when saving (optional, defaults to optimal based on processor count)
         /// </summary>
         /// <example>8</example>
         [JsonPropertyName("savePartitions")]
-        public UInt32? SavePartitions { get; set; }
+        public UInt32? SavePartitions
+        {
+            get; set;
+        }
     }
 }
