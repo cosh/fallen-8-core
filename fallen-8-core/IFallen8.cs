@@ -34,12 +34,5 @@ namespace NoSQL.GraphDB.Core
     /// </summary>
     public interface IFallen8 : IFallen8Read, IFallen8Write, IDisposable, IFallen8Admin
     {
-        /// <summary>
-        ///   Gets the unique identifier for this Fallen8 instance.
-        /// </summary>
-        Guid Id
-        {
-            get;
-        }
     }
 }

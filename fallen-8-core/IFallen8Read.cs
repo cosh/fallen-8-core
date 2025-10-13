@@ -42,6 +42,14 @@ namespace NoSQL.GraphDB.Core
     public interface IFallen8Read
     {
         /// <summary>
+        ///   Gets the unique identifier for this Fallen8 instance.
+        /// </summary>
+        Guid Id
+        {
+            get;
+        }
+
+        /// <summary>
         ///   Gets the count of vertices.
         /// </summary>
         Int32 VertexCount
