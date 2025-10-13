@@ -33,7 +33,7 @@ namespace NoSQL.GraphDB.Core
     /// <summary>
     ///   Fallen8 write interface.
     /// </summary>
-    public interface IFallen8Write
+    public interface IFallen8Write : IFallen8Read
     {
         #region Transaction
 

@@ -41,7 +41,7 @@ namespace NoSQL.GraphDB.Core
     /// <summary>
     ///   Abstract base class for Fallen8 implementations.
     /// </summary>
-    public abstract class AFallen8 : IFallen8
+    public abstract class AFallen8 : IFallen8, IDisposable
     {
         /// <summary>
         ///   Gets the unique identifier for this Fallen8 instance.
