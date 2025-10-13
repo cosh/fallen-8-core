@@ -17,6 +17,17 @@
     <DebugType>embedded</DebugType>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- Trim-safe settings for self-contained publish -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <SuppressTrimAnalysisWarnings>false</SuppressTrimAnalysisWarnings>
+    <!-- Alternative: If you want trimming, disable it for problematic assemblies -->
+    <!-- <TrimMode>partial</TrimMode> -->
+    <!-- <TrimmerRootAssembly Include="Microsoft.AspNetCore.Mvc.Core" /> -->
+    <!-- <TrimmerRootAssembly Include="Microsoft.AspNetCore.Mvc.ApiExplorer" /> -->
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning" Version="5.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.1.0" />
