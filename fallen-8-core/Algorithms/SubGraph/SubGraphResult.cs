@@ -55,7 +55,35 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// <summary>
         /// The Guid of the fallen-8 this subgraph was created on
         /// </summary>
-        public Guid IdOfOriginalFallen8
+        public Guid SourceFallen8Id
+        {
+            get; set;
+        }
+
+        /// <summary>
+        /// The source Fallen-8 instance this subgraph was created from.
+        /// This is important for recalculating subgraphs and for creating subgraphs of subgraphs.
+        /// </summary>
+        public IFallen8 SourceFallen8
+        {
+            get; set;
+        }
+
+        /// <summary>
+        /// The name of the algorithm plugin used to create this subgraph.
+        /// Stored to enable recalculation by loading the plugin when needed.
+        /// This allows for proper plugin lifecycle management and system restarts.
+        /// </summary>
+        public string AlgorithmPluginName
+        {
+            get; set;
+        }
+
+        /// <summary>
+        /// Optional parameters that were passed to the algorithm during initialization.
+        /// Stored to enable recalculation with the same algorithm configuration.
+        /// </summary>
+        public IDictionary<string, object> AlgorithmParameters
         {
             get; set;
         }

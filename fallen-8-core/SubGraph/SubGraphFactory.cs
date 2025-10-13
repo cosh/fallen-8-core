@@ -138,7 +138,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 return false;
             }
 
-            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo);
+            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algorithmTypeName, parameter);
         }
 
         /// <summary>
@@ -179,7 +179,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 algo = (ISubGraphAlgorithm)cachedAlgo;
             }
 
-            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo);
+            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algo.PluginName, parameter);
         }
 
         /// <summary>
@@ -211,8 +211,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="subGraphName">The name for the subgraph.</param>
         /// <param name="definition">The subgraph definition.</param>
         /// <param name="algo">The algorithm to use.</param>
+        /// <param name="algorithmPluginName">The name of the algorithm plugin.</param>
+        /// <param name="algorithmParameters">Optional parameters for the algorithm.</param>
         /// <returns><c>true</c> if creation and registration succeeded; otherwise, <c>false</c>.</returns>
-        private bool CreateAndRegisterSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition, ISubGraphAlgorithm algo)
+        private bool CreateAndRegisterSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
+                                              ISubGraphAlgorithm algo, string algorithmPluginName, IDictionary<string, object> algorithmParameters)
         {
             subGraph = null;
 
@@ -225,8 +228,13 @@ namespace NoSQL.GraphDB.Core.SubGraph
                     return false;
                 }
 
+                // Store the source Fallen8 and algorithm metadata for recalculation
+                subGraph.SourceFallen8 = _fallen8;
+                subGraph.AlgorithmPluginName = algorithmPluginName;
+                subGraph.AlgorithmParameters = algorithmParameters;
+
                 // Register the created subgraph
-                if (!TryRegisterSubGraph(subGraphName, subGraph))
+                if (!_subGraphs.TryAdd(subGraphName, subGraph))
                 {
                     _logger.LogWarning(String.Format("Subgraph \"{0}\" was created but could not be registered (name already exists).", subGraphName));
                     return false;
@@ -278,12 +286,14 @@ namespace NoSQL.GraphDB.Core.SubGraph
         public bool TryDeleteSubGraph(string subGraphName)
         {
             return _subGraphs.TryRemove(subGraphName, out _);
-        }        /// <summary>
-                 /// Tries to get a subgraph.
-                 /// </summary>
-                 /// <param name="subGraph">The subgraph result.</param>
-                 /// <param name="subGraphName">The name of the subgraph.</param>
-                 /// <returns><c>true</c> if the subgraph was found; otherwise, <c>false</c>.</returns>
+        }
+
+        /// <summary>
+        /// Tries to get a subgraph.
+        /// </summary>
+        /// <param name="subGraph">The subgraph result.</param>
+        /// <param name="subGraphName">The name of the subgraph.</param>
+        /// <returns><c>true</c> if the subgraph was found; otherwise, <c>false</c>.</returns>
         public bool TryGetSubGraph(out SubGraphResult subGraph, string subGraphName)
         {
             return _subGraphs.TryGetValue(subGraphName, out subGraph);
@@ -295,6 +305,193 @@ namespace NoSQL.GraphDB.Core.SubGraph
         public void DeleteAllSubGraphs()
         {
             _subGraphs.Clear();
+        }
+
+        /// <summary>
+        /// Recalculates a specific subgraph using its stored definition and algorithm.
+        /// </summary>
+        /// <param name="subGraphName">The name of the subgraph to recalculate.</param>
+        /// <returns><c>true</c> if the subgraph was successfully recalculated; otherwise, <c>false</c>.</returns>
+        /// <remarks>
+        /// This method requires that the subgraph was originally created through the factory with a definition and algorithm.
+        /// Subgraphs registered manually without these details cannot be recalculated.
+        /// The algorithm plugin will be loaded from the plugin system if not already cached.
+        /// </remarks>
+        public bool TryRecalculateSubGraph(string subGraphName)
+        {
+            if (!_subGraphs.TryGetValue(subGraphName, out var result))
+            {
+                _logger.LogError(String.Format("Subgraph \"{0}\" not found.", subGraphName));
+                return false;
+            }
+
+            if (result.Definitions == null || string.IsNullOrEmpty(result.AlgorithmPluginName) || result.SourceFallen8 == null)
+            {
+                _logger.LogError(String.Format("Subgraph \"{0}\" cannot be recalculated because it lacks definition, algorithm plugin name, or source Fallen8 information.", subGraphName));
+                return false;
+            }
+
+            try
+            {
+                _logger.LogInformation(String.Format("Recalculating subgraph \"{0}\" using algorithm \"{1}\"...", subGraphName, result.AlgorithmPluginName));
+
+                // Load the algorithm from the plugin system
+                ISubGraphAlgorithm algo = null;
+                Object cachedAlgo;
+                if (!_pluginCache.SubGraph.TryGetValue(result.AlgorithmPluginName, out cachedAlgo))
+                {
+                    // Algorithm was not cached - find and initialize it
+                    if (!PluginFactory.TryFindPlugin(out algo, result.AlgorithmPluginName))
+                    {
+                        _logger.LogError(String.Format("Could not find subgraph algorithm plugin with name \"{0}\" for recalculation.", result.AlgorithmPluginName));
+                        return false;
+                    }
+
+                    if (!InitializeAndCacheAlgorithm(algo, result.AlgorithmParameters, result.AlgorithmPluginName))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    algo = (ISubGraphAlgorithm)cachedAlgo;
+                }
+
+                // Re-initialize the algorithm with the correct source Fallen8
+                // This is crucial for subgraphs of subgraphs
+                algo.Initialize(result.SourceFallen8 as Fallen8, result.AlgorithmParameters, _fallen8.GetLoggerFactory());
+
+                // Create a new subgraph using the algorithm and definition on the original source
+                if (!algo.TryCreateSubgraph(out var newSubGraph, result.Definitions))
+                {
+                    _logger.LogError(String.Format("Failed to recalculate subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, result.AlgorithmPluginName));
+                    return false;
+                }
+
+                // Update the result properties to maintain recalculation metadata
+                newSubGraph.SourceFallen8 = result.SourceFallen8;
+                newSubGraph.AlgorithmPluginName = result.AlgorithmPluginName;
+                newSubGraph.AlgorithmParameters = result.AlgorithmParameters;
+                _subGraphs[subGraphName] = newSubGraph;
+
+                _logger.LogInformation(String.Format("Successfully recalculated subgraph \"{0}\".", subGraphName));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, String.Format("Exception occurred while recalculating subgraph \"{0}\": {1}", subGraphName, ex.Message));
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Recalculates all subgraphs that have stored definitions and algorithms.
+        /// </summary>
+        /// <returns>The number of subgraphs successfully recalculated.</returns>
+        /// <remarks>
+        /// This method iterates through all registered subgraphs and recalculates those that have
+        /// the necessary definition and algorithm information. Subgraphs that cannot be recalculated
+        /// are skipped with a warning logged. Algorithm plugins will be loaded from the plugin system if not already cached.
+        /// </remarks>
+        public int RecalculateAllSubGraphs()
+        {
+            _logger.LogInformation("Starting recalculation of all subgraphs...");
+            int successCount = 0;
+            int totalCount = _subGraphs.Count;
+            int skippedCount = 0;
+
+            foreach (var kvp in _subGraphs)
+            {
+                var subGraphName = kvp.Key;
+                var result = kvp.Value;
+
+                if (result.Definitions == null || string.IsNullOrEmpty(result.AlgorithmPluginName) || result.SourceFallen8 == null)
+                {
+                    _logger.LogWarning(String.Format("Skipping subgraph \"{0}\" - cannot be recalculated (missing definition, algorithm plugin name, or source Fallen8).", subGraphName));
+                    skippedCount++;
+                    continue;
+                }
+
+                try
+                {
+                    _logger.LogInformation(String.Format("Recalculating subgraph \"{0}\" using algorithm \"{1}\"...", subGraphName, result.AlgorithmPluginName));
+
+                    // Load the algorithm from the plugin system
+                    ISubGraphAlgorithm algo = null;
+                    Object cachedAlgo;
+                    if (!_pluginCache.SubGraph.TryGetValue(result.AlgorithmPluginName, out cachedAlgo))
+                    {
+                        // Algorithm was not cached - find and initialize it
+                        if (!PluginFactory.TryFindPlugin(out algo, result.AlgorithmPluginName))
+                        {
+                            _logger.LogError(String.Format("Could not find subgraph algorithm plugin with name \"{0}\" for recalculation.", result.AlgorithmPluginName));
+                            skippedCount++;
+                            continue;
+                        }
+
+                        if (!InitializeAndCacheAlgorithm(algo, result.AlgorithmParameters, result.AlgorithmPluginName))
+                        {
+                            skippedCount++;
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        algo = (ISubGraphAlgorithm)cachedAlgo;
+                    }
+
+                    // Re-initialize the algorithm with the correct source Fallen8
+                    algo.Initialize(result.SourceFallen8 as Fallen8, result.AlgorithmParameters, _fallen8.GetLoggerFactory());
+
+                    // Create a new subgraph using the algorithm and definition on the original source
+                    if (algo.TryCreateSubgraph(out var newSubGraph, result.Definitions))
+                    {
+                        // Update the result properties to maintain recalculation metadata
+                        newSubGraph.SourceFallen8 = result.SourceFallen8;
+                        newSubGraph.AlgorithmPluginName = result.AlgorithmPluginName;
+                        newSubGraph.AlgorithmParameters = result.AlgorithmParameters;
+                        _subGraphs[subGraphName] = newSubGraph;
+                        successCount++;
+                        _logger.LogInformation(String.Format("Successfully recalculated subgraph \"{0}\".", subGraphName));
+                    }
+                    else
+                    {
+                        _logger.LogError(String.Format("Failed to recalculate subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, result.AlgorithmPluginName));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, String.Format("Exception occurred while recalculating subgraph \"{0}\": {1}", subGraphName, ex.Message));
+                }
+            }
+
+            _logger.LogInformation(String.Format("Recalculation complete: {0} of {1} subgraphs recalculated successfully ({2} skipped).",
+                successCount, totalCount, skippedCount));
+
+            return successCount;
+        }
+
+        /// <summary>
+        /// Gets a list of all registered subgraph names.
+        /// </summary>
+        /// <returns>An enumerable collection of subgraph names.</returns>
+        public IEnumerable<string> GetAllSubGraphNames()
+        {
+            return _subGraphs.Keys;
+        }
+
+        /// <summary>
+        /// Checks if a subgraph can be recalculated.
+        /// </summary>
+        /// <param name="subGraphName">The name of the subgraph to check.</param>
+        /// <returns><c>true</c> if the subgraph exists and can be recalculated; otherwise, <c>false</c>.</returns>
+        public bool CanRecalculateSubGraph(string subGraphName)
+        {
+            if (_subGraphs.TryGetValue(subGraphName, out var result))
+            {
+                return result.Definitions != null && !string.IsNullOrEmpty(result.AlgorithmPluginName) && result.SourceFallen8 != null;
+            }
+            return false;
         }
 
         #endregion

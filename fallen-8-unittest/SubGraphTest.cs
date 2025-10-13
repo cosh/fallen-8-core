@@ -831,6 +831,376 @@ namespace NoSQL.GraphDB.Tests
             // Act & Assert - should not throw
             algorithm.Dispose();
         }
+
+        [TestMethod]
+        public void TryRecalculateSubGraph_ExistingSubGraph_ShouldRecalculate()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+            var subGraphName = "test-subgraph";
+
+            var definition = new SubGraphDefinition
+            {
+                Name = subGraphName,
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                }
+            };
+
+            // Create a subgraph using the typed version
+            SubGraphResult originalSubGraph;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out originalSubGraph, subGraphName, definition));
+            var originalVertexCount = originalSubGraph.SubGraph.VertexCount;
+
+            // Modify the graph by adding a new vertex
+            var creationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds());
+            var verticesTx = new CreateVerticesTransaction();
+            verticesTx.AddVertex(creationDate, "node", new Dictionary<string, object>() { { "name", "E" } });
+            var verticesInfo = fallen8.EnqueueTransaction(verticesTx);
+            verticesInfo.WaitUntilFinished();
+
+            // Act - Recalculate the subgraph
+            var recalculateResult = fallen8.SubGraphFactory.TryRecalculateSubGraph(subGraphName);
+
+            // Assert
+            Assert.IsTrue(recalculateResult, "Recalculation should succeed");
+
+            SubGraphResult recalculatedSubGraph;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryGetSubGraph(out recalculatedSubGraph, subGraphName));
+            Assert.IsNotNull(recalculatedSubGraph, "Recalculated subgraph should not be null");
+            Assert.AreEqual(originalVertexCount + 1, recalculatedSubGraph.SubGraph.VertexCount,
+                "Recalculated subgraph should include the new vertex");
+        }
+
+        [TestMethod]
+        public void TryRecalculateSubGraph_NonExistentSubGraph_ShouldReturnFalse()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+
+            // Act
+            var result = fallen8.SubGraphFactory.TryRecalculateSubGraph("nonexistent");
+
+            // Assert
+            Assert.IsFalse(result, "Should return false for non-existent subgraph");
+        }
+
+        [TestMethod]
+        public void TryRecalculateSubGraph_ManuallyRegisteredSubGraph_ShouldReturnFalse()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+            var subGraphName = "manual-subgraph";
+
+            // Create a subgraph result manually without definition/algorithm
+            var manualSubGraph = new SubGraphResult
+            {
+                SourceFallen8Id = fallen8.Id,
+                Definitions = null,
+                SubGraph = new Fallen8(CreateLoggerFactory())
+            };
+
+            // Register it manually
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph(subGraphName, manualSubGraph));
+
+            // Act
+            var result = fallen8.SubGraphFactory.TryRecalculateSubGraph(subGraphName);
+
+            // Assert
+            Assert.IsFalse(result, "Should return false for manually registered subgraph without definition");
+        }
+
+        [TestMethod]
+        public void RecalculateAllSubGraphs_MultipleSubGraphs_ShouldRecalculateAll()
+        {
+            // Arrange
+            var fallen8 = CreateComplexGraph();
+            var originalVertexCount = fallen8.VertexCount;
+
+            var definition1 = new SubGraphDefinition
+            {
+                Name = "persons",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { Reference = "person", Label = label => label == "person" }
+                }
+            };
+
+            var definition2 = new SubGraphDefinition
+            {
+                Name = "companies",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { Reference = "company", Label = label => label == "company" }
+                }
+            };
+
+            // Create subgraphs using typed version
+            SubGraphResult subGraph1, subGraph2;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out subGraph1, "persons", definition1));
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out subGraph2, "companies", definition2));
+
+            var originalPersonCount = subGraph1.SubGraph.VertexCount;
+            var originalCompanyCount = subGraph2.SubGraph.VertexCount;
+
+            // Modify the graph
+            var creationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds());
+            var verticesTx = new CreateVerticesTransaction();
+            verticesTx.AddVertex(creationDate, "person", new Dictionary<string, object>() { { "name", "David" } });
+            verticesTx.AddVertex(creationDate, "company", new Dictionary<string, object>() { { "name", "NewCorp" } });
+            var verticesInfo = fallen8.EnqueueTransaction(verticesTx);
+            verticesInfo.WaitUntilFinished();
+
+            // Act - Recalculate all subgraphs
+            var recalculatedCount = fallen8.SubGraphFactory.RecalculateAllSubGraphs();
+
+            // Assert
+            Assert.AreEqual(2, recalculatedCount, "Should recalculate 2 subgraphs");
+
+            SubGraphResult recalcPersons, recalcCompanies;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryGetSubGraph(out recalcPersons, "persons"));
+            Assert.IsTrue(fallen8.SubGraphFactory.TryGetSubGraph(out recalcCompanies, "companies"));
+
+            Assert.AreEqual(originalPersonCount + 1, recalcPersons.SubGraph.VertexCount,
+                "Persons subgraph should include the new person");
+            Assert.AreEqual(originalCompanyCount + 1, recalcCompanies.SubGraph.VertexCount,
+                "Companies subgraph should include the new company");
+        }
+
+        [TestMethod]
+        public void RecalculateAllSubGraphs_MixedSubGraphs_ShouldOnlyRecalculateValid()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "valid",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                }
+            };
+
+            // Create one valid subgraph using typed version
+            SubGraphResult validSubGraph;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out validSubGraph, "valid", definition));
+
+            // Register one manual subgraph
+            var manualSubGraph = new SubGraphResult
+            {
+                SourceFallen8Id = fallen8.Id,
+                Definitions = null,
+                SubGraph = new Fallen8(CreateLoggerFactory())
+            };
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph("manual", manualSubGraph));
+
+            // Act
+            var recalculatedCount = fallen8.SubGraphFactory.RecalculateAllSubGraphs();
+
+            // Assert
+            Assert.AreEqual(1, recalculatedCount, "Should only recalculate 1 subgraph (skip the manual one)");
+        }
+
+        [TestMethod]
+        public void CanRecalculateSubGraph_ValidSubGraph_ShouldReturnTrue()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "test",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                }
+            };
+
+            SubGraphResult subGraph;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out subGraph, "test", definition));
+
+            // Act
+            var canRecalculate = fallen8.SubGraphFactory.CanRecalculateSubGraph("test");
+
+            // Assert
+            Assert.IsTrue(canRecalculate, "Should be able to recalculate valid subgraph");
+        }
+
+        [TestMethod]
+        public void CanRecalculateSubGraph_ManualSubGraph_ShouldReturnFalse()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+
+            var manualSubGraph = new SubGraphResult
+            {
+                SourceFallen8Id = fallen8.Id,
+                Definitions = null,
+                SubGraph = new Fallen8(CreateLoggerFactory())
+            };
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph("manual", manualSubGraph));
+
+            // Act
+            var canRecalculate = fallen8.SubGraphFactory.CanRecalculateSubGraph("manual");
+
+            // Assert
+            Assert.IsFalse(canRecalculate, "Should not be able to recalculate manually registered subgraph");
+        }
+
+        [TestMethod]
+        public void CanRecalculateSubGraph_NonExistent_ShouldReturnFalse()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+
+            // Act
+            var canRecalculate = fallen8.SubGraphFactory.CanRecalculateSubGraph("nonexistent");
+
+            // Assert
+            Assert.IsFalse(canRecalculate, "Should return false for non-existent subgraph");
+        }
+
+        [TestMethod]
+        public void GetAllSubGraphNames_WithSubGraphs_ShouldReturnAllNames()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+
+            var definition1 = new SubGraphDefinition
+            {
+                Name = "test1",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                }
+            };
+
+            var definition2 = new SubGraphDefinition
+            {
+                Name = "test2",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                }
+            };
+
+            SubGraphResult subGraph1, subGraph2;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out subGraph1, "test1", definition1));
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out subGraph2, "test2", definition2));
+
+            // Act
+            var names = fallen8.SubGraphFactory.GetAllSubGraphNames();
+
+            // Assert
+            var namesList = names.ToList();
+            Assert.AreEqual(2, namesList.Count, "Should have 2 subgraph names");
+            Assert.IsTrue(namesList.Contains("test1"), "Should contain test1");
+            Assert.IsTrue(namesList.Contains("test2"), "Should contain test2");
+        }
+
+        [TestMethod]
+        public void GetAllSubGraphNames_NoSubGraphs_ShouldReturnEmpty()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+
+            // Act
+            var names = fallen8.SubGraphFactory.GetAllSubGraphNames();
+
+            // Assert
+            Assert.IsFalse(names.Any(), "Should return empty collection");
+        }
+
+        [TestMethod]
+        public void TryRecalculateSubGraph_SubGraphOfSubGraph_ShouldUseCorrectSource()
+        {
+            // Arrange
+            var fallen8 = CreateComplexGraph();
+
+            // Create first level subgraph - all persons
+            var personDefinition = new SubGraphDefinition
+            {
+                Name = "persons",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { Reference = "person", Label = label => label == "person" }
+                }
+            };
+
+            SubGraphResult personSubGraph;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out personSubGraph, "persons", personDefinition));
+
+            var personCount = personSubGraph.SubGraph.VertexCount;
+            Assert.IsTrue(personCount > 0, "Should have person vertices");
+
+            // Verify SourceFallen8 is correctly set
+            Assert.IsNotNull(personSubGraph.SourceFallen8, "SourceFallen8 should be set");
+            Assert.AreEqual(fallen8.Id, personSubGraph.SourceFallen8.Id,
+                "First level subgraph should have main graph as source");
+
+            // Now add a new person to the main graph
+            var creationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds());
+            var verticesTx = new CreateVerticesTransaction();
+            verticesTx.AddVertex(creationDate, "person", new Dictionary<string, object>()
+            {
+                { "name", "Eve" },
+                { "age", 35 }
+            });
+            var verticesInfo = fallen8.EnqueueTransaction(verticesTx);
+            verticesInfo.WaitUntilFinished();
+
+            // Recalculate the first level subgraph (persons)
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRecalculateSubGraph("persons"));
+
+            SubGraphResult recalcPersons;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryGetSubGraph(out recalcPersons, "persons"));
+            Assert.AreEqual(personCount + 1, recalcPersons.SubGraph.VertexCount,
+                "First level subgraph should include new person");
+
+            // Verify SourceFallen8 is still correctly set after recalculation
+            Assert.IsNotNull(recalcPersons.SourceFallen8, "SourceFallen8 should still be set");
+            Assert.AreEqual(fallen8.Id, recalcPersons.SourceFallen8.Id,
+                "SourceFallen8 should still point to the main graph");
+        }
+
+        [TestMethod]
+        public void SubGraphResult_ShouldStoreSourceFallen8()
+        {
+            // Arrange
+            var fallen8 = CreateSimpleGraph();
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "test",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                }
+            };
+
+            // Act
+            SubGraphResult subGraph;
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out subGraph, "test", definition));
+
+            // Assert
+            Assert.IsNotNull(subGraph.SourceFallen8, "SourceFallen8 should be set");
+            Assert.AreEqual(fallen8.Id, subGraph.SourceFallen8.Id,
+                "SourceFallen8 should be the original Fallen8 instance");
+            Assert.IsFalse(string.IsNullOrEmpty(subGraph.AlgorithmPluginName), "AlgorithmPluginName should be stored");
+            Assert.AreEqual("Breadth First Search Subgraph Algorithm", subGraph.AlgorithmPluginName, "AlgorithmPluginName should be correct");
+            Assert.IsNotNull(subGraph.Definitions, "Definitions should be stored");
+        }
     }
 }
 

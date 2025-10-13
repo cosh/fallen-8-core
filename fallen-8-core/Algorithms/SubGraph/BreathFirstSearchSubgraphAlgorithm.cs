@@ -203,7 +203,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                 {
                     Definitions = definition,
                     SubGraph = subgraph,
-                    IdOfOriginalFallen8 = _fallen8.Id
+                    SourceFallen8Id = _fallen8.Id
                 };
                 return true;
             }
