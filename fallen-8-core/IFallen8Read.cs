@@ -41,6 +41,22 @@ namespace NoSQL.GraphDB.Core
     /// </summary>
     public interface IFallen8Read
     {
+        /// <summary>
+        ///   Gets the count of vertices.
+        /// </summary>
+        Int32 VertexCount
+        {
+            get;
+        }
+
+        /// <summary>
+        ///   Gets the count of edges.
+        /// </summary>
+        Int32 EdgeCount
+        {
+            get;
+        }
+
         #region Get
 
         /// <summary>

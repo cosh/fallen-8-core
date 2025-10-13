@@ -89,31 +89,32 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         }
 
         /// <summary>
-        /// Gets or sets the matched subgraph as a Fallen8 graph database instance.
+        /// Gets or sets the matched subgraph as a read-only graph database instance.
         /// </summary>
         /// <value>
-        /// A <see cref="Fallen8"/> instance containing all vertices and edges that matched
+        /// An <see cref="IFallen8Read"/> instance containing all vertices and edges that matched
         /// the patterns specified in the <see cref="Definitions"/>. This is a standalone
         /// graph database containing only the matched subset of data.
         /// </value>
         /// <remarks>
         /// <para>
-        /// The SubGraph property contains the actual query results as a complete, self-contained
+        /// The SubGraph property contains the actual query results as a read-only, self-contained
         /// graph database. This design provides several benefits:
         /// </para>
         /// <list type="bullet">
-        /// <item><description>The result can be queried, analyzed, or manipulated like any other graph</description></item>
+        /// <item><description>The result can be queried and analyzed without modification</description></item>
         /// <item><description>Further graph algorithms can be applied to the result</description></item>
-        /// <item><description>The subgraph can be serialized, exported, or visualized independently</description></item>
+        /// <item><description>The subgraph can be exported or visualized independently</description></item>
         /// <item><description>All relationships within the matched subgraph are preserved</description></item>
+        /// <item><description>Read-only access ensures the integrity of the subgraph result</description></item>
         /// </list>
         /// <para>
         /// Note that the SubGraph is a separate instance from the original graph database,
-        /// containing copies or references to the matched elements. Modifications to the
-        /// SubGraph do not affect the original graph (unless specifically implemented to do so).
+        /// containing copies or references to the matched elements. The read-only interface
+        /// prevents modifications to the subgraph result.
         /// </para>
         /// </remarks>
-        public Fallen8 SubGraph
+        public IFallen8Read SubGraph
         {
             get; set;
         }

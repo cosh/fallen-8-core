@@ -41,21 +41,5 @@ namespace NoSQL.GraphDB.Core
         {
             get;
         }
-
-        /// <summary>
-        ///   Gets the count of vertices.
-        /// </summary>
-        Int32 VertexCount
-        {
-            get;
-        }
-
-        /// <summary>
-        ///   Gets the count of edges.
-        /// </summary>
-        Int32 EdgeCount
-        {
-            get;
-        }
     }
 }

@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System;
 using System.Collections.Generic;
 
 namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
@@ -33,7 +34,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// <remarks>
     /// <para>
     /// SubGraphDefinition encapsulates all the information needed to execute a subgraph query,
-    /// including a unique identifier and a collection of patterns that define the structure
+    /// including a name and a collection of patterns that define the structure
     /// and constraints for matching subgraphs within a larger graph database.
     /// </para>
     /// <para>
@@ -52,12 +53,17 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// <code>
     /// var definition = new SubGraphDefinition
     /// {
-    ///     Id = "FindFriendsOfFriends",
+    ///     Name = "FindFriendsOfFriends",
     ///     Pattern = new List&lt;APattern&gt;
     ///     {
     ///         new VertexPattern { Reference = "person", Label = label => label == "Person" },
     ///         new EdgePattern { Reference = "knows", Label = label => label == "KNOWS", MinLength = 2, MaxLength = 2 },
     ///         new VertexPattern { Reference = "friendOfFriend", Label = label => label == "Person" }
+    ///     },
+    ///     AdditionalInformation = new Dictionary&lt;string, string&gt;
+    ///     {
+    ///         { "description", "Find friends of friends" },
+    ///         { "category", "social" }
     ///     }
     /// };
     /// </code>
@@ -65,19 +71,36 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     public class SubGraphDefinition
     {
         /// <summary>
-        /// Gets or sets the unique identifier for this subgraph definition.
+        /// Gets or sets the name for this subgraph definition.
         /// </summary>
         /// <value>
-        /// A string that uniquely identifies this subgraph definition.
+        /// A string that names this subgraph definition.
         /// This can be used for tracking, logging, or referencing the query.
         /// </value>
         /// <remarks>
-        /// The identifier is particularly useful when managing multiple subgraph queries,
+        /// The name is particularly useful when managing multiple subgraph queries,
         /// caching query results, or debugging complex pattern matching operations.
-        /// While not strictly required to be globally unique, it should be unique within
-        /// the context of your application to avoid confusion.
+        /// It provides a human-readable identifier for the subgraph definition.
         /// </remarks>
-        public string Id
+        public string Name
+        {
+            get; set;
+        }
+
+        /// <summary>
+        /// Gets or sets additional information for this subgraph definition.
+        /// </summary>
+        /// <value>
+        /// A dictionary containing additional key-value pairs of information.
+        /// Both keys and values are strings.
+        /// </value>
+        /// <remarks>
+        /// This property allows you to attach arbitrary metadata to the subgraph definition,
+        /// such as descriptions, categories, author information, version numbers, or any
+        /// other contextual information that might be useful for managing or documenting
+        /// the query.
+        /// </remarks>
+        public Dictionary<String, String> AdditionalInformation
         {
             get; set;
         }

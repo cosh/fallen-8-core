@@ -24,11 +24,10 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
-using NoSQL.GraphDB.Core.Error;
-using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Plugin;
 
 namespace NoSQL.GraphDB.Core.SubGraph
@@ -36,24 +35,24 @@ namespace NoSQL.GraphDB.Core.SubGraph
     /// <summary>
     /// Factory for creating and managing subgraphs.
     /// </summary>
-    public sealed class SubGraphFactory : AThreadSafeElement
+    public sealed class SubGraphFactory
     {
         #region Data
 
         /// <summary>
         /// The created subgraphs.
         /// </summary>
-        public IDictionary<String, SubGraphResult> SubGraphs;
+        private readonly ConcurrentDictionary<String, SubGraphResult> _subGraphs;
 
         /// <summary>
         /// The logger
         /// </summary>
-        private ILogger<SubGraphFactory> _logger;
+        private readonly ILogger<SubGraphFactory> _logger;
 
         /// <summary>
         /// The Fallen-8 instance
         /// </summary>
-        private Fallen8 _fallen8;
+        private readonly Fallen8 _fallen8;
 
         #endregion
 
@@ -66,7 +65,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="logger">The logger instance.</param>
         public SubGraphFactory(Fallen8 myF8, ILogger<SubGraphFactory> logger)
         {
-            SubGraphs = new Dictionary<String, SubGraphResult>();
+            _subGraphs = new ConcurrentDictionary<String, SubGraphResult>();
             _logger = logger;
             _fallen8 = myF8;
         }
@@ -113,26 +112,13 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns><c>true</c> if the subgraph was registered; otherwise, <c>false</c>.</returns>
         public bool TryRegisterSubGraph(string subGraphName, SubGraphResult subGraph)
         {
-            if (WriteResource())
+            if (_subGraphs.TryAdd(subGraphName, subGraph))
             {
-                try
-                {
-                    if (!SubGraphs.ContainsKey(subGraphName))
-                    {
-                        SubGraphs.Add(subGraphName, subGraph);
-                        return true;
-                    }
-
-                    _logger.LogError(String.Format("The subgraph with name \"{0}\" already exists.", subGraphName));
-                    return false;
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
+                return true;
             }
 
-            throw new CollisionException();
+            _logger.LogError(String.Format("The subgraph with name \"{0}\" already exists.", subGraphName));
+            return false;
         }
 
         /// <summary>
@@ -142,19 +128,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns><c>true</c> if the subgraph was deregistered; otherwise, <c>false</c>.</returns>
         public bool TryDeregisterSubGraph(string subGraphName)
         {
-            if (WriteResource())
-            {
-                try
-                {
-                    return SubGraphs.Remove(subGraphName);
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-            }
-
-            throw new CollisionException();
+            return _subGraphs.TryRemove(subGraphName, out _);
         }
 
         /// <summary>
@@ -164,42 +138,16 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns><c>true</c> if the subgraph was deleted; otherwise, <c>false</c>.</returns>
         public bool TryDeleteSubGraph(string subGraphName)
         {
-            if (WriteResource())
-            {
-                try
-                {
-                    return SubGraphs.Remove(subGraphName);
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-            }
-
-            throw new CollisionException();
-        }
-
-        /// <summary>
-        /// Tries to get a subgraph.
-        /// </summary>
-        /// <param name="subGraph">The subgraph result.</param>
-        /// <param name="subGraphName">The name of the subgraph.</param>
-        /// <returns><c>true</c> if the subgraph was found; otherwise, <c>false</c>.</returns>
+            return _subGraphs.TryRemove(subGraphName, out _);
+        }        /// <summary>
+                 /// Tries to get a subgraph.
+                 /// </summary>
+                 /// <param name="subGraph">The subgraph result.</param>
+                 /// <param name="subGraphName">The name of the subgraph.</param>
+                 /// <returns><c>true</c> if the subgraph was found; otherwise, <c>false</c>.</returns>
         public bool TryGetSubGraph(out SubGraphResult subGraph, string subGraphName)
         {
-            if (ReadResource())
-            {
-                try
-                {
-                    return SubGraphs.TryGetValue(subGraphName, out subGraph);
-                }
-                finally
-                {
-                    FinishReadResource();
-                }
-            }
-
-            throw new CollisionException();
+            return _subGraphs.TryGetValue(subGraphName, out subGraph);
         }
 
         /// <summary>
@@ -207,21 +155,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// </summary>
         public void DeleteAllSubGraphs()
         {
-            if (WriteResource())
-            {
-                try
-                {
-                    SubGraphs = new Dictionary<string, SubGraphResult>();
-
-                    return;
-                }
-                finally
-                {
-                    FinishWriteResource();
-                }
-            }
-
-            throw new CollisionException();
+            _subGraphs.Clear();
         }
 
         #endregion

@@ -141,7 +141,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "empty",
+                Name = "empty",
                 Pattern = new List<APattern>()
             };
 
@@ -163,7 +163,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "no-match",
+                Name = "no-match",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -192,7 +192,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "single-vertex",
+                Name = "single-vertex",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -224,7 +224,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "simple-path",
+                Name = "simple-path",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern { Reference = "start", Label = label => label == "node" },
@@ -253,7 +253,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "person-only",
+                Name = "person-only",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -300,7 +300,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "age-filter",
+                Name = "age-filter",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -350,7 +350,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "knows-only",
+                Name = "knows-only",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern { Reference = "p1", Label = label => label == "person" },
@@ -383,7 +383,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "works-at",
+                Name = "works-at",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern { Reference = "person", Label = label => label == "person" },
@@ -423,7 +423,7 @@ namespace NoSQL.GraphDB.Tests
             // Find vertex D and traverse backwards to C
             var definition = new SubGraphDefinition
             {
-                Id = "reverse-traversal",
+                Name = "reverse-traversal",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -464,7 +464,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "undirected",
+                Name = "undirected",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -505,7 +505,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "variable-1hop",
+                Name = "variable-1hop",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -548,7 +548,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "variable-1to3",
+                Name = "variable-1to3",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -591,7 +591,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "variable-with-target",
+                Name = "variable-with-target",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -647,7 +647,7 @@ namespace NoSQL.GraphDB.Tests
             // Find: person -> knows -> person -> works_at -> company
             var definition = new SubGraphDefinition
             {
-                Id = "complex",
+                Name = "complex",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern { Reference = "p1", Label = label => label == "person" },
@@ -669,7 +669,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void TryCreateSubgraph_SubgraphShouldBeIndependent()
+        public void TryCreateSubgraph_SubgraphShouldBeReadOnly()
         {
             // Arrange
             var fallen8 = CreateSimpleGraph();
@@ -678,7 +678,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "independence",
+                Name = "readonly",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern { Reference = "node", Label = label => label == "node" },
@@ -692,27 +692,21 @@ namespace NoSQL.GraphDB.Tests
 
             // Assert
             Assert.IsTrue(result, "Should create subgraph");
+            Assert.IsNotNull(subgraphResult?.SubGraph, "SubGraph should not be null");
 
             var originalVertexCount = fallen8.VertexCount;
             var subgraphVertexCount = subgraphResult.SubGraph.VertexCount;
 
-            // Add a new vertex to the subgraph
-            var newVertexTx = new CreateVertexTransaction
-            {
-                Definition = new VertexDefinition
-                {
-                    CreationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds()),
-                    Label = "new",
-                    Properties = new Dictionary<string, object> { { "name", "NewVertex" } }
-                }
-            };
+            // Verify the subgraph is exposed as IFallen8Read (read-only)
+            Assert.IsInstanceOfType(subgraphResult.SubGraph, typeof(IFallen8Read), "SubGraph should be IFallen8Read");
 
-            var txInfo = subgraphResult.SubGraph.EnqueueTransaction(newVertexTx);
-            txInfo.WaitUntilFinished();
+            // Verify we can read from the subgraph
+            Assert.IsTrue(subgraphVertexCount > 0, "Subgraph should have vertices");
+            var vertices = subgraphResult.SubGraph.GetAllVertices();
+            Assert.IsNotNull(vertices, "Should be able to read vertices from subgraph");
 
-            // Verify original graph is unchanged
+            // Verify original graph is unchanged after subgraph creation
             Assert.AreEqual(originalVertexCount, fallen8.VertexCount, "Original graph should be unchanged");
-            Assert.AreEqual(subgraphVertexCount + 1, subgraphResult.SubGraph.VertexCount, "Subgraph should have one more vertex");
         }
 
         [TestMethod]
@@ -725,7 +719,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "properties",
+                Name = "properties",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern
@@ -787,7 +781,7 @@ namespace NoSQL.GraphDB.Tests
 
             var definition = new SubGraphDefinition
             {
-                Id = "edge-props",
+                Name = "edge-props",
                 Pattern = new List<APattern>
                 {
                     new VertexPattern { Reference = "a" },
@@ -839,3 +833,4 @@ namespace NoSQL.GraphDB.Tests
         }
     }
 }
+
