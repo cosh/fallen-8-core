@@ -182,30 +182,6 @@ namespace NoSQL.GraphDB.Core
             ShortestPathDefinition definition)
                 where T : IShortestPathAlgorithm;
 
-        /// <summary>
-        ///   Creates a subgraph using a plugin
-        /// </summary>
-        /// <param name="result"> The resulting subgraph. </param>
-        /// <param name="plugin"> The name of the algorithm. </param>
-        /// <param name="definition"> The subgraph creation parameters. </param>
-        /// <returns> True if the subgraph was created successfully, otherwise false. </returns>
-        bool TryCreateSubgraph(
-            out SubGraphResult result,
-            string plugin,
-            SubGraphDefinition definition);
-
-        /// <summary>
-        ///   Creates a subgraph using a plugin without reflection
-        /// </summary>
-        /// <typeparam name="T">The generic variable for the ISubGraphAlgorithm type</typeparam>
-        /// <param name="result"> The resulting subgraph. </param>
-        /// <param name="definition"> The subgraph creation parameters. </param>
-        /// <returns> True if the subgraph was created successfully, otherwise false. </returns>
-        public bool TryCreateSubgraph<T>(
-            out SubGraphResult result,
-            SubGraphDefinition definition)
-                where T : ISubGraphAlgorithm;
-
         #endregion
     }
 }

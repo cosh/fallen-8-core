@@ -112,8 +112,6 @@ namespace NoSQL.GraphDB.Core
         public abstract bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery);
         public abstract bool TryCalculateShortestPath(out List<Path> result, string plugin, ShortestPathDefinition definition);
         public abstract bool TryCalculateShortestPath<T>(out List<Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm;
-        public abstract bool TryCreateSubgraph(out SubGraphResult result, string plugin, SubGraphDefinition definition);
-        public abstract bool TryCreateSubgraph<T>(out SubGraphResult result, SubGraphDefinition definition) where T : ISubGraphAlgorithm;
 
         #endregion
 

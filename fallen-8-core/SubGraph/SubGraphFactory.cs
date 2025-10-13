@@ -28,6 +28,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
+using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Plugin;
 
 namespace NoSQL.GraphDB.Core.SubGraph
@@ -54,6 +55,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// </summary>
         private readonly Fallen8 _fallen8;
 
+        /// <summary>
+        /// The plugin cache
+        /// </summary>
+        private readonly PluginCache _pluginCache;
+
         #endregion
 
         #region constructor
@@ -63,11 +69,13 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// </summary>
         /// <param name="myF8">The Fallen-8 instance.</param>
         /// <param name="logger">The logger instance.</param>
-        public SubGraphFactory(Fallen8 myF8, ILogger<SubGraphFactory> logger)
+        /// <param name="pluginCache">The plugin cache instance.</param>
+        public SubGraphFactory(Fallen8 myF8, ILogger<SubGraphFactory> logger, PluginCache pluginCache)
         {
             _subGraphs = new ConcurrentDictionary<String, SubGraphResult>();
             _logger = logger;
             _fallen8 = myF8;
+            _pluginCache = pluginCache;
         }
 
         #endregion
@@ -101,23 +109,119 @@ namespace NoSQL.GraphDB.Core.SubGraph
                                       IDictionary<string, object> parameter = null)
         {
             subGraph = null;
+            ISubGraphAlgorithm algo = null;
 
-            // Find the subgraph algorithm plugin
-            if (!PluginFactory.TryFindPlugin(out ISubGraphAlgorithm algorithm, algorithmTypeName))
+            // Check cache first
+            Object cachedAlgo;
+            if (!_pluginCache.SubGraph.TryGetValue(algorithmTypeName, out cachedAlgo))
             {
-                _logger.LogError(String.Format("Could not find subgraph algorithm plugin with name \"{0}\".", algorithmTypeName));
+                // Algorithm was not cached - find and initialize it
+                if (!PluginFactory.TryFindPlugin(out algo, algorithmTypeName))
+                {
+                    _logger.LogError(String.Format("Could not find subgraph algorithm plugin with name \"{0}\".", algorithmTypeName));
+                    return false;
+                }
+
+                if (!InitializeAndCacheAlgorithm(algo, parameter, algorithmTypeName))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                algo = (ISubGraphAlgorithm)cachedAlgo;
+            }
+
+            if (algo == null)
+            {
+                _logger.LogError(String.Format("Algorithm \"{0}\" is null after cache/initialization.", algorithmTypeName));
                 return false;
             }
 
+            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo);
+        }
+
+        /// <summary>
+        /// Tries to create a subgraph using a typed algorithm without reflection.
+        /// </summary>
+        /// <typeparam name="T">The type of the subgraph algorithm.</typeparam>
+        /// <param name="subGraph">The created subgraph result.</param>
+        /// <param name="subGraphName">The name for the subgraph.</param>
+        /// <param name="definition">The subgraph definition.</param>
+        /// <param name="parameter">Parameter for the algorithm. Default is null.</param>
+        /// <returns><c>true</c> if the subgraph was created; otherwise, <c>false</c>.</returns>
+        public bool TryCreateSubGraph<T>(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
+                                         IDictionary<string, object> parameter = null)
+            where T : ISubGraphAlgorithm
+        {
+            subGraph = null;
+            Type subGraphType = typeof(T);
+            var algo = Activator.CreateInstance(subGraphType, false) as ISubGraphAlgorithm;
+
+            if (algo == null)
+            {
+                _logger.LogError(String.Format("Failed to create instance of subgraph algorithm type \"{0}\".", subGraphType.Name));
+                return false;
+            }
+
+            // Check cache first
+            Object cachedAlgo;
+            if (!_pluginCache.SubGraph.TryGetValue(algo.PluginName, out cachedAlgo))
+            {
+                // Algorithm was not cached - initialize it
+                if (!InitializeAndCacheAlgorithm(algo, parameter, algo.PluginName))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                algo = (ISubGraphAlgorithm)cachedAlgo;
+            }
+
+            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo);
+        }
+
+        /// <summary>
+        /// Initializes an algorithm and adds it to the cache.
+        /// </summary>
+        /// <param name="algo">The algorithm to initialize.</param>
+        /// <param name="parameter">Optional parameters for initialization.</param>
+        /// <param name="algorithmName">The name of the algorithm for logging.</param>
+        /// <returns><c>true</c> if initialization succeeded; otherwise, <c>false</c>.</returns>
+        private bool InitializeAndCacheAlgorithm(ISubGraphAlgorithm algo, IDictionary<string, object> parameter, string algorithmName)
+        {
             try
             {
-                // Initialize the algorithm
-                algorithm.Initialize(_fallen8, parameter, _fallen8.GetLoggerFactory());
+                algo.Initialize(_fallen8, parameter, _fallen8.GetLoggerFactory());
+                _pluginCache.AddSubGraph(algo);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, String.Format("Failed to initialize subgraph algorithm \"{0}\": {1}", algorithmName, ex.Message));
+                return false;
+            }
+        }
 
+        /// <summary>
+        /// Creates a subgraph using the algorithm and registers it.
+        /// </summary>
+        /// <param name="subGraph">The created subgraph result.</param>
+        /// <param name="subGraphName">The name for the subgraph.</param>
+        /// <param name="definition">The subgraph definition.</param>
+        /// <param name="algo">The algorithm to use.</param>
+        /// <returns><c>true</c> if creation and registration succeeded; otherwise, <c>false</c>.</returns>
+        private bool CreateAndRegisterSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition, ISubGraphAlgorithm algo)
+        {
+            subGraph = null;
+
+            try
+            {
                 // Create the subgraph using the algorithm
-                if (!algorithm.TryCreateSubgraph(out subGraph, definition))
+                if (!algo.TryCreateSubgraph(out subGraph, definition))
                 {
-                    _logger.LogError(String.Format("Failed to create subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, algorithmTypeName));
+                    _logger.LogError(String.Format("Failed to create subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, algo.PluginName));
                     return false;
                 }
 

@@ -179,7 +179,7 @@ namespace NoSQL.GraphDB.Core
             IndexFactory = new IndexFactory(this, indexLogger);
             _graphElements = ImmutableList.Create<AGraphElementModel>();
             ServiceFactory = new ServiceFactory(this, serviceLogger);
-            SubGraphFactory = new SubGraphFactory(this, subGraphLogger);
+            SubGraphFactory = new SubGraphFactory(this, subGraphLogger, _pluginCache);
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
             _persistencyFactory = new PersistencyFactory(persistencyLogger);
@@ -484,65 +484,6 @@ namespace NoSQL.GraphDB.Core
             }
 
             result = new List<Path>();
-            return false;
-        }
-
-        public override bool TryCreateSubgraph(
-            out SubGraphResult result,
-            string plugin,
-            SubGraphDefinition definition)
-        {
-            ISubGraphAlgorithm algo = null;
-
-            Object cachedAlgo;
-            if (!_pluginCache.SubGraph.TryGetValue(plugin, out cachedAlgo))
-            {
-                //Subgraph plugin was not cached
-                if (PluginFactory.TryFindPlugin(out algo, plugin))
-                {
-                    algo.Initialize(this, null, _loggerFactory);
-                    _pluginCache.AddSubGraph(algo);
-                }
-            }
-            else
-            {
-                algo = (ISubGraphAlgorithm)cachedAlgo;
-            }
-
-            if (algo != null)
-            {
-                return algo.TryCreateSubgraph(out result, definition);
-            }
-
-            result = null;
-            return false;
-        }
-
-        public override bool TryCreateSubgraph<T>(
-            out SubGraphResult result,
-            SubGraphDefinition definition)
-        {
-            Type subGraphType = typeof(T);
-            var algo = Activator.CreateInstance(subGraphType, false) as ISubGraphAlgorithm;
-
-            if (algo != null)
-            {
-                Object cachedAlgo;
-                if (!_pluginCache.SubGraph.TryGetValue(algo.PluginName, out cachedAlgo))
-                {
-                    //Subgraph plugin was not cached
-                    algo.Initialize(this, null, _loggerFactory);
-                    _pluginCache.AddSubGraph(algo);
-                }
-                else
-                {
-                    algo = (ISubGraphAlgorithm)cachedAlgo;
-                }
-
-                return algo.TryCreateSubgraph(out result, definition);
-            }
-
-            result = null;
             return false;
         }
 
