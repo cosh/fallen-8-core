@@ -100,8 +100,43 @@ namespace NoSQL.GraphDB.Core.SubGraph
                                       string algorithmTypeName = "BreathFirstSearchSubgraphAlgorithm",
                                       IDictionary<string, object> parameter = null)
         {
-            // TODO: Implement subgraph creation logic
-            throw new NotImplementedException();
+            subGraph = null;
+
+            // Find the subgraph algorithm plugin
+            if (!PluginFactory.TryFindPlugin(out ISubGraphAlgorithm algorithm, algorithmTypeName))
+            {
+                _logger.LogError(String.Format("Could not find subgraph algorithm plugin with name \"{0}\".", algorithmTypeName));
+                return false;
+            }
+
+            try
+            {
+                // Initialize the algorithm
+                algorithm.Initialize(_fallen8, parameter, _fallen8.GetLoggerFactory());
+
+                // Create the subgraph using the algorithm
+                if (!algorithm.TryCreateSubgraph(out subGraph, definition))
+                {
+                    _logger.LogError(String.Format("Failed to create subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, algorithmTypeName));
+                    return false;
+                }
+
+                // Register the created subgraph
+                if (!TryRegisterSubGraph(subGraphName, subGraph))
+                {
+                    _logger.LogWarning(String.Format("Subgraph \"{0}\" was created but could not be registered (name already exists).", subGraphName));
+                    return false;
+                }
+
+                _logger.LogInformation(String.Format("Successfully created and registered subgraph \"{0}\".", subGraphName));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, String.Format("Exception occurred while creating subgraph \"{0}\": {1}", subGraphName, ex.Message));
+                subGraph = null;
+                return false;
+            }
         }
 
         /// <summary>

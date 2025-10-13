@@ -36,10 +36,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         /// <summary>
         /// Gets the created subgraph result.
         /// </summary>
-        public SubGraphResult SubGraphCreated
-        {
-            get; private set;
-        }
+        public SubGraphResult SubGraphCreated;
 
         /// <summary>
         /// Gets or sets the subgraph definition.
@@ -65,7 +62,11 @@ namespace NoSQL.GraphDB.Core.Transaction
         /// <param name="f8">The Fallen8 instance.</param>
         internal override void Rollback(Fallen8 f8)
         {
-            // TODO: Implement rollback logic
+            // If a subgraph was created, deregister it
+            if (SubGraphCreated != null && Definition != null && !String.IsNullOrWhiteSpace(Definition.Name))
+            {
+                f8.SubGraphFactory.TryDeregisterSubGraph(Definition.Name);
+            }
         }
 
         /// <summary>
@@ -75,8 +76,22 @@ namespace NoSQL.GraphDB.Core.Transaction
         /// <returns>True if successful, false otherwise.</returns>
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            // TODO: Implement subgraph creation logic
-            throw new NotImplementedException();
+            if (Definition == null)
+            {
+                return false;
+            }
+
+            if (String.IsNullOrWhiteSpace(Definition.Name))
+            {
+                return false;
+            }
+
+            // Use the factory to create the subgraph
+            return f8.SubGraphFactory.TryCreateSubGraph(
+                out SubGraphCreated,
+                Definition.Name,
+                Definition
+            );
         }
     }
 }
