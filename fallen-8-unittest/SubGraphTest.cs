@@ -890,7 +890,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             // Register it manually
-            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph(subGraphName, manualSubGraph));
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph(manualSubGraph));
 
             // Act
             var result = fallen8.SubGraphFactory.TryRecalculateSubGraph(subGraphName);
@@ -985,7 +985,7 @@ namespace NoSQL.GraphDB.Tests
                 Definitions = null,
                 SubGraph = new Fallen8(TestLoggerFactory.Create())
             };
-            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph("manual", manualSubGraph));
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph(manualSubGraph));
 
             // Act
             var recalculatedCount = fallen8.SubGraphFactory.RecalculateAllSubGraphs();
@@ -1032,7 +1032,7 @@ namespace NoSQL.GraphDB.Tests
                 Definitions = null,
                 SubGraph = new Fallen8(TestLoggerFactory.Create())
             };
-            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph("manual", manualSubGraph));
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph(manualSubGraph));
 
             // Act
             var canRecalculate = fallen8.SubGraphFactory.CanRecalculateSubGraph("manual");

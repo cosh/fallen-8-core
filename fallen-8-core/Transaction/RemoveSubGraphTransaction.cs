@@ -65,7 +65,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             // If a subgraph was removed, restore it
             if (_removedSubGraph != null && !String.IsNullOrWhiteSpace(SubGraphName))
             {
-                f8.SubGraphFactory.TryRegisterSubGraph(SubGraphName, _removedSubGraph);
+                f8.SubGraphFactory.TryRegisterSubGraph(_removedSubGraph);
             }
         }
 
@@ -89,7 +89,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             }
 
             // Remove the subgraph
-            return f8.SubGraphFactory.TryDeleteSubGraph(SubGraphName);
+            return f8.SubGraphFactory.TryDeregisterSubGraph(SubGraphName);
         }
     }
 }

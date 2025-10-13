@@ -174,7 +174,7 @@ namespace NoSQL.GraphDB.Core
             var persistencyLogger = loggerfactory.CreateLogger<PersistencyFactory>();
 
             IndexFactory = new IndexFactory(this, indexLogger);
-            _graphElements = ImmutableList.Create<AGraphElementModel>();
+            _graphElements = [];
             ServiceFactory = new ServiceFactory(this, serviceLogger);
             SubGraphFactory = new SubGraphFactory(this, subGraphLogger, _pluginCache);
             IndexFactory.Indices.Clear();
@@ -833,7 +833,7 @@ namespace NoSQL.GraphDB.Core
         internal void TabulaRasa_internal()
         {
             _currentId = 0;
-            _graphElements = ImmutableList.Create<AGraphElementModel>();
+            _graphElements = [];
             IndexFactory.DeleteAllIndices();
             VertexCount = 0;
             EdgeCount = 0;
@@ -855,7 +855,7 @@ namespace NoSQL.GraphDB.Core
             oldServiceFactory.ShutdownAllServices();
             var oldGraphElements = _graphElements;
 
-            _graphElements = ImmutableList.Create<AGraphElementModel>();
+            _graphElements = [];
 
             var success = _persistencyFactory.Load(this, ref _graphElements, path, ref _currentId, startServices);
 

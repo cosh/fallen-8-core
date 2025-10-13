@@ -43,7 +43,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <summary>
         /// The created subgraphs.
         /// </summary>
-        private readonly ConcurrentDictionary<String, SubGraphResult> _subGraphs;
+        private readonly ConcurrentDictionary<String, SubGraphResult> _subGraphsByName;
+
+        private readonly ConcurrentDictionary<Guid, SubGraphResult> _subGraphsById;
+
+        private readonly ConcurrentDictionary<Guid, Guid> _subGraphDependencies;
 
         /// <summary>
         /// The logger
@@ -72,7 +76,9 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="pluginCache">The plugin cache instance.</param>
         public SubGraphFactory(Fallen8 myF8, ILogger<SubGraphFactory> logger, PluginCache pluginCache)
         {
-            _subGraphs = new ConcurrentDictionary<String, SubGraphResult>();
+            _subGraphsByName = new ConcurrentDictionary<String, SubGraphResult>();
+            _subGraphsById = new ConcurrentDictionary<Guid, SubGraphResult>();
+            _subGraphDependencies = new ConcurrentDictionary<Guid, Guid>();
             _logger = logger;
             _fallen8 = myF8;
             _pluginCache = pluginCache;
@@ -234,7 +240,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 subGraph.AlgorithmParameters = algorithmParameters;
 
                 // Register the created subgraph
-                if (!_subGraphs.TryAdd(subGraphName, subGraph))
+                if (!TryRegisterSubGraph(subGraph))
                 {
                     _logger.LogWarning(String.Format("Subgraph \"{0}\" was created but could not be registered (name already exists).", subGraphName));
                     return false;
@@ -251,21 +257,25 @@ namespace NoSQL.GraphDB.Core.SubGraph
             }
         }
 
+        private bool TrackSubgraphDependency(Guid subGraphId, Guid sourceGraphId)
+        {
+            return _subGraphDependencies.TryAdd(subGraphId, sourceGraphId);
+        }
+
+        private bool UnTrackSubgraphDependency(Guid subGraphId, Guid sourceGraphId)
+        {
+            return _subGraphDependencies.TryRemove(subGraphId, out _);
+        }
+
         /// <summary>
         /// Registers a subgraph with the factory.
         /// </summary>
         /// <param name="subGraphName">The name to register the subgraph under.</param>
         /// <param name="subGraph">The subgraph result to register.</param>
         /// <returns><c>true</c> if the subgraph was registered; otherwise, <c>false</c>.</returns>
-        public bool TryRegisterSubGraph(string subGraphName, SubGraphResult subGraph)
+        public bool TryRegisterSubGraph(SubGraphResult subGraph)
         {
-            if (_subGraphs.TryAdd(subGraphName, subGraph))
-            {
-                return true;
-            }
-
-            _logger.LogError(String.Format("The subgraph with name \"{0}\" already exists.", subGraphName));
-            return false;
+            return _subGraphsByName.TryAdd(subGraph.Definitions.Name, subGraph) && _subGraphsById.TryAdd(subGraph.SubGraph.Id, subGraph) && TrackSubgraphDependency(subGraph.SubGraph.Id, subGraph.SourceFallen8Id);
         }
 
         /// <summary>
@@ -275,17 +285,12 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns><c>true</c> if the subgraph was deregistered; otherwise, <c>false</c>.</returns>
         public bool TryDeregisterSubGraph(string subGraphName)
         {
-            return _subGraphs.TryRemove(subGraphName, out _);
-        }
+            if (_subGraphsByName.TryGetValue(subGraphName, out var subGraph))
+            {
+                return _subGraphsByName.TryRemove(subGraphName, out _) && _subGraphsById.TryRemove(subGraph.SubGraph.Id, out _) && UnTrackSubgraphDependency(subGraph.SubGraph.Id, subGraph.SourceFallen8Id);
+            }
 
-        /// <summary>
-        /// Tries to delete a subgraph.
-        /// </summary>
-        /// <param name="subGraphName">The name of the subgraph to delete.</param>
-        /// <returns><c>true</c> if the subgraph was deleted; otherwise, <c>false</c>.</returns>
-        public bool TryDeleteSubGraph(string subGraphName)
-        {
-            return _subGraphs.TryRemove(subGraphName, out _);
+            return false;
         }
 
         /// <summary>
@@ -296,7 +301,12 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns><c>true</c> if the subgraph was found; otherwise, <c>false</c>.</returns>
         public bool TryGetSubGraph(out SubGraphResult subGraph, string subGraphName)
         {
-            return _subGraphs.TryGetValue(subGraphName, out subGraph);
+            return _subGraphsByName.TryGetValue(subGraphName, out subGraph);
+        }
+
+        public bool TryGetSubGraph(out SubGraphResult subGraph, Guid subGraphId)
+        {
+            return _subGraphsById.TryGetValue(subGraphId, out subGraph);
         }
 
         /// <summary>
@@ -304,7 +314,9 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// </summary>
         public void DeleteAllSubGraphs()
         {
-            _subGraphs.Clear();
+            _subGraphsByName.Clear();
+            _subGraphsById.Clear();
+            _subGraphDependencies.Clear();
         }
 
         /// <summary>
@@ -319,7 +331,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// </remarks>
         public bool TryRecalculateSubGraph(string subGraphName)
         {
-            if (!_subGraphs.TryGetValue(subGraphName, out var result))
+            if (!_subGraphsByName.TryGetValue(subGraphName, out var result))
             {
                 _logger.LogError(String.Format("Subgraph \"{0}\" not found.", subGraphName));
                 return false;
@@ -372,7 +384,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 newSubGraph.SourceFallen8 = result.SourceFallen8;
                 newSubGraph.AlgorithmPluginName = result.AlgorithmPluginName;
                 newSubGraph.AlgorithmParameters = result.AlgorithmParameters;
-                _subGraphs[subGraphName] = newSubGraph;
+                _subGraphsByName[subGraphName] = newSubGraph;
 
                 _logger.LogInformation(String.Format("Successfully recalculated subgraph \"{0}\".", subGraphName));
                 return true;
@@ -397,10 +409,10 @@ namespace NoSQL.GraphDB.Core.SubGraph
         {
             _logger.LogInformation("Starting recalculation of all subgraphs...");
             int successCount = 0;
-            int totalCount = _subGraphs.Count;
+            int totalCount = _subGraphsByName.Count;
             int skippedCount = 0;
 
-            foreach (var kvp in _subGraphs)
+            foreach (var kvp in _subGraphsByName)
             {
                 var subGraphName = kvp.Key;
                 var result = kvp.Value;
@@ -450,7 +462,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                         newSubGraph.SourceFallen8 = result.SourceFallen8;
                         newSubGraph.AlgorithmPluginName = result.AlgorithmPluginName;
                         newSubGraph.AlgorithmParameters = result.AlgorithmParameters;
-                        _subGraphs[subGraphName] = newSubGraph;
+                        _subGraphsByName[subGraphName] = newSubGraph;
                         successCount++;
                         _logger.LogInformation(String.Format("Successfully recalculated subgraph \"{0}\".", subGraphName));
                     }
@@ -477,7 +489,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns>An enumerable collection of subgraph names.</returns>
         public IEnumerable<string> GetAllSubGraphNames()
         {
-            return _subGraphs.Keys;
+            return _subGraphsByName.Keys;
         }
 
         /// <summary>
@@ -487,7 +499,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns><c>true</c> if the subgraph exists and can be recalculated; otherwise, <c>false</c>.</returns>
         public bool CanRecalculateSubGraph(string subGraphName)
         {
-            if (_subGraphs.TryGetValue(subGraphName, out var result))
+            if (_subGraphsByName.TryGetValue(subGraphName, out var result))
             {
                 return result.Definitions != null && !string.IsNullOrEmpty(result.AlgorithmPluginName) && result.SourceFallen8 != null;
             }
