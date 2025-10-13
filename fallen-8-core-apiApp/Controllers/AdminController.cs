@@ -182,14 +182,37 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>
         /// Saves the current database state to a file
         /// </summary>
+        /// <param name="definition">Save specification including file path and partition options (both optional)</param>
         /// <returns>The path where the database was saved</returns>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     PUT /save
+        ///     {
+        ///        "saveGameLocation": "C:/Fallen8/database.f8s",
+        ///        "savePartitions": 8
+        ///     }
+        ///
+        /// Both parameters are optional. If not provided, defaults to the base directory with filename "Temp.f8s" and optimal partition count.
+        /// </remarks>
         /// <response code="200">Returns the path where the database was saved</response>
-        [HttpGet("/save")]
+        /// <response code="400">Invalid save specification</response>
+        [HttpPut("/save")]
+        [Consumes("application/json")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
-        public String Save()
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public String Save([FromBody] SaveSpecification definition)
         {
-            SaveTransaction saveTx = new SaveTransaction() { Path = _savePath, SavePartitions = _optimalNumberOfPartitions };
+            // Use provided path or fall back to default
+            string savePath = !string.IsNullOrWhiteSpace(definition?.SaveGameLocation) 
+                ? definition.SaveGameLocation 
+                : _savePath;
+
+            // Use provided partitions or fall back to optimal
+            uint savePartitions = definition?.SavePartitions ?? _optimalNumberOfPartitions;
+
+            SaveTransaction saveTx = new SaveTransaction() { Path = savePath, SavePartitions = savePartitions };
             _fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
 
             return saveTx.ActualPath;
