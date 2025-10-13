@@ -208,7 +208,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
             };
 
             var returnList = new List<MetadataReference>();
-            
+
             // For single-file apps, assembly.Location may be empty, so we need to handle this carefully
             foreach (var assembly in assemblies)
             {
@@ -222,8 +222,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
             //The location of the .NET assemblies
             // Use the location of the core runtime assembly to find the runtime directory
             var runtimeAssembly = typeof(object).Assembly;
-            var assemblyPath = string.IsNullOrEmpty(runtimeAssembly.Location) 
-                ? AppContext.BaseDirectory 
+            var assemblyPath = string.IsNullOrEmpty(runtimeAssembly.Location)
+                ? AppContext.BaseDirectory
                 : System.IO.Path.GetDirectoryName(runtimeAssembly.Location);
 
             /*
