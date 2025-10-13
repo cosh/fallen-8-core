@@ -122,7 +122,7 @@ namespace NoSQL.GraphDB.Tests
             var testVertex3 = testVertices[2];
 
             var dictionaryIndex = new DictionaryIndex();
-            dictionaryIndex.Initialize(fallen8, null, _loggerFactory);
+            dictionaryIndex.Initialize(fallen8, null);
 
             // Act - Add elements to index
             dictionaryIndex.AddOrUpdate("key1", testVertex1);
@@ -210,7 +210,7 @@ namespace NoSQL.GraphDB.Tests
             var testVertex3 = testVertices[2];
 
             var singleValueIndex = new SingleValueIndex();
-            singleValueIndex.Initialize(fallen8, null, _loggerFactory);
+            singleValueIndex.Initialize(fallen8, null);
 
             // Act - Add elements to index
             singleValueIndex.AddOrUpdate("key1", testVertex1);
@@ -305,7 +305,7 @@ namespace NoSQL.GraphDB.Tests
             var testVertex3 = testVertices[2];
 
             var rangeIndex = new RangeIndex();
-            rangeIndex.Initialize(fallen8, null, _loggerFactory);
+            rangeIndex.Initialize(fallen8, null);
 
             // Act - Add elements to index
             rangeIndex.AddOrUpdate(10, testVertex1);
@@ -422,7 +422,7 @@ namespace NoSQL.GraphDB.Tests
             var testVertex3 = testVertices[2];
 
             var regExIndex = new RegExIndex();
-            regExIndex.Initialize(fallen8, null, _loggerFactory);
+            regExIndex.Initialize(fallen8, null);
 
             // Act - Add elements to index
             regExIndex.AddOrUpdate("The quick brown fox jumps over the lazy dog", testVertex1);

@@ -72,8 +72,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// </summary>
         /// <param name='fallen8'> A fallen-8 session. </param>
         /// <param name='parameter'> Parameter. </param>
-        /// <param name='loggerFactory'> Logger factory for creating plugin loggers. </param>
         /// <returns> The initialized plugin </returns>
-        void Initialize(IFallen8 fallen8, IDictionary<String, Object> parameter, ILoggerFactory loggerFactory);
+        void Initialize(IFallen8 fallen8, IDictionary<String, Object> parameter);
     }
 }

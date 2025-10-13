@@ -54,10 +54,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         private ILogger<BreathFirstSearchSubgraphAlgorithm> _logger;
 
         /// <inheritdoc />
-        public void Initialize(IFallen8 fallen8, IDictionary<string, object> configuration, ILoggerFactory loggerFactory)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> configuration)
         {
             _fallen8 = fallen8;
-            _logger = loggerFactory.CreateLogger<BreathFirstSearchSubgraphAlgorithm>();
+            _logger = fallen8.LoggerFactory.CreateLogger<BreathFirstSearchSubgraphAlgorithm>();
         }
 
         /// <inheritdoc />
@@ -537,7 +537,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                 throw new InvalidOperationException("Cannot create subgraph: Fallen8 instance required");
             }
 
-            var subgraph = new Fallen8(fallen8Concrete.GetLoggerFactory());
+            var subgraph = new Fallen8(fallen8Concrete.LoggerFactory);
 
             // Create a mapping from old vertex IDs to new vertex IDs
             var vertexIdMapping = new Dictionary<int, int>();

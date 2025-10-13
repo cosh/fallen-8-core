@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.Expression;
@@ -48,7 +49,7 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         public Guid Id
         {
-            get;
+            get; private set;
         }
 
         /// <summary>
@@ -71,6 +72,11 @@ namespace NoSQL.GraphDB.Core
         ///   Gets the subgraph factory.
         /// </summary>
         public abstract SubGraphFactory SubGraphFactory
+        {
+            get; internal set;
+        }
+
+        public ILoggerFactory LoggerFactory
         {
             get; internal set;
         }
@@ -119,6 +125,15 @@ namespace NoSQL.GraphDB.Core
 
         public abstract TransactionInformation EnqueueTransaction(ATransaction tx);
         public abstract TransactionState GetTransactionState(string txId);
+
+        #endregion
+
+        #region IFallen8Admin Members
+
+        public void SetId(Guid id)
+        {
+            Id = id;
+        }
 
         #endregion
 

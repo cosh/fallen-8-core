@@ -98,7 +98,7 @@ namespace NoSQL.GraphDB.Core.Index
             {
                 try
                 {
-                    index.Initialize(_fallen8, parameter, ((Fallen8)_fallen8).GetLoggerFactory());
+                    index.Initialize(_fallen8, parameter);
 
                     if (WriteResource())
                     {

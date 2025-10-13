@@ -867,10 +867,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             }
         }
 
-        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter, ILoggerFactory loggerFactory)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
         {
             _fallen8 = fallen8;
-            _logger = loggerFactory.CreateLogger<BidirectionalLevelSynchronousSSSP>();
+            _logger = fallen8.LoggerFactory.CreateLogger<BidirectionalLevelSynchronousSSSP>();
         }
 
         #endregion

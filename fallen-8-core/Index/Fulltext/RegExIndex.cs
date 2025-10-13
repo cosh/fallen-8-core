@@ -507,10 +507,10 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
             }
         }
 
-        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter, ILoggerFactory loggerFactory)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
         {
             _idx = new Dictionary<String, ImmutableList<AGraphElementModel>>();
-            _logger = loggerFactory.CreateLogger<RegExIndex>();
+            _logger = fallen8.LoggerFactory.CreateLogger<RegExIndex>();
         }
 
         #endregion

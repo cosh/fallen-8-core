@@ -108,7 +108,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             // Act
             var result = algorithm.TryCreateSubgraph(out SubGraphResult subgraphResult, null);
@@ -124,7 +124,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -146,7 +146,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -175,7 +175,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -207,7 +207,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -236,7 +236,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateComplexGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -283,7 +283,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateComplexGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -333,7 +333,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateComplexGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -366,7 +366,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateComplexGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -405,7 +405,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             // Find vertex D and traverse backwards to C
             var definition = new SubGraphDefinition
@@ -447,7 +447,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -488,7 +488,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -531,7 +531,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -574,7 +574,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -629,7 +629,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateComplexGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             // Find: person -> knows -> person -> works_at -> company
             var definition = new SubGraphDefinition
@@ -661,7 +661,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -702,7 +702,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateComplexGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -764,7 +764,7 @@ namespace NoSQL.GraphDB.Tests
             edgesInfo.WaitUntilFinished();
 
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             var definition = new SubGraphDefinition
             {
@@ -813,7 +813,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange
             var fallen8 = CreateSimpleGraph();
             var algorithm = new BreathFirstSearchSubgraphAlgorithm();
-            algorithm.Initialize(fallen8, null, TestLoggerFactory.Create());
+            algorithm.Initialize(fallen8, null);
 
             // Act & Assert - should not throw
             algorithm.Dispose();
@@ -881,11 +881,12 @@ namespace NoSQL.GraphDB.Tests
             var fallen8 = CreateSimpleGraph();
             var subGraphName = "manual-subgraph";
 
-            // Create a subgraph result manually without definition/algorithm
+            // Create a subgraph result manually without algorithm info
             var manualSubGraph = new SubGraphResult
             {
                 SourceFallen8Id = fallen8.Id,
-                Definitions = null,
+                Definitions = new SubGraphDefinition { Name = subGraphName },
+                AlgorithmPluginName = null, // No algorithm plugin name to prevent recalculation
                 SubGraph = new Fallen8(TestLoggerFactory.Create())
             };
 
@@ -896,7 +897,7 @@ namespace NoSQL.GraphDB.Tests
             var result = fallen8.SubGraphFactory.TryRecalculateSubGraph(subGraphName);
 
             // Assert
-            Assert.IsFalse(result, "Should return false for manually registered subgraph without definition");
+            Assert.IsFalse(result, "Should return false for manually registered subgraph without algorithm");
         }
 
         [TestMethod]
@@ -982,7 +983,8 @@ namespace NoSQL.GraphDB.Tests
             var manualSubGraph = new SubGraphResult
             {
                 SourceFallen8Id = fallen8.Id,
-                Definitions = null,
+                Definitions = new SubGraphDefinition { Name = "manual" },
+                AlgorithmPluginName = null, // No algorithm to prevent recalculation
                 SubGraph = new Fallen8(TestLoggerFactory.Create())
             };
             Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph(manualSubGraph));
@@ -1029,7 +1031,8 @@ namespace NoSQL.GraphDB.Tests
             var manualSubGraph = new SubGraphResult
             {
                 SourceFallen8Id = fallen8.Id,
-                Definitions = null,
+                Definitions = new SubGraphDefinition { Name = "manual" },
+                AlgorithmPluginName = null, // No algorithm to prevent recalculation
                 SubGraph = new Fallen8(TestLoggerFactory.Create())
             };
             Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph(manualSubGraph));

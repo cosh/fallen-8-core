@@ -23,16 +23,18 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.SubGraph;
+using System;
 
 namespace NoSQL.GraphDB.Core
 {
     /// <summary>
     ///   Fallen8 administrative interface for managing factories.
     /// </summary>
-    public interface IFallen8Admin
+    public interface IFallen8Admin : IFallen8Write
     {
         /// <summary>
         ///   Gets the index factory.
@@ -57,5 +59,12 @@ namespace NoSQL.GraphDB.Core
         {
             get;
         }
+
+        ILoggerFactory LoggerFactory
+        {
+            get;
+        }
+
+        void SetId(Guid id);
     }
 }

@@ -116,7 +116,7 @@ namespace NoSQL.GraphDB.Core.Service
                             return false;
                         }
 
-                        service.Initialize(_fallen8, parameter, ((Fallen8)_fallen8).GetLoggerFactory());
+                        service.Initialize(_fallen8, parameter);
                         Services.Add(serviceName, service);
 
                         FinishWriteResource();

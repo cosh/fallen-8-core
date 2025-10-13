@@ -88,6 +88,9 @@ namespace NoSQL.GraphDB.Core.Persistency
             using (var file = File.Open(pathToSavePoint, FileMode.Open, FileAccess.Read))
             {
                 var reader = new SerializationReader(file);
+                var currentGuId = reader.ReadGuid();
+                fallen8.SetId(currentGuId);
+
                 currentId = reader.ReadInt32();
 
                 AGraphElementModel[] graphElementArray = new AGraphElementModel[currentId];
@@ -172,6 +175,8 @@ namespace NoSQL.GraphDB.Core.Persistency
             using (var file = File.Create(path, Constants.BufferSize, FileOptions.SequentialScan))
             {
                 var writer = new SerializationWriter(file, true);
+                writer.Write(fallen8.Id);
+
                 writer.Write(currentId);
 
                 //create some futures to save as much as possible in parallel

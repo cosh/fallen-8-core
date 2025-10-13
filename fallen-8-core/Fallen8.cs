@@ -130,11 +130,6 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         private readonly ILogger<Fallen8> _logger;
 
-        /// <summary>
-        /// The logger factory (kept private for internal use)
-        /// </summary>
-        private readonly ILoggerFactory _loggerFactory;
-
         #endregion
 
         #region Internal Helper Methods
@@ -144,15 +139,7 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         internal ILogger<T> CreateLogger<T>()
         {
-            return _loggerFactory.CreateLogger<T>();
-        }
-
-        /// <summary>
-        /// Gets the logger factory. Used internally for creating subgraph instances.
-        /// </summary>
-        internal ILoggerFactory GetLoggerFactory()
-        {
-            return _loggerFactory;
+            return LoggerFactory.CreateLogger<T>();
         }
 
         #endregion
@@ -164,7 +151,7 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         public Fallen8(ILoggerFactory loggerfactory)
         {
-            _loggerFactory = loggerfactory;
+            LoggerFactory = loggerfactory;
             _logger = loggerfactory.CreateLogger<Fallen8>();
 
             // Create loggers for factories
@@ -505,7 +492,7 @@ namespace NoSQL.GraphDB.Core
                 //Shortest path plugin was not cached
                 if (PluginFactory.TryFindPlugin(out algo, plugin))
                 {
-                    algo.Initialize(this, null, _loggerFactory);
+                    algo.Initialize(this, null);
                     _pluginCache.AddShortestPath(algo);
                 }
             }
@@ -541,7 +528,7 @@ namespace NoSQL.GraphDB.Core
                 if (!_pluginCache.ShortestPath.TryGetValue(algo.PluginName, out cachedAlgo))
                 {
                     //Shortest path plugin was not cached
-                    algo.Initialize(this, null, _loggerFactory);
+                    algo.Initialize(this, null);
                     _pluginCache.AddShortestPath(algo);
                 }
                 else

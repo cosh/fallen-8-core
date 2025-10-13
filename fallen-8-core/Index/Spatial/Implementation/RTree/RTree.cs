@@ -1795,9 +1795,9 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             }
         }
 
-        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter, ILoggerFactory loggerFactory)
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
         {
-            _logger = loggerFactory.CreateLogger<RTree>();
+            _logger = fallen8.LoggerFactory.CreateLogger<RTree>();
 
             if (parameter == null) throw new ArgumentNullException("parameter");
 

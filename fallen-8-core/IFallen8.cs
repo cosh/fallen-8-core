@@ -32,7 +32,7 @@ namespace NoSQL.GraphDB.Core
     /// <summary>
     ///   Fallen8 interface combining read, write, and disposable capabilities.
     /// </summary>
-    public interface IFallen8 : IFallen8Write, IFallen8Admin
+    public interface IFallen8 : IFallen8Admin
     {
     }
 }
