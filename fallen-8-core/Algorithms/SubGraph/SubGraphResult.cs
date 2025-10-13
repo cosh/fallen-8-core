@@ -89,32 +89,32 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         }
 
         /// <summary>
-        /// Gets or sets the matched subgraph as a read-only graph database instance.
+        /// Gets or sets the matched subgraph as a graph database instance.
         /// </summary>
         /// <value>
-        /// An <see cref="IFallen8Read"/> instance containing all vertices and edges that matched
+        /// An <see cref="IFallen8"/> instance containing all vertices and edges that matched
         /// the patterns specified in the <see cref="Definitions"/>. This is a standalone
         /// graph database containing only the matched subset of data.
         /// </value>
         /// <remarks>
         /// <para>
-        /// The SubGraph property contains the actual query results as a read-only, self-contained
+        /// The SubGraph property contains the actual query results as a self-contained
         /// graph database. This design provides several benefits:
         /// </para>
         /// <list type="bullet">
-        /// <item><description>The result can be queried and analyzed without modification</description></item>
+        /// <item><description>The result can be queried and analyzed</description></item>
         /// <item><description>Further graph algorithms can be applied to the result</description></item>
+        /// <item><description>Nested subgraphs can be created from this subgraph</description></item>
         /// <item><description>The subgraph can be exported or visualized independently</description></item>
         /// <item><description>All relationships within the matched subgraph are preserved</description></item>
-        /// <item><description>Read-only access ensures the integrity of the subgraph result</description></item>
         /// </list>
         /// <para>
         /// Note that the SubGraph is a separate instance from the original graph database,
-        /// containing copies or references to the matched elements. The read-only interface
-        /// prevents modifications to the subgraph result.
+        /// containing copies or references to the matched elements. The full <see cref="IFallen8"/>
+        /// interface allows for creating subgraphs of subgraphs and applying algorithms recursively.
         /// </para>
         /// </remarks>
-        public IFallen8Read SubGraph
+        public IFallen8 SubGraph
         {
             get; set;
         }
