@@ -26,10 +26,12 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
@@ -41,9 +43,14 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         private readonly Fallen8 _f8;
 
+        private readonly ILogger<TransactionManager> _logger;
+
         public TransactionManager(Fallen8 f8)
         {
             _f8 = f8;
+            _logger = f8.CreateLogger<TransactionManager>();
+
+            _logger.LogInformation("TransactionManager initialized");
 
             Action action = () =>
             {
@@ -65,6 +72,9 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         private TransactionInformation SetTransactionState(ATransaction tx, TransactionState state)
         {
+            _logger.LogDebug("Transaction {TransactionId} ({TransactionType}) state changed to {State}",
+                tx.TransactionId, tx.GetType().Name, state);
+
             return transactionState.AddOrUpdate(tx.TransactionId,
                                         new TransactionInformation(null) { Transaction = tx, TransactionState = state },
                                         (id, info) =>
@@ -78,13 +88,25 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             ATransaction tx = (ATransaction)transactionObj;
 
+            var stopwatch = Stopwatch.StartNew();
+            var transactionType = tx.GetType().Name;
+
+            _logger.LogInformation("Starting execution of transaction {TransactionId} ({TransactionType})",
+                tx.TransactionId, transactionType);
+
             //do some work
             if (tx.TryExecute(_f8))
             {
+                stopwatch.Stop();
+                _logger.LogInformation("Transaction {TransactionId} ({TransactionType}) finished successfully in {ElapsedMilliseconds}ms",
+                    tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
                 SetTransactionState(tx, TransactionState.Finished);
             }
             else
             {
+                stopwatch.Stop();
+                _logger.LogWarning("Transaction {TransactionId} ({TransactionType}) failed and will be rolled back (execution time: {ElapsedMilliseconds}ms)",
+                    tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
                 tx.Rollback(_f8);
                 SetTransactionState(tx, TransactionState.RolledBack);
             }
@@ -92,6 +114,9 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public TransactionInformation AddTransaction(ATransaction tx)
         {
+            _logger.LogInformation("Adding transaction {TransactionId} ({TransactionType}) to queue",
+                tx.TransactionId, tx.GetType().Name);
+
             var task = new Task(ProcessTransaction, tx);
 
             transactions.Enqueue(task);
@@ -121,6 +146,12 @@ namespace NoSQL.GraphDB.Core.Transaction
         public void Trim()
         {
             var toBeTrimmed = transactionState.Where(_ => _.Value.TransactionState.Equals(TransactionState.Finished)).Select(_ => _.Key).ToList();
+
+            if (toBeTrimmed.Count > 0)
+            {
+                _logger.LogInformation("Trimming {Count} finished transactions", toBeTrimmed.Count);
+            }
+
             foreach (var aTxId in toBeTrimmed)
             {
                 TransactionInformation txInfo;
