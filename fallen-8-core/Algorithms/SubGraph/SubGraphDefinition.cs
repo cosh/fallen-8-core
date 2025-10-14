@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // SubGraphDefinition.cs
 //
@@ -56,9 +56,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     ///     Name = "FindFriendsOfFriends",
     ///     Pattern = new List&lt;APattern&gt;
     ///     {
-    ///         new VertexPattern { Reference = "person", Label = label => label == "Person" },
-    ///         new EdgePattern { Reference = "knows", Label = label => label == "KNOWS", MinLength = 2, MaxLength = 2 },
-    ///         new VertexPattern { Reference = "friendOfFriend", Label = label => label == "Person" }
+    ///         new VertexPattern { PatternName = "person", Label = label => label == "Person" },
+    ///         new EdgePattern { PatternName = "knows", Label = label => label == "KNOWS", MinLength = 2, MaxLength = 2 },
+    ///         new VertexPattern { PatternName = "friendOfFriend", Label = label => label == "Person" }
     ///     },
     ///     AdditionalInformation = new Dictionary&lt;string, string&gt;
     ///     {
@@ -136,3 +136,4 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         }
     }
 }
+

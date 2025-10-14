@@ -31,28 +31,28 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// </summary>
     /// <remarks>
     /// This class serves as the foundation for both <see cref="VertexPattern"/> and <see cref="EdgePattern"/>,
-    /// providing shared properties like reference identifiers and label filtering capabilities.
+    /// providing shared properties like pattern names and label filtering capabilities.
     /// Patterns are used to define the structure and constraints when searching for matching subgraphs
     /// within a larger graph database.
     /// </remarks>
     public abstract class APattern
     {
         /// <summary>
-        /// Gets or sets the reference identifier for this pattern.
+        /// Gets or sets the name identifier for this pattern.
         /// </summary>
         /// <value>
         /// A string that uniquely identifies this pattern within a subgraph definition.
-        /// This reference can be used to link patterns together and to identify matched elements in query results.
+        /// This name can be used to link patterns together and to identify matched elements in query results.
         /// </value>
         /// <remarks>
-        /// The reference serves as a named identifier that allows:
+        /// The pattern name serves as a named identifier that allows:
         /// <list type="bullet">
         /// <item><description>Referencing this pattern from other patterns in the same subgraph query</description></item>
         /// <item><description>Identifying matched graph elements in the query results</description></item>
         /// <item><description>Creating relationships between different parts of the pattern definition</description></item>
         /// </list>
         /// </remarks>
-        public string Reference
+        public string PatternName
         {
             get; set;
         }

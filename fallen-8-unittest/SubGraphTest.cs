@@ -155,7 +155,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "start",
+                        PatternName = "start",
                         Label = label => label == "nonexistent"
                     }
                 }
@@ -184,7 +184,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "nodes",
+                        PatternName = "nodes",
                         Label = label => label == "node"
                     }
                 }
@@ -214,9 +214,9 @@ namespace NoSQL.GraphDB.Tests
                 Name = "simple-path",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "start", Label = label => label == "node" },
-                    new EdgePattern { Reference = "edge", Direction = Direction.OutgoingEdge },
-                    new VertexPattern { Reference = "end", Label = label => label == "node" }
+                    new VertexPattern { PatternName = "start", Label = label => label == "node" },
+                    new EdgePattern { PatternName = "edge", Direction = Direction.OutgoingEdge },
+                    new VertexPattern { PatternName = "end", Label = label => label == "node" }
                 }
             };
 
@@ -245,18 +245,18 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "person",
+                        PatternName = "person",
                         Label = label => label == "person"
                     },
                     new EdgePattern
                     {
-                        Reference = "knows",
+                        PatternName = "knows",
                         Direction = Direction.OutgoingEdge,
                         Label = label => label == "knows"
                     },
                     new VertexPattern
                     {
-                        Reference = "friend",
+                        PatternName = "friend",
                         Label = label => label == "person"
                     }
                 }
@@ -292,7 +292,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "person",
+                        PatternName = "person",
                         Label = label => label == "person",
                         Vertex = vertex =>
                         {
@@ -340,14 +340,14 @@ namespace NoSQL.GraphDB.Tests
                 Name = "knows-only",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "p1", Label = label => label == "person" },
+                    new VertexPattern { PatternName = "p1", Label = label => label == "person" },
                     new EdgePattern
                     {
-                        Reference = "relationship",
+                        PatternName = "relationship",
                         Direction = Direction.OutgoingEdge,
                         EdgeProperty = (propertyId, direction) => propertyId == "knows"
                     },
-                    new VertexPattern { Reference = "p2", Label = label => label == "person" }
+                    new VertexPattern { PatternName = "p2", Label = label => label == "person" }
                 }
             };
 
@@ -373,14 +373,14 @@ namespace NoSQL.GraphDB.Tests
                 Name = "works-at",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "person", Label = label => label == "person" },
+                    new VertexPattern { PatternName = "person", Label = label => label == "person" },
                     new EdgePattern
                     {
-                        Reference = "employment",
+                        PatternName = "employment",
                         Direction = Direction.OutgoingEdge,
                         Edge = (edge, direction) => edge.Label == "works_at"
                     },
-                    new VertexPattern { Reference = "company", Label = label => label == "company" }
+                    new VertexPattern { PatternName = "company", Label = label => label == "company" }
                 }
             };
 
@@ -415,7 +415,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "d",
+                        PatternName = "d",
                         Vertex = vertex =>
                         {
                             object name;
@@ -424,10 +424,10 @@ namespace NoSQL.GraphDB.Tests
                     },
                     new EdgePattern
                     {
-                        Reference = "back",
+                        PatternName = "back",
                         Direction = Direction.IncomingEdge
                     },
-                    new VertexPattern { Reference = "previous" }
+                    new VertexPattern { PatternName = "previous" }
                 }
             };
 
@@ -456,7 +456,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "b",
+                        PatternName = "b",
                         Vertex = vertex =>
                         {
                             object name;
@@ -465,10 +465,10 @@ namespace NoSQL.GraphDB.Tests
                     },
                     new EdgePattern
                     {
-                        Reference = "any",
+                        PatternName = "any",
                         Direction = Direction.UndirectedEdge
                     },
-                    new VertexPattern { Reference = "neighbor" }
+                    new VertexPattern { PatternName = "neighbor" }
                 }
             };
 
@@ -497,7 +497,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "a",
+                        PatternName = "a",
                         Vertex = vertex =>
                         {
                             object name;
@@ -506,12 +506,12 @@ namespace NoSQL.GraphDB.Tests
                     },
                     new VariableLengthEdgePattern
                     {
-                        Reference = "path",
+                        PatternName = "path",
                         Direction = Direction.OutgoingEdge,
                         MinLength = 1,
                         MaxLength = 1
                     },
-                    new VertexPattern { Reference = "target" }
+                    new VertexPattern { PatternName = "target" }
                 }
             };
 
@@ -540,7 +540,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "a",
+                        PatternName = "a",
                         Vertex = vertex =>
                         {
                             object name;
@@ -549,12 +549,12 @@ namespace NoSQL.GraphDB.Tests
                     },
                     new VariableLengthEdgePattern
                     {
-                        Reference = "path",
+                        PatternName = "path",
                         Direction = Direction.OutgoingEdge,
                         MinLength = 1,
                         MaxLength = 3
                     },
-                    new VertexPattern { Reference = "target" }
+                    new VertexPattern { PatternName = "target" }
                 }
             };
 
@@ -583,7 +583,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "a",
+                        PatternName = "a",
                         Vertex = vertex =>
                         {
                             object name;
@@ -592,14 +592,14 @@ namespace NoSQL.GraphDB.Tests
                     },
                     new VariableLengthEdgePattern
                     {
-                        Reference = "path",
+                        PatternName = "path",
                         Direction = Direction.OutgoingEdge,
                         MinLength = 1,
                         MaxLength = 3
                     },
                     new VertexPattern
                     {
-                        Reference = "target-c-or-d",
+                        PatternName = "target-c-or-d",
                         Vertex = vertex =>
                         {
                             object name;
@@ -637,11 +637,11 @@ namespace NoSQL.GraphDB.Tests
                 Name = "complex",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "p1", Label = label => label == "person" },
-                    new EdgePattern { Reference = "knows", Direction = Direction.OutgoingEdge, Label = label => label == "knows" },
-                    new VertexPattern { Reference = "p2", Label = label => label == "person" },
-                    new EdgePattern { Reference = "works", Direction = Direction.OutgoingEdge, Label = label => label == "works_at" },
-                    new VertexPattern { Reference = "company", Label = label => label == "company" }
+                    new VertexPattern { PatternName = "p1", Label = label => label == "person" },
+                    new EdgePattern { PatternName = "knows", Direction = Direction.OutgoingEdge, Label = label => label == "knows" },
+                    new VertexPattern { PatternName = "p2", Label = label => label == "person" },
+                    new EdgePattern { PatternName = "works", Direction = Direction.OutgoingEdge, Label = label => label == "works_at" },
+                    new VertexPattern { PatternName = "company", Label = label => label == "company" }
                 }
             };
 
@@ -668,9 +668,9 @@ namespace NoSQL.GraphDB.Tests
                 Name = "readonly",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "node", Label = label => label == "node" },
-                    new EdgePattern { Reference = "edge", Direction = Direction.OutgoingEdge },
-                    new VertexPattern { Reference = "next", Label = label => label == "node" }
+                    new VertexPattern { PatternName = "node", Label = label => label == "node" },
+                    new EdgePattern { PatternName = "edge", Direction = Direction.OutgoingEdge },
+                    new VertexPattern { PatternName = "next", Label = label => label == "node" }
                 }
             };
 
@@ -711,7 +711,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     new VertexPattern
                     {
-                        Reference = "alice",
+                        PatternName = "alice",
                         Vertex = vertex =>
                         {
                             object name;
@@ -771,9 +771,9 @@ namespace NoSQL.GraphDB.Tests
                 Name = "edge-props",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "a" },
-                    new EdgePattern { Reference = "edge", Direction = Direction.OutgoingEdge },
-                    new VertexPattern { Reference = "b" }
+                    new VertexPattern { PatternName = "a" },
+                    new EdgePattern { PatternName = "edge", Direction = Direction.OutgoingEdge },
+                    new VertexPattern { PatternName = "b" }
                 }
             };
 
@@ -831,7 +831,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = subGraphName,
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                    new VertexPattern { PatternName = "node", Label = label => label == "node" }
                 }
             };
 
@@ -912,7 +912,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "persons",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "person", Label = label => label == "person" }
+                    new VertexPattern { PatternName = "person", Label = label => label == "person" }
                 }
             };
 
@@ -921,7 +921,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "companies",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "company", Label = label => label == "company" }
+                    new VertexPattern { PatternName = "company", Label = label => label == "company" }
                 }
             };
 
@@ -970,7 +970,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "valid",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                    new VertexPattern { PatternName = "node", Label = label => label == "node" }
                 }
             };
 
@@ -1007,7 +1007,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "test",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                    new VertexPattern { PatternName = "node", Label = label => label == "node" }
                 }
             };
 
@@ -1068,7 +1068,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "test1",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                    new VertexPattern { PatternName = "node", Label = label => label == "node" }
                 }
             };
 
@@ -1077,7 +1077,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "test2",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                    new VertexPattern { PatternName = "node", Label = label => label == "node" }
                 }
             };
 
@@ -1122,7 +1122,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "persons",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "person", Label = label => label == "person" }
+                    new VertexPattern { PatternName = "person", Label = label => label == "person" }
                 }
             };
 
@@ -1174,7 +1174,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "test",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { Reference = "node", Label = label => label == "node" }
+                    new VertexPattern { PatternName = "node", Label = label => label == "node" }
                 }
             };
 
@@ -1193,4 +1193,5 @@ namespace NoSQL.GraphDB.Tests
         }
     }
 }
+
 
