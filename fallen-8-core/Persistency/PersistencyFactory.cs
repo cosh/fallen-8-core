@@ -526,6 +526,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                                 targetVertex,
                                 sourceVertex,
                                 aSneakPeak.Label,
+                                aSneakPeak.EdgePropertyId,
                                 aSneakPeak.Properties);
                     }
                     else
@@ -847,6 +848,8 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #endregion
 
+            var edgePropertyId = reader.ReadOptimizedString();
+
             var sourceVertexId = reader.ReadInt32();
             var targetVertexId = reader.ReadInt32();
 
@@ -855,7 +858,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             if (sourceVertex != null && targetVertex != null)
             {
-                graphElements[id] = new EdgeModel(id, creationDate, modificationDate, targetVertex, sourceVertex, label, properties);
+                graphElements[id] = new EdgeModel(id, creationDate, modificationDate, targetVertex, sourceVertex, label, edgePropertyId, properties);
             }
             else
             {
@@ -867,7 +870,8 @@ namespace NoSQL.GraphDB.Core.Persistency
                     Properties = properties,
                     SourceVertexId = sourceVertexId,
                     TargetVertexId = targetVertexId,
-                    Label = label
+                    Label = label,
+                    EdgePropertyId = edgePropertyId
                 });
             }
         }
@@ -881,6 +885,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         {
             writer.Write(SerializedEdge);
             WriteAGraphElement(edge, writer);
+            writer.Write(edge.EdgePropertyId);
             writer.Write(edge.SourceVertex.Id);
             writer.Write(edge.TargetVertex.Id);
         }

@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// EdgeSneakPeak.cs
+// GraphElementPattern.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -23,54 +23,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
-using System.Collections.Generic;
-
-namespace NoSQL.GraphDB.Core.Persistency
+namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
-    /// <summary>
-    /// Edge sneak peak.
-    /// </summary>
-    public struct EdgeSneakPeak
+    public class GraphElementPattern : APattern
     {
-        /// <summary>
-        /// The identifier of the edge.
-        /// </summary>
-        public Int32 Id;
-
-        /// <summary>
-        /// The creation date.
-        /// </summary>
-        public UInt32 CreationDate;
-
-        /// <summary>
-        /// The modification date.
-        /// </summary>
-        public UInt32 ModificationDate;
-
-        /// <summary>
-        /// The properties.
-        /// </summary>
-        public Dictionary<String, Object> Properties;
-
-        /// <summary>
-        /// The label.
-        /// </summary>
-        public String Label;
-
-        /// <summary>
-        /// The edge property ID.
-        /// </summary>
-        public String EdgePropertyId;
-
-        /// <summary>
-        /// The source vertex identifier.
-        /// </summary>
-        public Int32 SourceVertexId;
-
-        /// <summary>
-        /// The target vertex identifier.
-        /// </summary>
-        public Int32 TargetVertexId;
+        public Delegates.GraphElementFilter GraphElement
+        {
+            get; set;
+        }
     }
 }

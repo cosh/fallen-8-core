@@ -42,6 +42,13 @@ namespace NoSQL.GraphDB.Core.Algorithms
         public delegate bool EdgePropertyFilter(String edgePropertyId, Direction direction);
 
         /// <summary>
+        /// Filter for graph elements
+        /// </summary>
+        /// <param name="graphElement">The graph element.</param>
+        /// <returns>False will filter the graph element</returns>
+        public delegate bool GraphElementFilter(AGraphElementModel graphElement);
+
+        /// <summary>
         /// Filter for edges
         /// </summary>
         /// <param name="edge">The edge.</param>

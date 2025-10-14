@@ -554,7 +554,7 @@ namespace NoSQL.GraphDB.Core
             //get the related vertices
             if (sourceVertex != null && targetVertex != null)
             {
-                outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, label, properties);
+                outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, label, edgePropertyId, properties);
 
                 //add the edge to the graph elements
                 _graphElements = _graphElements.Add(outgoingEdge);
@@ -590,7 +590,7 @@ namespace NoSQL.GraphDB.Core
                     if (sourceVertex != null && targetVertex != null)
                     {
                         var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex,
-                            aEdgeDefinition.Label, aEdgeDefinition.Properties);
+                            aEdgeDefinition.Label, aEdgeDefinition.EdgePropertyId, aEdgeDefinition.Properties);
 
                         newEdges.Add(newEdge);
 
@@ -664,10 +664,10 @@ namespace NoSQL.GraphDB.Core
 
                     #region out edges
 
-                    var outgoingEdgeConatiner = vertex.OutEdges;
-                    if (outgoingEdgeConatiner != null)
+                    var outgoingEdgeContainer = vertex.OutEdges;
+                    if (outgoingEdgeContainer != null)
                     {
-                        foreach (var aOutEdgeProperty in outgoingEdgeConatiner)
+                        foreach (var aOutEdgeProperty in outgoingEdgeContainer)
                         {
                             foreach (var aOutEdge in aOutEdgeProperty.Value)
                             {
@@ -675,7 +675,7 @@ namespace NoSQL.GraphDB.Core
                                 aOutEdge.TargetVertex.RemoveIncomingEdge(aOutEdgeProperty.Key, aOutEdge);
 
                                 //remove the edge itself
-                                _graphElements[aOutEdge.Id].MarkAsRemoved();
+                                aOutEdge.MarkAsRemoved();
                             }
                         }
                     }
@@ -695,7 +695,7 @@ namespace NoSQL.GraphDB.Core
                                 aInEdge.SourceVertex.RemoveOutGoingEdge(aInEdgeProperty.Key, aInEdge);
 
                                 //remove the edge itself
-                                _graphElements[aInEdge.Id].MarkAsRemoved();
+                                aInEdge.MarkAsRemoved();
                             }
                         }
                     }
@@ -741,10 +741,10 @@ namespace NoSQL.GraphDB.Core
 
                     #region out edges
 
-                    var outgoingEdgeConatiner = vertex.OutEdges;
-                    if (outgoingEdgeConatiner != null)
+                    var outgoingEdgeContainer = vertex.OutEdges;
+                    if (outgoingEdgeContainer != null)
                     {
-                        foreach (var aOutEdgeProperty in outgoingEdgeConatiner)
+                        foreach (var aOutEdgeProperty in outgoingEdgeContainer)
                         {
                             foreach (var aOutEdge in aOutEdgeProperty.Value)
                             {
@@ -752,7 +752,7 @@ namespace NoSQL.GraphDB.Core
                                 aOutEdge.TargetVertex.AddIncomingEdge(aOutEdgeProperty.Key, aOutEdge);
 
                                 //reset the edge
-                                _graphElements[aOutEdge.Id].MarkAsNotRemoved();
+                                aOutEdge.MarkAsNotRemoved();
                             }
                         }
                     }
@@ -772,7 +772,7 @@ namespace NoSQL.GraphDB.Core
                                 aInEdge.SourceVertex.AddIncomingEdge(aInEdgeProperty.Key, aInEdge);
 
                                 //reset the edge
-                                _graphElements[aInEdge.Id].MarkAsNotRemoved();
+                                aInEdge.MarkAsNotRemoved();
                             }
                         }
                     }
@@ -1086,6 +1086,16 @@ namespace NoSQL.GraphDB.Core
                         .Where(_ => _ != null && !_._removed && _ is EdgeModel)
                         .Where(CheckLabel(interestingLabel))
                         .Select(_ => (EdgeModel)_));
+        }
+
+        public ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
+        {
+            return ImmutableList.CreateRange<AGraphElementModel>(
+                        _graphElements
+                        .AsParallel()
+                        .Where(_ => _ != null && !_._removed)
+                        .Where(CheckLabel(interestingLabel))
+                        .Select(_ => (AGraphElementModel)_));
         }
 
         #endregion

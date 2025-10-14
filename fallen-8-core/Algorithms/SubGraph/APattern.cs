@@ -56,22 +56,5 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         {
             get; set;
         }
-
-        /// <summary>
-        /// Gets or sets the label filter delegate for this pattern.
-        /// </summary>
-        /// <value>
-        /// A <see cref="Delegates.LabelFilter"/> delegate that determines whether a graph element's label
-        /// should be included in the pattern match. Returns <c>false</c> to filter out elements with non-matching labels.
-        /// </value>
-        /// <remarks>
-        /// The label filter provides a flexible way to constrain pattern matching based on the labels
-        /// associated with graph elements (vertices or edges). This is commonly used to match elements
-        /// of specific types or categories within the graph.
-        /// </remarks>
-        public Delegates.LabelFilter Label
-        {
-            get; set;
-        }
     }
 }

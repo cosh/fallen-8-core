@@ -43,7 +43,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// filtering through the <see cref="Vertex"/> property, enabling multi-layered matching criteria.
     /// </para>
     /// </remarks>
-    public class VertexPattern : APattern
+    public class VertexPattern : GraphElementPattern
     {
         /// <summary>
         /// Gets or sets the vertex filter delegate for this pattern.

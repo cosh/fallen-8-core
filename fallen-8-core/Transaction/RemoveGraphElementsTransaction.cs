@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// EdgeSneakPeak.cs
+// RemoveGraphElementsTransaction.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -23,54 +23,41 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using NoSQL.GraphDB.Core.Model;
 using System;
 using System.Collections.Generic;
 
-namespace NoSQL.GraphDB.Core.Persistency
+namespace NoSQL.GraphDB.Core.Transaction
 {
-    /// <summary>
-    /// Edge sneak peak.
-    /// </summary>
-    public struct EdgeSneakPeak
+    public class RemoveGraphElementsTransaction : ATransaction
     {
-        /// <summary>
-        /// The identifier of the edge.
-        /// </summary>
-        public Int32 Id;
+        public List<Int32> GraphElementIds
+        {
+            get;
+            set;
+        }
 
-        /// <summary>
-        /// The creation date.
-        /// </summary>
-        public UInt32 CreationDate;
+        internal override void Rollback(Fallen8 f8)
+        {
+            //rollback is implemented in the TryRemoveGraphElement_private method
+        }
 
-        /// <summary>
-        /// The modification date.
-        /// </summary>
-        public UInt32 ModificationDate;
+        internal override Boolean TryExecute(Fallen8 f8)
+        {
+            foreach (var GraphElementId in GraphElementIds)
+            {
+                if (!f8.TryRemoveGraphElement_private(GraphElementId))
+                {
+                    return false;
+                }
+            }
 
-        /// <summary>
-        /// The properties.
-        /// </summary>
-        public Dictionary<String, Object> Properties;
+            return true;
+        }
 
-        /// <summary>
-        /// The label.
-        /// </summary>
-        public String Label;
-
-        /// <summary>
-        /// The edge property ID.
-        /// </summary>
-        public String EdgePropertyId;
-
-        /// <summary>
-        /// The source vertex identifier.
-        /// </summary>
-        public Int32 SourceVertexId;
-
-        /// <summary>
-        /// The target vertex identifier.
-        /// </summary>
-        public Int32 TargetVertexId;
+        internal override void Cleanup()
+        {
+            //NOOP
+        }
     }
 }

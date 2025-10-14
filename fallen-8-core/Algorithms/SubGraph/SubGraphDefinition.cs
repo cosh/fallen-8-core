@@ -106,6 +106,53 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         }
 
         /// <summary>
+        /// Gets or sets the vertex filter for initial subgraph population.
+        /// </summary>
+        /// <value>
+        /// A <see cref="GraphElementPattern"/> that specifies which vertices should be copied from the source graph
+        /// to the subgraph before pattern evaluation. If null, all vertices will be copied.
+        /// </value>
+        /// <remarks>
+        /// <para>
+        /// This filter is applied in the first phase of subgraph creation to determine which vertices
+        /// from the source graph should be included in the subgraph. The pattern evaluation (via <see cref="Pattern"/>)
+        /// is then applied in a subsequent phase to further refine the subgraph.
+        /// </para>
+        /// <para>
+        /// Using a vertex filter can significantly improve performance by reducing the initial
+        /// working set before pattern matching begins.
+        /// </para>
+        /// </remarks>
+        public GraphElementPattern VertexFilter
+        {
+            get; set;
+        }
+
+        /// <summary>
+        /// Gets or sets the edge filter for initial subgraph population.
+        /// </summary>
+        /// <value>
+        /// A <see cref="GraphElementPattern"/> that specifies which edges should be copied from the source graph
+        /// to the subgraph before pattern evaluation. If null, all edges will be copied (as long as both
+        /// source and target vertices are in the subgraph).
+        /// </value>
+        /// <remarks>
+        /// <para>
+        /// This filter is applied in the second phase of subgraph creation, after vertices have been copied.
+        /// Only edges where both the source and target vertices exist in the subgraph will be considered.
+        /// The pattern evaluation (via <see cref="Pattern"/>) is then applied in a subsequent phase.
+        /// </para>
+        /// <para>
+        /// Using an edge filter can help reduce the complexity of the graph before pattern matching begins,
+        /// improving both performance and memory usage.
+        /// </para>
+        /// </remarks>
+        public GraphElementPattern EdgeFilter
+        {
+            get; set;
+        }
+
+        /// <summary>
         /// Gets or sets the list of patterns that define the structure of the subgraph.
         /// </summary>
         /// <value>
@@ -127,6 +174,12 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// <para>
         /// A typical pattern list alternates between vertex and edge patterns to describe
         /// connected paths: VertexPattern -> EdgePattern -> VertexPattern -> EdgePattern -> ...
+        /// </para>
+        /// <para>
+        /// Pattern evaluation is performed after the initial vertex and edge filtering (via <see cref="VertexFilter"/>
+        /// and <see cref="EdgeFilter"/>). The algorithm will find all valid paths matching these patterns,
+        /// then extract the vertices and edges from those paths to form the final subgraph. This ensures
+        /// no cycles and that all elements are part of valid matching paths.
         /// </para>
         /// </remarks>
         public List<APattern> Pattern

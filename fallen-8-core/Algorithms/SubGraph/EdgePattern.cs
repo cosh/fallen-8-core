@@ -38,7 +38,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// representing a single hop connection from one vertex to another.
     /// </para>
     /// </remarks>
-    public class EdgePattern : APattern
+    public class EdgePattern : GraphElementPattern
     {
         /// <summary>
         /// Gets or sets the direction constraint for edge traversal.

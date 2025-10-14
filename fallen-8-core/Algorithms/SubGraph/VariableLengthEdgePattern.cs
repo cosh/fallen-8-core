@@ -39,7 +39,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// supporting both simple single-edge connections and complex path expressions.
     /// </para>
     /// </remarks>
-    public class VariableLengthEdgePattern : APattern
+    public class VariableLengthEdgePattern : EdgePattern
     {
         /// <summary>
         /// Gets or sets the maximum path length for this edge pattern.
@@ -71,63 +71,6 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// A value of 1 represents a direct edge connection, while higher values allow for indirect paths.
         /// </remarks>
         public ushort MinLength
-        {
-            get; set;
-        }
-
-        /// <summary>
-        /// Gets or sets the direction constraint for edge traversal.
-        /// </summary>
-        /// <value>
-        /// A <see cref="Direction"/> value that specifies whether to traverse edges in their natural direction,
-        /// opposite direction, or in both directions.
-        /// </value>
-        /// <remarks>
-        /// <para>
-        /// The direction constraint determines how edges should be traversed during pattern matching:
-        /// </para>
-        /// <list type="bullet">
-        /// <item><description><c>OutGoing</c>: Follow edges in their defined direction (from source to target)</description></item>
-        /// <item><description><c>InComing</c>: Follow edges in reverse direction (from target to source)</description></item>
-        /// <item><description><c>Both</c>: Allow traversal in either direction</description></item>
-        /// </list>
-        /// </remarks>
-        public Direction Direction
-        {
-            get; set;
-        }
-
-        /// <summary>
-        /// Gets or sets the edge property filter delegate.
-        /// </summary>
-        /// <value>
-        /// A <see cref="Delegates.EdgePropertyFilter"/> delegate that filters edges based on their property identifier
-        /// and traversal direction. Returns <c>false</c> to exclude edges from the match.
-        /// </value>
-        /// <remarks>
-        /// This filter operates at the edge property level, allowing fine-grained control over which
-        /// types of edges should be included in the pattern match based on their property identifiers.
-        /// This is useful when edges are categorized by property types (e.g., "FRIEND", "COLLEAGUE", "FAMILY").
-        /// </remarks>
-        public Delegates.EdgePropertyFilter EdgeProperty
-        {
-            get; set;
-        }
-
-        /// <summary>
-        /// Gets or sets the edge filter delegate.
-        /// </summary>
-        /// <value>
-        /// A <see cref="Delegates.EdgeFilter"/> delegate that evaluates individual edge instances
-        /// and their traversal direction. Returns <c>false</c> to exclude specific edges from the match.
-        /// </value>
-        /// <remarks>
-        /// This filter provides the most granular level of edge filtering, operating on individual
-        /// <see cref="EdgeModel"/> instances. It allows for complex filtering logic based on edge properties,
-        /// metadata, or any other characteristics of the edge. The filter receives both the edge and the
-        /// traversal direction, enabling direction-aware filtering logic.
-        /// </remarks>
-        public Delegates.EdgeFilter Edge
         {
             get; set;
         }
