@@ -848,7 +848,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #endregion
 
-            var edgePropertyId = reader.ReadOptimizedString();
+            var edgePropertyId = reader.ReadString();
 
             var sourceVertexId = reader.ReadInt32();
             var targetVertexId = reader.ReadInt32();
