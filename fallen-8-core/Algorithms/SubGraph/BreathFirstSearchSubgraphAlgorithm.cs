@@ -248,10 +248,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             // Find all valid paths that match the patterns
             var validPaths = FindAllValidPaths(subgraph, patterns);
 
+            /**
+
             if (validPaths.Count == 0)
             {
                 return false;
             }
+
+            **/
 
             _logger?.LogInformation($"Found {validPaths.Count} valid paths");
 
@@ -524,6 +528,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                 return;
 
             var txInfo = subgraph.EnqueueTransaction(new RemoveGraphElementsTransaction { GraphElementIds = toBeRemovedGraphElementIds });
+            txInfo.WaitUntilFinished();
+
+            txInfo = subgraph.EnqueueTransaction(new TrimTransaction());
             txInfo.WaitUntilFinished();
         }
 

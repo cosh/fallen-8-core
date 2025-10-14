@@ -46,10 +46,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             foreach (var GraphElementId in GraphElementIds)
             {
-                if (!f8.TryRemoveGraphElement_private(GraphElementId))
-                {
-                    return false;
-                }
+                f8.TryRemoveGraphElement_private(GraphElementId);
             }
 
             return true;

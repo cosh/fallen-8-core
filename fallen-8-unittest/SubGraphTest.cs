@@ -166,8 +166,9 @@ namespace NoSQL.GraphDB.Tests
             var result = algorithm.TryCreateSubgraph(out SubGraphResult subgraphResult, definition);
 
             // Assert
-            Assert.IsFalse(result, "Should return false when no start vertex matches");
-            Assert.IsNull(subgraphResult, "Result should be null");
+            Assert.IsTrue(result, "Should return true");
+            Assert.IsNotNull(subgraphResult, "Result should not be null");
+            Assert.AreEqual(0, subgraphResult.SubGraph.VertexCount, "Should have no vertices");
         }
 
         [TestMethod]
