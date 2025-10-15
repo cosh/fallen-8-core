@@ -124,7 +124,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
             // Use LINQ to filter vertices directly
             var validVertices = _fallen8.GetAllVertices()
-                .Where(v => vertexFilter == null || MatchesVertexPattern(v, vertexFilter))
+                .Where(v => vertexFilter == null || MatchesAGraphElementPattern(v, vertexFilter))
                 .ToList();
 
             if (validVertices.Count == 0)
@@ -343,7 +343,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                     // Check if there's a vertex pattern after the edge
                     if (patternIndex + 2 < patterns.Count && patterns[patternIndex + 2] is VertexPattern nextVertexPattern)
                     {
-                        if (MatchesVertexPattern(nextVertex, nextVertexPattern))
+                        if (MatchesAGraphElementPattern(nextVertex, nextVertexPattern))
                         {
                             // Recursively find paths from the next vertex
                             var subPaths = FindPathsFromVertex(subgraph, nextVertex, patterns, patternIndex + 2);
@@ -448,7 +448,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                     // Check if this path meets the criteria
                     if (currentLength >= pattern.MinLength)
                     {
-                        if (targetVertexPattern == null || MatchesVertexPattern(currentVertex, targetVertexPattern))
+                        if (targetVertexPattern == null || MatchesAGraphElementPattern(currentVertex, targetVertexPattern))
                         {
                             resultPaths.Add(currentPath);
                         }
@@ -483,7 +483,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                     // Check if this path is valid
                     if (newLength >= pattern.MinLength && newLength <= pattern.MaxLength)
                     {
-                        if (targetVertexPattern == null || MatchesVertexPattern(nextVertex, targetVertexPattern))
+                        if (targetVertexPattern == null || MatchesAGraphElementPattern(nextVertex, targetVertexPattern))
                         {
                             resultPaths.Add(newPath);
                         }
@@ -646,7 +646,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// <summary>
         /// Check if a vertex matches a vertex pattern
         /// </summary>
-        private bool MatchesVertexPattern(VertexModel vertex, GraphElementPattern pattern)
+        private bool MatchesAGraphElementPattern(AGraphElementModel vertex, GraphElementPattern pattern)
         {
             // If pattern is null, match everything
             if (pattern == null)
@@ -661,6 +661,29 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             }
 
             // Both filters must pass (if they exist)
+            return true;
+        }
+
+        private bool MatchesVertexPattern(VertexModel vertex, VertexPattern pattern)
+        {
+            // If pattern is null, match everything
+            if (pattern == null)
+            {
+                return true;
+            }
+
+            // Check GraphElement filter (general graph element filter)
+            if (pattern.GraphElement != null && !pattern.GraphElement(vertex))
+            {
+                return false;
+            }
+
+            // Check Vertex-specific filter
+            if (pattern.Vertex != null && !pattern.Vertex(vertex))
+            {
+                return false;
+            }
+
             return true;
         }
 
