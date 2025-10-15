@@ -347,7 +347,7 @@ namespace NoSQL.GraphDB.Tests
                     {
                         PatternName = "relationship",
                         Direction = Direction.OutgoingEdge,
-                        EdgeProperty = (propertyId, direction) => propertyId == "knows"
+                        EdgeProperty = (propertyId) => propertyId == "knows"
                     },
                     new VertexPattern { PatternName = "p2", GraphElement = ge => ge.Label == "person" }
                 }
@@ -380,7 +380,7 @@ namespace NoSQL.GraphDB.Tests
                     {
                         PatternName = "employment",
                         Direction = Direction.OutgoingEdge,
-                        Edge = (edge, direction) => edge.Label == "works_at"
+                        Edge = (edge) => edge.Label == "works_at"
                     },
                     new VertexPattern { PatternName = "company", GraphElement = ge => ge.Label == "company" }
                 }

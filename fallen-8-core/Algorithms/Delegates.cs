@@ -37,9 +37,8 @@ namespace NoSQL.GraphDB.Core.Algorithms
         /// Filter for edge properties
         /// </summary>
         /// <param name="edgePropertyId">The edge property identifier.</param>
-        /// <param name="direction">The direction of the edge.</param>
         /// <returns>False will filter the edge property</returns>
-        public delegate bool EdgePropertyFilter(String edgePropertyId, Direction direction);
+        public delegate bool EdgePropertyFilter(String edgePropertyId);
 
         /// <summary>
         /// Filter for graph elements
@@ -52,9 +51,8 @@ namespace NoSQL.GraphDB.Core.Algorithms
         /// Filter for edges
         /// </summary>
         /// <param name="edge">The edge.</param>
-        /// <param name="direction">The direction of the edge.</param>
         /// <returns>False will filter the edge</returns>
-        public delegate bool EdgeFilter(EdgeModel edge, Direction direction);
+        public delegate bool EdgeFilter(EdgeModel edge);
 
         /// <summary>
         /// Filter for vertices

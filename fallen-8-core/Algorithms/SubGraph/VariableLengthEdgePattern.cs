@@ -42,6 +42,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     public class VariableLengthEdgePattern : EdgePattern
     {
         /// <summary>
+        /// Initializes a new instance of the <see cref="VariableLengthEdgePattern"/> class.
+        /// </summary>
+        public VariableLengthEdgePattern() : base(PatternType.VariableLengthEdge)
+        {
+        }
+
+        /// <summary>
         /// Gets or sets the maximum path length for this edge pattern.
         /// </summary>
         /// <value>

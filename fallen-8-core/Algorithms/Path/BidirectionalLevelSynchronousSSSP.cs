@@ -578,7 +578,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 foreach (var edgeContainer in edgeProperties)
                 {
-                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key, Direction.IncomingEdge))
+                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key))
                     {
                         continue;
                     }
@@ -588,7 +588,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         for (var i = 0; i < edgeContainer.Value.Count; i++)
                         {
                             var aEdge = edgeContainer.Value[i];
-                            if (edgeFilter(aEdge, Direction.IncomingEdge))
+                            if (edgeFilter(aEdge))
                             {
                                 if (alreadyVisited.Add(aEdge.SourceVertex))
                                 {
@@ -705,7 +705,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 foreach (var edgeContainer in edgeProperties)
                 {
-                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key, Direction.OutgoingEdge))
+                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key))
                     {
                         continue;
                     }
@@ -715,7 +715,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         for (var i = 0; i < edgeContainer.Value.Count; i++)
                         {
                             var aEdge = edgeContainer.Value[i];
-                            if (edgeFilter(aEdge, Direction.OutgoingEdge))
+                            if (edgeFilter(aEdge))
                             {
                                 if (alreadyVisited.Add(aEdge.TargetVertex))
                                 {

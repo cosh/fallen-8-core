@@ -1,6 +1,6 @@
-﻿// MIT License
+// MIT License
 //
-// GraphElementPattern.cs
+// PatternType.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -26,32 +26,40 @@
 namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
     /// <summary>
-    /// Base class for patterns that match graph elements (vertices and edges).
+    /// Defines the type of pattern used in subgraph matching.
     /// </summary>
     /// <remarks>
-    /// This class provides common filtering capabilities for both vertices and edges
-    /// through the <see cref="GraphElement"/> filter property.
+    /// This enum is used to identify the specific pattern type at runtime,
+    /// enabling efficient type checking without reflection or type casting.
+    /// Each pattern type represents a different matching strategy in graph queries.
     /// </remarks>
-    public abstract class GraphElementPattern : APattern
+    public enum PatternType
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="GraphElementPattern"/> class.
+        /// Represents a pattern for matching vertices in the graph.
         /// </summary>
-        /// <param name="patternType">The type of pattern being created.</param>
-        protected GraphElementPattern(PatternType patternType) : base(patternType)
-        {
-        }
+        /// <remarks>
+        /// Vertex patterns are used to specify constraints on individual vertices,
+        /// including property filters and custom matching logic.
+        /// </remarks>
+        Vertex,
 
         /// <summary>
-        /// Gets or sets the graph element filter delegate.
+        /// Represents a pattern for matching single edges in the graph.
         /// </summary>
-        /// <value>
-        /// A <see cref="Delegates.GraphElementFilter"/> delegate that evaluates individual graph element instances.
-        /// Returns <c>false</c> to exclude specific elements from the match.
-        /// </value>
-        public Delegates.GraphElementFilter GraphElement
-        {
-            get; set;
-        }
+        /// <remarks>
+        /// Edge patterns define constraints for matching direct connections between vertices,
+        /// including direction, edge properties, and custom filtering logic.
+        /// </remarks>
+        Edge,
+
+        /// <summary>
+        /// Represents a pattern for matching variable-length paths in the graph.
+        /// </summary>
+        /// <remarks>
+        /// Variable-length edge patterns allow matching paths of varying lengths between vertices,
+        /// with configurable minimum and maximum path lengths.
+        /// </remarks>
+        VariableLengthEdge
     }
 }

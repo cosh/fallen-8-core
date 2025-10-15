@@ -46,6 +46,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     public class VertexPattern : GraphElementPattern
     {
         /// <summary>
+        /// Initializes a new instance of the <see cref="VertexPattern"/> class.
+        /// </summary>
+        public VertexPattern() : base(PatternType.Vertex)
+        {
+        }
+
+        /// <summary>
         /// Gets or sets the vertex filter delegate for this pattern.
         /// </summary>
         /// <value>

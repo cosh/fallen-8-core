@@ -32,6 +32,8 @@ using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
+using System.Collections.Immutable;
+using System.Collections;
 
 #endregion
 
@@ -238,10 +240,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             if (patterns == null || patterns.Count == 0)
                 return true;
 
-            // Get the first pattern - must be a vertex pattern
-            if (!(patterns[0] is VertexPattern firstPattern))
+            if (!ValidatePattern(patterns))
             {
-                _logger?.LogError("First pattern must be a VertexPattern");
+                _logger?.LogWarning("Invalid pattern definition");
                 return false;
             }
 
@@ -256,6 +257,52 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             return true;
         }
 
+        private Boolean ValidatePattern(List<APattern> patterns)
+        {
+            //it is totally valid if there are no patterns
+            if (patterns == null || patterns.Count == 0)
+                return true;
+
+            int currentIndex = 0;
+
+            while (currentIndex < patterns.Count - 1)
+            {
+                var currentPattern = patterns[currentIndex];
+                var nextPattern = patterns[currentIndex + 1];
+
+                // Use the Type property instead of pattern matching for better performance
+                switch (currentPattern.Type)
+                {
+                    case PatternType.Vertex:
+                        // VertexPattern must be followed by EdgePattern or VariableLengthEdgePattern
+                        if (nextPattern.Type == PatternType.Edge || nextPattern.Type == PatternType.VariableLengthEdge)
+                        {
+                            currentIndex++;
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                        break;
+
+                    case PatternType.Edge:
+                    case PatternType.VariableLengthEdge:
+                        //must be edge or variable length edge pattern
+                        if (nextPattern.Type == PatternType.Vertex)
+                        {
+                            currentIndex++;
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                        break;
+                }
+            }
+
+            return true;
+        }
+
         /// <summary>
         /// Find all valid paths in the subgraph that match the pattern definition
         /// </summary>
@@ -263,233 +310,193 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         {
             var validPaths = new List<PathInfo>();
 
-            // Get start vertices matching the first pattern
-            var firstPattern = patterns[0] as VertexPattern;
-            var allVertices = subgraph.GetAllVertices();
-            var startVertices = allVertices.Where(v => MatchesVertexPattern(v, firstPattern)).ToList();
-
-            // Use BFS from each start vertex to find matching paths
-            foreach (var startVertex in startVertices)
+            for (int i = 0; i < patterns.Count; i++)
             {
-                var paths = FindPathsFromVertex(subgraph, startVertex, patterns, 0);
-                validPaths.AddRange(paths);
+                var currentLevel = i;
+                var currentPattern = patterns[i];
+
+                ProcessPattern(currentLevel, currentPattern, validPaths, subgraph);
+
+                // After all patterns are processed, remove any paths that were marked as invalid
+                validPaths.RemoveAll(p => !p.IsValid);
             }
 
             return validPaths;
         }
 
-        /// <summary>
-        /// Find all paths from a given vertex that match the remaining patterns
-        /// </summary>
-        private List<PathInfo> FindPathsFromVertex(
-            Fallen8 subgraph,
-            VertexModel currentVertex,
-            List<APattern> patterns,
-            int patternIndex)
+        private void ProcessPattern(Int32 currentLevel, APattern currentPattern, List<PathInfo> validPaths, Fallen8 subgraph)
         {
-            var results = new List<PathInfo>();
-
-            // Base case: if we've matched all patterns, return a path with just this vertex
-            if (patternIndex >= patterns.Count)
+            if (currentLevel == 0)
             {
-                results.Add(new PathInfo
-                {
-                    Vertices = new List<VertexModel> { currentVertex },
-                    Edges = new List<EdgeModel>()
-                });
-                return results;
+                ProcessLevel0(currentPattern, validPaths, subgraph);
             }
-
-            // Current pattern should be a vertex pattern (already matched)
-            if (!(patterns[patternIndex] is VertexPattern))
+            else
             {
-                return results;
-            }
+                // we can assume that the level 0 produced paths with at least one element.
+                // the last element of the path from level 0 is a vertex.
 
-            // Check if there's an edge pattern next
-            if (patternIndex + 1 >= patterns.Count)
-            {
-                // No more patterns, just return this vertex
-                results.Add(new PathInfo
+                PatternType currentPatternType = currentPattern.Type;
+
+                var ep = currentPattern as EdgePattern;
+                var vp = currentPattern as VertexPattern;
+
+                var workingSet = validPaths.Where(p => p.IsValid).ToList();
+
+                foreach (var path in workingSet)
                 {
-                    Vertices = new List<VertexModel> { currentVertex },
-                    Edges = new List<EdgeModel>()
-                });
-                return results;
-            }
+                    var lastElement = (VertexModel)path.GraphElements.Last();
 
-            var nextPattern = patterns[patternIndex + 1];
-
-            if (nextPattern is EdgePattern edgePattern)
-            {
-                // Find matching edges from current vertex
-                var matchingEdges = GetMatchingEdgesFromVertex(currentVertex, edgePattern);
-
-                foreach (var edgeInfo in matchingEdges)
-                {
-                    var edge = edgeInfo.Item1;
-                    var direction = edgeInfo.Item2;
-                    var nextVertex = direction == Direction.OutgoingEdge ? edge.TargetVertex : edge.SourceVertex;
-
-                    // Check if there's a vertex pattern after the edge
-                    if (patternIndex + 2 < patterns.Count && patterns[patternIndex + 2] is VertexPattern nextVertexPattern)
+                    switch (currentPatternType)
                     {
-                        if (MatchesVertexPattern(nextVertex, nextVertexPattern))
-                        {
-                            // Recursively find paths from the next vertex
-                            var subPaths = FindPathsFromVertex(subgraph, nextVertex, patterns, patternIndex + 2);
-                            foreach (var subPath in subPaths)
+                        case PatternType.Vertex:
                             {
-                                var newPath = new PathInfo
+                                //Check the last vertex of the path
+                                if (!MatchesVertexPattern(lastElement, vp))
                                 {
-                                    Vertices = new List<VertexModel> { currentVertex },
-                                    Edges = new List<EdgeModel> { edge }
-                                };
-                                newPath.Vertices.AddRange(subPath.Vertices);
-                                newPath.Edges.AddRange(subPath.Edges);
-                                results.Add(newPath);
+                                    path.IsValid = false;
+                                }
+                                //nothing needs to be added
                             }
+                            break;
+
+                        case PatternType.Edge:
+                            {
+                                //setting the old path as invalid. we create new paths by traversing
+                                path.IsValid = false;
+
+                                ImmutableList<EdgeModel> edges;
+                                //now we need to traverse from the last vertex of the path based on the pattern
+
+                                switch (ep.Direction)
+                                {
+                                    case Direction.OutgoingEdge:
+                                        {
+                                            //Outgoing
+                                            foreach (var aOutEdgePropertyId in lastElement.GetOutgoingEdgeIds())
+                                            {
+                                                if (ep.EdgeProperty != null && !ep.EdgeProperty(aOutEdgePropertyId))
+                                                {
+                                                    continue;
+                                                }
+
+                                                if (lastElement.TryGetOutEdge(out edges, aOutEdgePropertyId))
+                                                {
+                                                    foreach (var aEdge in edges)
+                                                    {
+                                                        if (MatchesEdgePattern(aEdge, ep, Direction.OutgoingEdge))
+                                                        {
+                                                            //we found a new valid path and add it
+                                                            var newPath = new PathInfo();
+                                                            newPath.GraphElements.AddRange(path.GraphElements);
+                                                            newPath.GraphElements.Add(aEdge);
+                                                            newPath.GraphElements.Add(aEdge.TargetVertex);
+                                                            validPaths.Add(newPath);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        break;
+
+                                    case Direction.IncomingEdge:
+                                        {
+                                            //Incoming
+                                            foreach (var aInEdgePropertyId in lastElement.GetIncomingEdgeIds())
+                                            {
+                                                if (ep.EdgeProperty != null && !ep.EdgeProperty(aInEdgePropertyId))
+                                                {
+                                                    continue;
+                                                }
+
+                                                if (lastElement.TryGetInEdge(out edges, aInEdgePropertyId))
+                                                {
+                                                    foreach (var aEdge in edges)
+                                                    {
+                                                        if (MatchesEdgePattern(aEdge, ep, Direction.IncomingEdge))
+                                                        {
+                                                            //we found a new valid path and add it
+                                                            var newPath = new PathInfo();
+                                                            newPath.GraphElements.AddRange(path.GraphElements);
+                                                            newPath.GraphElements.Add(aEdge);
+                                                            newPath.GraphElements.Add(aEdge.SourceVertex);
+                                                            validPaths.Add(newPath);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        break;
+
+                                    default:
+                                        throw new NotImplementedException();
+                                }
+                            }
+                            break;
+
+                        default:
+                            throw new NotImplementedException();
+                    }
+                }
+            }
+        }
+
+        private void ProcessLevel0(APattern currentPattern, List<PathInfo> validPaths, Fallen8 subgraph)
+        {
+            //create initial paths from all vertices or from all edges
+            switch (currentPattern)
+            {
+                case VertexPattern vp:
+                    {
+                        foreach (var startVertex in subgraph.GetAllVertices().Where(v => MatchesVertexPattern(v, vp)))
+                        {
+                            var path = new PathInfo();
+                            path.GraphElements.Add(startVertex);
+                            validPaths.Add(path);
                         }
                     }
-                    else
+                    break;
+                case EdgePattern ep:
                     {
-                        // No vertex pattern after edge, just add this edge and vertex
-                        results.Add(new PathInfo
+                        subgraph.GetAllEdges().ForEach(e =>
                         {
-                            Vertices = new List<VertexModel> { currentVertex, nextVertex },
-                            Edges = new List<EdgeModel> { edge }
+                            if (MatchesEdgePattern(e, ep, Direction.OutgoingEdge))
+                            {
+                                var path = new PathInfo();
+                                path.GraphElements.Add(e.SourceVertex);
+                                path.GraphElements.Add(e);
+                                path.GraphElements.Add(e.TargetVertex);
+                                validPaths.Add(path);
+                            }
+                            else if (MatchesEdgePattern(e, ep, Direction.IncomingEdge))
+                            {
+                                var path = new PathInfo();
+                                path.GraphElements.Add(e.TargetVertex);
+                                path.GraphElements.Add(e);
+                                path.GraphElements.Add(e.SourceVertex);
+                                validPaths.Add(path);
+                            }
+                            else if (MatchesEdgePattern(e, ep, Direction.UndirectedEdge))
+                            {
+                                var pathOut = new PathInfo();
+                                pathOut.GraphElements.Add(e.SourceVertex);
+                                pathOut.GraphElements.Add(e);
+                                pathOut.GraphElements.Add(e.TargetVertex);
+                                var pathIn = new PathInfo();
+                                pathIn.GraphElements.Add(e.TargetVertex);
+                                pathIn.GraphElements.Add(e);
+                                pathIn.GraphElements.Add(e.SourceVertex);
+
+                                validPaths.Add(pathOut);
+                                validPaths.Add(pathIn);
+                            }
                         });
                     }
-                }
+                    break;
+                default:
+                    throw new NotSupportedException("First pattern must be a VertexPattern or EdgePattern");
             }
-            else if (nextPattern is VariableLengthEdgePattern variableEdgePattern)
-            {
-                // Handle variable length paths
-                VertexPattern targetVertexPattern = null;
-                if (patternIndex + 2 < patterns.Count && patterns[patternIndex + 2] is VertexPattern vp)
-                {
-                    targetVertexPattern = vp;
-                }
-
-                var variablePaths = FindVariableLengthPathsFromVertex(
-                    subgraph, currentVertex, variableEdgePattern, targetVertexPattern);
-
-                foreach (var varPath in variablePaths)
-                {
-                    if (targetVertexPattern != null && patternIndex + 2 < patterns.Count)
-                    {
-                        var lastVertex = varPath.Vertices[varPath.Vertices.Count - 1];
-                        var subPaths = FindPathsFromVertex(subgraph, lastVertex, patterns, patternIndex + 2);
-
-                        foreach (var subPath in subPaths)
-                        {
-                            var newPath = new PathInfo
-                            {
-                                Vertices = new List<VertexModel>(varPath.Vertices),
-                                Edges = new List<EdgeModel>(varPath.Edges)
-                            };
-                            // Don't duplicate the last vertex
-                            if (subPath.Vertices.Count > 1)
-                            {
-                                newPath.Vertices.AddRange(subPath.Vertices.Skip(1));
-                            }
-                            newPath.Edges.AddRange(subPath.Edges);
-                            results.Add(newPath);
-                        }
-                    }
-                    else
-                    {
-                        results.Add(varPath);
-                    }
-                }
-            }
-
-            return results;
         }
 
-        /// <summary>
-        /// Find variable-length paths from a vertex
-        /// </summary>
-        private List<PathInfo> FindVariableLengthPathsFromVertex(
-            Fallen8 subgraph,
-            VertexModel startVertex,
-            VariableLengthEdgePattern pattern,
-            VertexPattern targetVertexPattern)
-        {
-            var resultPaths = new List<PathInfo>();
-            var queue = new Queue<PathInfo>();
-
-            // Start with the initial vertex
-            var initialPath = new PathInfo
-            {
-                Vertices = new List<VertexModel> { startVertex },
-                Edges = new List<EdgeModel>()
-            };
-            queue.Enqueue(initialPath);
-
-            while (queue.Count > 0)
-            {
-                var currentPath = queue.Dequeue();
-                var currentVertex = currentPath.Vertices[currentPath.Vertices.Count - 1];
-                var currentLength = currentPath.Edges.Count;
-
-                // Check if we've reached the maximum length
-                if (currentLength >= pattern.MaxLength)
-                {
-                    // Check if this path meets the criteria
-                    if (currentLength >= pattern.MinLength)
-                    {
-                        if (targetVertexPattern == null || MatchesVertexPattern(currentVertex, targetVertexPattern))
-                        {
-                            resultPaths.Add(currentPath);
-                        }
-                    }
-                    continue;
-                }
-
-                // Get matching edges from the current vertex
-                var edgesWithDirection = GetMatchingEdgesForVariableLength(currentVertex, pattern);
-
-                foreach (var edgeInfo in edgesWithDirection)
-                {
-                    var edge = edgeInfo.Item1;
-                    var direction = edgeInfo.Item2;
-                    var nextVertex = direction == Direction.OutgoingEdge ? edge.TargetVertex : edge.SourceVertex;
-
-                    // Avoid cycles - don't revisit vertices in this path
-                    if (currentPath.Vertices.Contains(nextVertex))
-                    {
-                        continue;
-                    }
-
-                    // Create new path with this edge
-                    var newPath = new PathInfo
-                    {
-                        Vertices = new List<VertexModel>(currentPath.Vertices) { nextVertex },
-                        Edges = new List<EdgeModel>(currentPath.Edges) { edge }
-                    };
-
-                    var newLength = newPath.Edges.Count;
-
-                    // Check if this path is valid
-                    if (newLength >= pattern.MinLength && newLength <= pattern.MaxLength)
-                    {
-                        if (targetVertexPattern == null || MatchesAGraphElementPattern(nextVertex, targetVertexPattern))
-                        {
-                            resultPaths.Add(newPath);
-                        }
-                    }
-
-                    // Continue exploring if we haven't reached max length
-                    if (newLength < pattern.MaxLength)
-                    {
-                        queue.Enqueue(newPath);
-                    }
-                }
-            }
-
-            return resultPaths;
-        }
 
         /// <summary>
         /// Remove vertices and edges from the subgraph that are not in the valid sets
@@ -503,11 +510,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             var allEdges = subgraph.GetAllEdges();
 
             var validGraphElementIDs = validPaths
-                .SelectMany(p => p.Vertices)
+                .SelectMany(p => p.GraphElements)
                 .Select(v => v.Id)
-                .Union(validPaths
-                    .SelectMany(p => p.Edges)
-                    .Select(e => e.Id))
                 .ToHashSet();
 
             var toBeRemovedGraphElementIds = subgraph.GetAllGraphElements()
@@ -523,115 +527,6 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
             txInfo = subgraph.EnqueueTransaction(new TrimTransaction());
             txInfo.WaitUntilFinished();
-        }
-
-        /// <summary>
-        /// Get matching edges from a vertex for a single edge pattern
-        /// </summary>
-        private List<Tuple<EdgeModel, Direction>> GetMatchingEdgesFromVertex(VertexModel vertex, EdgePattern pattern)
-        {
-            var matchingEdges = new List<Tuple<EdgeModel, Direction>>();
-
-            // Handle direction
-            bool checkOutgoing = pattern.Direction == Direction.OutgoingEdge || pattern.Direction == Direction.UndirectedEdge;
-            bool checkIncoming = pattern.Direction == Direction.IncomingEdge || pattern.Direction == Direction.UndirectedEdge;
-
-            // Check outgoing edges
-            if (checkOutgoing && vertex.OutEdges != null)
-            {
-                foreach (var edgeProperty in vertex.OutEdges)
-                {
-                    // Check edge property filter
-                    if (pattern.EdgeProperty != null && !pattern.EdgeProperty(edgeProperty.Key, Direction.OutgoingEdge))
-                    {
-                        continue;
-                    }
-
-                    foreach (var edge in edgeProperty.Value)
-                    {
-                        if (MatchesEdgePattern(edge, pattern, Direction.OutgoingEdge))
-                        {
-                            matchingEdges.Add(new Tuple<EdgeModel, Direction>(edge, Direction.OutgoingEdge));
-                        }
-                    }
-                }
-            }
-
-            // Check incoming edges
-            if (checkIncoming && vertex.InEdges != null)
-            {
-                foreach (var edgeProperty in vertex.InEdges)
-                {
-                    // Check edge property filter
-                    if (pattern.EdgeProperty != null && !pattern.EdgeProperty(edgeProperty.Key, Direction.IncomingEdge))
-                    {
-                        continue;
-                    }
-
-                    foreach (var edge in edgeProperty.Value)
-                    {
-                        if (MatchesEdgePattern(edge, pattern, Direction.IncomingEdge))
-                        {
-                            matchingEdges.Add(new Tuple<EdgeModel, Direction>(edge, Direction.IncomingEdge));
-                        }
-                    }
-                }
-            }
-
-            return matchingEdges;
-        }
-
-        /// <summary>
-        /// Get matching edges for variable-length pattern
-        /// </summary>
-        private List<Tuple<EdgeModel, Direction>> GetMatchingEdgesForVariableLength(
-            VertexModel vertex,
-            VariableLengthEdgePattern pattern)
-        {
-            var matchingEdges = new List<Tuple<EdgeModel, Direction>>();
-
-            bool checkOutgoing = pattern.Direction == Direction.OutgoingEdge || pattern.Direction == Direction.UndirectedEdge;
-            bool checkIncoming = pattern.Direction == Direction.IncomingEdge || pattern.Direction == Direction.UndirectedEdge;
-
-            if (checkOutgoing && vertex.OutEdges != null)
-            {
-                foreach (var edgeProperty in vertex.OutEdges)
-                {
-                    if (pattern.EdgeProperty != null && !pattern.EdgeProperty(edgeProperty.Key, Direction.OutgoingEdge))
-                    {
-                        continue;
-                    }
-
-                    foreach (var edge in edgeProperty.Value)
-                    {
-                        if (MatchesVariableLengthEdgePattern(edge, pattern, Direction.OutgoingEdge))
-                        {
-                            matchingEdges.Add(new Tuple<EdgeModel, Direction>(edge, Direction.OutgoingEdge));
-                        }
-                    }
-                }
-            }
-
-            if (checkIncoming && vertex.InEdges != null)
-            {
-                foreach (var edgeProperty in vertex.InEdges)
-                {
-                    if (pattern.EdgeProperty != null && !pattern.EdgeProperty(edgeProperty.Key, Direction.IncomingEdge))
-                    {
-                        continue;
-                    }
-
-                    foreach (var edge in edgeProperty.Value)
-                    {
-                        if (MatchesVariableLengthEdgePattern(edge, pattern, Direction.IncomingEdge))
-                        {
-                            matchingEdges.Add(new Tuple<EdgeModel, Direction>(edge, Direction.IncomingEdge));
-                        }
-                    }
-                }
-            }
-
-            return matchingEdges;
         }
 
         /// <summary>
@@ -683,34 +578,25 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// </summary>
         private bool MatchesEdgePattern(EdgeModel edge, EdgePattern pattern, Direction direction)
         {
-            // Check label filter
+            // If pattern is null, match everything
+            if (pattern == null)
+            {
+                return true;
+            }
+
+            if (!pattern.Direction.Equals(direction))
+            {
+                return false;
+            }
+
+            // Check graph filter
             if (pattern.GraphElement != null && !pattern.GraphElement(edge))
             {
                 return false;
             }
 
             // Check edge filter
-            if (pattern.Edge != null && !pattern.Edge(edge, direction))
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// Check if an edge matches a variable-length edge pattern
-        /// </summary>
-        private bool MatchesVariableLengthEdgePattern(EdgeModel edge, VariableLengthEdgePattern pattern, Direction direction)
-        {
-            // Check label filter
-            if (pattern.GetHashCode != null && !pattern.GraphElement(edge))
-            {
-                return false;
-            }
-
-            // Check edge filter
-            if (pattern.Edge != null && !pattern.Edge(edge, direction))
+            if (pattern.Edge != null && !pattern.Edge(edge))
             {
                 return false;
             }
@@ -738,8 +624,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// </summary>
         private class PathInfo
         {
-            public List<VertexModel> Vertices { get; set; } = new List<VertexModel>();
-            public List<EdgeModel> Edges { get; set; } = new List<EdgeModel>();
+            public Guid Id { get; } = Guid.NewGuid();
+            public Boolean IsValid { get; set; } = true;
+            public List<AGraphElementModel> GraphElements { get; set; } = new List<AGraphElementModel>();
         }
 
         /// <inheritdoc />

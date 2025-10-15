@@ -38,6 +38,32 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     public abstract class APattern
     {
         /// <summary>
+        /// Gets the type of this pattern.
+        /// </summary>
+        /// <value>
+        /// A <see cref="PatternType"/> value that identifies the specific pattern type.
+        /// This value is set during construction and cannot be changed.
+        /// </value>
+        /// <remarks>
+        /// This readonly property enables efficient type checking at runtime without
+        /// relying on reflection or type casting. It is set in the constructor of
+        /// derived classes and remains immutable throughout the pattern's lifetime.
+        /// </remarks>
+        public PatternType Type
+        {
+            get;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="APattern"/> class.
+        /// </summary>
+        /// <param name="patternType">The type of pattern being created.</param>
+        protected APattern(PatternType patternType)
+        {
+            Type = patternType;
+        }
+
+        /// <summary>
         /// Gets or sets the name identifier for this pattern.
         /// </summary>
         /// <value>

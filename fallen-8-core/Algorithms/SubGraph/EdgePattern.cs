@@ -41,25 +41,18 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     public class EdgePattern : GraphElementPattern
     {
         /// <summary>
-        /// Gets or sets the direction constraint for edge traversal.
+        /// Initializes a new instance of the <see cref="EdgePattern"/> class.
         /// </summary>
-        /// <value>
-        /// A <see cref="Direction"/> value that specifies whether to traverse edges in their natural direction,
-        /// opposite direction, or in both directions.
-        /// </value>
-        /// <remarks>
-        /// <para>
-        /// The direction constraint determines how edges should be traversed during pattern matching:
-        /// </para>
-        /// <list type="bullet">
-        /// <item><description><c>OutGoing</c>: Follow edges in their defined direction (from source to target)</description></item>
-        /// <item><description><c>InComing</c>: Follow edges in reverse direction (from target to source)</description></item>
-        /// <item><description><c>Both</c>: Allow traversal in either direction</description></item>
-        /// </list>
-        /// </remarks>
-        public Direction Direction
+        public EdgePattern() : this(PatternType.Edge)
         {
-            get; set;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="EdgePattern"/> class with the specified pattern type.
+        /// </summary>
+        /// <param name="patternType">The type of pattern being created.</param>
+        protected EdgePattern(PatternType patternType) : base(patternType)
+        {
         }
 
         /// <summary>
@@ -75,6 +68,11 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// This is useful when edges are categorized by property types (e.g., "FRIEND", "COLLEAGUE", "FAMILY").
         /// </remarks>
         public Delegates.EdgePropertyFilter EdgeProperty
+        {
+            get; set;
+        }
+
+        public Direction Direction
         {
             get; set;
         }

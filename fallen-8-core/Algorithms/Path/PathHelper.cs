@@ -61,7 +61,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 foreach (var edgeContainer in edgeProperties)
                 {
-                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key, direction))
+                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key))
                     {
                         continue;
                     }
@@ -73,7 +73,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         for (var i = 0; i < edgeContainer.Value.Count; i++)
                         {
                             var aEdge = edgeContainer.Value[i];
-                            if (edgeFilter(aEdge, direction))
+                            if (edgeFilter(aEdge))
                             {
                                 if (vertexFilter != null)
                                 {
