@@ -186,7 +186,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             var allEdges = _fallen8.GetAllEdges().Where(_ =>
                 vertexIdMapping.ContainsKey(_.SourceVertex.Id)
                 && vertexIdMapping.ContainsKey(_.TargetVertex.Id)
-                && (edgeFilter == null || (edgeFilter.GraphElement != null && edgeFilter.GraphElement(_))));
+                && MatchesAGraphElementPattern(_, edgeFilter));
 
             // Build a list of edge definitions that pass all filters
             var createEdgesTransaction = new CreateEdgesTransaction();
@@ -247,15 +247,6 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
             // Find all valid paths that match the patterns
             var validPaths = FindAllValidPaths(subgraph, patterns);
-
-            /**
-
-            if (validPaths.Count == 0)
-            {
-                return false;
-            }
-
-            **/
 
             _logger?.LogInformation($"Found {validPaths.Count} valid paths");
 
@@ -343,7 +334,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                     // Check if there's a vertex pattern after the edge
                     if (patternIndex + 2 < patterns.Count && patterns[patternIndex + 2] is VertexPattern nextVertexPattern)
                     {
-                        if (MatchesAGraphElementPattern(nextVertex, nextVertexPattern))
+                        if (MatchesVertexPattern(nextVertex, nextVertexPattern))
                         {
                             // Recursively find paths from the next vertex
                             var subPaths = FindPathsFromVertex(subgraph, nextVertex, patterns, patternIndex + 2);
@@ -448,7 +439,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                     // Check if this path meets the criteria
                     if (currentLength >= pattern.MinLength)
                     {
-                        if (targetVertexPattern == null || MatchesAGraphElementPattern(currentVertex, targetVertexPattern))
+                        if (targetVertexPattern == null || MatchesVertexPattern(currentVertex, targetVertexPattern))
                         {
                             resultPaths.Add(currentPath);
                         }
