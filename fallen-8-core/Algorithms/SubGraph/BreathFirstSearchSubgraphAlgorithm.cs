@@ -34,6 +34,7 @@ using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
 using System.Collections.Immutable;
 using System.Collections;
+using System.Runtime.CompilerServices;
 
 #endregion
 
@@ -339,12 +340,15 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
                 var ep = currentPattern as EdgePattern;
                 var vp = currentPattern as VertexPattern;
+                var vep = currentPattern as VariableLengthEdgePattern;
 
                 var workingSet = validPaths.Where(p => p.IsValid).ToList();
 
+                List<PathInfo> vepResult;
+
                 foreach (var path in workingSet)
                 {
-                    var lastElement = (VertexModel)path.GraphElements.Last();
+                    var lastElement = (VertexModel)path.LastElement;
 
                     switch (currentPatternType)
                     {
@@ -361,80 +365,158 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
                         case PatternType.Edge:
                             {
-                                //setting the old path as invalid. we create new paths by traversing
-                                path.IsValid = false;
+                                vepResult = ProcessEdgePattern(ep, path, lastElement);
+                                validPaths.AddRange(vepResult);
+                            }
+                            break;
 
-                                ImmutableList<EdgeModel> edges;
-                                //now we need to traverse from the last vertex of the path based on the pattern
-
-                                switch (ep.Direction)
+                        case PatternType.VariableLengthEdge:
+                            {
+                                var start = new List<PathInfo>() { path };
+                                for (int i = 0; i < vep.MinLength; i++)
                                 {
-                                    case Direction.OutgoingEdge:
-                                        {
-                                            //Outgoing
-                                            foreach (var aOutEdgePropertyId in lastElement.GetOutgoingEdgeIds())
-                                            {
-                                                if (ep.EdgeProperty != null && !ep.EdgeProperty(aOutEdgePropertyId))
-                                                {
-                                                    continue;
-                                                }
+                                    var tempVepResults = new List<PathInfo>();
 
-                                                if (lastElement.TryGetOutEdge(out edges, aOutEdgePropertyId))
-                                                {
-                                                    foreach (var aEdge in edges)
-                                                    {
-                                                        if (MatchesEdgePattern(aEdge, ep, Direction.OutgoingEdge))
-                                                        {
-                                                            //we found a new valid path and add it
-                                                            var newPath = new PathInfo();
-                                                            newPath.GraphElements.AddRange(path.GraphElements);
-                                                            newPath.GraphElements.Add(aEdge);
-                                                            newPath.GraphElements.Add(aEdge.TargetVertex);
-                                                            validPaths.Add(newPath);
-                                                        }
-                                                    }
-                                                }
+                                    foreach (var aStart in start)
+                                    {
+                                        if (aStart.IsValid)
+                                        {
+                                            vepResult = ProcessEdgePattern(ep, aStart, (VertexModel)aStart.LastElement);
+
+                                            //there must be a result, otherwise it's not a legal path
+                                            tempVepResults.AddRange(vepResult);
+                                        }
+                                    }
+
+                                    start = tempVepResults.ToList();
+                                }
+
+                                //now there is a list of valid Paths
+                                if (start.Count > 0)
+                                {
+                                    validPaths.AddRange(start);
+
+                                    for (int i = vep.MinLength; i < vep.MaxLength; i++)
+                                    {
+                                        var tempVepResults = new List<PathInfo>();
+
+                                        foreach (var aStart in start)
+                                        {
+                                            if (aStart.IsValid)
+                                            {
+                                                vepResult = ProcessEdgePattern(ep, aStart, (VertexModel)aStart.LastElement);
+
+                                                //there must be a result, otherwise it's not a legal path
+                                                tempVepResults.AddRange(vepResult);
                                             }
                                         }
-                                        break;
 
-                                    case Direction.IncomingEdge:
-                                        {
-                                            //Incoming
-                                            foreach (var aInEdgePropertyId in lastElement.GetIncomingEdgeIds())
-                                            {
-                                                if (ep.EdgeProperty != null && !ep.EdgeProperty(aInEdgePropertyId))
-                                                {
-                                                    continue;
-                                                }
-
-                                                if (lastElement.TryGetInEdge(out edges, aInEdgePropertyId))
-                                                {
-                                                    foreach (var aEdge in edges)
-                                                    {
-                                                        if (MatchesEdgePattern(aEdge, ep, Direction.IncomingEdge))
-                                                        {
-                                                            //we found a new valid path and add it
-                                                            var newPath = new PathInfo();
-                                                            newPath.GraphElements.AddRange(path.GraphElements);
-                                                            newPath.GraphElements.Add(aEdge);
-                                                            newPath.GraphElements.Add(aEdge.SourceVertex);
-                                                            validPaths.Add(newPath);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        break;
-
-                                    default:
-                                        throw new NotImplementedException();
+                                        start = tempVepResults.ToList();
+                                        validPaths.AddRange(start);
+                                    }
                                 }
                             }
                             break;
 
                         default:
                             throw new NotImplementedException();
+                    }
+                }
+            }
+        }
+
+        private List<PathInfo> ProcessEdgePattern(EdgePattern ep, PathInfo currentPath, VertexModel currentPathLastElement)
+        {
+            //setting the old path as invalid. we create new paths by traversing
+            currentPath.IsValid = false;
+
+            var result = new List<PathInfo>();
+
+
+            //now we need to traverse from the last vertex of the path based on the pattern
+
+            switch (ep.Direction)
+            {
+                case Direction.OutgoingEdge:
+                    {
+                        //Outgoing
+                        ProcessOutgoingEdges(ep, currentPath, currentPathLastElement, result);
+                    }
+                    break;
+
+                case Direction.IncomingEdge:
+                    {
+                        //Incoming
+                        ProcessIncomingEdges(ep, currentPath, currentPathLastElement, result);
+                    }
+                    break;
+
+                case Direction.UndirectedEdge:
+                    {
+                        //Outgoing
+                        ProcessOutgoingEdges(ep, currentPath, currentPathLastElement, result);
+                        //Incoming
+                        ProcessIncomingEdges(ep, currentPath, currentPathLastElement, result);
+                    }
+
+                    break;
+
+                default:
+                    throw new NotImplementedException();
+            }
+
+            return result;
+        }
+
+        private void ProcessOutgoingEdges(EdgePattern ep, PathInfo currentPath, VertexModel currentPathLastElement, List<PathInfo> result)
+        {
+            ImmutableList<EdgeModel> edges;
+            foreach (var aOutEdgePropertyId in currentPathLastElement.GetOutgoingEdgeIds())
+            {
+                if (ep.EdgeProperty != null && !ep.EdgeProperty(aOutEdgePropertyId))
+                {
+                    continue;
+                }
+
+                if (currentPathLastElement.TryGetOutEdge(out edges, aOutEdgePropertyId))
+                {
+                    foreach (var aEdge in edges)
+                    {
+                        if (MatchesEdgePattern(aEdge, ep, Direction.OutgoingEdge))
+                        {
+                            //we found a new valid path and add it
+                            var newPath = new PathInfo(currentPath);
+                            newPath.AddGraphElement(aEdge);
+                            newPath.AddGraphElement(aEdge.TargetVertex);
+                            result.Add(newPath);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void ProcessIncomingEdges(EdgePattern ep, PathInfo currentPath, VertexModel currentPathLastElement, List<PathInfo> result)
+        {
+            ImmutableList<EdgeModel> edges;
+            foreach (var aInEdgePropertyId in currentPathLastElement.GetIncomingEdgeIds())
+            {
+                if (ep.EdgeProperty != null && !ep.EdgeProperty(aInEdgePropertyId))
+                {
+                    continue;
+                }
+
+                if (currentPathLastElement.TryGetInEdge(out edges, aInEdgePropertyId))
+                {
+                    foreach (var aEdge in edges)
+                    {
+                        if (MatchesEdgePattern(aEdge, ep, Direction.IncomingEdge))
+                        {
+                            //we found a new valid path and add it
+                            var newPath = new PathInfo(currentPath);
+                            newPath.AddGraphElement(aEdge);
+                            newPath.AddGraphElement(aEdge.SourceVertex);
+                            result.Add(newPath);
+                        }
                     }
                 }
             }
@@ -450,7 +532,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                         foreach (var startVertex in subgraph.GetAllVertices().Where(v => MatchesVertexPattern(v, vp)))
                         {
                             var path = new PathInfo();
-                            path.GraphElements.Add(startVertex);
+                            path.AddGraphElement(startVertex);
                             validPaths.Add(path);
                         }
                     }
@@ -462,29 +544,29 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                             if (MatchesEdgePattern(e, ep, Direction.OutgoingEdge))
                             {
                                 var path = new PathInfo();
-                                path.GraphElements.Add(e.SourceVertex);
-                                path.GraphElements.Add(e);
-                                path.GraphElements.Add(e.TargetVertex);
+                                path.AddGraphElement(e.SourceVertex);
+                                path.AddGraphElement(e);
+                                path.AddGraphElement(e.TargetVertex);
                                 validPaths.Add(path);
                             }
                             else if (MatchesEdgePattern(e, ep, Direction.IncomingEdge))
                             {
                                 var path = new PathInfo();
-                                path.GraphElements.Add(e.TargetVertex);
-                                path.GraphElements.Add(e);
-                                path.GraphElements.Add(e.SourceVertex);
+                                path.AddGraphElement(e.TargetVertex);
+                                path.AddGraphElement(e);
+                                path.AddGraphElement(e.SourceVertex);
                                 validPaths.Add(path);
                             }
                             else if (MatchesEdgePattern(e, ep, Direction.UndirectedEdge))
                             {
                                 var pathOut = new PathInfo();
-                                pathOut.GraphElements.Add(e.SourceVertex);
-                                pathOut.GraphElements.Add(e);
-                                pathOut.GraphElements.Add(e.TargetVertex);
+                                pathOut.AddGraphElement(e.SourceVertex);
+                                pathOut.AddGraphElement(e);
+                                pathOut.AddGraphElement(e.TargetVertex);
                                 var pathIn = new PathInfo();
-                                pathIn.GraphElements.Add(e.TargetVertex);
-                                pathIn.GraphElements.Add(e);
-                                pathIn.GraphElements.Add(e.SourceVertex);
+                                pathIn.AddGraphElement(e.TargetVertex);
+                                pathIn.AddGraphElement(e);
+                                pathIn.AddGraphElement(e.SourceVertex);
 
                                 validPaths.Add(pathOut);
                                 validPaths.Add(pathIn);
@@ -510,8 +592,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             var allEdges = subgraph.GetAllEdges();
 
             var validGraphElementIDs = validPaths
-                .SelectMany(p => p.GraphElements)
-                .Select(v => v.Id)
+                .SelectMany(p => p.GetGraphElementIds())
                 .ToHashSet();
 
             var toBeRemovedGraphElementIds = subgraph.GetAllGraphElements()
@@ -624,9 +705,46 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// </summary>
         private class PathInfo
         {
+            public PathInfo()
+            {
+
+            }
+
+            public PathInfo(PathInfo anotherPath)
+            {
+                _graphElements = anotherPath._graphElements;
+                LastElement = anotherPath.LastElement;
+            }
+
             public Guid Id { get; } = Guid.NewGuid();
             public Boolean IsValid { get; set; } = true;
-            public List<AGraphElementModel> GraphElements { get; set; } = new List<AGraphElementModel>();
+            private HashSet<int> _graphElements { get; set; } = new HashSet<int>();
+
+            public AGraphElementModel LastElement
+            {
+                get; private set;
+            }
+
+            public HashSet<int> GetGraphElementIds()
+            {
+                return _graphElements;
+            }
+
+            public void AddGraphElement(AGraphElementModel ge)
+            {
+                if (!IsValid)
+                {
+                    return;
+                }
+
+                if (_graphElements.Contains(ge.Id))
+                {
+                    IsValid = false;
+                }
+
+                _graphElements.Add(ge.Id);
+                LastElement = ge;
+            }
         }
 
         /// <inheritdoc />
