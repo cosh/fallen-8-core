@@ -453,10 +453,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
                 case Direction.UndirectedEdge:
                     {
-                        //Outgoing
-                        ProcessOutgoingEdges(ep, currentPath, currentPathLastElement, result);
-                        //Incoming
-                        ProcessIncomingEdges(ep, currentPath, currentPathLastElement, result);
+                        //Undirected
+                        ProcessUndirectedEdge(ep, currentPath, currentPathLastElement, result);
                     }
 
                     break;
@@ -466,6 +464,56 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             }
 
             return result;
+        }
+
+        private void ProcessUndirectedEdge(EdgePattern ep, PathInfo currentPath, VertexModel currentPathLastElement, List<PathInfo> result)
+        {
+            ImmutableList<EdgeModel> edges;
+            foreach (var aOutEdgePropertyId in currentPathLastElement.GetOutgoingEdgeIds())
+            {
+                if (ep.EdgeProperty != null && !ep.EdgeProperty(aOutEdgePropertyId))
+                {
+                    continue;
+                }
+
+                if (currentPathLastElement.TryGetOutEdge(out edges, aOutEdgePropertyId))
+                {
+                    foreach (var aEdge in edges)
+                    {
+                        if (MatchesEdgePattern(aEdge, ep, Direction.UndirectedEdge))
+                        {
+                            //we found a new valid path and add it
+                            var newPath = new PathInfo(currentPath);
+                            newPath.AddGraphElement(aEdge);
+                            newPath.AddGraphElement(aEdge.TargetVertex);
+                            result.Add(newPath);
+                        }
+                    }
+                }
+            }
+
+            foreach (var aInEdgePropertyId in currentPathLastElement.GetIncomingEdgeIds())
+            {
+                if (ep.EdgeProperty != null && !ep.EdgeProperty(aInEdgePropertyId))
+                {
+                    continue;
+                }
+
+                if (currentPathLastElement.TryGetInEdge(out edges, aInEdgePropertyId))
+                {
+                    foreach (var aEdge in edges)
+                    {
+                        if (MatchesEdgePattern(aEdge, ep, Direction.UndirectedEdge))
+                        {
+                            //we found a new valid path and add it
+                            var newPath = new PathInfo(currentPath);
+                            newPath.AddGraphElement(aEdge);
+                            newPath.AddGraphElement(aEdge.SourceVertex);
+                            result.Add(newPath);
+                        }
+                    }
+                }
+            }
         }
 
         private void ProcessOutgoingEdges(EdgePattern ep, PathInfo currentPath, VertexModel currentPathLastElement, List<PathInfo> result)
