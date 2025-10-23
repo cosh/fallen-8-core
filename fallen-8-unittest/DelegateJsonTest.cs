@@ -31,7 +31,7 @@ using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 
-namespace NoSQL.GraphDB.Test
+namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     /// Tests for DelegateJson serialization and deserialization.

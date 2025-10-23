@@ -72,7 +72,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>
         /// The optimal number of partitions
         /// </summary>
-        private readonly UInt32 _optimalNumberOfPartitions;
+        private readonly int _optimalNumberOfPartitions;
 
         private readonly ILogger<AdminController> _logger;
 
@@ -90,7 +90,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             _savePath = System.IO.Path.Combine(currentAssemblyDirectoryName, _saveFile);
 
-            _optimalNumberOfPartitions = Convert.ToUInt32(Environment.ProcessorCount * 3 / 2);
+            _optimalNumberOfPartitions = Convert.ToInt32(Environment.ProcessorCount * 3 / 2);
         }
 
         #region IDisposable Members
@@ -210,7 +210,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 : _savePath;
 
             // Use provided partitions or fall back to optimal
-            uint savePartitions = definition?.SavePartitions ?? _optimalNumberOfPartitions;
+            int savePartitions = definition?.SavePartitions ?? _optimalNumberOfPartitions;
 
             SaveTransaction saveTx = new SaveTransaction() { Path = savePath, SavePartitions = savePartitions };
             _fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();

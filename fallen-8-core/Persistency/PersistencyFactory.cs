@@ -159,11 +159,10 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='fallen8'> Fallen-8. </param>
         /// <param name='graphElements'> Graph elements. </param>
-        /// <param name='path'> Path. </param>
         /// <param name='savePartitions'> The number of save partitions for the graph elements. </param>
         /// <param name="currentId">The current graph elemement identifier.</param>
         /// <returns>The path of the savegame</returns>
-        internal string Save(Fallen8 fallen8, ImmutableList<AGraphElementModel> graphElements, String path, UInt32 savePartitions, Int32 currentId)
+        internal string Save(IFallen8 fallen8, String path, int savePartitions, Int32 currentId)
         {
             // Create the new, empty data file.
             if (File.Exists(path))
@@ -190,7 +189,9 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 if (graphElementCount > 0)
                 {
-                    var graphElementPartitions = CreatePartitions(graphElementCount, savePartitions);
+                    var graphElements = fallen8.GetAllGraphElements();
+
+                    var graphElementPartitions = CreatePartitions(graphElements.Count, savePartitions);
                     graphElementSaver = new Task<string>[graphElementPartitions.Count];
 
                     for (var i = 0; i < graphElementPartitions.Count; i++)
@@ -575,7 +576,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <returns> The partitions. </returns>
         /// <param name='totalCount'> Total count. </param>
         /// <param name='savePartitions'> Save partitions. </param>
-        private List<Tuple<Int32, Int32>> CreatePartitions(UInt32 totalCount, UInt32 savePartitions)
+        private List<Tuple<Int32, Int32>> CreatePartitions(int totalCount, int savePartitions)
         {
             var result = new List<Tuple<Int32, Int32>>();
 
@@ -589,7 +590,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 return result;
             }
 
-            UInt32 size = totalCount / savePartitions;
+            int size = totalCount / savePartitions;
 
             for (var i = 0; i < savePartitions; i++)
             {

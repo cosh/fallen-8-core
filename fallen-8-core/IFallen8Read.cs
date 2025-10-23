@@ -107,6 +107,13 @@ namespace NoSQL.GraphDB.Core
         /// <returns>A list of edge</returns>
         ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null);
 
+        /// <summary>
+        ///   Gets all graph elements
+        /// </summary>
+        /// <param name="interestingLabel">The interesting label</param>
+        /// <returns>A list of graph elements</returns>
+        ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null);
+
         #region search
 
         /// <summary>

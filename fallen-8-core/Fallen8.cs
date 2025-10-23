@@ -464,9 +464,9 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
-        internal string Save(string path, uint savePartitions = 5)
+        internal string Save(string path, int savePartitions = 5)
         {
-            return _persistencyFactory.Save(this, _graphElements, path, savePartitions, _currentId);
+            return _persistencyFactory.Save(this, path, savePartitions, _currentId);
         }
 
         public override bool TryCalculateShortestPath(
@@ -1088,14 +1088,13 @@ namespace NoSQL.GraphDB.Core
                         .Select(_ => (EdgeModel)_));
         }
 
-        public ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
+        public override ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
         {
             return ImmutableList.CreateRange<AGraphElementModel>(
                         _graphElements
                         .AsParallel()
                         .Where(_ => _ != null && !_._removed)
-                        .Where(CheckLabel(interestingLabel))
-                        .Select(_ => (AGraphElementModel)_));
+                        .Where(CheckLabel(interestingLabel)));
         }
 
         #endregion

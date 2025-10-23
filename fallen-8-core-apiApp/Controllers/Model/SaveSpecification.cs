@@ -56,7 +56,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// </summary>
         /// <example>8</example>
         [JsonPropertyName("savePartitions")]
-        public UInt32? SavePartitions
+        public Int32? SavePartitions
         {
             get; set;
         }

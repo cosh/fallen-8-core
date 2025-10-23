@@ -112,6 +112,7 @@ namespace NoSQL.GraphDB.Core
         public abstract bool TryGetVertex(out VertexModel result, int id);
         public abstract ImmutableList<VertexModel> GetAllVertices(string interestingLabel = null);
         public abstract ImmutableList<EdgeModel> GetAllEdges(string interestingLabel = null);
+        public abstract ImmutableList<AGraphElementModel> GetAllGraphElements(string interestingLabel = null);
         public abstract bool GraphScan(out List<AGraphElementModel> result, string propertyId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals, string interestingLabel = null);
         public abstract bool IndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals);
         public abstract bool RangeIndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true);

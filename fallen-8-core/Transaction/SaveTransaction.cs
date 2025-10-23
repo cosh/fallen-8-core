@@ -32,7 +32,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         /// <summary>
         /// Number of partitions which should be used to persist the data
         /// </summary>
-        public UInt32 SavePartitions
+        public Int32 SavePartitions
         {
             get;
             set;
