@@ -160,9 +160,8 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='fallen8'> Fallen-8. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='savePartitions'> The number of save partitions for the graph elements. </param>
-        /// <param name="currentId">The current graph elemement identifier.</param>
         /// <returns>The path of the savegame</returns>
-        internal string Save(IFallen8 fallen8, String path, int savePartitions, Int32 currentId)
+        internal string Save(IFallen8 fallen8, String path, int savePartitions)
         {
             // Create the new, empty data file.
             if (File.Exists(path))
@@ -176,7 +175,9 @@ namespace NoSQL.GraphDB.Core.Persistency
                 var writer = new SerializationWriter(file, true);
                 writer.Write(fallen8.Id);
 
-                writer.Write(currentId);
+                var graphElements = fallen8.GetAllGraphElements();
+
+                writer.Write(graphElements.Count);
 
                 //create some futures to save as much as possible in parallel
                 const TaskCreationOptions options = TaskCreationOptions.LongRunning;
@@ -184,13 +185,10 @@ namespace NoSQL.GraphDB.Core.Persistency
                                         TaskScheduler.Default);
                 #region graph elements
 
-                var graphElementCount = Convert.ToUInt32(currentId);
                 Task<string>[] graphElementSaver;
 
-                if (graphElementCount > 0)
+                if (graphElements.Count > 0)
                 {
-                    var graphElements = fallen8.GetAllGraphElements();
-
                     var graphElementPartitions = CreatePartitions(graphElements.Count, savePartitions);
                     graphElementSaver = new Task<string>[graphElementPartitions.Count];
 

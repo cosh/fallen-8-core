@@ -466,7 +466,7 @@ namespace NoSQL.GraphDB.Core
 
         internal string Save(string path, int savePartitions = 5)
         {
-            return _persistencyFactory.Save(this, path, savePartitions, _currentId);
+            return _persistencyFactory.Save(this, path, savePartitions);
         }
 
         public override bool TryCalculateShortestPath(
