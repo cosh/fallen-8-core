@@ -64,6 +64,21 @@ dotnet run --project fallen-8-core-apiApp
 
 ## Feature workflow
 
-Larger features are specced and planned under `features/<name>/` (`spec.md`, `plan.md`)
-before implementation. See [features/subgraph/](features/subgraph/) for the current
-example.
+Every non-trivial feature follows the same lifecycle so work is visible and reviewable:
+
+1. **Spec & plan** — create `features/<name>/spec.md` and `features/<name>/plan.md`
+   describing the behaviour, contract, and phased implementation. (Optionally a `README.md`
+   with usage.) See [features/subgraph/](features/subgraph/) for the reference example.
+2. **GitHub issue** — open a feature-level issue so the work is tracked and visible on
+   GitHub. Label it `feature`. Link the `features/<name>/` docs from the issue.
+3. **Feature branch** — branch from `main` as `feature/<name>`. Do not commit feature work
+   directly to `main`.
+4. **Pull request** — open a PR from the feature branch to `main` that references the issue
+   (`Closes #<n>`). Keep it a draft while implementing; mark ready for review when the
+   plan's phases are done, the build is clean, and tests pass.
+
+Commit messages and PR descriptions are honest and concise, and do not reference the
+assistant or add AI-generated trailers.
+
+> Note: the initial `subgraph` feature predates this workflow and was merged to `main`
+> directly. From the next feature onward, use the branch + issue + PR flow above.
