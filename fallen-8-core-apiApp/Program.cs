@@ -29,6 +29,7 @@ using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core;
 using Scalar.AspNetCore;
 using System.Diagnostics.CodeAnalysis;
@@ -58,7 +59,11 @@ namespace NoSQL.GraphDB.App
             builder.Logging.AddFilter("NoSQL.GraphDB", Microsoft.Extensions.Logging.LogLevel.Information);
 
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-            builder.Services.AddOpenApi("v0.1");
+            builder.Services.AddOpenApi("v0.1", options =>
+            {
+                // Surface controller XML doc comments (<summary>/<remarks>) into the document.
+                options.AddOperationTransformer<XmlDocumentationOperationTransformer>();
+            });
 
             builder.Services.AddApiVersioning(o =>
                        {
