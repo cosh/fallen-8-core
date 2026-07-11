@@ -157,6 +157,15 @@ namespace NoSQL.GraphDB.Core.SubGraph
             else
             {
                 algo = (ISubGraphAlgorithm)cachedAlgo;
+
+                // The algorithm holds its source graph as instance state (set in Initialize),
+                // so a cache hit MUST re-bind it to the requested source. Otherwise a
+                // recalculation against a different source (e.g. a subgraph of a subgraph)
+                // would silently extract from the originally-bound graph.
+                if (!InitializeAndCacheAlgorithm(fallen8, algo, parameter, algorithmTypeName))
+                {
+                    return false;
+                }
             }
 
             if (algo == null)
@@ -421,27 +430,30 @@ namespace NoSQL.GraphDB.Core.SubGraph
             int successes = 0;
             int failures = 0;
 
-            // Start with subgraphs that depend on the root Fallen8 instance
+            // Start with subgraphs that depend on the root Fallen8 instance.
+            // Recalculation is sequential: the algorithm plugin instance is shared and
+            // re-bound to a source on each call, so parallel recalculation would race on
+            // that shared state and could extract from the wrong graph.
             var rootSubGraphs = _subGraphsById.Where(_ => _.Value.SourceFallen8Id.Equals(_fallen8.Id)).ToList();
 
-            Parallel.ForEach(rootSubGraphs, _ =>
+            foreach (var _ in rootSubGraphs)
             {
                 _.Value.SourceFallen8 = _fallen8;
 
                 if (TryRecalculateSubGraph(_.Value.Definitions.Name))
                 {
-                    Interlocked.Increment(ref successes);
+                    successes++;
 
                     // Recursively recalculate all dependent subgraphs
                     var (nestedSuccesses, nestedFailures) = RecalculateSubGraphsRecursive(_.Value.SubGraph.Id);
-                    Interlocked.Add(ref successes, nestedSuccesses);
-                    Interlocked.Add(ref failures, nestedFailures);
+                    successes += nestedSuccesses;
+                    failures += nestedFailures;
                 }
                 else
                 {
-                    Interlocked.Increment(ref failures);
+                    failures++;
                 }
-            });
+            }
 
             _logger.LogInformation(String.Format("Recalculated {0} subgraph(s) with {1} successes and {2} failure(s).", successes + failures, successes, failures));
             return successes;
@@ -465,7 +477,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 return (0, 0); // Base case: no more dependent subgraphs
             }
 
-            Parallel.ForEach(dependentSubGraphs, _ =>
+            foreach (var _ in dependentSubGraphs)
             {
                 // Update the source reference
                 if (_subGraphsById.TryGetValue(sourceGraphId, out var sourceSubGraph))
@@ -475,18 +487,18 @@ namespace NoSQL.GraphDB.Core.SubGraph
 
                 if (TryRecalculateSubGraph(_.Value.Definitions.Name))
                 {
-                    Interlocked.Increment(ref successes);
+                    successes++;
 
                     // Recursively recalculate subgraphs that depend on this one
                     var (nestedSuccesses, nestedFailures) = RecalculateSubGraphsRecursive(_.Value.SubGraph.Id);
-                    Interlocked.Add(ref successes, nestedSuccesses);
-                    Interlocked.Add(ref failures, nestedFailures);
+                    successes += nestedSuccesses;
+                    failures += nestedFailures;
                 }
                 else
                 {
-                    Interlocked.Increment(ref failures);
+                    failures++;
                 }
-            });
+            }
 
             return (successes, failures);
         }
