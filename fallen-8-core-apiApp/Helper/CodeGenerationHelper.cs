@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
@@ -247,6 +248,21 @@ namespace NoSQL.GraphDB.Core.App.Helper
         private const String SubGraphProviderClassName = "SubGraphDelegateProvider";
 
         /// <summary>
+        /// Upper bound on a variable-length edge pattern's MaxLength accepted from the REST
+        /// API. Guards against pathological, combinatorially expensive path expansion driven
+        /// by untrusted input.
+        /// </summary>
+        private const int MaxVariableEdgeLength = 100;
+
+        /// <summary>
+        /// Caches compiled delegate providers by their generated source. Identical filter
+        /// sets reuse the same compiled assembly instead of invoking Roslyn (and leaking a
+        /// new dynamic assembly) on every subgraph creation.
+        /// </summary>
+        private static readonly ConcurrentDictionary<String, (Object Instance, Type Type)> _subGraphProviderCache =
+            new ConcurrentDictionary<String, (Object, Type)>(StringComparer.Ordinal);
+
+        /// <summary>
         /// A single generated delegate: the method that produces it and the action that
         /// assigns the compiled delegate back onto the pattern it belongs to.
         /// </summary>
@@ -370,10 +386,15 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
                 case "edge":
                     {
+                        if (!TryParseDirection(patternSpec.Direction, out var edgeDirection))
+                        {
+                            return String.Format("Unknown direction '{0}'. Expected 'OutgoingEdge', 'IncomingEdge' or 'UndirectedEdge'.", patternSpec.Direction);
+                        }
+
                         var edgePattern = new EdgePattern
                         {
                             PatternName = patternSpec.PatternName,
-                            Direction = ParseDirection(patternSpec.Direction)
+                            Direction = edgeDirection
                         };
                         RegisterEdgeSlots(edgePattern, patternSpec, slots);
                         patterns.Add(edgePattern);
@@ -389,10 +410,22 @@ namespace NoSQL.GraphDB.Core.App.Helper
                                 patternSpec.PatternName, patternSpec.MinLength, patternSpec.MaxLength);
                         }
 
+                        if (patternSpec.MaxLength > MaxVariableEdgeLength)
+                        {
+                            return String.Format(
+                                "Variable-length edge pattern '{0}' has maxLength ({1}) exceeding the allowed maximum of {2}.",
+                                patternSpec.PatternName, patternSpec.MaxLength, MaxVariableEdgeLength);
+                        }
+
+                        if (!TryParseDirection(patternSpec.Direction, out var variableDirection))
+                        {
+                            return String.Format("Unknown direction '{0}'. Expected 'OutgoingEdge', 'IncomingEdge' or 'UndirectedEdge'.", patternSpec.Direction);
+                        }
+
                         var variablePattern = new VariableLengthEdgePattern
                         {
                             PatternName = patternSpec.PatternName,
-                            Direction = ParseDirection(patternSpec.Direction),
+                            Direction = variableDirection,
                             MinLength = patternSpec.MinLength,
                             MaxLength = patternSpec.MaxLength
                         };
@@ -435,30 +468,42 @@ namespace NoSQL.GraphDB.Core.App.Helper
             });
         }
 
-        private static Direction ParseDirection(String value)
+        private static bool TryParseDirection(String value, out Direction direction)
         {
+            // A missing direction defaults to outgoing; an unrecognized one is an error
+            // rather than a silent fallback that would traverse the wrong way.
             if (String.IsNullOrWhiteSpace(value))
             {
-                return Direction.OutgoingEdge;
+                direction = Direction.OutgoingEdge;
+                return true;
             }
 
             switch (value.Trim().ToLowerInvariant())
             {
+                case "out":
+                case "outgoing":
+                case "outgoingedge":
+                    direction = Direction.OutgoingEdge;
+                    return true;
                 case "in":
                 case "incoming":
                 case "incomingedge":
-                    return Direction.IncomingEdge;
+                    direction = Direction.IncomingEdge;
+                    return true;
                 case "undirected":
                 case "undirectededge":
-                    return Direction.UndirectedEdge;
+                    direction = Direction.UndirectedEdge;
+                    return true;
                 default:
-                    return Direction.OutgoingEdge;
+                    direction = Direction.OutgoingEdge;
+                    return false;
             }
         }
 
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "This method dynamically generates and loads code at runtime, which is incompatible with trimming")]
         [UnconditionalSuppressMessage("Trimming", "IL2072:Target parameter argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.", Justification = "Dynamic code generation requires runtime type creation")]
         [UnconditionalSuppressMessage("Trimming", "IL2075:'this' argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.", Justification = "Generated provider type is created at runtime and its methods are invoked by name")]
+        [UnconditionalSuppressMessage("Trimming", "IL2080:'this' argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method.", Justification = "Cached generated provider type is invoked by name at runtime; trimming is disabled for this application")]
         private static String CompileDelegates(List<GeneratedDelegateSlot> slots)
         {
             if (slots.Count == 0)
@@ -468,6 +513,35 @@ namespace NoSQL.GraphDB.Core.App.Helper
             }
 
             var sourceCode = BuildProviderSource(slots);
+
+            // Reuse a previously compiled provider for an identical filter set: avoids
+            // re-running Roslyn and leaking another dynamic assembly for the same code.
+            if (!_subGraphProviderCache.TryGetValue(sourceCode, out var provider))
+            {
+                var compileError = CompileProvider(sourceCode, out provider);
+                if (compileError != null)
+                {
+                    return compileError;
+                }
+
+                _subGraphProviderCache.TryAdd(sourceCode, provider);
+            }
+
+            foreach (var slot in slots)
+            {
+                var method = provider.Type.GetMethod(slot.MethodName);
+                var compiledDelegate = method.Invoke(provider.Instance, null);
+                slot.Assign(compiledDelegate);
+            }
+
+            return null;
+        }
+
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "This method dynamically generates and loads code at runtime, which is incompatible with trimming")]
+        [UnconditionalSuppressMessage("Trimming", "IL2072:Target parameter argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.", Justification = "Dynamic code generation requires runtime type creation")]
+        private static String CompileProvider(String sourceCode, out (Object Instance, Type Type) provider)
+        {
+            provider = default;
 
             var tree = SyntaxFactory.ParseSyntaxTree(sourceCode, CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest));
 
@@ -501,12 +575,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 var providerType = assembly.GetType(SubGraphProviderNamespace + "." + SubGraphProviderClassName);
                 var providerInstance = Activator.CreateInstance(providerType);
 
-                foreach (var slot in slots)
-                {
-                    var method = providerType.GetMethod(slot.MethodName);
-                    var compiledDelegate = method.Invoke(providerInstance, null);
-                    slot.Assign(compiledDelegate);
-                }
+                provider = (providerInstance, providerType);
             }
 
             return null;

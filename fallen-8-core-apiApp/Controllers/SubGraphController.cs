@@ -108,30 +108,41 @@ namespace NoSQL.GraphDB.App.Controllers
                 return BadRequest("A subgraph name is required.");
             }
 
-            if (_fallen8.SubGraphFactory.TryGetSubGraph(out _, specification.Name))
+            try
             {
-                return Conflict(String.Format("A subgraph named '{0}' already exists.", specification.Name));
-            }
+                if (_fallen8.SubGraphFactory.TryGetSubGraph(out _, specification.Name))
+                {
+                    return Conflict(String.Format("A subgraph named '{0}' already exists.", specification.Name));
+                }
 
-            var compileError = CodeGenerationHelper.TryGenerateSubGraphDefinition(specification, out SubGraphDefinition definition);
-            if (compileError != null)
+                var compileError = CodeGenerationHelper.TryGenerateSubGraphDefinition(specification, out SubGraphDefinition definition);
+                if (compileError != null)
+                {
+                    return BadRequest(compileError);
+                }
+
+                var tx = new CreateSubGraphTransaction { Definition = definition };
+                _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+
+                if (tx.SubGraphCreated == null)
+                {
+                    return BadRequest(String.Format(
+                        "Failed to create subgraph '{0}'. The pattern sequence may be invalid.", specification.Name));
+                }
+
+                var summary = SubGraphSummary.FromResult(tx.SubGraphCreated,
+                    _fallen8.SubGraphFactory.CanRecalculateSubGraph(specification.Name));
+
+                return Created("/subgraph/" + Uri.EscapeDataString(specification.Name), summary);
+            }
+            catch (Exception ex)
             {
-                return BadRequest(compileError);
+                // Compilation/plugin infrastructure failures should not surface as an
+                // unhandled 500 with a stack trace; log and return a clean error.
+                _logger?.LogError(ex, "Error creating subgraph '{0}'", specification.Name);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    String.Format("An unexpected error occurred while creating subgraph '{0}'.", specification.Name));
             }
-
-            var tx = new CreateSubGraphTransaction { Definition = definition };
-            _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-
-            if (tx.SubGraphCreated == null)
-            {
-                return BadRequest(String.Format(
-                    "Failed to create subgraph '{0}'. The pattern sequence may be invalid.", specification.Name));
-            }
-
-            var summary = SubGraphSummary.FromResult(tx.SubGraphCreated,
-                _fallen8.SubGraphFactory.CanRecalculateSubGraph(specification.Name));
-
-            return Created("/subgraph/" + Uri.EscapeDataString(specification.Name), summary);
         }
 
         /// <summary>
@@ -226,7 +237,12 @@ namespace NoSQL.GraphDB.App.Controllers
                     "Subgraph '{0}' cannot be recalculated (missing source graph or algorithm plugin).", name));
             }
 
-            _fallen8.SubGraphFactory.TryGetSubGraph(out SubGraphResult updated, name);
+            if (!_fallen8.SubGraphFactory.TryGetSubGraph(out SubGraphResult updated, name))
+            {
+                // Removed concurrently between recalculation and re-fetch.
+                return NotFound(String.Format("No subgraph named '{0}'.", name));
+            }
+
             return Ok(SubGraphSummary.FromResult(updated, _fallen8.SubGraphFactory.CanRecalculateSubGraph(name)));
         }
 

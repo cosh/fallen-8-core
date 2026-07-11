@@ -1582,6 +1582,33 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void TryCreateSubGraph_DuplicateName_ReturnsFalseWithNullResult()
+        {
+            // Registration failure (duplicate name) must yield a null result, not a non-null
+            // one - otherwise a losing racer reports success and its rollback deletes the
+            // winner's subgraph.
+            var fallen8 = CreateSimpleGraph();
+            var definition = new SubGraphDefinition
+            {
+                Name = "dup",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { PatternName = "node", GraphElement = ge => ge.Label == "node" }
+                }
+            };
+
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out var first, "dup", definition), "First create should succeed");
+            Assert.IsNotNull(first);
+
+            var second = fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                out var duplicate, "dup", definition);
+
+            Assert.IsFalse(second, "Creating a second subgraph with the same name must fail");
+            Assert.IsNull(duplicate, "A failed registration must not return a subgraph result");
+        }
+
+        [TestMethod]
         public void TryCreateSubgraph_LeadingVariableLengthEdge_ShouldReturnFalse()
         {
             // A pattern starting with a variable-length edge cannot honor Min/MaxLength and

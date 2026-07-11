@@ -232,6 +232,70 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void TryGenerate_VariableLength_MaxLengthExceedingCap_ReturnsError()
+        {
+            var spec = new SubGraphSpecification
+            {
+                Name = "too-long",
+                Patterns = new List<PatternSpecification>
+                {
+                    new PatternSpecification { Type = "Vertex" },
+                    new PatternSpecification { Type = "VariableLengthEdge", MinLength = 1, MaxLength = 5000 },
+                    new PatternSpecification { Type = "Vertex" }
+                }
+            };
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(spec, out var definition);
+
+            Assert.IsNotNull(error, "An excessive maxLength must be rejected to prevent pathological expansion");
+            Assert.IsNull(definition);
+        }
+
+        [TestMethod]
+        public void TryGenerate_UnknownDirection_ReturnsError()
+        {
+            var spec = new SubGraphSpecification
+            {
+                Name = "bad-direction",
+                Patterns = new List<PatternSpecification>
+                {
+                    new PatternSpecification { Type = "Vertex" },
+                    new PatternSpecification { Type = "Edge", Direction = "sideways" },
+                    new PatternSpecification { Type = "Vertex" }
+                }
+            };
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(spec, out var definition);
+
+            Assert.IsNotNull(error, "An unknown direction must be rejected, not silently defaulted");
+            StringAssert.Contains(error, "sideways");
+            Assert.IsNull(definition);
+        }
+
+        [TestMethod]
+        public void TryGenerate_OutgoingDirectionVariants_AllParse()
+        {
+            foreach (var value in new[] { "Out", "out", "OutgoingEdge", "outgoing" })
+            {
+                var spec = new SubGraphSpecification
+                {
+                    Name = "dir",
+                    Patterns = new List<PatternSpecification>
+                    {
+                        new PatternSpecification { Type = "Vertex" },
+                        new PatternSpecification { Type = "Edge", Direction = value },
+                        new PatternSpecification { Type = "Vertex" }
+                    }
+                };
+
+                var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(spec, out var definition);
+
+                Assert.IsNull(error, $"'{value}' should be a valid outgoing direction");
+                Assert.AreEqual(Direction.OutgoingEdge, ((EdgePattern)definition.Pattern[1]).Direction);
+            }
+        }
+
+        [TestMethod]
         public void TryGenerate_UnknownPatternType_ReturnsError()
         {
             var spec = new SubGraphSpecification

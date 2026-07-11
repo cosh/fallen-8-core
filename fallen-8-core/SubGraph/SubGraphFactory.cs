@@ -273,6 +273,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 if (!TryRegisterSubGraph(subGraph))
                 {
                     _logger.LogWarning(String.Format("Subgraph \"{0}\" was created but could not be registered (name already exists).", subGraphName));
+                    // No result on failure: callers use a non-null out to signal success, and
+                    // the create transaction's rollback deregisters by name - leaving this
+                    // non-null would make a losing racer report success and its rollback delete
+                    // the winner's subgraph.
+                    subGraph = null;
                     return false;
                 }
 
