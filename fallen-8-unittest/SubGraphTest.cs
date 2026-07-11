@@ -1467,6 +1467,144 @@ namespace NoSQL.GraphDB.Tests
             CollectionAssert.AreEqual(new[] { "A", "B", "C" }, names,
                 "Intermediate vertex B is present despite not matching the terminal filter");
         }
+
+        /// <summary>
+        /// Builds a graph where one arm is shorter than the other:
+        /// A -> B (B is a leaf) and A -> C -> D.
+        /// </summary>
+        private Fallen8 CreateUnevenArmsGraph()
+        {
+            var fallen8 = new Fallen8(TestLoggerFactory.Create());
+            var creationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds());
+
+            var verticesTx = new CreateVerticesTransaction();
+            foreach (var name in new[] { "A", "B", "C", "D" })
+            {
+                verticesTx.AddVertex(creationDate, "node", new Dictionary<string, object>() { { "name", name } });
+            }
+            fallen8.EnqueueTransaction(verticesTx).WaitUntilFinished();
+            var v = verticesTx.GetCreatedVertices(); // 0:A 1:B 2:C 3:D
+
+            var edgesTx = new CreateEdgesTransaction();
+            edgesTx.AddEdge(v[0].Id, "connects", v[1].Id, creationDate, "link"); // A -> B (leaf)
+            edgesTx.AddEdge(v[0].Id, "connects", v[2].Id, creationDate, "link"); // A -> C
+            edgesTx.AddEdge(v[2].Id, "connects", v[3].Id, creationDate, "link"); // C -> D
+            fallen8.EnqueueTransaction(edgesTx).WaitUntilFinished();
+
+            return fallen8;
+        }
+
+        [TestMethod]
+        public void TryCreateSubgraph_VariableLengthRange_KeepsBothShorterAndLongerMatches()
+        {
+            // A->B (length 1) and A->C->D (length 2). A variable-length 1..2 path from A
+            // with an unconstrained terminal must keep BOTH arms. The earlier bug dropped
+            // every path shorter than MaxLength, losing B and A->B entirely.
+            var fallen8 = CreateUnevenArmsGraph();
+            var algorithm = new BreathFirstSearchSubgraphAlgorithm();
+            algorithm.Initialize(fallen8, null);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "range-both",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern
+                    {
+                        PatternName = "a",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "A"
+                    },
+                    new VariableLengthEdgePattern
+                    {
+                        PatternName = "hops",
+                        Direction = Direction.OutgoingEdge,
+                        MinLength = 1,
+                        MaxLength = 2
+                    },
+                    new VertexPattern { PatternName = "any" }
+                }
+            };
+
+            var result = algorithm.TryCreateSubgraph(out SubGraphResult subgraphResult, definition);
+
+            Assert.IsTrue(result);
+            Assert.AreEqual(4, subgraphResult.SubGraph.VertexCount, "All of A, B, C, D are on a 1..2-hop path");
+            Assert.AreEqual(3, subgraphResult.SubGraph.EdgeCount, "A->B (len 1), A->C and C->D (len 2)");
+
+            var names = subgraphResult.SubGraph.GetAllVertices()
+                .Select(v => v.TryGetProperty(out object n, "name") ? n.ToString() : null)
+                .OrderBy(x => x)
+                .ToList();
+            CollectionAssert.AreEqual(new[] { "A", "B", "C", "D" }, names,
+                "The length-1 arm (B) must not be dropped by the range expansion");
+        }
+
+        [TestMethod]
+        public void TryCreateSubgraph_VariableLengthRange_TerminalMatchesShortPath_ShouldNotBeEmpty()
+        {
+            // Linear A->B->C->D. A variable-length 1..2 path from A whose terminal must be "B"
+            // matches only the length-1 path A->B. The earlier bug invalidated the length-1
+            // path while expanding it, wrongly returning an empty subgraph.
+            var fallen8 = CreateSimpleGraph();
+            var algorithm = new BreathFirstSearchSubgraphAlgorithm();
+            algorithm.Initialize(fallen8, null);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "range-short-terminal",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern
+                    {
+                        PatternName = "a",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "A"
+                    },
+                    new VariableLengthEdgePattern
+                    {
+                        PatternName = "hops",
+                        Direction = Direction.OutgoingEdge,
+                        MinLength = 1,
+                        MaxLength = 2
+                    },
+                    new VertexPattern
+                    {
+                        PatternName = "b",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "B"
+                    }
+                }
+            };
+
+            var result = algorithm.TryCreateSubgraph(out SubGraphResult subgraphResult, definition);
+
+            Assert.IsTrue(result);
+            Assert.AreEqual(2, subgraphResult.SubGraph.VertexCount, "A and B on the length-1 match");
+            Assert.AreEqual(1, subgraphResult.SubGraph.EdgeCount, "The A->B edge");
+        }
+
+        [TestMethod]
+        public void TryCreateSubgraph_LeadingVariableLengthEdge_ShouldReturnFalse()
+        {
+            // A pattern starting with a variable-length edge cannot honor Min/MaxLength and
+            // must be rejected rather than silently treated as a single hop.
+            var fallen8 = CreateSimpleGraph();
+            var algorithm = new BreathFirstSearchSubgraphAlgorithm();
+            algorithm.Initialize(fallen8, null);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "leading-varlen",
+                Pattern = new List<APattern>
+                {
+                    new VariableLengthEdgePattern { PatternName = "hops", Direction = Direction.OutgoingEdge, MinLength = 2, MaxLength = 2 },
+                    new VertexPattern { PatternName = "v" }
+                }
+            };
+
+            var result = algorithm.TryCreateSubgraph(out SubGraphResult subgraphResult, definition);
+
+            Assert.IsFalse(result, "A leading variable-length edge pattern must be rejected");
+            Assert.IsNull(subgraphResult);
+        }
     }
 }
 

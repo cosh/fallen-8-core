@@ -276,6 +276,11 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             if (patterns == null || patterns.Count == 0)
                 return true;
 
+            // A variable-length edge cannot lead: level-0 seeding treats a leading edge as a
+            // single hop and cannot honor Min/MaxLength, so it would silently ignore the range.
+            if (patterns[0].Type == PatternType.VariableLengthEdge)
+                return false;
+
             int currentIndex = 0;
 
             while (currentIndex < patterns.Count - 1)
@@ -391,48 +396,45 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
                         case PatternType.VariableLengthEdge:
                             {
-                                var start = new List<PathInfo>() { path };
+                                // Expand the mandatory minimum number of hops. ProcessEdgePattern
+                                // invalidates the source path it extends, so 'frontier' holds only
+                                // the freshly extended paths at the current length.
+                                var frontier = new List<PathInfo>() { path };
                                 for (int i = 0; i < vep.MinLength; i++)
                                 {
-                                    var tempVepResults = new List<PathInfo>();
+                                    var next = new List<PathInfo>();
 
-                                    foreach (var aStart in start)
+                                    foreach (var aStart in frontier)
                                     {
                                         if (aStart.IsValid)
                                         {
-                                            vepResult = ProcessEdgePattern(ep, aStart, (VertexModel)aStart.LastElement);
-
-                                            //there must be a result, otherwise it's not a legal path
-                                            tempVepResults.AddRange(vepResult);
+                                            next.AddRange(ProcessEdgePattern(ep, aStart, (VertexModel)aStart.LastElement));
                                         }
                                     }
 
-                                    start = tempVepResults.ToList();
+                                    frontier = next;
                                 }
 
-                                //now there is a list of valid Paths
-                                if (start.Count > 0)
+                                // Every path from MinLength..MaxLength is a candidate. Keep an
+                                // INDEPENDENT copy of each length, because the next expansion
+                                // invalidates the frontier objects; adding copies keeps the shorter
+                                // matches alive while still expanding toward MaxLength.
+                                AddCandidateCopies(frontier, validPaths);
+
+                                for (int i = vep.MinLength; i < vep.MaxLength; i++)
                                 {
-                                    validPaths.AddRange(start);
+                                    var next = new List<PathInfo>();
 
-                                    for (int i = vep.MinLength; i < vep.MaxLength; i++)
+                                    foreach (var aStart in frontier)
                                     {
-                                        var tempVepResults = new List<PathInfo>();
-
-                                        foreach (var aStart in start)
+                                        if (aStart.IsValid)
                                         {
-                                            if (aStart.IsValid)
-                                            {
-                                                vepResult = ProcessEdgePattern(ep, aStart, (VertexModel)aStart.LastElement);
-
-                                                //there must be a result, otherwise it's not a legal path
-                                                tempVepResults.AddRange(vepResult);
-                                            }
+                                            next.AddRange(ProcessEdgePattern(ep, aStart, (VertexModel)aStart.LastElement));
                                         }
-
-                                        start = tempVepResults.ToList();
-                                        validPaths.AddRange(start);
                                     }
+
+                                    frontier = next;
+                                    AddCandidateCopies(frontier, validPaths);
                                 }
                             }
                             break;
@@ -441,6 +443,23 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                             throw new NotSupportedException(
                                 String.Format("Unsupported pattern type '{0}' at pattern level {1}.", currentPatternType, currentLevel));
                     }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Adds an independent copy of each valid path in the frontier to the accumulated
+        /// valid-path set. Copies are required because the frontier objects are invalidated
+        /// when they are expanded to the next length; without copying, every path shorter
+        /// than MaxLength would be removed by the per-level invalidity sweep.
+        /// </summary>
+        private static void AddCandidateCopies(List<PathInfo> frontier, List<PathInfo> validPaths)
+        {
+            foreach (var candidate in frontier)
+            {
+                if (candidate.IsValid)
+                {
+                    validPaths.Add(new PathInfo(candidate));
                 }
             }
         }
@@ -656,10 +675,6 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             Fallen8 subgraph,
             List<PathInfo> validPaths)
         {
-            // Get all vertices and edges in the subgraph
-            var allVertices = subgraph.GetAllVertices();
-            var allEdges = subgraph.GetAllEdges();
-
             var validGraphElementIDs = validPaths
                 .SelectMany(p => p.GetGraphElementIds())
                 .ToHashSet();
@@ -809,9 +824,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                     return;
                 }
 
+                // Revisiting an element closes a cycle: invalidate the path and do NOT mutate
+                // its element set or LastElement, so a freshly-invalidated path never exposes
+                // cycle-polluted state to any later reader.
                 if (_graphElements.Contains(ge.Id))
                 {
                     IsValid = false;
+                    return;
                 }
 
                 _graphElements.Add(ge.Id);
