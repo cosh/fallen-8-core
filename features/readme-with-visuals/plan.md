@@ -27,7 +27,29 @@ Companion to [spec.md](./spec.md).
   dark GitHub themes. Check all links.
 
 ## Status
-- [ ] Phase 0 — audit
-- [ ] Phase 1 — images (architecture, subgraph, Scalar screenshot)
-- [ ] Phase 2 — rewrite README
-- [ ] Phase 3 — verify rendering
+- [x] Phase 0 — audit (Swagger→Scalar, missing subgraph, .NET 10, stale swaggerDoc.png)
+- [x] Phase 1 — images: `pics/architecture.svg`, `pics/subgraph-illustration.svg`, and a real
+      `pics/scalarApiReference.png` captured from the running Scalar UI (headless Chrome);
+      removed the stale `pics/swaggerDoc.png`
+- [x] Phase 2 — README rewritten (Scalar + OpenAPI URLs, .NET 10, architecture section,
+      Subgraphs section linking `features/subgraph/`)
+- [x] Phase 3 — verify (diagrams are self-contained SVG cards that read on light/dark; the
+      screenshot was rendered from the live app and visually confirmed)
+
+## Outcome
+
+- **Diagrams** are hand-authored SVGs (`pics/architecture.svg`, `pics/subgraph-illustration.svg`)
+  using self-contained coloured cards, so they read on both light and dark GitHub themes
+  without relying on the page background. Each README image has descriptive alt text.
+- **Screenshot**: captured live from `https://localhost:5090/scalar/v0.1` with headless
+  Chrome (`--virtual-time-budget` to let the SPA render), replacing the stale Swagger PNG.
+  It shows the SubGraph endpoint group and the XML-doc operation summaries.
+- **README**: Swagger references replaced with Scalar/OpenAPI, .NET 10 called out, an
+  Architecture section and a Subgraphs section (with example + link) added; the existing
+  sample walkthrough retained.
+
+## Note
+
+The screenshot was capturable here because Chrome was available; if regenerated elsewhere,
+run the app in Development and headless-capture `/scalar/v0.1`. Image links use repo-relative
+paths so they render on any branch/fork.
