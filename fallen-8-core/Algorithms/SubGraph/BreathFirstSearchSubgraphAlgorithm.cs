@@ -42,8 +42,15 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
     public sealed class BreathFirstSearchSubgraphAlgorithm : ISubGraphAlgorithm
     {
+        /// <summary>
+        /// The plugin name this algorithm registers under. Plugins are discovered and
+        /// cached by <see cref="PluginName"/>, so callers of the factory must use this
+        /// value (not the CLR type name) to select the algorithm.
+        /// </summary>
+        public const string AlgorithmPluginName = "Breadth First Search Subgraph Algorithm";
+
         /// <inheritdoc />
-        public string PluginName => "Breadth First Search Subgraph Algorithm";
+        public string PluginName => AlgorithmPluginName;
 
         /// <inheritdoc />
         public Type PluginCategory => typeof(ISubGraphAlgorithm);

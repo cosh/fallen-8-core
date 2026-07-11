@@ -110,11 +110,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="subGraph">The created subgraph result.</param>
         /// <param name="subGraphName">The name for the subgraph.</param>
         /// <param name="definition">The subgraph definition.</param>
-        /// <param name="algorithmTypeName">The subgraph algorithm type name. Default is BreathFirstSearchSubgraphAlgorithm.</param>
+        /// <param name="algorithmTypeName">The subgraph algorithm plugin name (as reported by the plugin's PluginName). Defaults to the breadth-first search algorithm.</param>
         /// <param name="parameter">Parameter for the algorithm. Default is null.</param>
         /// <returns><c>true</c> if the subgraph was created; otherwise, <c>false</c>.</returns>
         public bool TryCreateSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
-                                      string algorithmTypeName = "BreathFirstSearchSubgraphAlgorithm",
+                                      string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
                                       IDictionary<string, object> parameter = null)
         {
             subGraph = null;
