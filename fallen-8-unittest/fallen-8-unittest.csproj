@@ -18,6 +18,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Required to reference ASP.NET Core MVC result types (IActionResult, ObjectResult, ...) in controller tests. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\fallen-8-core-apiApp\fallen-8-core-apiApp.csproj" />
     <ProjectReference Include="..\fallen-8-core\fallen-8-core.csproj" />
   </ItemGroup>

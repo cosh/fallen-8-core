@@ -35,7 +35,9 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Algorithms.Path;
+using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 
 namespace NoSQL.GraphDB.Core.App.Helper
 {
@@ -238,5 +240,303 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             return returnList;
         }
+
+        #region Subgraph code generation
+
+        private const String SubGraphProviderNamespace = "NoSQL.GraphDB.Core.Algorithms.SubGraph.Generated";
+        private const String SubGraphProviderClassName = "SubGraphDelegateProvider";
+
+        /// <summary>
+        /// A single generated delegate: the method that produces it and the action that
+        /// assigns the compiled delegate back onto the pattern it belongs to.
+        /// </summary>
+        private sealed class GeneratedDelegateSlot
+        {
+            public String MethodName
+            {
+                get; set;
+            }
+            public String ReturnType
+            {
+                get; set;
+            }
+            public String Code
+            {
+                get; set;
+            }
+            public Action<Object> Assign
+            {
+                get; set;
+            }
+        }
+
+        /// <summary>
+        /// Translates a <see cref="SubGraphSpecification"/> into an engine
+        /// <see cref="SubGraphDefinition"/>, compiling every non-empty filter code
+        /// fragment into its delegate in a single generated assembly.
+        /// </summary>
+        /// <param name="specification">The REST specification.</param>
+        /// <param name="definition">The resulting definition, or null on failure.</param>
+        /// <returns>
+        /// <c>null</c> on success; otherwise a human-readable error message (invalid
+        /// specification or compiler diagnostics).
+        /// </returns>
+        public static String TryGenerateSubGraphDefinition(SubGraphSpecification specification, out SubGraphDefinition definition)
+        {
+            definition = null;
+
+            if (specification == null)
+            {
+                return "Subgraph specification is null.";
+            }
+
+            if (String.IsNullOrWhiteSpace(specification.Name))
+            {
+                return "Subgraph specification requires a name.";
+            }
+
+            var slots = new List<GeneratedDelegateSlot>();
+
+            var def = new SubGraphDefinition
+            {
+                Name = specification.Name,
+                AdditionalInformation = specification.AdditionalInformation
+            };
+
+            // Optional vertex pre-filter (only the GraphElement delegate is read for a filter).
+            if (!String.IsNullOrWhiteSpace(specification.VertexFilter))
+            {
+                var vertexPreFilter = new VertexPattern();
+                def.VertexFilter = vertexPreFilter;
+                RegisterSlot(slots, "Delegates.GraphElementFilter", specification.VertexFilter,
+                    d => vertexPreFilter.GraphElement = (Delegates.GraphElementFilter)d);
+            }
+
+            // Optional edge pre-filter.
+            if (!String.IsNullOrWhiteSpace(specification.EdgeFilter))
+            {
+                var edgePreFilter = new EdgePattern();
+                def.EdgeFilter = edgePreFilter;
+                RegisterSlot(slots, "Delegates.GraphElementFilter", specification.EdgeFilter,
+                    d => edgePreFilter.GraphElement = (Delegates.GraphElementFilter)d);
+            }
+
+            // Pattern sequence.
+            if (specification.Patterns != null && specification.Patterns.Count > 0)
+            {
+                def.Pattern = new List<APattern>();
+
+                foreach (var patternSpec in specification.Patterns)
+                {
+                    var error = BuildPattern(patternSpec, def.Pattern, slots);
+                    if (error != null)
+                    {
+                        return error;
+                    }
+                }
+            }
+
+            var compileError = CompileDelegates(slots);
+            if (compileError != null)
+            {
+                return compileError;
+            }
+
+            definition = def;
+            return null;
+        }
+
+        private static String BuildPattern(PatternSpecification patternSpec, List<APattern> patterns, List<GeneratedDelegateSlot> slots)
+        {
+            if (patternSpec == null)
+            {
+                return "A pattern element is null.";
+            }
+
+            var type = (patternSpec.Type ?? String.Empty).Trim().ToLowerInvariant();
+
+            switch (type)
+            {
+                case "vertex":
+                    {
+                        var vertexPattern = new VertexPattern { PatternName = patternSpec.PatternName };
+                        RegisterSlot(slots, "Delegates.GraphElementFilter", patternSpec.GraphElementFilter,
+                            d => vertexPattern.GraphElement = (Delegates.GraphElementFilter)d);
+                        RegisterSlot(slots, "Delegates.VertexFilter", patternSpec.VertexFilter,
+                            d => vertexPattern.Vertex = (Delegates.VertexFilter)d);
+                        patterns.Add(vertexPattern);
+                        return null;
+                    }
+
+                case "edge":
+                    {
+                        var edgePattern = new EdgePattern
+                        {
+                            PatternName = patternSpec.PatternName,
+                            Direction = ParseDirection(patternSpec.Direction)
+                        };
+                        RegisterEdgeSlots(edgePattern, patternSpec, slots);
+                        patterns.Add(edgePattern);
+                        return null;
+                    }
+
+                case "variablelengthedge":
+                    {
+                        if (patternSpec.MinLength > patternSpec.MaxLength)
+                        {
+                            return String.Format(
+                                "Variable-length edge pattern '{0}' has minLength ({1}) greater than maxLength ({2}).",
+                                patternSpec.PatternName, patternSpec.MinLength, patternSpec.MaxLength);
+                        }
+
+                        var variablePattern = new VariableLengthEdgePattern
+                        {
+                            PatternName = patternSpec.PatternName,
+                            Direction = ParseDirection(patternSpec.Direction),
+                            MinLength = patternSpec.MinLength,
+                            MaxLength = patternSpec.MaxLength
+                        };
+                        RegisterEdgeSlots(variablePattern, patternSpec, slots);
+                        patterns.Add(variablePattern);
+                        return null;
+                    }
+
+                default:
+                    return String.Format(
+                        "Unknown pattern type '{0}'. Expected 'Vertex', 'Edge' or 'VariableLengthEdge'.",
+                        patternSpec.Type);
+            }
+        }
+
+        private static void RegisterEdgeSlots(EdgePattern edgePattern, PatternSpecification patternSpec, List<GeneratedDelegateSlot> slots)
+        {
+            RegisterSlot(slots, "Delegates.GraphElementFilter", patternSpec.GraphElementFilter,
+                d => edgePattern.GraphElement = (Delegates.GraphElementFilter)d);
+            RegisterSlot(slots, "Delegates.EdgePropertyFilter", patternSpec.EdgePropertyFilter,
+                d => edgePattern.EdgeProperty = (Delegates.EdgePropertyFilter)d);
+            RegisterSlot(slots, "Delegates.EdgeFilter", patternSpec.EdgeFilter,
+                d => edgePattern.Edge = (Delegates.EdgeFilter)d);
+        }
+
+        private static void RegisterSlot(List<GeneratedDelegateSlot> slots, String returnType, String code, Action<Object> assign)
+        {
+            // A null/empty fragment means "match everything" - leave the delegate null.
+            if (String.IsNullOrWhiteSpace(code))
+            {
+                return;
+            }
+
+            slots.Add(new GeneratedDelegateSlot
+            {
+                MethodName = "M" + slots.Count,
+                ReturnType = returnType,
+                Code = code,
+                Assign = assign
+            });
+        }
+
+        private static Direction ParseDirection(String value)
+        {
+            if (String.IsNullOrWhiteSpace(value))
+            {
+                return Direction.OutgoingEdge;
+            }
+
+            switch (value.Trim().ToLowerInvariant())
+            {
+                case "in":
+                case "incoming":
+                case "incomingedge":
+                    return Direction.IncomingEdge;
+                case "undirected":
+                case "undirectededge":
+                    return Direction.UndirectedEdge;
+                default:
+                    return Direction.OutgoingEdge;
+            }
+        }
+
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "This method dynamically generates and loads code at runtime, which is incompatible with trimming")]
+        [UnconditionalSuppressMessage("Trimming", "IL2072:Target parameter argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.", Justification = "Dynamic code generation requires runtime type creation")]
+        [UnconditionalSuppressMessage("Trimming", "IL2075:'this' argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.", Justification = "Generated provider type is created at runtime and its methods are invoked by name")]
+        private static String CompileDelegates(List<GeneratedDelegateSlot> slots)
+        {
+            if (slots.Count == 0)
+            {
+                // Nothing to compile - every filter was "match everything".
+                return null;
+            }
+
+            var sourceCode = BuildProviderSource(slots);
+
+            var tree = SyntaxFactory.ParseSyntaxTree(sourceCode, CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest));
+
+            string fileName = System.IO.Path.GetRandomFileName();
+
+            var compilation = CSharpCompilation.Create(fileName)
+              .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
+              .AddReferences(GetGlobalReferences())
+              .AddSyntaxTrees(tree);
+
+            using (var ms = new MemoryStream())
+            {
+                EmitResult compilationResult = compilation.Emit(ms);
+
+                if (!compilationResult.Success)
+                {
+                    StringBuilder sb = new StringBuilder();
+                    sb.AppendLine("Failed to compile subgraph filter expression(s):");
+
+                    foreach (Diagnostic codeIssue in compilationResult.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
+                    {
+                        sb.AppendLine($"ID: {codeIssue.Id}, Message: {codeIssue.GetMessage()}, Location: {codeIssue.Location.GetLineSpan()}, Severity: {codeIssue.Severity}");
+                    }
+
+                    return sb.ToString();
+                }
+
+                ms.Seek(0, SeekOrigin.Begin);
+                Assembly assembly = Assembly.Load(ms.ToArray());
+
+                var providerType = assembly.GetType(SubGraphProviderNamespace + "." + SubGraphProviderClassName);
+                var providerInstance = Activator.CreateInstance(providerType);
+
+                foreach (var slot in slots)
+                {
+                    var method = providerType.GetMethod(slot.MethodName);
+                    var compiledDelegate = method.Invoke(providerInstance, null);
+                    slot.Assign(compiledDelegate);
+                }
+            }
+
+            return null;
+        }
+
+        private static String BuildProviderSource(List<GeneratedDelegateSlot> slots)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("using System;");
+            sb.AppendLine("using System.Linq;");
+            sb.AppendLine("using NoSQL.GraphDB.Core.Model;");
+            sb.AppendLine("using NoSQL.GraphDB.Core.Algorithms;");
+            sb.AppendLine("namespace " + SubGraphProviderNamespace);
+            sb.AppendLine("{");
+            sb.AppendLine("    public sealed class " + SubGraphProviderClassName);
+            sb.AppendLine("    {");
+
+            foreach (var slot in slots)
+            {
+                sb.AppendLine("        public " + slot.ReturnType + " " + slot.MethodName + "()");
+                sb.AppendLine("        {");
+                sb.AppendLine("            " + slot.Code);
+                sb.AppendLine("        }");
+            }
+
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
+        #endregion
     }
 }
