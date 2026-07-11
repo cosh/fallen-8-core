@@ -26,8 +26,32 @@ Companion to [spec.md](./spec.md).
 - Full test pass; update [../subgraph/spec.md](../subgraph/spec.md) §9 to note quotas exist.
 
 ## Status
-- [ ] Phase 0 — reproduce
-- [ ] Phase 1 — quota model
-- [ ] Phase 2 — enforcement
-- [ ] Phase 3 — REST surface & defaults
-- [ ] Phase 4 — verify & document
+- [x] Phase 0 — reproduce (DefaultQuota_IsUnlimited pins prior unbounded behaviour)
+- [x] Phase 1 — quota model (`SubGraphQuota`, exposed as `SubGraphFactory.Quota`)
+- [x] Phase 2 — enforcement (count pre-check, per-subgraph and total size post-materialization)
+- [x] Phase 3 — REST 409 count pre-check; size/total breaches → 400 with a quota message
+- [x] Phase 4 — verify & document
+
+## Outcome
+
+- `SubGraphQuota` (MaxSubGraphCount, MaxElementsPerSubGraph, MaxTotalElements; all
+  `int.MaxValue` = unlimited by default) is exposed on `SubGraphFactory.Quota`, with
+  `SubGraphCount` for inspection.
+- `CreateAndRegisterSubGraph` rejects before materialization when the count ceiling is
+  reached, and after materialization when the per-subgraph or aggregate element limit would
+  be exceeded. On breach it logs, returns false, registers nothing, and — because the
+  subgraph is a separate graph instance — never mutates the source.
+- The REST controller pre-checks the count ceiling and returns `409 Conflict`; per-subgraph
+  and total-size breaches surface as `400` with a message noting the quota (a distinct 413
+  was not feasible because transaction failures do not propagate a typed reason to the
+  controller).
+- Tests: `SubGraphQuotaTest` covers count, per-subgraph size (reject + at-limit), total
+  size, unlimited default, source-unchanged-on-breach, and the controller 409.
+
+## Deviation from plan
+
+The plan preferred passing the per-subgraph cap into the algorithm for early abort. The
+implementation checks size after materialization instead (simpler, no algorithm-interface
+change); the source graph is never touched, so discarding an over-limit result is safe. If
+building large-but-rejected subgraphs becomes a cost concern, early abort can be added
+later.

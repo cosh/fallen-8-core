@@ -228,5 +228,6 @@ detail.
   recalculate and persist. Cross-factory dependency tracking is a follow-up.
 - **Runtime-compiled filter assemblies are not collectible** (same as the path API); the
   provider cache bounds repeated identical filter sets.
-- **No ceiling on subgraph count / materialized size**; add quotas before exposing creation
-  publicly.
+- ~~**No ceiling on subgraph count / materialized size**~~ — addressed by the
+  [subgraph-quotas](../subgraph-quotas/spec.md) feature: `SubGraphFactory.Quota` bounds
+  subgraph count and per-subgraph/total materialized elements (unlimited by default).

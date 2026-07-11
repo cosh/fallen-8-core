@@ -67,6 +67,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// </summary>
         private readonly PluginCache _pluginCache;
 
+        /// <summary>
+        /// Resource ceilings enforced at creation time. Unlimited by default.
+        /// </summary>
+        private SubGraphQuota _quota = new SubGraphQuota();
+
         #endregion
 
         #region constructor
@@ -90,6 +95,41 @@ namespace NoSQL.GraphDB.Core.SubGraph
         #endregion
 
         #region public methods
+
+        /// <summary>
+        /// Gets or sets the resource ceilings enforced when creating subgraphs. Setting null
+        /// resets to unlimited. Defaults to unlimited so embedded/trusted use is unaffected.
+        /// </summary>
+        public SubGraphQuota Quota
+        {
+            get { return _quota; }
+            set { _quota = value ?? new SubGraphQuota(); }
+        }
+
+        /// <summary>
+        /// The number of currently registered subgraphs.
+        /// </summary>
+        public int SubGraphCount
+        {
+            get { return _subGraphsByName.Count; }
+        }
+
+        /// <summary>
+        /// The total number of materialized elements (vertices + edges) across all
+        /// registered subgraphs.
+        /// </summary>
+        private int CurrentTotalElements()
+        {
+            int total = 0;
+            foreach (var result in _subGraphsById.Values)
+            {
+                if (result.SubGraph != null)
+                {
+                    total += result.SubGraph.VertexCount + result.SubGraph.EdgeCount;
+                }
+            }
+            return total;
+        }
 
         /// <summary>
         /// Gets the available subgraph algorithm plugins.
@@ -257,10 +297,41 @@ namespace NoSQL.GraphDB.Core.SubGraph
 
             try
             {
+                // Quota: reject before doing any work if the subgraph count is at its ceiling.
+                if (_subGraphsByName.Count >= _quota.MaxSubGraphCount)
+                {
+                    _logger.LogWarning(String.Format(
+                        "Cannot create subgraph \"{0}\": the maximum number of subgraphs ({1}) has been reached.",
+                        subGraphName, _quota.MaxSubGraphCount));
+                    return false;
+                }
+
                 // Create the subgraph using the algorithm
                 if (!algo.TryCreateSubgraph(out subGraph, definition))
                 {
                     _logger.LogError(String.Format("Failed to create subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, algo.PluginName));
+                    return false;
+                }
+
+                // Quota: reject an oversized subgraph (checked after materialization, since
+                // the size is only known once the algorithm has run). The source graph is a
+                // separate instance and is never mutated, so discarding is safe.
+                int elementCount = subGraph.SubGraph.VertexCount + subGraph.SubGraph.EdgeCount;
+                if (elementCount > _quota.MaxElementsPerSubGraph)
+                {
+                    _logger.LogWarning(String.Format(
+                        "Cannot create subgraph \"{0}\": its {1} elements exceed the per-subgraph limit of {2}.",
+                        subGraphName, elementCount, _quota.MaxElementsPerSubGraph));
+                    subGraph = null;
+                    return false;
+                }
+
+                if (CurrentTotalElements() + elementCount > _quota.MaxTotalElements)
+                {
+                    _logger.LogWarning(String.Format(
+                        "Cannot create subgraph \"{0}\": it would exceed the total materialized element limit of {1}.",
+                        subGraphName, _quota.MaxTotalElements));
+                    subGraph = null;
                     return false;
                 }
 

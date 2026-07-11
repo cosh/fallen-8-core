@@ -118,6 +118,14 @@ namespace NoSQL.GraphDB.App.Controllers
                     return Conflict(String.Format("A subgraph named '{0}' already exists.", specification.Name));
                 }
 
+                // Quota: reject up front when the subgraph count ceiling is reached.
+                var quota = _fallen8.SubGraphFactory.Quota;
+                if (_fallen8.SubGraphFactory.SubGraphCount >= quota.MaxSubGraphCount)
+                {
+                    return Conflict(String.Format(
+                        "The maximum number of subgraphs ({0}) has been reached.", quota.MaxSubGraphCount));
+                }
+
                 var compileError = CodeGenerationHelper.TryGenerateSubGraphDefinition(specification, out SubGraphDefinition definition);
                 if (compileError != null)
                 {
@@ -129,8 +137,11 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (tx.SubGraphCreated == null)
                 {
+                    // Either the pattern matched nothing valid, or a per-subgraph / total
+                    // element quota was exceeded (enforced in the factory after materialization).
                     return BadRequest(String.Format(
-                        "Failed to create subgraph '{0}'. The pattern sequence may be invalid.", specification.Name));
+                        "Failed to create subgraph '{0}'. The pattern sequence may be invalid or a resource quota was exceeded.",
+                        specification.Name));
                 }
 
                 // Attach a recipe so the subgraph can be persisted and rebuilt on load.
