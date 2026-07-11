@@ -226,7 +226,9 @@ detail.
   `VariableLengthEdgePattern` and pinned by a test.
 - **Nested subgraph recalculation/persistence is not wired** — only root-level subgraphs
   recalculate and persist. Cross-factory dependency tracking is a follow-up.
-- **Runtime-compiled filter assemblies are not collectible** (same as the path API); the
-  provider cache bounds repeated identical filter sets.
+- ~~**Runtime-compiled filter assemblies are not collectible**~~ — resolved by the
+  [collectible-codegen-assemblies](../collectible-codegen-assemblies/spec.md) feature: both
+  the path and subgraph compile paths load into collectible contexts that unload once
+  unreferenced.
 - **No ceiling on subgraph count / materialized size**; add quotas before exposing creation
   publicly.

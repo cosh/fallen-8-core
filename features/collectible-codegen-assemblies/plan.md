@@ -27,8 +27,30 @@ Companion to [spec.md](./spec.md).
 - The weak-reference unload test flips to asserting successful unload; full suite passes.
 
 ## Status
-- [ ] Phase 0 — unload test harness
-- [ ] Phase 1 — collectible contexts
-- [ ] Phase 2 — lifetime management
-- [ ] Phase 3 — reference audit
-- [ ] Phase 4 — verify
+- [x] Phase 0 — unload test (weak reference to a generated type)
+- [x] Phase 1 — collectible contexts for path and subgraph compiled assemblies
+- [x] Phase 2 — lifetime management (subgraph provider cache is now expirable)
+- [x] Phase 3 — reference audit (delegates/instances/types no longer pinned indefinitely)
+- [x] Phase 4 — verify
+
+## Outcome
+
+- Both compile paths now load the emitted assembly with
+  `new AssemblyLoadContext(name, isCollectible: true).LoadFromStream(...)` instead of
+  `Assembly.Load(byte[])` (default, non-collectible).
+- The subgraph provider cache changed from a never-evicting `ConcurrentDictionary` to a
+  `MemoryCache` with a 60-second sliding expiration (matching the path traverser cache), so
+  a cached provider no longer pins its load context forever. `ClearSubGraphProviderCache()`
+  forces eviction (tests/diagnostics).
+- Lifetime: a compiled assembly's collectible context stays alive while the cache entry is
+  live or any live subgraph/traverser still references its delegates; once both are gone it
+  unloads under GC, reclaiming metadata/JIT memory.
+- Test: `SubGraphCodeGenUnloadTest` compiles a unique provider, weakly references a type from
+  the generated assembly, clears the cache, and asserts the type (and its context) unload —
+  a probe that would fail under the old non-collectible loading.
+
+## Note
+
+The path traverser already used an expiring cache, so no cache change was needed there — only
+the collectible load context. Unload assertions use the standard drop-refs + `GC.Collect()` /
+`WaitForPendingFinalizers()` loop.
