@@ -89,17 +89,20 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        ]
         ///     }
         /// </remarks>
+        /// <param name="fromSubGraph">Optional name of an existing subgraph to source this one from (creates a nested subgraph). When omitted, the subgraph is sourced from the whole graph.</param>
         /// <response code="201">The subgraph was created and registered</response>
         /// <response code="400">The specification was invalid or a filter failed to compile</response>
+        /// <response code="404">The source subgraph named by fromSubGraph does not exist</response>
         /// <response code="409">A subgraph with the same name already exists</response>
         [HttpPut("/subgraph")]
         [Consumes("application/json")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(SubGraphSummary), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Trimming is disabled for this application; the specification type is a simple DTO")]
-        public IActionResult CreateSubGraph([FromBody] SubGraphSpecification specification)
+        public IActionResult CreateSubGraph([FromBody] SubGraphSpecification specification, [FromQuery] String fromSubGraph = null)
         {
             if (specification == null)
             {
@@ -118,13 +121,18 @@ namespace NoSQL.GraphDB.App.Controllers
                     return Conflict(String.Format("A subgraph named '{0}' already exists.", specification.Name));
                 }
 
+                if (!String.IsNullOrWhiteSpace(fromSubGraph) && !_fallen8.SubGraphFactory.TryGetSubGraph(out _, fromSubGraph))
+                {
+                    return NotFound(String.Format("Source subgraph '{0}' does not exist.", fromSubGraph));
+                }
+
                 var compileError = CodeGenerationHelper.TryGenerateSubGraphDefinition(specification, out SubGraphDefinition definition);
                 if (compileError != null)
                 {
                     return BadRequest(compileError);
                 }
 
-                var tx = new CreateSubGraphTransaction { Definition = definition };
+                var tx = new CreateSubGraphTransaction { Definition = definition, SourceSubGraphName = fromSubGraph };
                 _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
 
                 if (tx.SubGraphCreated == null)
@@ -133,12 +141,15 @@ namespace NoSQL.GraphDB.App.Controllers
                         "Failed to create subgraph '{0}'. The pattern sequence may be invalid.", specification.Name));
                 }
 
-                // Attach a recipe so the subgraph can be persisted and rebuilt on load.
+                // Attach a recipe so the subgraph can be persisted and rebuilt on load. The
+                // source id and own id come from the result so nested subgraphs persist with
+                // the correct dependency.
                 tx.SubGraphCreated.Recipe = new SubGraphRecipe
                 {
                     Name = specification.Name,
+                    SubGraphId = tx.SubGraphCreated.SubGraph.Id,
                     AlgorithmPluginName = tx.SubGraphCreated.AlgorithmPluginName,
-                    SourceFallen8Id = _fallen8.Id,
+                    SourceFallen8Id = tx.SubGraphCreated.SourceFallen8Id,
                     SpecificationJson = JsonSerializer.Serialize(specification)
                 };
 

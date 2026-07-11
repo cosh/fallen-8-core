@@ -224,8 +224,9 @@ detail.
 - **KD-6 — Variable-length intermediate vertices unconstrained.** By design: only the
   terminal vertex pattern constrains a variable-length match; documented on
   `VariableLengthEdgePattern` and pinned by a test.
-- **Nested subgraph recalculation/persistence is not wired** — only root-level subgraphs
-  recalculate and persist. Cross-factory dependency tracking is a follow-up.
+- ~~**Nested subgraph recalculation/persistence is not wired**~~ — resolved by the
+  [nested-subgraph-recalculation](../nested-subgraph-recalculation/spec.md) feature:
+  subgraphs sourced from other subgraphs now recalculate in dependency order and persist.
 - **Runtime-compiled filter assemblies are not collectible** (same as the path API); the
   provider cache bounds repeated identical filter sets.
 - **No ceiling on subgraph count / materialized size**; add quotas before exposing creation

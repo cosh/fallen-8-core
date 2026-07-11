@@ -117,14 +117,34 @@ namespace NoSQL.GraphDB.Core.SubGraph
                                       string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
                                       IDictionary<string, object> parameter = null)
         {
+            return TryCreateSubGraphFromSource(out subGraph, subGraphName, definition, _fallen8, algorithmTypeName, parameter);
+        }
+
+        /// <summary>
+        /// Tries to create a subgraph from an explicit source graph (this graph for a
+        /// root-level subgraph, or another registered subgraph for a nested subgraph).
+        /// The subgraph is registered in this factory and its dependency on the source is
+        /// tracked so it participates in recalculation and persistence.
+        /// </summary>
+        public bool TryCreateSubGraphFromSource(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
+                                      IFallen8 source,
+                                      string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
+                                      IDictionary<string, object> parameter = null)
+        {
             subGraph = null;
 
-            if (!TryGetOrLoadAlgorithm(out var algo, _fallen8, algorithmTypeName, parameter))
+            if (source == null)
+            {
+                _logger.LogError(String.Format("Cannot create subgraph \"{0}\": source graph is null.", subGraphName));
+                return false;
+            }
+
+            if (!TryGetOrLoadAlgorithm(out var algo, source, algorithmTypeName, parameter))
             {
                 return false;
             }
 
-            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algorithmTypeName, parameter);
+            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algorithmTypeName, parameter, source);
         }
 
         /// <summary>
@@ -190,7 +210,24 @@ namespace NoSQL.GraphDB.Core.SubGraph
                                          IDictionary<string, object> parameter = null)
             where T : ISubGraphAlgorithm
         {
+            return TryCreateSubGraphFromSource<T>(out subGraph, subGraphName, definition, _fallen8, parameter);
+        }
+
+        /// <summary>
+        /// Typed variant of <see cref="TryCreateSubGraphFromSource"/> (no reflection lookup).
+        /// </summary>
+        public bool TryCreateSubGraphFromSource<T>(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
+                                         IFallen8 source, IDictionary<string, object> parameter = null)
+            where T : ISubGraphAlgorithm
+        {
             subGraph = null;
+
+            if (source == null)
+            {
+                _logger.LogError(String.Format("Cannot create subgraph \"{0}\": source graph is null.", subGraphName));
+                return false;
+            }
+
             Type subGraphType = typeof(T);
             var algo = Activator.CreateInstance(subGraphType, false) as ISubGraphAlgorithm;
 
@@ -200,22 +237,21 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 return false;
             }
 
-            // Check cache first
+            // Reuse the cached instance if present, but always (re)initialize it with the
+            // requested source: the algorithm holds its source as state, so a nested create
+            // (or a create after another source was used) must rebind before running.
             Object cachedAlgo;
-            if (!_pluginCache.SubGraph.TryGetValue(algo.PluginName, out cachedAlgo))
-            {
-                // Algorithm was not cached - initialize it
-                if (!InitializeAndCacheAlgorithm(_fallen8, algo, parameter, algo.PluginName))
-                {
-                    return false;
-                }
-            }
-            else
+            if (_pluginCache.SubGraph.TryGetValue(algo.PluginName, out cachedAlgo))
             {
                 algo = (ISubGraphAlgorithm)cachedAlgo;
             }
 
-            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algo.PluginName, parameter);
+            if (!InitializeAndCacheAlgorithm(source, algo, parameter, algo.PluginName))
+            {
+                return false;
+            }
+
+            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algo.PluginName, parameter, source);
         }
 
         /// <summary>
@@ -251,7 +287,8 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="algorithmParameters">Optional parameters for the algorithm.</param>
         /// <returns><c>true</c> if creation and registration succeeded; otherwise, <c>false</c>.</returns>
         private bool CreateAndRegisterSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
-                                              ISubGraphAlgorithm algo, string algorithmPluginName, IDictionary<string, object> algorithmParameters)
+                                              ISubGraphAlgorithm algo, string algorithmPluginName, IDictionary<string, object> algorithmParameters,
+                                              IFallen8 source)
         {
             subGraph = null;
 
@@ -264,8 +301,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
                     return false;
                 }
 
-                // Store the source Fallen8 and algorithm metadata for recalculation
-                subGraph.SourceFallen8 = _fallen8;
+                // Store the source Fallen8 and algorithm metadata for recalculation. The
+                // source may be this graph (root subgraph) or another registered subgraph
+                // (nested subgraph); it drives dependency tracking and recalculation order.
+                subGraph.SourceFallen8 = source;
+                subGraph.SourceFallen8Id = source.Id;
                 subGraph.AlgorithmPluginName = algorithmPluginName;
                 subGraph.AlgorithmParameters = algorithmParameters;
 
@@ -441,8 +481,17 @@ namespace NoSQL.GraphDB.Core.SubGraph
             // that shared state and could extract from the wrong graph.
             var rootSubGraphs = _subGraphsById.Where(_ => _.Value.SourceFallen8Id.Equals(_fallen8.Id)).ToList();
 
+            // Guard against revisiting a subgraph (and against dependency cycles, which
+            // cannot form by construction but must never hang if they somehow did).
+            var visited = new HashSet<Guid>();
+
             foreach (var _ in rootSubGraphs)
             {
+                if (!visited.Add(_.Value.SubGraph.Id))
+                {
+                    continue;
+                }
+
                 _.Value.SourceFallen8 = _fallen8;
 
                 if (TryRecalculateSubGraph(_.Value.Definitions.Name))
@@ -450,7 +499,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                     successes++;
 
                     // Recursively recalculate all dependent subgraphs
-                    var (nestedSuccesses, nestedFailures) = RecalculateSubGraphsRecursive(_.Value.SubGraph.Id);
+                    var (nestedSuccesses, nestedFailures) = RecalculateSubGraphsRecursive(_.Value.SubGraph.Id, visited);
                     successes += nestedSuccesses;
                     failures += nestedFailures;
                 }
@@ -468,8 +517,9 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// Recursively recalculates all subgraphs that depend on a given source graph.
         /// </summary>
         /// <param name="sourceGraphId">The ID of the source graph whose dependent subgraphs should be recalculated.</param>
+        /// <param name="visited">Subgraph ids already recalculated in this pass (cycle/revisit guard).</param>
         /// <returns>A tuple containing the number of successful recalculations and failures.</returns>
-        private (int successes, int failures) RecalculateSubGraphsRecursive(Guid sourceGraphId)
+        private (int successes, int failures) RecalculateSubGraphsRecursive(Guid sourceGraphId, HashSet<Guid> visited)
         {
             int successes = 0;
             int failures = 0;
@@ -484,7 +534,13 @@ namespace NoSQL.GraphDB.Core.SubGraph
 
             foreach (var _ in dependentSubGraphs)
             {
-                // Update the source reference
+                if (!visited.Add(_.Value.SubGraph.Id))
+                {
+                    // Already recalculated (or a cycle) - do not process again.
+                    continue;
+                }
+
+                // Rebind to the current (just-recalculated) source instance.
                 if (_subGraphsById.TryGetValue(sourceGraphId, out var sourceSubGraph))
                 {
                     _.Value.SourceFallen8 = sourceSubGraph.SubGraph;
@@ -495,7 +551,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                     successes++;
 
                     // Recursively recalculate subgraphs that depend on this one
-                    var (nestedSuccesses, nestedFailures) = RecalculateSubGraphsRecursive(_.Value.SubGraph.Id);
+                    var (nestedSuccesses, nestedFailures) = RecalculateSubGraphsRecursive(_.Value.SubGraph.Id, visited);
                     successes += nestedSuccesses;
                     failures += nestedFailures;
                 }
@@ -541,8 +597,10 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// </remarks>
         public IEnumerable<SubGraphRecipe> GetPersistableRecipes()
         {
+            // Every subgraph carrying a recipe is persistable, including nested ones (whose
+            // source is another subgraph). Delegate-only subgraphs have no recipe.
             return _subGraphsById.Values
-                .Where(r => r.Recipe != null && r.SourceFallen8Id.Equals(_fallen8.Id))
+                .Where(r => r.Recipe != null)
                 .Select(r => r.Recipe)
                 .ToList();
         }
@@ -568,31 +626,66 @@ namespace NoSQL.GraphDB.Core.SubGraph
 
             int restored = 0;
 
-            foreach (var recipe in recipes)
+            // Rehydrate in dependency order: a subgraph can only be rebuilt once its source
+            // exists. Sources are resolved by their saved id via this map, seeded with the
+            // (restored) root graph. Root subgraphs' SourceFallen8Id equals the root id;
+            // nested subgraphs' SourceFallen8Id equals a parent subgraph's saved id.
+            var sourcesBySavedId = new Dictionary<Guid, IFallen8> { { _fallen8.Id, _fallen8 } };
+            var pending = recipes.Where(r => r != null).ToList();
+
+            bool madeProgress = true;
+            while (pending.Count > 0 && madeProgress)
             {
-                try
+                madeProgress = false;
+
+                for (int i = pending.Count - 1; i >= 0; i--)
                 {
-                    if (!compiler.TryCompile(recipe, out var definition, out var error))
+                    var recipe = pending[i];
+
+                    if (!sourcesBySavedId.TryGetValue(recipe.SourceFallen8Id, out var source))
                     {
-                        _logger.LogError(String.Format("Could not compile recipe for subgraph \"{0}\": {1}", recipe.Name, error));
+                        // Source not rehydrated yet; try again on a later pass.
                         continue;
                     }
 
-                    if (TryCreateSubGraph(out var result, recipe.Name, definition, recipe.AlgorithmPluginName))
+                    pending.RemoveAt(i);
+                    madeProgress = true;
+
+                    try
                     {
-                        // Retain the recipe so the rehydrated subgraph can be persisted again.
-                        result.Recipe = recipe;
-                        restored++;
+                        if (!compiler.TryCompile(recipe, out var definition, out var error))
+                        {
+                            _logger.LogError(String.Format("Could not compile recipe for subgraph \"{0}\": {1}", recipe.Name, error));
+                            continue;
+                        }
+
+                        if (TryCreateSubGraphFromSource(out var result, recipe.Name, definition, source, recipe.AlgorithmPluginName))
+                        {
+                            // Retain the recipe so it can be persisted again, and expose this
+                            // subgraph (by its saved id) as a source for its dependents.
+                            result.Recipe = recipe;
+                            if (recipe.SubGraphId != Guid.Empty)
+                            {
+                                sourcesBySavedId[recipe.SubGraphId] = result.SubGraph;
+                            }
+                            restored++;
+                        }
+                        else
+                        {
+                            _logger.LogError(String.Format("Could not recreate subgraph \"{0}\" from its recipe.", recipe.Name));
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        _logger.LogError(String.Format("Could not recreate subgraph \"{0}\" from its recipe.", recipe.Name));
+                        _logger.LogError(ex, String.Format("Exception rehydrating subgraph \"{0}\": {1}", recipe.Name, ex.Message));
                     }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, String.Format("Exception rehydrating subgraph \"{0}\": {1}", recipe.Name, ex.Message));
-                }
+            }
+
+            if (pending.Count > 0)
+            {
+                _logger.LogWarning(String.Format(
+                    "{0} subgraph recipe(s) could not be rehydrated because their source graph was not restored.", pending.Count));
             }
 
             _logger.LogInformation(String.Format("Rehydrated {0} subgraph(s) from recipes.", restored));

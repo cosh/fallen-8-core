@@ -29,8 +29,28 @@ Companion to [spec.md](./spec.md).
   limitation resolved.
 
 ## Status
-- [ ] Phase 0 — reproduce
-- [ ] Phase 1 — explicit source
-- [ ] Phase 2 — dependency registry & ordered recalc
-- [ ] Phase 3 — nested persistence
-- [ ] Phase 4 — verify & document
+- [x] Phase 0 — reproduce (nested recalc + nested persistence tests)
+- [x] Phase 1 — explicit source (`TryCreateSubGraphFromSource`; source threaded through create)
+- [x] Phase 2 — dependency-ordered recalc with a cycle/revisit guard (`visited` set)
+- [x] Phase 3 — nested persistence (recipe `SubGraphId`, topological rehydration, `fromSubGraph` create)
+- [x] Phase 4 — verify & document
+
+## Outcome
+
+- `SubGraphFactory.TryCreateSubGraphFromSource` (typed + named) creates a subgraph from any
+  source graph (the graph itself or another registered subgraph), registering it with the
+  correct `SourceFallen8Id` and tracking the dependency.
+- `RecalculateAllSubGraphs` now refreshes the full dependency tree in order (sources before
+  dependents) with a `visited` guard that also protects against cycles.
+- Persistence: recipes carry the subgraph's own id; `GetPersistableRecipes` includes nested
+  subgraphs; `RehydrateFromRecipes` resolves each recipe's source by saved id and rebuilds
+  in topological order. `CreateSubGraphTransaction` / `PUT /subgraph?fromSubGraph=<name>`
+  create nested subgraphs over REST so they carry recipes and persist.
+- Tests: `SubGraphNestedTest` (2- and 3-level recalculation) and
+  `SubGraphPersistenceTest.SaveThenLoad_NestedSubgraph_IsRehydratedFromItsParent`.
+
+## Note on cycles
+
+Cycles cannot form through the creation API (each create produces a brand-new subgraph that
+is not yet anyone's source), so there is no create-time rejection to test; the recursion's
+`visited` guard is defensive should a cycle ever arise.

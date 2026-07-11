@@ -48,6 +48,16 @@ namespace NoSQL.GraphDB.Core.Transaction
         }
 
         /// <summary>
+        /// Optional name of an already-registered subgraph to use as the source (creating a
+        /// nested subgraph). When null/empty, the subgraph is sourced from the graph itself.
+        /// </summary>
+        public String SourceSubGraphName
+        {
+            get;
+            set;
+        }
+
+        /// <summary>
         /// Cleans up the transaction resources.
         /// </summary>
         internal override void Cleanup()
@@ -86,7 +96,22 @@ namespace NoSQL.GraphDB.Core.Transaction
                 return false;
             }
 
-            // Use the factory to create the subgraph
+            // Nested subgraph: source is another registered subgraph.
+            if (!String.IsNullOrWhiteSpace(SourceSubGraphName))
+            {
+                if (!f8.SubGraphFactory.TryGetSubGraph(out var sourceResult, SourceSubGraphName))
+                {
+                    return false;
+                }
+
+                return f8.SubGraphFactory.TryCreateSubGraphFromSource(
+                    out SubGraphCreated,
+                    Definition.Name,
+                    Definition,
+                    sourceResult.SubGraph);
+            }
+
+            // Root subgraph: source is the graph itself.
             return f8.SubGraphFactory.TryCreateSubGraph(
                 out SubGraphCreated,
                 Definition.Name,
