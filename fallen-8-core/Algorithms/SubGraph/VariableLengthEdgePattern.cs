@@ -38,6 +38,15 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// This pattern type is essential for defining relationships between vertices in graph queries,
     /// supporting both simple single-edge connections and complex path expressions.
     /// </para>
+    /// <para>
+    /// Semantics note: the edge filters (<see cref="EdgePattern.EdgeProperty"/>,
+    /// <see cref="EdgePattern.Edge"/> and the graph-element filter) are applied to
+    /// <em>every</em> hop of the expansion, but the vertex pattern that follows a
+    /// variable-length edge constrains only the <em>terminal</em> vertex of the matched
+    /// path. Vertices traversed at intermediate hops are not constrained by that terminal
+    /// vertex pattern. Model intermediate-vertex constraints with fixed-length edge/vertex
+    /// pairs instead.
+    /// </para>
     /// </remarks>
     public class VariableLengthEdgePattern : EdgePattern
     {

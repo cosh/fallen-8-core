@@ -119,7 +119,12 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             // Step 4: If patterns are defined, evaluate them to filter the subgraph further
             if (definition.Pattern != null && definition.Pattern.Count > 0)
             {
-                return EvaluatePatternsAndFilterSubgraph(subgraph, definition.Pattern);
+                if (!EvaluatePatternsAndFilterSubgraph(subgraph, definition.Pattern))
+                {
+                    // Honor the interface contract: no result on failure.
+                    result = null;
+                    return false;
+                }
             }
 
             return true;
@@ -308,6 +313,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                 }
             }
 
+            // A well-formed pattern path must terminate at a vertex. A trailing edge
+            // pattern has no closing vertex and would describe a dangling half-edge.
+            if (patterns[patterns.Count - 1].Type != PatternType.Vertex)
+            {
+                return false;
+            }
+
             return true;
         }
 
@@ -426,7 +438,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                             break;
 
                         default:
-                            throw new NotImplementedException();
+                            throw new NotSupportedException(
+                                String.Format("Unsupported pattern type '{0}' at pattern level {1}.", currentPatternType, currentLevel));
                     }
                 }
             }
@@ -467,7 +480,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                     break;
 
                 default:
-                    throw new NotImplementedException();
+                    throw new NotSupportedException(
+                        String.Format("Unsupported edge direction '{0}'.", ep.Direction));
             }
 
             return result;

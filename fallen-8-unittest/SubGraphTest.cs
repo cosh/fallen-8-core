@@ -1389,6 +1389,84 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(sourceVertexCount, fallen8.VertexCount, "Source vertex count must be unchanged");
             Assert.AreEqual(sourceEdgeCount, fallen8.EdgeCount, "Source edge count must be unchanged");
         }
+
+        // ---------------------------------------------------------------------
+        // Pattern validation and variable-length semantics (KD-5 / KD-6).
+        // ---------------------------------------------------------------------
+
+        [TestMethod]
+        public void TryCreateSubgraph_PatternEndingInEdge_ShouldReturnFalseAndNullResult()
+        {
+            // A well-formed pattern path must end at a vertex; a trailing edge is invalid.
+            var fallen8 = CreateSimpleGraph();
+            var algorithm = new BreathFirstSearchSubgraphAlgorithm();
+            algorithm.Initialize(fallen8, null);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "trailing-edge",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { PatternName = "v", GraphElement = ge => ge.Label == "node" },
+                    new EdgePattern { PatternName = "dangling", Direction = Direction.OutgoingEdge }
+                }
+            };
+
+            var result = algorithm.TryCreateSubgraph(out SubGraphResult subgraphResult, definition);
+
+            Assert.IsFalse(result, "A pattern ending in an edge must be rejected");
+            Assert.IsNull(subgraphResult, "No result should be produced for an invalid pattern");
+        }
+
+        [TestMethod]
+        public void TryCreateSubgraph_VariableLength_ConstrainsTerminalVertexOnly()
+        {
+            // On the linear graph A->B->C->D, a 2-hop variable-length path from A whose
+            // terminal must be "C" yields A->B->C. The intermediate vertex B is included
+            // even though it does not match the terminal ("C") filter - this pins the
+            // documented terminal-only constraint semantics (KD-6).
+            var fallen8 = CreateSimpleGraph();
+            var algorithm = new BreathFirstSearchSubgraphAlgorithm();
+            algorithm.Initialize(fallen8, null);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "var-terminal-only",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern
+                    {
+                        PatternName = "a",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "A"
+                    },
+                    new VariableLengthEdgePattern
+                    {
+                        PatternName = "hops",
+                        Direction = Direction.OutgoingEdge,
+                        MinLength = 2,
+                        MaxLength = 2
+                    },
+                    new VertexPattern
+                    {
+                        PatternName = "c",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "C"
+                    }
+                }
+            };
+
+            var result = algorithm.TryCreateSubgraph(out SubGraphResult subgraphResult, definition);
+
+            Assert.IsTrue(result, "Should match A->B->C");
+            Assert.AreEqual(3, subgraphResult.SubGraph.VertexCount, "A, B (intermediate) and C are kept");
+            Assert.AreEqual(2, subgraphResult.SubGraph.EdgeCount, "A->B and B->C are kept");
+
+            var names = subgraphResult.SubGraph.GetAllVertices()
+                .Select(v => v.TryGetProperty(out object n, "name") ? n.ToString() : null)
+                .OrderBy(x => x)
+                .ToList();
+            CollectionAssert.AreEqual(new[] { "A", "B", "C" }, names,
+                "Intermediate vertex B is present despite not matching the terminal filter");
+        }
     }
 }
 
