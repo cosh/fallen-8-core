@@ -192,17 +192,41 @@ Compilation errors in a code fragment ⇒ `400 Bad Request` with the compiler di
 - Persistence: create → save → load → assert equivalent subgraph after recalculation.
 - Serializer: `DelegateJson` round-trips for each `Delegates.*` filter type.
 
-## 9. Known deviations (implementation vs. spec)
-- **KD-1 — Shared path element set (correctness bug).** `PathInfo`'s copy constructor
-  assigns the element `HashSet` by reference, so branched paths share and mutate one set.
-  Current tests pass only because they use linear graphs and a final union. Fixed in
-  Phase 0.
-- **KD-2 — No REST surface.** No subgraph endpoints exist yet. Delivered in Phase 1.
-- **KD-3 — No persistence.** `PersistencyFactory` does not save/load subgraphs; they are
-  in-memory only. Delivered in Phase 2.
-- **KD-4 — `DelegateJson` unused.** The serializer is complete and tested but wired to
-  nothing. Integrated in Phase 2.
-- **KD-5 — Loose pattern validation.** `ValidatePattern` accepts a sequence ending in an
-  edge pattern (no closing vertex). Tightened in Phase 3.
-- **KD-6 — Variable-length intermediate vertices unconstrained.** Only the terminal vertex
-  pattern is applied along a variable-length expansion. Documented/decided in Phase 3.
+## 9. Resolved deviations and current limitations
+
+All deviations from the original retrofit, plus the issues surfaced by the
+principal-architect review, and their disposition. See [plan.md](./plan.md) for the review
+detail.
+
+### Resolved
+- **KD-1 — Shared path element set.** `PathInfo`'s copy constructor deep-copies the element
+  set (fixed; branching regression tests).
+- **KD-2 — No REST surface.** `SubGraphController` delivers the full CRUD + recalculate API.
+- **KD-3 — No persistence.** Subgraphs persist as recipes and rehydrate on load.
+- **KD-5 — Loose pattern validation.** Sequences ending in an edge (and a leading
+  variable-length edge) are rejected.
+- **Variable-length range dropped short paths (critical, review).** Fixed — each matched
+  length is retained independently.
+- **Factory selected the algorithm by the wrong name.** Fixed via a shared plugin-name
+  constant.
+- **Cached algorithm ignored the requested source.** Fixed — re-bind on cache hit;
+  recalculation is sequential.
+- **REST resource/robustness** — provider caching, `maxLength` cap, strict direction
+  parsing, null-result-on-failed-registration, exception guard.
+
+### Superseded
+- **KD-4 — `DelegateJson` integration.** The review established `DelegateJson` cannot
+  round-trip the feature's lambda/closure/compiled filter delegates. Persistence uses a
+  **recipe** (spec text recompiled on load) instead. `DelegateJson` would only fit a future
+  named-filter-registry model.
+
+### Current limitations (documented)
+- **KD-6 — Variable-length intermediate vertices unconstrained.** By design: only the
+  terminal vertex pattern constrains a variable-length match; documented on
+  `VariableLengthEdgePattern` and pinned by a test.
+- **Nested subgraph recalculation/persistence is not wired** — only root-level subgraphs
+  recalculate and persist. Cross-factory dependency tracking is a follow-up.
+- **Runtime-compiled filter assemblies are not collectible** (same as the path API); the
+  provider cache bounds repeated identical filter sets.
+- **No ceiling on subgraph count / materialized size**; add quotas before exposing creation
+  publicly.

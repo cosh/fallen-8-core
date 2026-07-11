@@ -127,9 +127,57 @@ by patterns.
 ---
 
 ## Status checklist
-- [ ] Phase 0 — correctness fix + branching test
-- [ ] Phase 1 — REST API
-- [ ] Phase 2 — OpenAPI documentation
-- [ ] Phase 3 — persistence + DelegateJson integration
-- [ ] Phase 4 — hardening + docs
-- [ ] Phase 5 — architect review + gap closure
+- [x] Phase 0 — correctness fix + branching tests
+- [x] Phase 1 — REST API
+- [x] Phase 2 — OpenAPI documentation
+- [x] Phase 3 — persistence (recipe-based; DelegateJson **not** used — see below)
+- [x] Phase 4 — hardening + docs
+- [x] Phase 5 — architect review + gap closure
+
+## Phase 5 — review outcomes
+
+Three independent principal-architect reviews (algorithm correctness, REST/API + security,
+architecture + persistence) ran against the implemented feature. Confirmed findings were
+fixed with regression tests:
+
+**Correctness**
+- **Variable-length range dropped short paths (critical).** A `Min < Max` range behaved
+  like a fixed `Max`, and a terminal filter matching only a short path returned an empty
+  subgraph. Fixed by accumulating independent per-length copies.
+- **Shared path element set (critical, found in Phase 0).** Deep-copy of the path element
+  set.
+- **Cached algorithm ignored the requested source.** A plugin-cache hit now re-binds the
+  algorithm to the source; recalculation runs sequentially to avoid racing the shared
+  instance.
+- **Leading variable-length edge** silently ignored `Min/Max`; now rejected.
+- Pattern sequences ending in an edge are rejected; a cycle-closed path no longer mutates
+  its element set.
+
+**REST / resource safety**
+- Compiled filter providers are cached by generated source (no recompile / assembly leak
+  for identical filter sets).
+- `maxLength` is capped; unknown edge directions are rejected instead of silently
+  defaulting.
+- A failed registration returns a null result, so a losing concurrent create can't report
+  success or have its rollback delete the winner.
+- `CreateSubGraph` is exception-guarded; the recalculate re-fetch race returns 404.
+
+**Persistence — DelegateJson could not be used.** The review established that `DelegateJson`
+cannot round-trip the feature's filter delegates (they are Roslyn-compiled lambdas or
+closures, not named static methods). Persistence therefore stores a **recipe** (metadata +
+the opaque specification text) and recompiles on load via `ISubGraphRecipeCompiler`. This
+supersedes the original plan's DelegateJson approach.
+
+## Known limitations (documented, not fixed)
+- **Nested subgraph recalculation is not wired.** Every subgraph a factory creates is
+  sourced from that factory's own graph, and a subgraph-of-a-subgraph registers on the
+  child's factory, so `RecalculateAllSubGraphs` only refreshes root-level subgraphs. Full
+  cross-factory dependency tracking is a follow-up.
+- **Only root-level subgraphs are persisted**, and only those created from a specification
+  (delegate-only subgraphs have no recipe). Rehydrated subgraphs are recomputed, so they
+  reflect the graph at load time and receive new ids.
+- **Runtime-compiled assemblies are not collectible.** Like the existing path API, compiled
+  filter assemblies load into the default context and are not unloaded; the provider cache
+  bounds growth for repeated identical filter sets but not for unbounded distinct ones.
+- **No ceiling on subgraph count / total materialized size.** Creation is authenticated the
+  same as the rest of the API; deployments that expose it publicly should add quotas.
