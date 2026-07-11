@@ -760,7 +760,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
             public PathInfo(PathInfo anotherPath)
             {
-                _graphElements = anotherPath._graphElements;
+                // Deep copy: each path must own its element set. Sharing the set by
+                // reference lets elements visited on one branch leak into the keep-set
+                // of a sibling branch and corrupts the per-path cycle check.
+                _graphElements = new HashSet<int>(anotherPath._graphElements);
                 LastElement = anotherPath.LastElement;
             }
 

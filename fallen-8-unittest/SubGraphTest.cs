@@ -1193,6 +1193,202 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("Breadth First Search Subgraph Algorithm", subGraph.AlgorithmPluginName, "AlgorithmPluginName should be correct");
             Assert.IsNotNull(subGraph.Definitions, "Definitions should be stored");
         }
+
+        // ---------------------------------------------------------------------
+        // Branching-graph regression tests (KD-1).
+        //
+        // These pin the behaviour that the pattern matcher must give each path
+        // its OWN element set. The earlier bug shared a single HashSet across
+        // every path branched from a common prefix, so elements visited on one
+        // branch leaked into the keep-set of another. The leak was invisible on
+        // linear graphs (A->B->C->D) because the union of polluted paths still
+        // equalled the correct answer; it only shows up when the correct result
+        // is a PROPER subset of a branching graph.
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Builds a fan-out graph: A has two outgoing edges, to B and to C.
+        /// </summary>
+        private Fallen8 CreateFanOutGraph()
+        {
+            var fallen8 = new Fallen8(TestLoggerFactory.Create());
+            var creationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds());
+
+            var verticesTx = new CreateVerticesTransaction();
+            verticesTx.AddVertex(creationDate, "node", new Dictionary<string, object>() { { "name", "A" } });
+            verticesTx.AddVertex(creationDate, "node", new Dictionary<string, object>() { { "name", "B" } });
+            verticesTx.AddVertex(creationDate, "node", new Dictionary<string, object>() { { "name", "C" } });
+            fallen8.EnqueueTransaction(verticesTx).WaitUntilFinished();
+            var v = verticesTx.GetCreatedVertices();
+
+            var edgesTx = new CreateEdgesTransaction();
+            edgesTx.AddEdge(v[0].Id, "connects", v[1].Id, creationDate, "link"); // A -> B
+            edgesTx.AddEdge(v[0].Id, "connects", v[2].Id, creationDate, "link"); // A -> C
+            fallen8.EnqueueTransaction(edgesTx).WaitUntilFinished();
+
+            return fallen8;
+        }
+
+        [TestMethod]
+        public void TryCreateSubgraph_FanOut_TerminalFilterMatchesOneBranch_ShouldPruneOtherBranch()
+        {
+            // Arrange: A -> B and A -> C, keep only the path that ends at B.
+            var fallen8 = CreateFanOutGraph();
+            var algorithm = new BreathFirstSearchSubgraphAlgorithm();
+            algorithm.Initialize(fallen8, null);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "fan-out-terminal",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern
+                    {
+                        PatternName = "start",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "A"
+                    },
+                    new EdgePattern { PatternName = "out", Direction = Direction.OutgoingEdge },
+                    new VertexPattern
+                    {
+                        PatternName = "end",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "B"
+                    }
+                }
+            };
+
+            // Act
+            var result = algorithm.TryCreateSubgraph(out SubGraphResult subgraphResult, definition);
+
+            // Assert: only A and B (plus the A->B edge) are on a matching path.
+            // With the shared-set bug, C and the A->C edge leak into the keep-set,
+            // yielding 3 vertices / 2 edges.
+            Assert.IsTrue(result, "Should match the A->B path");
+            Assert.IsNotNull(subgraphResult?.SubGraph, "SubGraph should not be null");
+            Assert.AreEqual(2, subgraphResult.SubGraph.VertexCount, "Only A and B should remain");
+            Assert.AreEqual(1, subgraphResult.SubGraph.EdgeCount, "Only the A->B edge should remain");
+
+            var names = subgraphResult.SubGraph.GetAllVertices()
+                .Select(v => v.TryGetProperty(out object n, "name") ? n.ToString() : null)
+                .OrderBy(x => x)
+                .ToList();
+            CollectionAssert.AreEqual(new[] { "A", "B" }, names, "C must be pruned from the subgraph");
+        }
+
+        /// <summary>
+        /// Builds a Y-shaped graph with two arms of length two:
+        /// A -> B -> D and A -> C -> E.
+        /// </summary>
+        private Fallen8 CreateYGraph()
+        {
+            var fallen8 = new Fallen8(TestLoggerFactory.Create());
+            var creationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds());
+
+            var verticesTx = new CreateVerticesTransaction();
+            foreach (var name in new[] { "A", "B", "C", "D", "E" })
+            {
+                verticesTx.AddVertex(creationDate, "node", new Dictionary<string, object>() { { "name", name } });
+            }
+            fallen8.EnqueueTransaction(verticesTx).WaitUntilFinished();
+            var v = verticesTx.GetCreatedVertices(); // 0:A 1:B 2:C 3:D 4:E
+
+            var edgesTx = new CreateEdgesTransaction();
+            edgesTx.AddEdge(v[0].Id, "connects", v[1].Id, creationDate, "link"); // A -> B
+            edgesTx.AddEdge(v[0].Id, "connects", v[2].Id, creationDate, "link"); // A -> C
+            edgesTx.AddEdge(v[1].Id, "connects", v[3].Id, creationDate, "link"); // B -> D
+            edgesTx.AddEdge(v[2].Id, "connects", v[4].Id, creationDate, "link"); // C -> E
+            fallen8.EnqueueTransaction(edgesTx).WaitUntilFinished();
+
+            return fallen8;
+        }
+
+        [TestMethod]
+        public void TryCreateSubgraph_VariableLengthTwoHopBranching_ShouldKeepOnlyMatchingArm()
+        {
+            // Arrange: A->B->D and A->C->E. A 2-hop variable-length path from A
+            // whose terminal must be D. Only the A->B->D arm qualifies.
+            var fallen8 = CreateYGraph();
+            var algorithm = new BreathFirstSearchSubgraphAlgorithm();
+            algorithm.Initialize(fallen8, null);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "y-two-hop",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern
+                    {
+                        PatternName = "a",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "A"
+                    },
+                    new VariableLengthEdgePattern
+                    {
+                        PatternName = "hops",
+                        Direction = Direction.OutgoingEdge,
+                        MinLength = 2,
+                        MaxLength = 2
+                    },
+                    new VertexPattern
+                    {
+                        PatternName = "d",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "D"
+                    }
+                }
+            };
+
+            // Act
+            var result = algorithm.TryCreateSubgraph(out SubGraphResult subgraphResult, definition);
+
+            // Assert: keep-set is exactly {A, B, D} + {A->B, B->D}. With the
+            // shared-set bug, the C/E arm leaks in, yielding 5 vertices / 4 edges.
+            Assert.IsTrue(result, "Should match the A->B->D arm");
+            Assert.IsNotNull(subgraphResult?.SubGraph, "SubGraph should not be null");
+            Assert.AreEqual(3, subgraphResult.SubGraph.VertexCount, "Only A, B and D should remain");
+            Assert.AreEqual(2, subgraphResult.SubGraph.EdgeCount, "Only A->B and B->D should remain");
+
+            var names = subgraphResult.SubGraph.GetAllVertices()
+                .Select(v => v.TryGetProperty(out object n, "name") ? n.ToString() : null)
+                .OrderBy(x => x)
+                .ToList();
+            CollectionAssert.AreEqual(new[] { "A", "B", "D" }, names, "The C/E arm must be pruned");
+        }
+
+        [TestMethod]
+        public void TryCreateSubgraph_FanOut_ShouldNotMutateSourceGraph()
+        {
+            // Arrange
+            var fallen8 = CreateFanOutGraph();
+            var sourceVertexCount = fallen8.VertexCount;
+            var sourceEdgeCount = fallen8.EdgeCount;
+
+            var algorithm = new BreathFirstSearchSubgraphAlgorithm();
+            algorithm.Initialize(fallen8, null);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "fan-out-readonly",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern
+                    {
+                        PatternName = "start",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "A"
+                    },
+                    new EdgePattern { PatternName = "out", Direction = Direction.OutgoingEdge },
+                    new VertexPattern
+                    {
+                        PatternName = "end",
+                        Vertex = vertex => vertex.TryGetProperty(out object n, "name") && n.ToString() == "B"
+                    }
+                }
+            };
+
+            // Act
+            algorithm.TryCreateSubgraph(out _, definition);
+
+            // Assert: pruning happens on the copy, never on the source.
+            Assert.AreEqual(sourceVertexCount, fallen8.VertexCount, "Source vertex count must be unchanged");
+            Assert.AreEqual(sourceEdgeCount, fallen8.EdgeCount, "Source edge count must be unchanged");
+        }
     }
 }
 
