@@ -1,6 +1,6 @@
 // MIT License
 //
-// IFallen8Admin.cs
+// ISubGraphRecipeCompiler.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -23,58 +23,31 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using Microsoft.Extensions.Logging;
-using NoSQL.GraphDB.Core.Index;
-using NoSQL.GraphDB.Core.Service;
-using NoSQL.GraphDB.Core.SubGraph;
 using System;
+using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 
-namespace NoSQL.GraphDB.Core
+namespace NoSQL.GraphDB.Core.SubGraph
 {
     /// <summary>
-    ///   Fallen8 administrative interface for managing factories.
+    /// Turns a persisted <see cref="SubGraphRecipe"/> back into an executable
+    /// <see cref="SubGraphDefinition"/>.
     /// </summary>
-    public interface IFallen8Admin : IFallen8Write
+    /// <remarks>
+    /// The engine cannot compile a recipe on its own because the specification text is
+    /// interpreted by a higher layer (for example the REST API compiles C# filter fragments
+    /// with Roslyn). An implementation is registered on the graph via
+    /// <c>Fallen8.SubGraphRecipeCompiler</c>; if none is registered, persisted subgraphs are
+    /// skipped on load.
+    /// </remarks>
+    public interface ISubGraphRecipeCompiler
     {
         /// <summary>
-        ///   Gets the index factory.
+        /// Attempts to compile a recipe into a definition.
         /// </summary>
-        IndexFactory IndexFactory
-        {
-            get;
-        }
-
-        /// <summary>
-        ///   Gets the service factory.
-        /// </summary>
-        ServiceFactory ServiceFactory
-        {
-            get;
-        }
-
-        /// <summary>
-        ///   Gets the subgraph factory.
-        /// </summary>
-        SubGraphFactory SubGraphFactory
-        {
-            get;
-        }
-
-        /// <summary>
-        ///   Gets or sets the compiler used to rebuild persisted subgraphs on load. When null,
-        ///   persisted subgraphs are skipped. Set by the hosting layer that understands the
-        ///   subgraph specification format (for example the REST API).
-        /// </summary>
-        ISubGraphRecipeCompiler SubGraphRecipeCompiler
-        {
-            get; set;
-        }
-
-        ILoggerFactory LoggerFactory
-        {
-            get;
-        }
-
-        void SetId(Guid id);
+        /// <param name="recipe">The recipe to compile.</param>
+        /// <param name="definition">The resulting definition, or null on failure.</param>
+        /// <param name="error">A human-readable error when compilation fails; otherwise null.</param>
+        /// <returns><c>true</c> if a definition was produced; otherwise <c>false</c>.</returns>
+        bool TryCompile(SubGraphRecipe recipe, out SubGraphDefinition definition, out String error);
     }
 }

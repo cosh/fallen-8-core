@@ -89,6 +89,9 @@ namespace NoSQL.GraphDB.App
 
             var app = builder.Build();
 
+            // Register the recipe compiler so persisted subgraphs can be rebuilt on load.
+            app.Services.GetRequiredService<IFallen8>().SubGraphRecipeCompiler = new RecipeSubGraphCompiler();
+
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {

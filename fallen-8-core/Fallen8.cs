@@ -85,6 +85,15 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   The compiler used to rebuild persisted subgraphs on load. Null unless set by the
+        ///   hosting layer (for example the REST API).
+        /// </summary>
+        public override ISubGraphRecipeCompiler SubGraphRecipeCompiler
+        {
+            get; set;
+        }
+
+        /// <summary>
         /// The count of edges
         /// </summary>
         public override Int32 EdgeCount
@@ -850,6 +859,14 @@ namespace NoSQL.GraphDB.Core
             {
                 oldIndexFactory.DeleteAllIndices();
                 oldSubGraphFactory.DeleteAllSubGraphs();
+
+                // Rebuild persisted subgraphs against the freshly loaded graph. Requires a
+                // registered recipe compiler; without one, persisted subgraphs are skipped.
+                var recipes = _persistencyFactory.LoadSubGraphRecipes(path);
+                if (recipes.Count > 0)
+                {
+                    SubGraphFactory.RehydrateFromRecipes(recipes, SubGraphRecipeCompiler);
+                }
             }
             else
             {

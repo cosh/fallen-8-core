@@ -32,12 +32,14 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.SubGraph;
 
 namespace NoSQL.GraphDB.Core.Persistency
 {
@@ -260,7 +262,73 @@ namespace NoSQL.GraphDB.Core.Persistency
                 file.Flush();
             }
 
+            // Subgraph recipes are written as discoverable JSON sidecar files rather than
+            // being referenced from the header stream, so the binary save format is
+            // unchanged and older save points remain readable.
+            SaveSubGraphRecipes(fallen8, path);
+
             return path;
+        }
+
+        /// <summary>
+        /// Writes the recipe of every persistable subgraph to its own JSON sidecar file next
+        /// to the save point.
+        /// </summary>
+        private void SaveSubGraphRecipes(IFallen8 fallen8, string path)
+        {
+            if (fallen8.SubGraphFactory == null)
+            {
+                return;
+            }
+
+            var counter = 0;
+            foreach (var recipe in fallen8.SubGraphFactory.GetPersistableRecipes())
+            {
+                var recipeFileName = path + Constants.SubGraphSaveString + counter;
+                try
+                {
+                    File.WriteAllText(recipeFileName, JsonSerializer.Serialize(recipe));
+                    counter++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, String.Format("Could not persist recipe for subgraph \"{0}\": {1}", recipe.Name, ex.Message));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reads all subgraph recipe sidecar files that sit next to the given save point.
+        /// </summary>
+        internal List<SubGraphRecipe> LoadSubGraphRecipes(string pathToSavePoint)
+        {
+            var result = new List<SubGraphRecipe>();
+
+            var directory = Path.GetDirectoryName(pathToSavePoint);
+            var prefix = Path.GetFileName(pathToSavePoint) + Constants.SubGraphSaveString;
+
+            if (String.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+            {
+                return result;
+            }
+
+            foreach (var recipeFile in Directory.EnumerateFiles(directory, prefix + "*"))
+            {
+                try
+                {
+                    var recipe = JsonSerializer.Deserialize<SubGraphRecipe>(File.ReadAllText(recipeFile));
+                    if (recipe != null)
+                    {
+                        result.Add(recipe);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, String.Format("Could not read subgraph recipe file \"{0}\": {1}", recipeFile, ex.Message));
+                }
+            }
+
+            return result;
         }
 
         #endregion

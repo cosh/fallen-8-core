@@ -54,5 +54,10 @@ namespace NoSQL.GraphDB.Core.Helper
         /// Service files contain this string
         /// </summary>
         public const string ServiceSaveString = "_service_";
+
+        /// <summary>
+        /// Subgraph recipe files contain this string
+        /// </summary>
+        public const string SubGraphSaveString = "_subgraph_";
     }
 }

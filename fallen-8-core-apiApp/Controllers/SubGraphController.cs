@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -34,6 +35,7 @@ using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.App.Controllers.Model;
 using NoSQL.GraphDB.Core.App.Helper;
+using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.App.Controllers
@@ -96,6 +98,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(SubGraphSummary), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Trimming is disabled for this application; the specification type is a simple DTO")]
         public IActionResult CreateSubGraph([FromBody] SubGraphSpecification specification)
         {
             if (specification == null)
@@ -129,6 +132,15 @@ namespace NoSQL.GraphDB.App.Controllers
                     return BadRequest(String.Format(
                         "Failed to create subgraph '{0}'. The pattern sequence may be invalid.", specification.Name));
                 }
+
+                // Attach a recipe so the subgraph can be persisted and rebuilt on load.
+                tx.SubGraphCreated.Recipe = new SubGraphRecipe
+                {
+                    Name = specification.Name,
+                    AlgorithmPluginName = tx.SubGraphCreated.AlgorithmPluginName,
+                    SourceFallen8Id = _fallen8.Id,
+                    SpecificationJson = JsonSerializer.Serialize(specification)
+                };
 
                 var summary = SubGraphSummary.FromResult(tx.SubGraphCreated,
                     _fallen8.SubGraphFactory.CanRecalculateSubGraph(specification.Name));

@@ -76,6 +76,14 @@ namespace NoSQL.GraphDB.Core
             get; internal set;
         }
 
+        /// <summary>
+        ///   Gets or sets the compiler used to rebuild persisted subgraphs on load.
+        /// </summary>
+        public abstract ISubGraphRecipeCompiler SubGraphRecipeCompiler
+        {
+            get; set;
+        }
+
         public ILoggerFactory LoggerFactory
         {
             get; internal set;

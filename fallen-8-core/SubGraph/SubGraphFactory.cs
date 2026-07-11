@@ -531,6 +531,74 @@ namespace NoSQL.GraphDB.Core.SubGraph
             return false;
         }
 
+        /// <summary>
+        /// Gets the recipes of all registered subgraphs that can be persisted and rebuilt.
+        /// </summary>
+        /// <remarks>
+        /// Only root-level subgraphs (sourced directly from this graph) that carry a recipe
+        /// are returned. Subgraphs created directly from delegates have no recipe and cannot
+        /// be rebuilt from persistence.
+        /// </remarks>
+        public IEnumerable<SubGraphRecipe> GetPersistableRecipes()
+        {
+            return _subGraphsById.Values
+                .Where(r => r.Recipe != null && r.SourceFallen8Id.Equals(_fallen8.Id))
+                .Select(r => r.Recipe)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Rebuilds subgraphs from persisted recipes against the current graph.
+        /// </summary>
+        /// <param name="recipes">The recipes to rehydrate.</param>
+        /// <param name="compiler">Compiler that turns a recipe back into a definition.</param>
+        /// <returns>The number of subgraphs successfully rehydrated.</returns>
+        public int RehydrateFromRecipes(IEnumerable<SubGraphRecipe> recipes, ISubGraphRecipeCompiler compiler)
+        {
+            if (recipes == null)
+            {
+                return 0;
+            }
+
+            if (compiler == null)
+            {
+                _logger.LogWarning("Cannot rehydrate subgraphs: no recipe compiler is registered.");
+                return 0;
+            }
+
+            int restored = 0;
+
+            foreach (var recipe in recipes)
+            {
+                try
+                {
+                    if (!compiler.TryCompile(recipe, out var definition, out var error))
+                    {
+                        _logger.LogError(String.Format("Could not compile recipe for subgraph \"{0}\": {1}", recipe.Name, error));
+                        continue;
+                    }
+
+                    if (TryCreateSubGraph(out var result, recipe.Name, definition, recipe.AlgorithmPluginName))
+                    {
+                        // Retain the recipe so the rehydrated subgraph can be persisted again.
+                        result.Recipe = recipe;
+                        restored++;
+                    }
+                    else
+                    {
+                        _logger.LogError(String.Format("Could not recreate subgraph \"{0}\" from its recipe.", recipe.Name));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, String.Format("Exception rehydrating subgraph \"{0}\": {1}", recipe.Name, ex.Message));
+                }
+            }
+
+            _logger.LogInformation(String.Format("Rehydrated {0} subgraph(s) from recipes.", restored));
+            return restored;
+        }
+
         #endregion
     }
 }

@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using NoSQL.GraphDB.Core.SubGraph;
 
 namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
@@ -143,6 +144,16 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// </para>
         /// </remarks>
         public IFallen8 SubGraph
+        {
+            get; set;
+        }
+
+        /// <summary>
+        /// The recipe describing how to rebuild this subgraph, if it was created from a
+        /// declarative specification. Null for subgraphs created directly from delegates;
+        /// such subgraphs cannot be persisted because their predicates are not serializable.
+        /// </summary>
+        public SubGraphRecipe Recipe
         {
             get; set;
         }
