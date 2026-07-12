@@ -154,6 +154,37 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        /// A stream whose string length prefix claims more payload bytes than actually follow
+        /// (a truncated / corrupt save file) must make <see cref="SerializationReader.ReadString"/>
+        /// fail loudly with an <see cref="EndOfStreamException"/> rather than silently returning a
+        /// short, garbled string and misframing every subsequent read.
+        /// </summary>
+        /// <remarks>
+        /// <c>BinaryReader.ReadBytes</c> returns a SHORT array at end-of-stream instead of throwing,
+        /// so the bulk-read introduced by N4 needs an explicit length guard to preserve the
+        /// loud-failure-on-truncation behaviour of the old per-byte <c>ReadByte</c> loop. Fail-before
+        /// (no guard): this returned a ~875-character string and did not throw.
+        /// </remarks>
+        [TestMethod]
+        public void ReadString_WhenPayloadTruncated_ThrowsEndOfStreamException()
+        {
+            // A valid serialized stream whose single string has a 4000-byte UTF-32 payload.
+            var ms = new MemoryStream();
+            var writer = new SerializationWriter(ms);
+            writer.Write(new string('z', 1000));
+            var full = writer.ToArray();
+
+            // Drop the trailing 500 payload bytes: the fixed header and the Int32 length prefix are
+            // untouched, only the string's byte block is now shorter than the prefix claims.
+            var truncated = new byte[full.Length - 500];
+            Array.Copy(full, truncated, truncated.Length);
+
+            var reader = new SerializationReader(new MemoryStream(truncated));
+
+            Assert.ThrowsException<EndOfStreamException>(() => reader.ReadString());
+        }
+
+        /// <summary>
         /// Captures exactly the bytes the writer emits for a single <c>Write(string)</c> call,
         /// excluding the fixed header the constructor writes.
         /// </summary>

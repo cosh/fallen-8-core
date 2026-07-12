@@ -218,6 +218,19 @@ namespace NoSQL.GraphDB.Core.Serializer
             // because the writer always emits exactly 'counter' bytes for the string.
             var byteArray = ReadBytes(counter);
 
+            // BinaryReader.ReadBytes returns a SHORT array at end-of-stream instead of
+            // throwing, so a truncated/corrupt stream would otherwise yield a silently
+            // short/garbled string and misframe every subsequent read. A valid stream always
+            // carries exactly 'counter' payload bytes after the length prefix, so this guard
+            // is inert on well-formed data and restores the loud failure the previous
+            // per-byte ReadByte loop produced on truncation.
+            if (byteArray.Length != counter)
+            {
+                throw new EndOfStreamException(string.Format(
+                    "Unexpected end of stream while reading a string: the length prefix claimed {0} byte(s) but only {1} were available.",
+                    counter, byteArray.Length));
+            }
+
             return _enc.GetString(byteArray);
         }
 
