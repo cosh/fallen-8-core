@@ -12,7 +12,14 @@ Companion to [spec.md](./spec.md). These are independent; do them in roughly thi
 
 ## Phase 2 — Core removal & null-safety (B4, B5)
 - Test: a `CreateVerticesTransaction`/removal rollback restores counts and adjacency.
-- Fix: reassign the `Insert` result; use `InEdges` in the in-edge restore branch.
+- Fix: use `InEdges` in the in-edge restore branch.
+  - Note: the `_graphElements.Insert(...)` reassignment was intentionally NOT applied.
+    Removal is a soft-delete (elements are flagged via `MarkAsRemoved` and stay in the
+    list), so re-inserting duplicates the element and breaks the id==index invariant, and
+    does not clear the removed flag. The correct rollback is `MarkAsNotRemoved`, which is
+    what restores presence/counts. A remaining latent issue (the in-edge restore re-adds to
+    the source's incoming edges via `AddIncomingEdge` instead of `AddOutEdge`) is left for
+    the dedicated rollback/storage design pass.
 - Test: `GetPropertyCount` on a property-less element returns 0; add the null guard.
 
 ## Phase 3 — Transaction worker resilience (B6)
@@ -30,8 +37,8 @@ Companion to [spec.md](./spec.md). These are independent; do them in roughly thi
   a logged warning. May be delegated to `persistence-hardening`.
 
 ## Status
-- [ ] Phase 1 — index data loss
-- [ ] Phase 2 — removal & null-safety
-- [ ] Phase 3 — worker resilience
+- [x] Phase 1 — index data loss (B1, B2, B3)
+- [x] Phase 2 — removal & null-safety (B4, B5)
+- [x] Phase 3 — worker resilience (B6)
 - [ ] Phase 4 — path cost/weight surface
 - [ ] Phase 5 — spatial index persistence
