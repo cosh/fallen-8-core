@@ -444,8 +444,8 @@ namespace NoSQL.GraphDB.Tests
             var fallen8 = new Fallen8(_loggerFactory);
 
             // A RemoveGraphElementTransaction with an out-of-range id makes TryExecute throw
-            // (the immutable list indexer throws ArgumentOutOfRangeException before the internal
-            // try/catch), which faults the worker task.
+            // (GetGraphElementForMutation's bounds check throws ArgumentOutOfRangeException before the
+            // internal try/catch), which faults the worker task.
             var faultingTx = new RemoveGraphElementTransaction { GraphElementId = int.MaxValue };
             var faultingInfo = fallen8.EnqueueTransaction(faultingTx);
             try

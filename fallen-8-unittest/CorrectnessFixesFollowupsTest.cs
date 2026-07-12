@@ -185,8 +185,8 @@ namespace NoSQL.GraphDB.Tests
         public void ProcessTransaction_WhenTryExecuteThrows_RecordsThrownExceptionAndRollsBack()
         {
             // Arrange - a real transaction whose TryExecute throws: removing an out-of-range id makes
-            // Fallen8.TryRemoveGraphElement_private index the _graphElements ImmutableList at int.MaxValue,
-            // throwing an ArgumentOutOfRangeException that escapes TryExecute up to the worker's catch.
+            // Fallen8.TryRemoveGraphElement_private call GetGraphElementForMutation, whose bounds check
+            // throws an ArgumentOutOfRangeException that escapes TryExecute up to the worker's catch.
             var fallen8 = new Fallen8(_loggerFactory);
             var tx = new RemoveGraphElementTransaction { GraphElementId = int.MaxValue };
 
