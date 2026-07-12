@@ -332,6 +332,77 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
+        [TestMethod]
+        public void SaveAndLoad_WithThrowingOnLoadIndexPresent_SkipsItOnLoadAndCompletes()
+        {
+            // Arrange - a graph, a good dictionary index that MUST round-trip, and an index that
+            // SAVES fine but throws on Load. This proves the LOAD-side guard directly: the index
+            // reaches the manifest and its sidecar, so on load IndexFactory.OpenIndex finds the
+            // plugin and calls Load (which throws); the per-index catch in LoadIndices skips it
+            // rather than aborting the whole load. (This is the "older save point still lists a
+            // spatial sidecar / a throwing Load is skipped" path.)
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 2);
+
+            IIndex dictIndex;
+            Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out dictIndex, "goodIdx", "DictionaryIndex"),
+                "The good dictionary index should be created.");
+            dictIndex.AddOrUpdate("alice", vertices[0]);
+
+            // ThrowingOnLoadIndex is a discoverable (top-level public) plugin, so OpenIndex can
+            // instantiate it by plugin name on load and actually invoke its throwing Load.
+            fallen8.IndexFactory.Indices.Add("throwingLoadIdx", new ThrowingOnLoadIndex());
+
+            var saveGameName = "ThrowingOnLoadIndexCheckpointTest.f8s";
+            var saveGameDirectory = ".";
+            var saveGameLocation = Path.Combine(saveGameDirectory, saveGameName);
+            string actualPath = null;
+
+            try
+            {
+                CleanupSavegames(saveGameDirectory, saveGameName);
+
+                var saveTx = new SaveTransaction { Path = saveGameLocation, SavePartitions = 1 };
+                fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+
+                Assert.AreEqual(TransactionState.Finished, fallen8.GetTransactionState(saveTx.TransactionId),
+                    "Saving must succeed - this index serializes fine; it only fails on load.");
+                actualPath = saveTx.ActualPath;
+                Assert.IsNotNull(actualPath, "The save must have produced a path.");
+
+                // Unlike a save-throwing index, this one saved fine, so its sidecar IS present and
+                // it IS referenced by the manifest - which is exactly what forces the load path.
+                Assert.IsTrue(File.Exists(actualPath + Constants.IndexSaveString + "throwingLoadIdx"),
+                    "The save-fine index must have written its sidecar.");
+
+                var reloaded = new Fallen8(_loggerFactory);
+                var loadTx = new LoadTransaction { Path = actualPath };
+                reloaded.EnqueueTransaction(loadTx).WaitUntilFinished();
+
+                Assert.AreEqual(TransactionState.Finished, reloaded.GetTransactionState(loadTx.TransactionId),
+                    "A single index whose Load throws must NOT abort the whole checkpoint load.");
+
+                // Graph elements and the good index round-trip; the throwing-on-load index is skipped.
+                Assert.AreEqual(2, reloaded.VertexCount, "All vertices must round-trip.");
+
+                IIndex reloadedGood;
+                Assert.IsTrue(reloaded.IndexFactory.TryGetIndex(out reloadedGood, "goodIdx"),
+                    "The good index must be present after load.");
+                ImmutableList<AGraphElementModel> aliceHits;
+                Assert.IsTrue(reloadedGood.TryGetValue(out aliceHits, "alice"),
+                    "The good index must retain its data across the checkpoint.");
+                Assert.AreEqual(1, aliceHits.Count, "The good index must retain its values.");
+
+                IIndex skipped;
+                Assert.IsFalse(reloaded.IndexFactory.TryGetIndex(out skipped, "throwingLoadIdx"),
+                    "The index whose Load threw must be absent after load (skipped, not registered).");
+            }
+            finally
+            {
+                CleanupSavegames(saveGameDirectory, actualPath != null ? Path.GetFileName(actualPath) : saveGameName);
+            }
+        }
+
         #endregion
 
         #region edge-removal rollback regression (else branch of TryRemoveGraphElement_private)
@@ -489,5 +560,54 @@ namespace NoSQL.GraphDB.Tests
         }
 
         #endregion
+    }
+
+    /// <summary>
+    /// A minimal index that SAVES fine but always throws on Load. It is deliberately a top-level
+    /// public type with a public parameterless constructor so <c>PluginFactory</c> discovers it
+    /// (nested types are excluded from discovery): only then can <c>IndexFactory.OpenIndex</c>
+    /// instantiate it by plugin name on load and actually invoke the throwing <see cref="Load"/>,
+    /// exercising the per-index catch in <c>PersistencyFactory.LoadIndices</c>. Everything else is
+    /// an inert no-op - it never needs to hold data.
+    /// </summary>
+    public sealed class ThrowingOnLoadIndex : IIndex
+    {
+        public const string TestPluginName = "ThrowingOnLoadTestIndex";
+
+        public string PluginName => TestPluginName;
+        public Type PluginCategory => typeof(IIndex);
+        public string Description => "A test index that saves fine but throws on load.";
+        public string Manufacturer => "fallen-8 tests";
+
+        public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) { }
+
+        public void Save(SerializationWriter writer)
+        {
+            // Serializes cleanly (writes no payload), so it reaches the manifest and its sidecar.
+        }
+
+        public void Load(SerializationReader reader, IFallen8 fallen8)
+        {
+            throw new InvalidOperationException("This index deliberately fails to deserialize.");
+        }
+
+        public int CountOfKeys() => 0;
+        public int CountOfValues() => 0;
+        public void AddOrUpdate(object key, AGraphElementModel graphElement) { }
+        public bool TryRemoveKey(object key) => false;
+        public void RemoveValue(AGraphElementModel graphElement) { }
+        public void Wipe() { }
+        public IEnumerable<object> GetKeys() => Enumerable.Empty<object>();
+
+        public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElementModel>>> GetKeyValues()
+            => Enumerable.Empty<KeyValuePair<object, ImmutableList<AGraphElementModel>>>();
+
+        public bool TryGetValue(out ImmutableList<AGraphElementModel> result, object key)
+        {
+            result = ImmutableList<AGraphElementModel>.Empty;
+            return false;
+        }
+
+        public void Dispose() { }
     }
 }

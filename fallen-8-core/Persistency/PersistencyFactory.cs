@@ -391,28 +391,47 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 return Path.GetFileName(indexFileName);
             }
+            catch (NotSupportedException nse)
+            {
+                // Expected, not an error: some indices (e.g. the spatial R-Tree) deliberately declare
+                // themselves not-yet-persistable by throwing NotSupportedException from Save. Log it
+                // quietly and drop the index from the manifest so the checkpoint proceeds - a scary
+                // Error-level "could not persist" line on every checkpoint that holds a spatial index
+                // would be misleading.
+                _logger.LogInformation(String.Format("Index \"{0}\" is not persistable ({1}); it is skipped in this checkpoint.", indexName, nse.Message));
+
+                DeletePartialIndexFile(indexFileName);
+                return null;
+            }
             catch (Exception ex)
             {
-                // Defense in depth: a single index that fails to serialize must not abort the whole
-                // checkpoint. Log and skip it (the caller drops null entries from the index manifest).
+                // Defense in depth: a single index that fails to serialize for a genuine, unexpected
+                // reason must not abort the whole checkpoint. Log it loudly and skip it (the caller
+                // drops null entries from the index manifest).
                 _logger.LogError(ex, String.Format("Could not persist index \"{0}\"; it will be skipped in this checkpoint.", indexName));
 
-                // File.Create above already created a (now partial) index file before Save threw;
-                // remove it so the save directory is not littered with orphaned, unreferenced
-                // sidecars. Best-effort only - never let cleanup mask the original failure.
-                try
-                {
-                    if (File.Exists(indexFileName))
-                    {
-                        File.Delete(indexFileName);
-                    }
-                }
-                catch (Exception cleanupEx)
-                {
-                    _logger.LogWarning(cleanupEx, String.Format("Could not delete the partial index file \"{0}\" after a failed save.", indexFileName));
-                }
-
+                DeletePartialIndexFile(indexFileName);
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Removes the (now partial) index sidecar that <see cref="File.Create(string,int,FileOptions)"/>
+        /// had already created before <c>Save</c> threw, so the save directory is not littered with
+        /// orphaned, unreferenced sidecars. Best-effort only - never let cleanup mask the original failure.
+        /// </summary>
+        private void DeletePartialIndexFile(string indexFileName)
+        {
+            try
+            {
+                if (File.Exists(indexFileName))
+                {
+                    File.Delete(indexFileName);
+                }
+            }
+            catch (Exception cleanupEx)
+            {
+                _logger.LogWarning(cleanupEx, String.Format("Could not delete the partial index file \"{0}\" after a failed save.", indexFileName));
             }
         }
 
