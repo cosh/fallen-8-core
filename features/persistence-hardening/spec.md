@@ -25,6 +25,7 @@ Load, and Trim are separate transactions on the single worker; `/save` does **no
 | C6 | Recipe sidecars: counter restarts at 0 each save, so a save with fewer recipes leaves stale higher-numbered files that the directory-scan load rehydrates; non-atomic `WriteAllText`; prefix-glob discovery is unscoped | `PersistencyFactory.cs:277,303` | Stale/rehydrated or silently-dropped subgraphs |
 | C7 | `OtherType` JSON fallback: writer emits a length-prefixed UTF-32 string, reader hands the raw stream to `JsonSerializer.Deserialize<object>` | `SerializationWriter.cs:606` vs `SerializationReader.cs:1582` | Complex (non-primitive) property values not round-trippable |
 | C8 | Version suffix uses `DateTime.Now` (local, DST-sensitive) and collides within a tick | `PersistencyFactory.cs:169` | Fragile save versioning |
+| C9 | Spatial (R-Tree) index is not serialized: `RTree.Save`/`Load` throw `NotSupportedException`, so the checkpoint guards deliberately skip it (deferred here from correctness-fixes-followups B7) | `Index/Spatial/Implementation/RTree/RTree.cs` (`Save`/`Load`) | A spatial index does not survive a save/load — it is absent after load and must be recreated by the caller |
 
 ## 3. Performance / memory / design
 
