@@ -27,7 +27,16 @@ Companion to [spec.md](./spec.md). Items N1–N5 defined there. Ordered small-hi
   record the decision.
 
 ## Status
-- [ ] Phase 1 — remove PerformanceCounter, serializer bulk I/O, Dockerfile → net10
-- [ ] Phase 2 — package alignment + OpenAPI 10.x (vuln-gated) + delete transformer
-- [ ] Phase 3 — JSON source generation
-- [ ] Phase 4 — explicit GC config + DATAS benchmark
+- [x] Phase 1 — remove PerformanceCounter (N3a), serializer bulk I/O (N4), Dockerfile → net10
+  (N5 build; `docker build` not executed in-environment)
+- [~] Phase 2 — `Microsoft.Extensions.*` aligned to 10.0.9 (N3c, done). OpenAPI 10.x (N3b)
+  **deferred**: the `Microsoft.OpenApi` NU1903 advisory is resolvable (pin `Microsoft.OpenApi`
+  2.10.0), but 10.x native XML-doc reading changes the OpenAPI document (3.0.1 → 3.1.1, added
+  descriptions/examples), which breaks the "output unchanged" contract. Transformer + `Program.cs`
+  wiring kept; vulnerability not reintroduced. See spec.md §3.
+- [x] Phase 3 — JSON source generation (N1): `AppJsonContext` (app DTOs + `SubGraphSpecification`)
+  wired into MVC + the explicit call sites; `CoreJsonContext` (library) for `SubGraphRecipe` +
+  `DelegateDescriptor`. JSON and OpenAPI output proven byte-identical; JSON-specific IL2026
+  suppressions removed.
+- [x] Phase 4 — explicit Server/Concurrent GC props added to app + library csproj (N5). DATAS left
+  at the .NET 10 default; no benchmark executed (documented in spec.md §3).
