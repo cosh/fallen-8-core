@@ -95,7 +95,25 @@ namespace NoSQL.GraphDB.Core.Transaction
                 tx.TransactionId, transactionType);
 
             //do some work
-            if (tx.TryExecute(_f8))
+            bool succeeded;
+            try
+            {
+                succeeded = tx.TryExecute(_f8);
+            }
+            catch (Exception ex)
+            {
+                // A faulting transaction must not tear down the single worker thread. Contain the
+                // failure, roll the transaction back and keep processing the queue.
+                stopwatch.Stop();
+                _logger.LogError(ex, "Transaction {TransactionId} ({TransactionType}) threw during execution and will be rolled back (execution time: {ElapsedMilliseconds}ms)",
+                    tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
+
+                RollbackSafely(tx, transactionType);
+                SetTransactionState(tx, TransactionState.RolledBack);
+                return;
+            }
+
+            if (succeeded)
             {
                 stopwatch.Stop();
                 _logger.LogInformation("Transaction {TransactionId} ({TransactionType}) finished successfully in {ElapsedMilliseconds}ms",
@@ -107,8 +125,22 @@ namespace NoSQL.GraphDB.Core.Transaction
                 stopwatch.Stop();
                 _logger.LogWarning("Transaction {TransactionId} ({TransactionType}) failed and will be rolled back (execution time: {ElapsedMilliseconds}ms)",
                     tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
-                tx.Rollback(_f8);
+                RollbackSafely(tx, transactionType);
                 SetTransactionState(tx, TransactionState.RolledBack);
+            }
+        }
+
+        private void RollbackSafely(ATransaction tx, String transactionType)
+        {
+            try
+            {
+                tx.Rollback(_f8);
+            }
+            catch (Exception rollbackEx)
+            {
+                // Never let a failing rollback escape onto the worker thread.
+                _logger.LogError(rollbackEx, "Rollback of transaction {TransactionId} ({TransactionType}) failed",
+                    tx.TransactionId, transactionType);
             }
         }
 

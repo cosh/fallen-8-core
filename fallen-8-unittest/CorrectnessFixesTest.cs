@@ -354,5 +354,57 @@ namespace NoSQL.GraphDB.Tests
         }
 
         #endregion
+
+        #region B6 - Transaction worker must survive a faulting transaction
+
+        [TestMethod]
+        public void TransactionWorker_WhenATransactionThrows_ShouldStillProcessSubsequentTransactions()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+
+            // A RemoveGraphElementTransaction with an out-of-range id makes TryExecute throw
+            // (the immutable list indexer throws ArgumentOutOfRangeException before the internal
+            // try/catch), which faults the worker task.
+            var faultingTx = new RemoveGraphElementTransaction { GraphElementId = int.MaxValue };
+            var faultingInfo = fallen8.EnqueueTransaction(faultingTx);
+            try
+            {
+                // On the buggy code this observes the faulted task; on fixed code it returns cleanly.
+                faultingInfo.WaitUntilFinished();
+            }
+            catch (Exception)
+            {
+                // Swallow the observed fault so it does not fail the test directly - the point of the
+                // test is whether the worker survives.
+            }
+
+            // Act - enqueue a normal transaction after the faulting one.
+            var normalTx = new CreateVertexTransaction
+            {
+                Definition = new VertexDefinition { CreationDate = 1, Properties = null }
+            };
+            fallen8.EnqueueTransaction(normalTx);
+
+            // Poll (do not WaitUntilFinished - that would hang forever if the worker died).
+            var stopwatch = Stopwatch.StartNew();
+            bool finished = false;
+            while (stopwatch.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                if (fallen8.GetTransactionState(normalTx.TransactionId) == TransactionState.Finished)
+                {
+                    finished = true;
+                    break;
+                }
+                Thread.Sleep(20);
+            }
+
+            // Assert
+            Assert.IsTrue(finished,
+                "The worker thread must survive a faulting transaction and process subsequent ones.");
+            Assert.AreEqual(1, fallen8.VertexCount, "The follow-up vertex should have been created.");
+        }
+
+        #endregion
     }
 }
