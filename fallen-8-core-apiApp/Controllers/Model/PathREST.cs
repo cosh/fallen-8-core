@@ -82,7 +82,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// The aggregate weight/cost of the entire path
         /// </summary>
         /// <remarks>
-        /// Calculated based on the weights of individual vertices and edges in the path
+        /// The sum of the weights of the individual path elements. This is <c>0</c> for the hop-count
+        /// <c>BLS</c> algorithm (which does not consume the cost block) and reflects the real summed
+        /// cost only for weighted algorithms such as <c>DIJKSTRA</c>.
         /// </remarks>
         /// <example>3.5</example>
         [Required]

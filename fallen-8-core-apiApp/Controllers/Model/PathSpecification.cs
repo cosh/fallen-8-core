@@ -54,8 +54,30 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     public sealed class PathSpecification : IEquatable<PathSpecification>
     {
         /// <summary>
-        ///   The algorithm to use for path finding
+        ///   The algorithm to use for path finding.
         /// </summary>
+        /// <remarks>
+        ///   Two algorithms ship with the engine:
+        ///   <list type="bullet">
+        ///     <item>
+        ///       <term>BLS</term>
+        ///       <description>
+        ///         Bidirectional level-synchronous search. A hop-count (unweighted) shortest path;
+        ///         the <c>cost</c> block is ignored and every path's <c>totalWeight</c> is 0.
+        ///       </description>
+        ///     </item>
+        ///     <item>
+        ///       <term>DIJKSTRA</term>
+        ///       <description>
+        ///         Weighted single-source shortest path. Honours the <c>cost</c> block
+        ///         (<c>edgeCost</c> + <c>vertexCost</c> per step, defaulting to 1 per edge) and the
+        ///         <c>maxPathWeight</c> bound, so <c>totalWeight</c> reflects the real cost. With
+        ///         <c>maxResults &gt; 1</c> it returns the K least-weight loop-free paths in
+        ///         non-decreasing weight order (Yen's algorithm).
+        ///       </description>
+        ///     </item>
+        ///   </list>
+        /// </remarks>
         /// <example>BLS</example>
         [Required]
         [DefaultValue("BLS")]
@@ -80,8 +102,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   The maximum number of paths to return in the result
         /// </summary>
+        /// <remarks>
+        ///   For <c>DIJKSTRA</c> this is the <c>K</c> in K-shortest paths and defaults high
+        ///   (<c>65535</c>); a caller that only wants the single least-weight path should set
+        ///   <c>maxResults</c> to <c>1</c> to avoid the additional cost of Yen's K-shortest search.
+        /// </remarks>
         /// <example>10</example>
-        [DefaultValue((ushort)100)]
+        [DefaultValue((ushort)65535)]
         [JsonPropertyName("maxResults")]
         public UInt16 MaxResults
         {
@@ -91,6 +118,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   The maximum allowed weight for a path to be included in results
         /// </summary>
+        /// <remarks>
+        ///   The bound is inclusive: a path whose cumulative weight equals <c>maxPathWeight</c> is
+        ///   allowed. Honoured by weighted algorithms (<c>DIJKSTRA</c>); <c>BLS</c> ignores it.
+        /// </remarks>
         /// <example>100.0</example>
         [DefaultValue(100.0)]
         [JsonPropertyName("maxPathWeight")]

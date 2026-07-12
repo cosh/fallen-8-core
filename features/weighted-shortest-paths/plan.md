@@ -1,0 +1,122 @@
+# Weighted Shortest Paths — Plan
+
+Companion to [spec.md](./spec.md). Correctness first (single least-weight path), then K-shortest,
+then wiring/docs. Every phase: failing test → implementation → green.
+
+## Phase 1 — Weighted single-source shortest path (Dijkstra), `MaxResults == 1`
+- New plugin `WeightedDijkstraShortestPath : IShortestPathAlgorithm` in
+  `fallen-8-core/Algorithms/Path/` (MIT header; mirror `BLS`'s `IPlugin` members —
+  `PluginName = "DIJKSTRA"`, `PluginCategory = typeof(IShortestPathAlgorithm)`, description,
+  `Initialize`, `Dispose`).
+- Dijkstra with a `PriorityQueue<VertexModel, double>` (min-heap by cumulative weight). Relaxation:
+  reaching neighbour `v` via edge `e` costs `stepCost(e, v) = (edgeCost?(e) ?? 1.0) + (vertexCost?(v)
+  ?? 0.0)`. Track best-known distance and predecessor `(edge, edgePropertyId, direction)` per vertex.
+- Reuse `BLS`'s traversal shape: expand **both** incoming and outgoing edges, applying
+  `EdgePropertyFilter` / `EdgeFilter` / `VertexFilter` identically (factor the "valid neighbours of a
+  vertex" logic so both algorithms stay consistent; do not regress `BLS`).
+- Honour bounds during search: stop expanding a vertex once its path length would exceed `MaxDepth`;
+  never settle/return a path whose cumulative weight exceeds `MaxPathWeight`.
+- Guard clauses identical to `BLS`: null/removed/nonexistent endpoints, `source == destination`,
+  `MaxDepth == 0`, `MaxResults <= 0` → return empty list + `false`.
+- Reconstruct the path from predecessors into `Path`/`PathElement`, setting each element's step cost
+  as its `Weight` (so `Path.Weight` aggregates correctly). Order of elements source→destination.
+- **Defensive negative-cost handling:** if a computed `stepCost < 0`, log a warning once and treat it
+  per a documented rule (clamp to 0 for ordering, or bail to empty) — do not infinite-loop or silently
+  misorder. Record the chosen rule in spec §2.
+- Tests (the discriminating ones the suite lacks):
+  - **Weight beats hops:** graph with A→B (edge cost 10) and A→C→B (1 + 1 = 2). `"DIJKSTRA"` returns
+    A→C→B (weight 2, 2 hops); a side-by-side `"BLS"` returns A→B (1 hop). Assert they differ and each
+    is correct for its algorithm.
+  - `Path.Weight` / `PathREST.TotalWeight` equals the summed cost (non-zero).
+  - Vertex cost contributes (non-null `VertexCost` changes the chosen route/total).
+  - `MaxPathWeight` prunes: the cheap route is excluded when below threshold; empty when the only
+    route exceeds it.
+  - `MaxDepth` caps: a cheaper long route is rejected when it exceeds `MaxDepth`, a costlier short one
+    returned.
+  - Default (no cost delegates) → fewest-hop path of the same length `BLS` returns.
+  - Disconnected / nonexistent endpoint / `source == destination` / `MaxDepth == 0` → empty + `false`.
+  - Filters (`EdgeFilter` label restriction, `VertexFilter`) respected.
+
+## Phase 2 — K-shortest loop-free paths (`MaxResults > 1`)
+- Implement **Yen's algorithm** on top of the Phase 1 Dijkstra subroutine: seed with the shortest
+  path, then generate candidate deviations (spur paths) at each node, forbidding the edges/nodes that
+  would reproduce an already-found path, using a candidate min-heap keyed by total weight. Emit up to
+  `MaxResults` paths in non-decreasing weight order, each loop-free and within `MaxDepth`/
+  `MaxPathWeight`.
+- Tests:
+  - K distinct paths returned in non-decreasing weight order; exactly `min(K, available)` when fewer
+    than K exist.
+  - Ties (equal-weight alternatives) returned deterministically.
+  - K-shortest still respects `MaxDepth` / `MaxPathWeight` / filters.
+  - `MaxResults` larger than the number of loop-free paths → all of them, no duplicates.
+
+## Phase 3 — Wiring, docs, and test hygiene
+- Confirm the plugin is auto-discovered and resolvable by name over both entry points:
+  `IFallen8.TryCalculateShortestPath(out, "DIJKSTRA", def)` and the REST endpoint
+  `POST /path/{from}/{to}` with `"pathAlgorithmName": "DIJKSTRA"` (add an end-to-end controller test
+  through `GraphController.CalculateShortestPath` with a compiled `cost` block, exercising
+  `CodeGenerationHelper`). No controller/DTO/codegen changes expected — assert that.
+- **Fix the false-positive test:** rename `PathWithWeightedEdges_ShouldFindShortestWeightedPath` to
+  make clear it exercises `BLS`'s hop-count behaviour (its assertion is fine for `BLS`), and add the
+  genuine weighted equivalent under `"DIJKSTRA"` (covered in Phase 1). Leave other `BLS` tests intact.
+- Docs: mention the `"DIJKSTRA"` option and that it honours the `cost` block in the
+  `PathSpecification` XML docs / endpoint remarks (OpenAPI surfaces it); a short note in the feature
+  README is optional. No on-disk/format changes.
+
+## Status
+- [x] Phase 1 — weighted Dijkstra (single least-weight path) + discriminating tests
+- [x] Phase 2 — Yen's K-shortest loop-free paths
+- [x] Phase 3 — name resolution + end-to-end REST test + fix the misleading test + docs
+
+Implemented as `fallen-8-core/Algorithms/Path/WeightedDijkstraShortestPath.cs` (plugin name
+`"DIJKSTRA"`). Tests: `fallen-8-unittest/WeightedDijkstraPathTest.cs` (25 tests) plus the renamed
+BLS test in `PathTest.cs`. Full suite green at 230 tests. `BLS` is unchanged (behaviour + default).
+Notes on the two deviations from the plan text are in the "Notes" section below.
+
+## Notes
+- Keep `BLS` untouched (behaviour + default). Factor shared neighbour-enumeration carefully so a
+  refactor does not regress `BLS`'s existing tests.
+- `PriorityQueue<,>` is available on net10; no external dependency.
+- Bidirectional/A\* and negative-weight algorithms are explicit non-goals (spec §4).
+
+### Deviations / refinements (implementation)
+- **No shared neighbour-enumeration refactor.** `BLS`'s `GetValid*Edges` interleave a persistent
+  `alreadyVisited` HashSet (level-synchronous BFS bookkeeping) with the filter checks; a Dijkstra
+  needs per-vertex enumeration *without* that cross-call dedup. Rather than risk regressing `BLS`,
+  the plugin duplicates a small, self-contained neighbour enumeration that applies the same three
+  filters in the same order (edge-property → edge → vertex). `BLS` was not touched. (The plan
+  explicitly allowed duplicating when a refactor would be risky.)
+- **Hop dimension in the search state.** To honour `MaxDepth` *exactly* (reject a cheaper-but-longer
+  route in favour of a costlier route that fits the budget), the Dijkstra label is keyed by
+  `(vertexId, hops)`, not by vertex alone. A plain per-vertex distance would let the cheap long
+  route settle the destination and hide the admissible short one. State space is `O(V · MaxDepth)`,
+  bounded at entry by capping the effective hop budget at `min(MaxDepth, VertexCount − 1)`
+  (result-invariant; see the nit fixes below and spec §2).
+- **Loop-free guarantee.** Reconstruction excises any repeated vertex; with non-negative (clamped)
+  costs a repeat only occurs across a zero-weight cycle, so excision preserves weight and validity.
+
+### Merge-review nit fixes
+Applied after the unanimous APPROVE_WITH_NITS review (all result-invariant / quality nits; `BLS`
+behaviour untouched):
+- **Bounded search state space.** Cap the effective hop budget at `min(MaxDepth, VertexCount − 1)`
+  once at the entry point so it flows into both the single Dijkstra and Yen's spur searches —
+  guarding a huge opt-in `MaxDepth` against an unreachable destination in a cyclic component. The
+  cap never increases the caller's `MaxDepth` and is result-invariant (spec §2); covered by a
+  large-`MaxDepth`-vs-`VertexCount` invariance test plus an intermediate-shadowing regression test.
+- **Deterministic K-shortest tie-break.** The candidate priority queue compares the path signature
+  with `String.CompareOrdinal`, so the tie chosen when `MaxResults` is smaller than a tie group is
+  culture-invariant (byte-identical across locales).
+- **Snapshot `OutEdges`/`InEdges` into locals** before the null-check + iterate in the neighbour
+  enumeration (mirrors `BLS`; behaviour-preserving robustness).
+- **Doc clarifications** in `GraphController` (grammar), `PathSpecification` (aligned the
+  `maxResults` `DefaultValue` to `65535`; noted `maxResults = 1` for the least-weight-only case;
+  noted `maxPathWeight` is inclusive) and `PathREST` (`totalWeight` is `0` for `BLS`).
+- **Added/strengthened tests:** incoming-edge (against-direction) traversal; `EdgePropertyFilter`;
+  stronger `MaxPathWeight` (isolates pruning) and negative-cost (exact clamped weight) assertions.
+
+### Known perf follow-up
+- **Large-`MaxResults` Yen's cost.** `MaxResults` defaults to `65535`; for `DIJKSTRA` that is the
+  `K` in K-shortest, so an unbounded `maxResults` can make Yen's algorithm do a lot of spur work on
+  large graphs. Callers wanting only the least-weight path should pass `maxResults = 1`. A future
+  optimisation could short-circuit very large `K` or bound candidate generation; not required for
+  correctness.

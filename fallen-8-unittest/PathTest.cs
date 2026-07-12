@@ -425,8 +425,15 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void PathWithWeightedEdges_ShouldFindShortestWeightedPath()
+        public void PathWithWeightedEdges_Bls_ReturnsFewestHopPath()
         {
+            // NOTE: This test exercises "BLS", which is a hop-count (unweighted) bidirectional
+            // search. On this particular graph the fewest-hop A->E path (A->C->E, 2 hops) also
+            // happens to be the least-weight one, so the result "looks" weight-aware even though
+            // BLS never consumes the edge cost. The genuinely weight-consuming assertions live in
+            // WeightedDijkstraPathTest against the "DIJKSTRA" algorithm. Here we pin BLS's
+            // hop-count behaviour and confirm it leaves the path weight at 0 (cost is ignored).
+
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
@@ -497,7 +504,8 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNotNull(paths, "Paths should not be null");
             Assert.AreEqual(1, paths.Count, "Should find one path");
 
-            // The shortest weighted path should be A->C->E with total weight of 2+3=5
+            // BLS returns the FEWEST-HOP A->E path, which here is A->C->E (2 hops). On this graph
+            // that also happens to be the least-weight route, but BLS reaches it via hop count.
             var path = paths[0];
 
             // Get the path elements to check vertices
@@ -509,6 +517,9 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(aId, pathElements[0].SourceVertex.Id, "Path should start with vertex A");
             Assert.AreEqual(cId, pathElements[0].TargetVertex.Id, "Path should continue to vertex C");
             Assert.AreEqual(eId, pathElements[1].TargetVertex.Id, "Path should end with vertex E");
+
+            // BLS never consumes the edge cost, so the aggregated path weight remains 0.
+            Assert.AreEqual(0.0, path.Weight, 1e-9, "BLS ignores edge cost; the path weight stays 0");
         }
 
         [TestMethod]
