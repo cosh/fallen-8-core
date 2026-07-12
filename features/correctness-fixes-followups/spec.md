@@ -1,0 +1,47 @@
+# Correctness Fixes — Follow-ups — Specification
+
+> **Status:** Planned. Three deferred follow-ups from the merged `correctness-fixes` work (see
+> [../correctness-fixes/plan.md](../correctness-fixes/plan.md) "Follow-ups"). Localized fixes,
+> each with a regression test, independent of the larger structural themes.
+
+## 1. Problem
+
+The `correctness-fixes` work fixed the *engine* symptoms of two defects but left the *observable*
+behaviour untouched, and one rollback branch remained untested.
+
+| # | Defect | Effect |
+|---|--------|--------|
+| B6-followup | The worker now rolls a faulting transaction back and marks it `RolledBack`, but the mutation controllers return `202 Accepted` regardless of outcome | A rolled-back write is reported to the client as success |
+| B7-followup | `RTree.Save`/`Load` throw `NotImplementedException` and `PersistencyFactory.SaveIndex` has no guard (the caller dereferences the faulted task's `.Result`) | A single spatial index present aborts the **entire** checkpoint — all graph elements and every other index are lost |
+| edge-rollback | The `else` branch of `Fallen8.TryRemoveGraphElement_private` (edge removal, replaying `inEdgeRemovals`/`outEdgeRemovals` on rollback) has no test | A regression there would go unnoticed |
+
+## 2. Decisions
+
+- **Error status for a rolled-back mutation:** use `500 Internal Server Error`, consistent with
+  the existing `SubGraphController.CreateSubGraph` catch-all. A rolled-back transaction is an
+  internal failure the client did not ask to distinguish; `500` matches the house style.
+- **`TransactionInformation` visibility:** confirmed *no gap*. `TransactionState` is a public
+  property that the manager mutates on the very instance the controller holds (`AddOrUpdate`
+  updates the existing entry), and `Task.Wait()` inside `WaitUntilFinished()` establishes the
+  happens-before that makes the terminal state visible. No change needed there.
+- **Spatial index persistence:** minimal only. `RTree.Save`/`Load` become graceful, logged
+  no-ops (come up empty after load); full R-Tree serialization stays deferred to the
+  `persistence-hardening` theme. Additionally guard the save/load index paths so a single
+  throwing index is skipped, not fatal (defense in depth for any future index).
+
+## 3. Acceptance criteria
+
+- A `waitForCompletion=true` mutation that rolls back returns `500`, not `202`; a normal mutation
+  still returns success. The fire-and-forget (`waitForCompletion=false`) path is unchanged.
+- A graph containing a spatial (R-Tree) index saves and loads without throwing; graph elements
+  and non-spatial indices round-trip; the spatial index is empty after load (documented in the
+  test).
+- The edge-removal rollback path has a regression test asserting the edge and its endpoint
+  adjacency are restored.
+- Full suite stays green.
+
+## 4. Notes
+
+The `outEdgeRemovals` replay in the edge-removal restore block is effectively unreachable with the
+current removal structure (nothing throws after both removal lists are populated); this is noted,
+not "fixed" — widening the fault window is out of scope. See plan.md.
