@@ -38,7 +38,12 @@ Do the `correctness-fixes` theme first (the immutable-return-value bugs share th
 - [x] Phase 2 — array-backed interim (copy-on-write `AGraphElementModel[]`, see note below)
 - [x] Phase 3 — segmented array master store
 - [ ] Phase 4 — adjacency flattening — **deferred** (see "Phase 4 — deferred" below)
-- [x] Phase 5 — measure & document
+- [~] Phase 5 — measure & document — **partial**: benchmarks captured (below) and the
+  `memory-footprint` sibling-doc baseline reconciled to the master-store-only win (it no longer
+  inherits the full adjacency+master tree overhead as realised). Still outstanding: the
+  large-graph (multi-GB) RSS measurement was **not** run in this environment (too heavy for the
+  in-suite harness — see the Measurements note), and the `engine-performance` note is only
+  partially updated.
 
 > Phase 2 note: the plan called for `ImmutableArray<T> + Builder`, but `ImmutableArray<T>` is a
 > struct and cannot be marked `volatile`, which Phase 1 requires for the holder. A copy-on-write

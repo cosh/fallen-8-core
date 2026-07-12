@@ -49,6 +49,16 @@ replace the immutable trees with **mutable structures published by an atomic ref
 - Changing the single-writer model or the transaction API.
 - Struct-of-arrays / columnar redesign (possible future; out of scope here).
 
+> **Scope note (adjacency vs. unchanged surface).** The second goal (array-like adjacency without
+> the per-direction dictionary wrapper) and the last goal (keep the `VertexModel`/`EdgeModel`
+> surface unchanged) are in direct tension: the adjacency collections **are** part of the public
+> surface — `VertexModel.OutEdges`/`InEdges` are public fields and `TryGetOutEdge`/`TryGetInEdge`
+> return `ImmutableList<EdgeModel>` — so flattening them necessarily changes that surface. This is
+> resolved by scoping: the master-store change (first goal) landed under the unchanged-surface
+> constraint, while adjacency-flattening is **out of this theme's "unchanged surface" scope** and
+> deferred to **Phase 4** as a future, API-versioned change (it requires a public-API-version
+> bump). See the plan's "Phase 4 — deferred" section.
+
 ## 4. Design sketch
 
 - **Master store:** an append-only **segmented array** behind a single `volatile` holder:

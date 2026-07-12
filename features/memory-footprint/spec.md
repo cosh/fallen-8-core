@@ -1,13 +1,19 @@
 # Memory Footprint — Specification
 
-> **Status:** Planned. Memory/GC improvements from the review. The largest single win (adjacency
-> and master-store representation) is owned by `core-storage-representation`; this theme covers
-> the remaining per-element and lifecycle costs.
+> **Status:** Planned. Memory/GC improvements from the review. `core-storage-representation`
+> landed only the **master-store** portion of the structural win; its adjacency-representation
+> portion (Phase 4) is **deferred** there, so this theme owns both the still-outstanding adjacency
+> overhead and the remaining per-element and lifecycle costs.
 
 ## 1. Scope
 
 Reduce steady-state bytes/element and allocation churn, on top of the structural change in
-`core-storage-representation` (which removes ~144 B/edge + ~200–400 B/vertex of tree overhead).
+`core-storage-representation`. That theme's landed work removes only the **master-store**
+per-element overhead (the ~48 B/edge `ImmutableList` tree node became an ~8 B array slot); the
+two per-vertex adjacency `ImmutableList`s (~96 B/edge) and the per-vertex adjacency
+`ImmutableDictionary`s (~200–400 B/vertex) are **still outstanding**, because adjacency flattening
+(`core-storage-representation` Phase 4) is deferred — that overhead remains for this theme to
+address.
 
 ## 2. Findings & targets
 
