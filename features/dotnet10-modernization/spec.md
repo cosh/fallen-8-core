@@ -104,9 +104,11 @@
 - N1: DTO + recipe/spec serialization go through the generated context; the explicit-call-site
   IL2026 suppressions are removed; OpenAPI/serialization output unchanged.
 - N2: plugin discovery runs the disk scan once (cache invalidated on `Assimilate`); benchmarked
-  reduction on index/service open paths.
+  reduction on index/service open paths. *(out of scope for this theme — tracked as
+  engine-performance P5; see §2 note)*
 - N3: `PerformanceCounter` gone; either OpenAPI 10.x + transformer deleted (with the vuln resolved)
   or a documented decision to defer; `Microsoft.Extensions.*` aligned; build clean.
 - N4: save/load string throughput improves; no on-disk format change (bytes identical).
 - N5: `docker build` produces a runnable net10 image; GC settings explicit; a DATAS benchmark
-  recorded to justify the chosen mode.
+  recorded to justify the chosen mode *(deferred — no benchmark run; see §3 and the GC
+  decision)*.
