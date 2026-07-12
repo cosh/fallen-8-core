@@ -102,8 +102,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   The maximum number of paths to return in the result
         /// </summary>
+        /// <remarks>
+        ///   For <c>DIJKSTRA</c> this is the <c>K</c> in K-shortest paths and defaults high
+        ///   (<c>65535</c>); a caller that only wants the single least-weight path should set
+        ///   <c>maxResults</c> to <c>1</c> to avoid the additional cost of Yen's K-shortest search.
+        /// </remarks>
         /// <example>10</example>
-        [DefaultValue((ushort)100)]
+        [DefaultValue((ushort)65535)]
         [JsonPropertyName("maxResults")]
         public UInt16 MaxResults
         {
@@ -113,6 +118,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   The maximum allowed weight for a path to be included in results
         /// </summary>
+        /// <remarks>
+        ///   The bound is inclusive: a path whose cumulative weight equals <c>maxPathWeight</c> is
+        ///   allowed. Honoured by weighted algorithms (<c>DIJKSTRA</c>); <c>BLS</c> ignores it.
+        /// </remarks>
         /// <example>100.0</example>
         [DefaultValue(100.0)]
         [JsonPropertyName("maxPathWeight")]
