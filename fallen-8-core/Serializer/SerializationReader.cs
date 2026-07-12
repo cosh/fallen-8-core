@@ -213,12 +213,10 @@ namespace NoSQL.GraphDB.Core.Serializer
         public override string ReadString()
         {
             var counter = ReadInt32();
-            Byte[] byteArray = new byte[counter];
-
-            for (int i = 0; i < counter; i++)
-            {
-                byteArray[i] = ReadByte();
-            }
+            // Read the encoded bytes in a single bulk call. This mirrors the writer's
+            // bulk Write(byte[]) and is equivalent to the previous per-byte ReadByte loop
+            // because the writer always emits exactly 'counter' bytes for the string.
+            var byteArray = ReadBytes(counter);
 
             return _enc.GetString(byteArray);
         }

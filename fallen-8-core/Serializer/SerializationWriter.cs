@@ -343,10 +343,11 @@ namespace NoSQL.GraphDB.Core.Serializer
         {
             var bytes = _enc.GetBytes(value);
             Write(bytes.Length);
-            foreach (var aByte in bytes)
-            {
-                base.Write(aByte);
-            }
+            // Write the encoded bytes in a single bulk call. BinaryWriter.Write(byte[])
+            // emits the raw bytes with no length prefix or type code, so the produced
+            // stream is byte-for-byte identical to the previous per-byte loop. base.Write
+            // is required to bypass this class's Write(byte[]) override.
+            base.Write(bytes);
         }
 
         /// <summary>
