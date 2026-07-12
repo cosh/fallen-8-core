@@ -49,14 +49,21 @@ namespace NoSQL.GraphDB.Core
         #region Data
 
         /// <summary>
-        ///   The graph elements storage. Thread safety is provided by the TransactionManager:
-        ///   every mutation runs on its single worker thread and publishes a new collection by
-        ///   an atomic reference swap of this field, while lock-free readers capture the current
-        ///   reference once and get a consistent snapshot. The field is <c>volatile</c> so the
-        ///   publish (release) / capture (acquire) pair is correct on weak-memory (for example
-        ///   ARM) hardware, not only on x86; each read method must read it exactly once.
+        ///   The graph elements storage: a dense array where the index equals the element id.
+        ///   Thread safety is provided by the TransactionManager: every mutation runs on its
+        ///   single worker thread and publishes a NEW, fully-populated array by an atomic
+        ///   (volatile) reference swap of this field, while lock-free readers capture the current
+        ///   reference once (O(1) indexer) and get a consistent snapshot. A published array is
+        ///   never mutated in place (a soft-remove only flips the element's own <c>_removed</c>
+        ///   flag, and Trim builds a fresh array), so a reader that captured a reference keeps a
+        ///   stable view. The field is <c>volatile</c> so the publish (release) / capture
+        ///   (acquire) pair is correct on weak-memory (for example ARM) hardware, not only x86;
+        ///   each read method must read it exactly once.
+        ///   (<see cref="ImmutableArray{T}"/> is a struct and cannot be <c>volatile</c>; a
+        ///   copy-on-write <c>T[]</c> behind a volatile reference gives the same
+        ///   immutable-after-publish guarantee with correct memory ordering.)
         /// </summary>
-        private volatile ImmutableList<AGraphElementModel> _graphElements;
+        private volatile AGraphElementModel[] _graphElements;
 
         /// <summary>
         /// The delegate to find elements in the big list
@@ -195,13 +202,71 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
+        #region master store mutation (single-writer, copy-on-write)
+
+        /// <summary>
+        ///   Appends one element to the master store. Runs only on the single TransactionManager
+        ///   writer thread. A brand-new array is fully populated first and then published by a
+        ///   single volatile write, so a lock-free reader observes either the old array or the
+        ///   fully built new one - never a partially written array (id == index preserved).
+        /// </summary>
+        private void AppendGraphElement(AGraphElementModel element)
+        {
+            var current = _graphElements;
+            var next = new AGraphElementModel[current.Length + 1];
+            Array.Copy(current, next, current.Length);
+            next[current.Length] = element;
+            _graphElements = next; // atomic publish (release); slot written before publication
+        }
+
+        /// <summary>
+        ///   Appends a batch of elements to the master store in one copy-on-write publication.
+        ///   <paramref name="elements"/> is accepted as a covariant read-only list so callers can
+        ///   pass a <c>List&lt;VertexModel&gt;</c>/<c>List&lt;EdgeModel&gt;</c> directly.
+        /// </summary>
+        private void AppendGraphElements(IReadOnlyList<AGraphElementModel> elements)
+        {
+            if (elements == null || elements.Count == 0)
+            {
+                return;
+            }
+
+            var current = _graphElements;
+            var next = new AGraphElementModel[current.Length + elements.Count];
+            Array.Copy(current, next, current.Length);
+            for (var i = 0; i < elements.Count; i++)
+            {
+                next[current.Length + i] = elements[i];
+            }
+            _graphElements = next; // atomic publish (release); all slots written before publication
+        }
+
+        /// <summary>
+        ///   Resolves an element by id for a single-writer mutation. Preserves the historical
+        ///   contract that an out-of-range id throws <see cref="ArgumentOutOfRangeException"/>:
+        ///   the previous <c>ImmutableList</c> indexer threw that type, whereas a raw array
+        ///   indexer would throw <see cref="IndexOutOfRangeException"/>. The returned element may
+        ///   itself be null (a slot left empty by a load).
+        /// </summary>
+        private AGraphElementModel GetGraphElementForMutation(Int32 graphElementId)
+        {
+            var snapshot = _graphElements;
+            if (graphElementId < 0 || graphElementId >= snapshot.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(graphElementId));
+            }
+            return snapshot[graphElementId];
+        }
+
+        #endregion
+
         internal VertexModel CreateVertex_internal(UInt32 creationDate, String label, Dictionary<String, Object> properties = null)
         {
             //create the new vertex
             var newVertex = new VertexModel(_currentId, creationDate, label, properties);
 
             //insert it
-            _graphElements = _graphElements.Add(newVertex);
+            AppendGraphElement(newVertex);
 
             //increment the id
             Interlocked.Increment(ref _currentId);
@@ -233,7 +298,7 @@ namespace NoSQL.GraphDB.Core
                 }
 
                 //insert all vertices in batch
-                _graphElements = _graphElements.AddRange(newVertices);
+                AppendGraphElements(newVertices);
             }
 
             return newVertices;
@@ -246,7 +311,7 @@ namespace NoSQL.GraphDB.Core
             // this read observe a count that disagrees with the backing store (no out-of-range).
             var snapshot = _graphElements;
 
-            if (id < 0 || id >= snapshot.Count)
+            if (id < 0 || id >= snapshot.Length)
             {
                 result = null;
                 return false;
@@ -260,7 +325,7 @@ namespace NoSQL.GraphDB.Core
         {
             var snapshot = _graphElements;
 
-            if (id < 0 || id >= snapshot.Count)
+            if (id < 0 || id >= snapshot.Length)
             {
                 result = null;
                 return false;
@@ -274,7 +339,7 @@ namespace NoSQL.GraphDB.Core
         {
             var snapshot = _graphElements;
 
-            if (id < 0 || id >= snapshot.Count)
+            if (id < 0 || id >= snapshot.Length)
             {
                 result = null;
                 return false;
@@ -545,8 +610,8 @@ namespace NoSQL.GraphDB.Core
         {
             EdgeModel outgoingEdge = null;
 
-            var sourceVertex = _graphElements[sourceVertexId] as VertexModel;
-            var targetVertex = _graphElements[targetVertexId] as VertexModel;
+            var sourceVertex = GetGraphElementForMutation(sourceVertexId) as VertexModel;
+            var targetVertex = GetGraphElementForMutation(targetVertexId) as VertexModel;
 
             //get the related vertices
             if (sourceVertex != null && targetVertex != null)
@@ -554,7 +619,7 @@ namespace NoSQL.GraphDB.Core
                 outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, label, edgePropertyId, properties);
 
                 //add the edge to the graph elements
-                _graphElements = _graphElements.Add(outgoingEdge);
+                AppendGraphElement(outgoingEdge);
 
                 //increment the ids
                 Interlocked.Increment(ref _currentId);
@@ -580,8 +645,8 @@ namespace NoSQL.GraphDB.Core
             {
                 foreach (var aEdgeDefinition in definitions)
                 {
-                    var sourceVertex = _graphElements[aEdgeDefinition.SourceVertexId] as VertexModel;
-                    var targetVertex = _graphElements[aEdgeDefinition.TargetVertexId] as VertexModel;
+                    var sourceVertex = GetGraphElementForMutation(aEdgeDefinition.SourceVertexId) as VertexModel;
+                    var targetVertex = GetGraphElementForMutation(aEdgeDefinition.TargetVertexId) as VertexModel;
 
                     //get the related vertices
                     if (sourceVertex != null && targetVertex != null)
@@ -608,7 +673,7 @@ namespace NoSQL.GraphDB.Core
                 //add the edges to the graph elements in batch
                 if (newEdges.Count > 0)
                 {
-                    _graphElements = _graphElements.AddRange(newEdges);
+                    AppendGraphElements(newEdges);
                 }
             }
 
@@ -617,7 +682,7 @@ namespace NoSQL.GraphDB.Core
 
         internal void SetProperty_internal(Int32 graphElementId, String propertyId, Object property)
         {
-            AGraphElementModel graphElement = _graphElements[graphElementId];
+            AGraphElementModel graphElement = GetGraphElementForMutation(graphElementId);
             if (graphElement != null)
             {
                 graphElement.SetProperty(propertyId, property);
@@ -626,7 +691,7 @@ namespace NoSQL.GraphDB.Core
 
         internal void RemoveProperty_internal(Int32 graphElementId, String propertyId)
         {
-            var graphElement = _graphElements[graphElementId];
+            var graphElement = GetGraphElementForMutation(graphElementId);
 
             if (graphElement != null)
             {
@@ -636,7 +701,7 @@ namespace NoSQL.GraphDB.Core
 
         internal bool TryRemoveGraphElement_private(Int32 graphElementId)
         {
-            AGraphElementModel graphElement = _graphElements[graphElementId];
+            AGraphElementModel graphElement = GetGraphElementForMutation(graphElementId);
 
             if (graphElement == null || graphElement._removed)
             {
@@ -651,7 +716,7 @@ namespace NoSQL.GraphDB.Core
             {
                 #region remove element
 
-                _graphElements[graphElementId].MarkAsRemoved();
+                graphElement.MarkAsRemoved();
 
                 if (graphElement is VertexModel)
                 {
@@ -853,7 +918,10 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         internal void PublishLoadedGraphElements(AGraphElementModel[] graphElements)
         {
-            _graphElements = ImmutableList.CreateRange(graphElements);
+            // The loaded array is already dense and id-ordered (and may contain null slots for
+            // ids that were null/removed at save time, which readers filter). It is fully built
+            // and not mutated afterwards, so it becomes the master store directly (no copy).
+            _graphElements = graphElements;
         }
 
         internal void Load_internal(String path, Boolean startServices = false)
@@ -1065,29 +1133,34 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         internal void Trim_internal()
         {
+            // Runs on the single writer thread. Capture the current array once.
+            var current = _graphElements;
+
             // Trim individual graph elements
-            for (var i = 0; i < _currentId && i < _graphElements.Count; i++)
+            for (var i = 0; i < _currentId && i < current.Length; i++)
             {
-                AGraphElementModel graphElement = _graphElements[i];
+                AGraphElementModel graphElement = current[i];
                 graphElement?.Trim();
             }
 
-            // Create new list excluding nulls and removed elements
-            var newGraphElementList = _graphElements
+            // Create new dense array excluding nulls and removed elements
+            var newGraphElementList = current
                 .Where(element => element != null && !element._removed)
-                .ToList();
+                .ToArray();
 
-            // Reassign IDs sequentially
-            for (int i = 0; i < newGraphElementList.Count; i++)
+            // Reassign IDs sequentially (index == id)
+            for (int i = 0; i < newGraphElementList.Length; i++)
             {
                 newGraphElementList[i].SetId(i);
             }
 
             // Update current ID
-            _currentId = newGraphElementList.Count;
+            _currentId = newGraphElementList.Length;
 
-            // Replace the graph elements list
-            _graphElements = newGraphElementList.ToImmutableList();
+            // Publish the compacted array with a single atomic write. In-flight readers holding
+            // the previous array keep a fully consistent (old-id-space) view; they never index it
+            // out of range because their bound check used the same captured array's length.
+            _graphElements = newGraphElementList;
 
             // Trim transaction manager
             _txManager.Trim();
