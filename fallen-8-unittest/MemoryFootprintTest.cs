@@ -212,5 +212,98 @@ namespace NoSQL.GraphDB.Tests
                 "A surviving vertex must keep its id when the tombstone count is below the threshold.");
             Assert.AreEqual(survivorId, survivor.Id);
         }
+
+        private static void SetInternTableCap(Fallen8 fallen8, int cap)
+        {
+            var field = typeof(Fallen8).GetField("_internTableCap",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsNotNull(field, "The internal intern-table cap field must exist.");
+            field.SetValue(fallen8, cap);
+        }
+
+        private static int InternTableCount(Fallen8 fallen8)
+        {
+            var field = typeof(Fallen8).GetField("_internTable",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsNotNull(field, "The internal intern table field must exist.");
+            var table = field.GetValue(fallen8);
+            Assert.IsNotNull(table, "The intern table must never be null.");
+            return ((System.Collections.ICollection)table).Count;
+        }
+
+        private static string Intern(Fallen8 fallen8, string value)
+        {
+            var method = typeof(Fallen8).GetMethod("Intern",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsNotNull(method, "The internal Intern method must exist.");
+            return (string)method.Invoke(fallen8, new object[] { value });
+        }
+
+        // A value-equal but reference-distinct copy, so an interning fold is observable through
+        // ReferenceEquals (string literals would be CLR-interned and defeat the check).
+        private static string Fresh(string value)
+        {
+            return new string(value.ToCharArray());
+        }
+
+        [TestMethod]
+        public void InternTable_BelowCapSharesInstance_PastCapIsNoOpAndDoesNotGrow()
+        {
+            var fallen8 = new Fallen8(_loggerFactory);
+
+            // Lower the cap so the test is fast (the real cap is 1,000,000, far above any schema).
+            SetInternTableCap(fallen8, 3);
+
+            // Below the cap: a value-equal but distinct instance folds to the one shared instance.
+            string shared = Intern(fallen8, Fresh("label-0"));
+            string sharedAgain = Intern(fallen8, Fresh("label-0"));
+            Assert.IsTrue(ReferenceEquals(shared, sharedAgain),
+                "Below the cap, interning returns the single shared instance for value-equal strings.");
+
+            // Fill the table exactly to the cap ("label-0" already counts as one distinct string).
+            Intern(fallen8, "label-1");
+            Intern(fallen8, "label-2");
+            Assert.AreEqual(3, InternTableCount(fallen8), "The table holds exactly the cap's distinct strings.");
+
+            // Past the cap: a NEW distinct string is a no-op - it is returned value-equal (in fact
+            // the argument instance itself) and is NOT added, so the table does not grow.
+            string overflowInput = Fresh("label-overflow");
+            string overflowResult = Intern(fallen8, overflowInput);
+            Assert.AreEqual("label-overflow", overflowResult, "Past the cap the value is preserved.");
+            Assert.IsTrue(ReferenceEquals(overflowInput, overflowResult),
+                "Past the cap interning is a no-op: it returns the argument instance unchanged.");
+            Assert.AreEqual(3, InternTableCount(fallen8), "The table must not grow past the cap.");
+
+            // Null is always returned as-is, independent of the cap.
+            Assert.IsNull(Intern(fallen8, null));
+
+            fallen8.Dispose();
+        }
+
+        [TestMethod]
+        public void InternTable_ClearedByTabulaRasa_ButNotByTrim()
+        {
+            var fallen8 = new Fallen8(_loggerFactory);
+
+            // Populate the intern table via the normal create path (label + property keys intern).
+            var tx = new CreateVerticesTransaction();
+            for (int i = 0; i < 5; i++)
+            {
+                tx.AddVertex(1u, "person", new Dictionary<string, object> { { "name", "n" + i }, { "age", i } });
+            }
+            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+            Assert.IsTrue(InternTableCount(fallen8) > 0, "Interning the label/keys must populate the table.");
+
+            // Trim must NOT clear the table: the surviving elements still reference those strings.
+            fallen8.EnqueueTransaction(new TrimTransaction()).WaitUntilFinished();
+            Assert.IsTrue(InternTableCount(fallen8) > 0,
+                "Trim must not clear the intern table - the survivors still reference the strings.");
+
+            // A full reset (TabulaRasa) discards every element, so it reclaims the table too.
+            fallen8.EnqueueTransaction(new TabulaRasaTransaction()).WaitUntilFinished();
+            Assert.AreEqual(0, InternTableCount(fallen8), "TabulaRasa must clear the intern table.");
+
+            fallen8.Dispose();
+        }
     }
 }

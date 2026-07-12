@@ -174,6 +174,18 @@ namespace NoSQL.GraphDB.Core
         private readonly ConcurrentDictionary<String, String> _internTable = new ConcurrentDictionary<String, String>(StringComparer.Ordinal);
 
         /// <summary>
+        ///   Upper bound on the number of distinct strings the <see cref="_internTable" /> retains.
+        ///   The table is bounded by schema cardinality (distinct labels / property keys /
+        ///   edge-property-ids), so this cap is far above any real schema; it exists only so a
+        ///   pathological high-cardinality-key/label workload cannot pin an unbounded number of
+        ///   distinct strings for the process lifetime (which would undercut M4's store bounding).
+        ///   Past the cap <see cref="Intern" /> becomes a no-op and returns its argument as-is -
+        ///   correctness is unaffected because interning only ever substitutes a value-equal
+        ///   instance. A field (not a const) so a test can lower it.
+        /// </summary>
+        internal int _internTableCap = 1_000_000;
+
+        /// <summary>
         ///   Binary operator delegate.
         /// </summary>
         private delegate Boolean BinaryOperatorDelegate(IComparable property, IComparable literal);
@@ -402,6 +414,17 @@ namespace NoSQL.GraphDB.Core
             if (value == null)
             {
                 return null;
+            }
+
+            // Bound the table (see _internTableCap): once it holds a cap's worth of distinct
+            // strings, stop adding new ones and return the argument unchanged, so interning becomes
+            // a no-op past the cap. The Count read races with a concurrent writer, but the table is
+            // populated only from the single transaction-writer thread and the goal is bounding,
+            // not an exact size, so a slight overshoot is harmless. Correctness is unaffected
+            // either way: the result is always value-equal to the argument.
+            if (_internTable.Count >= _internTableCap)
+            {
+                return value;
             }
 
             return _internTable.GetOrAdd(value, value);
@@ -1080,6 +1103,11 @@ namespace NoSQL.GraphDB.Core
             IndexFactory.DeleteAllIndices();
             VertexCount = 0;
             EdgeCount = 0;
+            // Reclaim the intern table on a full reset: its entries are only referenced by the
+            // graph elements being discarded here, so a reset should release them too. (It is
+            // deliberately NOT cleared on Trim, where interned strings are still referenced by the
+            // surviving elements.)
+            _internTable.Clear();
         }
 
         /// <summary>
