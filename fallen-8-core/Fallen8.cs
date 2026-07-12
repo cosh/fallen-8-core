@@ -49,21 +49,52 @@ namespace NoSQL.GraphDB.Core
         #region Data
 
         /// <summary>
-        ///   The graph elements storage: a dense array where the index equals the element id.
-        ///   Thread safety is provided by the TransactionManager: every mutation runs on its
-        ///   single worker thread and publishes a NEW, fully-populated array by an atomic
-        ///   (volatile) reference swap of this field, while lock-free readers capture the current
-        ///   reference once (O(1) indexer) and get a consistent snapshot. A published array is
-        ///   never mutated in place (a soft-remove only flips the element's own <c>_removed</c>
-        ///   flag, and Trim builds a fresh array), so a reader that captured a reference keeps a
-        ///   stable view. The field is <c>volatile</c> so the publish (release) / capture
-        ///   (acquire) pair is correct on weak-memory (for example ARM) hardware, not only x86;
-        ///   each read method must read it exactly once.
-        ///   (<see cref="ImmutableArray{T}"/> is a struct and cannot be <c>volatile</c>; a
-        ///   copy-on-write <c>T[]</c> behind a volatile reference gives the same
-        ///   immutable-after-publish guarantee with correct memory ordering.)
+        ///   An immutable, point-in-time view of the master store: a segmented array where the
+        ///   global index equals the element id (<c>id == index</c>), split into fixed-size
+        ///   segments so that appends never copy the whole store and large segments never hit the
+        ///   Large Object Heap. <see cref="Count" /> is the number of live slots; a reader must
+        ///   only read ids in <c>[0, Count)</c>. A published snapshot is treated as immutable: the
+        ///   writer only ever writes slots at index &gt;= the currently published <see cref="Count" />
+        ///   (never read by a current reader) and then republishes with a larger Count, or builds a
+        ///   fresh snapshot (Trim/Load). See <see cref="AppendGraphElement" /> for the publication
+        ///   ordering rationale.
         /// </summary>
-        private volatile AGraphElementModel[] _graphElements;
+        private sealed class Snapshot
+        {
+            /// <summary>The segments. Segment <c>s</c> holds ids <c>[s*SegmentSize, (s+1)*SegmentSize)</c>.</summary>
+            internal readonly AGraphElementModel[][] Segments;
+
+            /// <summary>The number of live slots (ids <c>0 .. Count-1</c>). Published LAST.</summary>
+            internal readonly int Count;
+
+            internal Snapshot(AGraphElementModel[][] segments, int count)
+            {
+                Segments = segments;
+                Count = count;
+            }
+        }
+
+        /// <summary>
+        ///   log2(SegmentSize). 4096 elements/segment => 32 KB per segment array (8-byte
+        ///   references), comfortably below the ~85 KB Large Object Heap threshold, so segment
+        ///   allocations stay on the (compacting) small-object heap.
+        /// </summary>
+        private const int SegmentShift = 12;
+        private const int SegmentSize = 1 << SegmentShift;
+        private const int SegmentMask = SegmentSize - 1;
+
+        /// <summary>Shared empty snapshot. Never mutated (appends always allocate a new segment).</summary>
+        private static readonly Snapshot EmptySnapshot = new Snapshot(Array.Empty<AGraphElementModel[]>(), 0);
+
+        /// <summary>
+        ///   The graph elements storage, held behind a single <c>volatile</c> reference so the
+        ///   publish (release) / capture (acquire) pair is correct on weak-memory (for example
+        ///   ARM) hardware, not only x86. Thread safety is provided by the TransactionManager:
+        ///   every mutation runs on its single worker thread and publishes a new <see cref="Snapshot" />
+        ///   by an atomic reference swap of this field, while lock-free readers capture the current
+        ///   reference exactly once and get a consistent O(1)-indexable snapshot.
+        /// </summary>
+        private volatile Snapshot _snapshot;
 
         /// <summary>
         /// The delegate to find elements in the big list
@@ -182,7 +213,7 @@ namespace NoSQL.GraphDB.Core
             var persistencyLogger = loggerfactory.CreateLogger<PersistencyFactory>();
 
             IndexFactory = new IndexFactory(this, indexLogger);
-            _graphElements = [];
+            _snapshot = EmptySnapshot;
             ServiceFactory = new ServiceFactory(this, serviceLogger);
             SubGraphFactory = new SubGraphFactory(this, subGraphLogger, _pluginCache);
             IndexFactory.Indices.Clear();
@@ -202,60 +233,144 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
-        #region master store mutation (single-writer, copy-on-write)
+        #region master store mutation (single-writer, append-only segmented array)
 
         /// <summary>
-        ///   Appends one element to the master store. Runs only on the single TransactionManager
-        ///   writer thread. A brand-new array is fully populated first and then published by a
-        ///   single volatile write, so a lock-free reader observes either the old array or the
-        ///   fully built new one - never a partially written array (id == index preserved).
+        ///   Appends one element to the master store. Runs ONLY on the single TransactionManager
+        ///   writer thread. The new element's id equals its index (<c>= current Count</c>).
+        ///
+        ///   Publication ordering (the crux of the lock-free contract):
+        ///   1. The spare slot being written is at index &gt;= the currently published Count, so
+        ///      no reader (which only reads ids in <c>[0, Count)</c>) can observe it yet.
+        ///   2. We write that slot FIRST, then publish a NEW holder whose Count is one larger.
+        ///      Count is therefore published LAST, and the volatile store of <c>_snapshot</c> is a
+        ///      release: a reader that acquires the new holder (and thus the new Count) is
+        ///      guaranteed to also see the fully written slot and the fully constructed element.
+        ///   3. A reader that still holds the old holder sees the old Count and never touches the
+        ///      new slot. So a reader observes either "element absent" or "element fully present",
+        ///      never a torn or null slot.
+        ///   Growing only allocates a new 32 KB segment (no whole-store copy, no LOH churn); the
+        ///   top-level segment array is copied only when a new segment is added (rare).
         /// </summary>
         private void AppendGraphElement(AGraphElementModel element)
         {
-            var current = _graphElements;
-            var next = new AGraphElementModel[current.Length + 1];
-            Array.Copy(current, next, current.Length);
-            next[current.Length] = element;
-            _graphElements = next; // atomic publish (release); slot written before publication
+            var snap = _snapshot;
+            int index = snap.Count;                 // new id == index
+            int seg = index >> SegmentShift;
+            int slot = index & SegmentMask;
+
+            AGraphElementModel[][] segments = snap.Segments;
+            if (seg >= segments.Length)
+            {
+                // Last segment is full: grow the top-level array (copy-on-write) and add a fresh
+                // segment. The old segments array is never mutated, so old-holder readers are safe.
+                var grown = new AGraphElementModel[seg + 1][];
+                Array.Copy(segments, grown, segments.Length);
+                grown[seg] = new AGraphElementModel[SegmentSize];
+                segments = grown;
+            }
+
+            segments[seg][slot] = element;          // (1)+(2): write the spare slot FIRST ...
+            _snapshot = new Snapshot(segments, index + 1); // ... then publish Count LAST (release).
         }
 
         /// <summary>
-        ///   Appends a batch of elements to the master store in one copy-on-write publication.
-        ///   <paramref name="elements"/> is accepted as a covariant read-only list so callers can
-        ///   pass a <c>List&lt;VertexModel&gt;</c>/<c>List&lt;EdgeModel&gt;</c> directly.
+        ///   Appends a batch of elements in ONE publication (single Count bump). Same ordering
+        ///   guarantee as <see cref="AppendGraphElement" />: every slot written is at index
+        ///   &gt;= the old Count, all slots are written before the new holder (with the larger
+        ///   Count) is published. <paramref name="elements"/> is a covariant read-only list so a
+        ///   <c>List&lt;VertexModel&gt;</c>/<c>List&lt;EdgeModel&gt;</c> can be passed directly.
         /// </summary>
         private void AppendGraphElements(IReadOnlyList<AGraphElementModel> elements)
         {
-            if (elements == null || elements.Count == 0)
+            int n = elements?.Count ?? 0;
+            if (n == 0)
             {
                 return;
             }
 
-            var current = _graphElements;
-            var next = new AGraphElementModel[current.Length + elements.Count];
-            Array.Copy(current, next, current.Length);
-            for (var i = 0; i < elements.Count; i++)
+            var snap = _snapshot;
+            int startCount = snap.Count;
+            int newCount = startCount + n;
+
+            // Ensure enough segments for newCount (copy-on-write the top-level array if it grows).
+            int neededSegments = (newCount + SegmentMask) >> SegmentShift;
+            AGraphElementModel[][] segments = snap.Segments;
+            if (neededSegments > segments.Length)
             {
-                next[current.Length + i] = elements[i];
+                var grown = new AGraphElementModel[neededSegments][];
+                Array.Copy(segments, grown, segments.Length);
+                for (int s = segments.Length; s < neededSegments; s++)
+                {
+                    grown[s] = new AGraphElementModel[SegmentSize];
+                }
+                segments = grown;
             }
-            _graphElements = next; // atomic publish (release); all slots written before publication
+
+            // Write every element into its (index >= startCount) slot BEFORE publishing the Count.
+            for (int i = 0; i < n; i++)
+            {
+                int index = startCount + i;
+                segments[index >> SegmentShift][index & SegmentMask] = elements[i];
+            }
+
+            _snapshot = new Snapshot(segments, newCount); // publish Count LAST (release).
         }
 
         /// <summary>
         ///   Resolves an element by id for a single-writer mutation. Preserves the historical
         ///   contract that an out-of-range id throws <see cref="ArgumentOutOfRangeException"/>:
-        ///   the previous <c>ImmutableList</c> indexer threw that type, whereas a raw array
+        ///   the original <c>ImmutableList</c> indexer threw that type, whereas a raw array
         ///   indexer would throw <see cref="IndexOutOfRangeException"/>. The returned element may
         ///   itself be null (a slot left empty by a load).
         /// </summary>
         private AGraphElementModel GetGraphElementForMutation(Int32 graphElementId)
         {
-            var snapshot = _graphElements;
-            if (graphElementId < 0 || graphElementId >= snapshot.Length)
+            var snap = _snapshot;
+            if (graphElementId < 0 || graphElementId >= snap.Count)
             {
                 throw new ArgumentOutOfRangeException(nameof(graphElementId));
             }
-            return snapshot[graphElementId];
+            return snap.Segments[graphElementId >> SegmentShift][graphElementId & SegmentMask];
+        }
+
+        /// <summary>
+        ///   Builds a segmented <see cref="Snapshot" /> from a dense, id-ordered source array
+        ///   (index == id). Used by Load (from the on-disk flat array) and Trim (from the freshly
+        ///   compacted array). The final segment keeps its full <see cref="SegmentSize" /> spare
+        ///   capacity so subsequent appends reuse it.
+        /// </summary>
+        private static Snapshot BuildSnapshotFromDenseArray(AGraphElementModel[] source, int count)
+        {
+            if (count == 0)
+            {
+                return EmptySnapshot;
+            }
+
+            int segCount = (count + SegmentMask) >> SegmentShift;
+            var segments = new AGraphElementModel[segCount][];
+            for (int s = 0; s < segCount; s++)
+            {
+                var segment = new AGraphElementModel[SegmentSize];
+                int baseIndex = s << SegmentShift;
+                int len = Math.Min(SegmentSize, count - baseIndex);
+                Array.Copy(source, baseIndex, segment, 0, len);
+                segments[s] = segment;
+            }
+            return new Snapshot(segments, count);
+        }
+
+        /// <summary>
+        ///   A parallel query over the live elements (ids <c>[0, Count)</c>) of the given
+        ///   snapshot. Uses a range partitioner (no source-array allocation); consecutive ids map
+        ///   to consecutive slots within a segment, so partitions stay cache-friendly. Elements
+        ///   may be null (load-left gaps); callers filter.
+        /// </summary>
+        private static ParallelQuery<AGraphElementModel> LiveElements(Snapshot snap)
+        {
+            var segments = snap.Segments;
+            return ParallelEnumerable.Range(0, snap.Count)
+                .Select(i => segments[i >> SegmentShift][i & SegmentMask]);
         }
 
         #endregion
@@ -306,46 +421,47 @@ namespace NoSQL.GraphDB.Core
 
         public override bool TryGetGraphElement(out AGraphElementModel result, int id)
         {
-            // Capture the published snapshot once. The bound check and the indexer then operate
-            // on the same collection, so a concurrent single-writer append or Trim cannot make
-            // this read observe a count that disagrees with the backing store (no out-of-range).
-            var snapshot = _graphElements;
+            // Capture the published snapshot once (volatile acquire). The bound check and the
+            // indexer then operate on the same holder, so a concurrent single-writer append or
+            // Trim can never make this read observe a Count that disagrees with the segments it
+            // indexes (no out-of-range, no torn/null slot within [0, Count)).
+            var snap = _snapshot;
 
-            if (id < 0 || id >= snapshot.Length)
+            if (id < 0 || id >= snap.Count)
             {
                 result = null;
                 return false;
             }
 
-            result = snapshot[id];
+            result = snap.Segments[id >> SegmentShift][id & SegmentMask];
             return result != null && !result._removed;
         }
 
         public override bool TryGetEdge(out EdgeModel result, int id)
         {
-            var snapshot = _graphElements;
+            var snap = _snapshot;
 
-            if (id < 0 || id >= snapshot.Length)
+            if (id < 0 || id >= snap.Count)
             {
                 result = null;
                 return false;
             }
 
-            result = snapshot[id] as EdgeModel;
+            result = snap.Segments[id >> SegmentShift][id & SegmentMask] as EdgeModel;
             return result != null && !result._removed;
         }
 
         public override bool TryGetVertex(out VertexModel result, int id)
         {
-            var snapshot = _graphElements;
+            var snap = _snapshot;
 
-            if (id < 0 || id >= snapshot.Length)
+            if (id < 0 || id >= snap.Count)
             {
                 result = null;
                 return false;
             }
 
-            result = snapshot[id] as VertexModel;
+            result = snap.Segments[id >> SegmentShift][id & SegmentMask] as VertexModel;
             return result != null && !result._removed;
         }
 
@@ -903,7 +1019,7 @@ namespace NoSQL.GraphDB.Core
         internal void TabulaRasa_internal()
         {
             _currentId = 0;
-            _graphElements = [];
+            _snapshot = EmptySnapshot;
             IndexFactory.DeleteAllIndices();
             VertexCount = 0;
             EdgeCount = 0;
@@ -918,10 +1034,10 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         internal void PublishLoadedGraphElements(AGraphElementModel[] graphElements)
         {
-            // The loaded array is already dense and id-ordered (and may contain null slots for
-            // ids that were null/removed at save time, which readers filter). It is fully built
-            // and not mutated afterwards, so it becomes the master store directly (no copy).
-            _graphElements = graphElements;
+            // The loaded array is dense and id-ordered (index == id) and may contain null slots
+            // for ids that were null/removed at save time (readers filter them). Copy it into the
+            // segmented layout and publish atomically.
+            _snapshot = BuildSnapshotFromDenseArray(graphElements, graphElements.Length);
         }
 
         internal void Load_internal(String path, Boolean startServices = false)
@@ -938,15 +1054,15 @@ namespace NoSQL.GraphDB.Core
             var oldServiceFactory = ServiceFactory;
             var oldSubGraphFactory = SubGraphFactory;
             oldServiceFactory.ShutdownAllServices();
-            var oldGraphElements = _graphElements;
+            var oldSnapshot = _snapshot;
 
-            _graphElements = [];
+            _snapshot = EmptySnapshot;
 
-            // Load publishes the graph elements into _graphElements itself (via
+            // Load publishes the graph elements into _snapshot itself (via
             // PublishLoadedGraphElements) before it rehydrates indices, because index
             // rehydration resolves element ids through TryGetGraphElement against the
-            // published master store. Passing the volatile field by ref would drop its
-            // volatile semantics (CS0420), so publication goes through that method instead.
+            // published master store. Publication goes through that method rather than a
+            // by-ref out-parameter so the volatile snapshot field is written atomically.
             var success = _persistencyFactory.Load(this, path, ref _currentId, startServices);
 
             if (success)
@@ -964,7 +1080,7 @@ namespace NoSQL.GraphDB.Core
             }
             else
             {
-                _graphElements = oldGraphElements;
+                _snapshot = oldSnapshot;
                 IndexFactory = oldIndexFactory;
                 ServiceFactory = oldServiceFactory;
                 SubGraphFactory = oldSubGraphFactory;
@@ -988,7 +1104,7 @@ namespace NoSQL.GraphDB.Core
         {
             TabulaRasa_internal();
 
-            _graphElements = null;
+            _snapshot = null;
 
             IndexFactory.DeleteAllIndices();
             IndexFactory = null;
@@ -1030,8 +1146,7 @@ namespace NoSQL.GraphDB.Core
         /// <returns>A list of matching graph elements</returns>
         private List<AGraphElementModel> FindElements(ElementSeeker seeker, String interestingLabel = null)
         {
-            var snapshot = _graphElements;
-            return snapshot.AsParallel()
+            return LiveElements(_snapshot)
                 .Where(_ => _ != null && !_._removed)
                 .Where(CheckLabel(interestingLabel))
                 .Where(_ => seeker(_))
@@ -1133,34 +1248,37 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         internal void Trim_internal()
         {
-            // Runs on the single writer thread. Capture the current array once.
-            var current = _graphElements;
+            // Runs on the single writer thread. Capture the current snapshot once.
+            var snap = _snapshot;
+            int count = snap.Count;
+            var segments = snap.Segments;
 
-            // Trim individual graph elements
-            for (var i = 0; i < _currentId && i < current.Length; i++)
+            // Trim individual graph elements and gather the survivors (non-null, not removed).
+            var survivors = new List<AGraphElementModel>(count);
+            for (var i = 0; i < count; i++)
             {
-                AGraphElementModel graphElement = current[i];
+                AGraphElementModel graphElement = segments[i >> SegmentShift][i & SegmentMask];
                 graphElement?.Trim();
+                if (graphElement != null && !graphElement._removed)
+                {
+                    survivors.Add(graphElement);
+                }
             }
 
-            // Create new dense array excluding nulls and removed elements
-            var newGraphElementList = current
-                .Where(element => element != null && !element._removed)
-                .ToArray();
-
-            // Reassign IDs sequentially (index == id)
-            for (int i = 0; i < newGraphElementList.Length; i++)
+            // Reassign IDs sequentially (index == id).
+            for (int i = 0; i < survivors.Count; i++)
             {
-                newGraphElementList[i].SetId(i);
+                survivors[i].SetId(i);
             }
 
-            // Update current ID
-            _currentId = newGraphElementList.Length;
+            var compacted = survivors.ToArray();
 
-            // Publish the compacted array with a single atomic write. In-flight readers holding
-            // the previous array keep a fully consistent (old-id-space) view; they never index it
-            // out of range because their bound check used the same captured array's length.
-            _graphElements = newGraphElementList;
+            // Update current ID and publish the compacted snapshot with a single atomic write.
+            // In-flight readers holding the previous snapshot keep a fully consistent (old-id-space)
+            // view and never index out of range, because their bound check used that snapshot's
+            // Count and the previous segments are never mutated by this rebuild.
+            _currentId = compacted.Length;
+            _snapshot = BuildSnapshotFromDenseArray(compacted, compacted.Length);
 
             // Trim transaction manager
             _txManager.Trim();
@@ -1180,18 +1298,15 @@ namespace NoSQL.GraphDB.Core
 
         public int GetCountOf<TInteresting>()
         {
-            var snapshot = _graphElements;
-            return snapshot.AsParallel()
+            return LiveElements(_snapshot)
                 .Where(_ => _ != null && !_._removed && _ is TInteresting)
                 .Count();
         }
 
         public override ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null)
         {
-            var snapshot = _graphElements;
             return ImmutableList.CreateRange<VertexModel>(
-                 snapshot
-                 .AsParallel()
+                 LiveElements(_snapshot)
                  .Where(_ => _ != null && !_._removed && _ is VertexModel)
                  .Where(CheckLabel(interestingLabel))
                  .Select(_ => (VertexModel)_));
@@ -1199,10 +1314,8 @@ namespace NoSQL.GraphDB.Core
 
         public override ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null)
         {
-            var snapshot = _graphElements;
             return ImmutableList.CreateRange<EdgeModel>(
-                        snapshot
-                        .AsParallel()
+                        LiveElements(_snapshot)
                         .Where(_ => _ != null && !_._removed && _ is EdgeModel)
                         .Where(CheckLabel(interestingLabel))
                         .Select(_ => (EdgeModel)_));
@@ -1210,10 +1323,8 @@ namespace NoSQL.GraphDB.Core
 
         public override ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
         {
-            var snapshot = _graphElements;
             return ImmutableList.CreateRange<AGraphElementModel>(
-                        snapshot
-                        .AsParallel()
+                        LiveElements(_snapshot)
                         .Where(_ => _ != null && !_._removed)
                         .Where(CheckLabel(interestingLabel)));
         }
