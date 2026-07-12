@@ -49,9 +49,14 @@ namespace NoSQL.GraphDB.Core
         #region Data
 
         /// <summary>
-        ///   The graph elements storage. Thread safety is provided by the TransactionManager.
+        ///   The graph elements storage. Thread safety is provided by the TransactionManager:
+        ///   every mutation runs on its single worker thread and publishes a new collection by
+        ///   an atomic reference swap of this field, while lock-free readers capture the current
+        ///   reference once and get a consistent snapshot. The field is <c>volatile</c> so the
+        ///   publish (release) / capture (acquire) pair is correct on weak-memory (for example
+        ///   ARM) hardware, not only on x86; each read method must read it exactly once.
         /// </summary>
-        private ImmutableList<AGraphElementModel> _graphElements;
+        private volatile ImmutableList<AGraphElementModel> _graphElements;
 
         /// <summary>
         /// The delegate to find elements in the big list
@@ -236,64 +241,47 @@ namespace NoSQL.GraphDB.Core
 
         public override bool TryGetGraphElement(out AGraphElementModel result, int id)
         {
-            if (id < 0 || id >= _graphElements.Count)
+            // Capture the published snapshot once. The bound check and the indexer then operate
+            // on the same collection, so a concurrent single-writer append or Trim cannot make
+            // this read observe a count that disagrees with the backing store (no out-of-range).
+            var snapshot = _graphElements;
+
+            if (id < 0 || id >= snapshot.Count)
             {
                 result = null;
                 return false;
             }
 
-            try
-            {
-                result = _graphElements[id];
-                return result != null && !result._removed;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                result = null;
-                return false;
-            }
+            result = snapshot[id];
+            return result != null && !result._removed;
         }
 
         public override bool TryGetEdge(out EdgeModel result, int id)
         {
-            if (id < 0 || id >= _graphElements.Count)
+            var snapshot = _graphElements;
+
+            if (id < 0 || id >= snapshot.Count)
             {
                 result = null;
                 return false;
             }
 
-            try
-            {
-                var element = _graphElements[id];
-                result = element as EdgeModel;
-                return result != null && !result._removed;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                result = null;
-                return false;
-            }
+            result = snapshot[id] as EdgeModel;
+            return result != null && !result._removed;
         }
 
         public override bool TryGetVertex(out VertexModel result, int id)
         {
-            if (id < 0 || id >= _graphElements.Count)
+            var snapshot = _graphElements;
+
+            if (id < 0 || id >= snapshot.Count)
             {
                 result = null;
                 return false;
             }
 
-            try
-            {
-                var element = _graphElements[id];
-                result = element as VertexModel;
-                return result != null && !result._removed;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                result = null;
-                return false;
-            }
+            result = snapshot[id] as VertexModel;
+            return result != null && !result._removed;
         }
 
 
@@ -856,6 +844,18 @@ namespace NoSQL.GraphDB.Core
             EdgeCount = 0;
         }
 
+        /// <summary>
+        ///   Publishes the flat graph-element array produced by a load into the master store.
+        ///   Invoked by the persistency factory once every element (and its edge fix-up) is
+        ///   built, but BEFORE indices and services are rehydrated, because they resolve element
+        ///   ids through <see cref="TryGetGraphElement" /> against the published store. The array
+        ///   is dense and id-ordered (index == id), matching the on-disk format.
+        /// </summary>
+        internal void PublishLoadedGraphElements(AGraphElementModel[] graphElements)
+        {
+            _graphElements = ImmutableList.CreateRange(graphElements);
+        }
+
         internal void Load_internal(String path, Boolean startServices = false)
         {
             if (String.IsNullOrWhiteSpace(path))
@@ -874,7 +874,12 @@ namespace NoSQL.GraphDB.Core
 
             _graphElements = [];
 
-            var success = _persistencyFactory.Load(this, ref _graphElements, path, ref _currentId, startServices);
+            // Load publishes the graph elements into _graphElements itself (via
+            // PublishLoadedGraphElements) before it rehydrates indices, because index
+            // rehydration resolves element ids through TryGetGraphElement against the
+            // published master store. Passing the volatile field by ref would drop its
+            // volatile semantics (CS0420), so publication goes through that method instead.
+            var success = _persistencyFactory.Load(this, path, ref _currentId, startServices);
 
             if (success)
             {
@@ -957,7 +962,8 @@ namespace NoSQL.GraphDB.Core
         /// <returns>A list of matching graph elements</returns>
         private List<AGraphElementModel> FindElements(ElementSeeker seeker, String interestingLabel = null)
         {
-            return _graphElements.AsParallel()
+            var snapshot = _graphElements;
+            return snapshot.AsParallel()
                 .Where(_ => _ != null && !_._removed)
                 .Where(CheckLabel(interestingLabel))
                 .Where(_ => seeker(_))
@@ -1101,15 +1107,17 @@ namespace NoSQL.GraphDB.Core
 
         public int GetCountOf<TInteresting>()
         {
-            return _graphElements.AsParallel()
+            var snapshot = _graphElements;
+            return snapshot.AsParallel()
                 .Where(_ => _ != null && !_._removed && _ is TInteresting)
                 .Count();
         }
 
         public override ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null)
         {
+            var snapshot = _graphElements;
             return ImmutableList.CreateRange<VertexModel>(
-                 _graphElements
+                 snapshot
                  .AsParallel()
                  .Where(_ => _ != null && !_._removed && _ is VertexModel)
                  .Where(CheckLabel(interestingLabel))
@@ -1118,8 +1126,9 @@ namespace NoSQL.GraphDB.Core
 
         public override ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null)
         {
+            var snapshot = _graphElements;
             return ImmutableList.CreateRange<EdgeModel>(
-                        _graphElements
+                        snapshot
                         .AsParallel()
                         .Where(_ => _ != null && !_._removed && _ is EdgeModel)
                         .Where(CheckLabel(interestingLabel))
@@ -1128,8 +1137,9 @@ namespace NoSQL.GraphDB.Core
 
         public override ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
         {
+            var snapshot = _graphElements;
             return ImmutableList.CreateRange<AGraphElementModel>(
-                        _graphElements
+                        snapshot
                         .AsParallel()
                         .Where(_ => _ != null && !_._removed)
                         .Where(CheckLabel(interestingLabel)));

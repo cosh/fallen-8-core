@@ -68,11 +68,10 @@ namespace NoSQL.GraphDB.Core.Persistency
         ///   Load Fallen-8 from a save point
         /// </summary>
         /// <param name="fallen8">Fallen-8</param>
-        /// <param name="graphElements">The graph elements </param>
         /// <param name="pathToSavePoint">The path to the save point.</param>
         /// <param name="currentId">The maximum graph element id</param>
         /// <param name="startServices">Start the services</param>
-        internal Boolean Load(Fallen8 fallen8, ref ImmutableList<AGraphElementModel> graphElements, string pathToSavePoint, ref Int32 currentId, Boolean startServices)
+        internal Boolean Load(Fallen8 fallen8, string pathToSavePoint, ref Int32 currentId, Boolean startServices)
         {
             //if there is no savepoint file... do nothing
             if (!File.Exists(pathToSavePoint))
@@ -112,7 +111,10 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 LoadGraphElements(graphElementArray, graphElementStreams);
 
-                graphElements = graphElementArray.ToImmutableList();
+                // Publish the loaded elements into the master store BEFORE indices/services are
+                // rehydrated below: their deserialization resolves element ids through
+                // fallen8.TryGetGraphElement against the published store.
+                fallen8.PublishLoadedGraphElements(graphElementArray);
 
                 #endregion
 
