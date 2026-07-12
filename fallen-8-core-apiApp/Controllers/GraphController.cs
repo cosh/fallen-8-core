@@ -143,6 +143,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -250,6 +257,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -730,6 +744,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -768,6 +789,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -803,6 +831,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -1189,6 +1224,15 @@ namespace NoSQL.GraphDB.App.Controllers
         #endregion
 
         #region private helper
+
+        /// <summary>
+        ///   Builds the error result returned when a waited-on mutation transaction was rolled back.
+        /// </summary>
+        private IActionResult RolledBackResult()
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                "The transaction was rolled back; the operation did not complete.");
+        }
 
         /// <summary>
         ///   Creats the result

@@ -168,7 +168,8 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public void Load([FromBody] LoadSpecification definition)
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public IActionResult Load([FromBody] LoadSpecification definition)
         {
             _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", definition.StartServices));
 
@@ -176,7 +177,17 @@ namespace NoSQL.GraphDB.App.Controllers
             tx.Path = definition.SaveGameLocation;
             tx.StartServices = definition.StartServices;
 
-            _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+            var transactionTask = _fallen8.EnqueueTransaction(tx);
+            transactionTask.WaitUntilFinished();
+
+            // A rolled-back load must not be reported to the client as success (correctness-fixes B6).
+            if (transactionTask.TransactionState == TransactionState.RolledBack)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "The load transaction was rolled back; the database was not loaded.");
+            }
+
+            return NoContent();
         }
 
         /// <summary>
@@ -202,7 +213,8 @@ namespace NoSQL.GraphDB.App.Controllers
         [Produces("application/json")]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public String Save([FromBody] SaveSpecification definition)
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public IActionResult Save([FromBody] SaveSpecification definition)
         {
             // Use provided path or fall back to default
             string savePath = !string.IsNullOrWhiteSpace(definition?.SaveGameLocation)
@@ -213,9 +225,17 @@ namespace NoSQL.GraphDB.App.Controllers
             int savePartitions = definition?.SavePartitions ?? _optimalNumberOfPartitions;
 
             SaveTransaction saveTx = new SaveTransaction() { Path = savePath, SavePartitions = savePartitions };
-            _fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+            var transactionTask = _fallen8.EnqueueTransaction(saveTx);
+            transactionTask.WaitUntilFinished();
 
-            return saveTx.ActualPath;
+            // A rolled-back save must not be reported to the client as success (correctness-fixes B6).
+            if (transactionTask.TransactionState == TransactionState.RolledBack)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    "The save transaction was rolled back; the database was not saved.");
+            }
+
+            return Ok(saveTx.ActualPath);
         }
 
         /// <summary>
