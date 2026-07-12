@@ -1880,12 +1880,21 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
 
         public void Save(SerializationWriter writer)
         {
-            throw new NotImplementedException();
+            // Full R-Tree serialization is deferred to the persistence-hardening theme. Until it
+            // lands this MUST be a graceful no-op: throwing here faults the index saver task and
+            // PersistencyFactory would then abort the entire checkpoint (all graph elements and
+            // every other index). The spatial index is simply empty after a reload.
+            _logger?.LogWarning("Spatial index persistence is not yet implemented; this R-Tree index will be empty after load.");
         }
 
         public void Load(SerializationReader reader, IFallen8 fallen8)
         {
-            throw new NotImplementedException();
+            // Counterpart to Save: deserialization is deferred. Come up as a valid, EMPTY index
+            // instead of throwing so the surrounding checkpoint still loads; the index has to be
+            // rebuilt afterwards.
+            _logger = fallen8.LoggerFactory.CreateLogger<RTree>();
+            _logger.LogWarning("Spatial index persistence is not yet implemented; this R-Tree index is empty after load.");
+            _mapOfContainers = new Dictionary<int, IRTreeDataContainer>();
         }
         #endregion
 
