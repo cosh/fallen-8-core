@@ -30,11 +30,13 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
+using Microsoft.Extensions.Caching.Memory;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Algorithms.Path;
@@ -86,8 +88,10 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 {
                     ms.Seek(0, SeekOrigin.Begin);
 
-                    // Load the assembly
-                    Assembly assembly = Assembly.Load(ms.ToArray());
+                    // Load into a collectible context so the generated assembly can be
+                    // unloaded once the traverser is evicted from the cache and dropped.
+                    var context = new AssemblyLoadContext("path-traverser-" + fileName, isCollectible: true);
+                    Assembly assembly = context.LoadFromStream(ms);
 
                     var assemblyType = assembly.GetType(PathDelegateNamespace + "." + PathDelegateClassName);
 
@@ -256,11 +260,25 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
         /// <summary>
         /// Caches compiled delegate providers by their generated source. Identical filter
-        /// sets reuse the same compiled assembly instead of invoking Roslyn (and leaking a
-        /// new dynamic assembly) on every subgraph creation.
+        /// sets reuse the same compiled assembly instead of invoking Roslyn on every subgraph
+        /// creation. Entries expire so the collectible load context holding each compiled
+        /// assembly can be unloaded once no live subgraph still references its delegates.
         /// </summary>
-        private static readonly ConcurrentDictionary<String, (Object Instance, Type Type)> _subGraphProviderCache =
-            new ConcurrentDictionary<String, (Object, Type)>(StringComparer.Ordinal);
+        private static readonly MemoryCache _subGraphProviderCache =
+            new MemoryCache(new MemoryCacheOptions { SizeLimit = 256, ExpirationScanFrequency = TimeSpan.FromMinutes(1) });
+
+        private static readonly MemoryCacheEntryOptions _subGraphProviderCacheOptions =
+            new MemoryCacheEntryOptions().SetSlidingExpiration(TimeSpan.FromSeconds(60)).SetSize(1);
+
+        /// <summary>
+        /// Removes all cached compiled subgraph filter providers, allowing their collectible
+        /// load contexts to be unloaded once no delegates remain referenced. Intended for
+        /// tests and diagnostics.
+        /// </summary>
+        public static void ClearSubGraphProviderCache()
+        {
+            _subGraphProviderCache.Clear();
+        }
 
         /// <summary>
         /// A single generated delegate: the method that produces it and the action that
@@ -515,8 +533,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
             var sourceCode = BuildProviderSource(slots);
 
             // Reuse a previously compiled provider for an identical filter set: avoids
-            // re-running Roslyn and leaking another dynamic assembly for the same code.
-            if (!_subGraphProviderCache.TryGetValue(sourceCode, out var provider))
+            // re-running Roslyn for the same code.
+            if (!_subGraphProviderCache.TryGetValue(sourceCode, out (Object Instance, Type Type) provider))
             {
                 var compileError = CompileProvider(sourceCode, out provider);
                 if (compileError != null)
@@ -524,7 +542,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
                     return compileError;
                 }
 
-                _subGraphProviderCache.TryAdd(sourceCode, provider);
+                _subGraphProviderCache.Set(sourceCode, provider, _subGraphProviderCacheOptions);
             }
 
             foreach (var slot in slots)
@@ -570,7 +588,11 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 }
 
                 ms.Seek(0, SeekOrigin.Begin);
-                Assembly assembly = Assembly.Load(ms.ToArray());
+
+                // Load into a collectible context so the generated assembly can be unloaded
+                // once its cache entry expires and no live subgraph references its delegates.
+                var context = new AssemblyLoadContext("subgraph-provider-" + fileName, isCollectible: true);
+                Assembly assembly = context.LoadFromStream(ms);
 
                 var providerType = assembly.GetType(SubGraphProviderNamespace + "." + SubGraphProviderClassName);
                 var providerInstance = Activator.CreateInstance(providerType);
