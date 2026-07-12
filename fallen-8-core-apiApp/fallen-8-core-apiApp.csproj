@@ -9,6 +9,16 @@
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
+  <!-- Explicit garbage collector configuration (N5). Server GC + background (concurrent)
+       GC suit the long-lived resident graph. Server GC is already the Web SDK default, so
+       making it explicit does not change runtime behaviour; it documents intent and pins it
+       against SDK default drift. DATAS is intentionally left at the .NET 10 runtime default;
+       see features/dotnet10-modernization/spec.md for the trade-off. -->
+  <PropertyGroup>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <DebugType>embedded</DebugType>
   </PropertyGroup>
