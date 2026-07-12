@@ -54,8 +54,30 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     public sealed class PathSpecification : IEquatable<PathSpecification>
     {
         /// <summary>
-        ///   The algorithm to use for path finding
+        ///   The algorithm to use for path finding.
         /// </summary>
+        /// <remarks>
+        ///   Two algorithms ship with the engine:
+        ///   <list type="bullet">
+        ///     <item>
+        ///       <term>BLS</term>
+        ///       <description>
+        ///         Bidirectional level-synchronous search. A hop-count (unweighted) shortest path;
+        ///         the <c>cost</c> block is ignored and every path's <c>totalWeight</c> is 0.
+        ///       </description>
+        ///     </item>
+        ///     <item>
+        ///       <term>DIJKSTRA</term>
+        ///       <description>
+        ///         Weighted single-source shortest path. Honours the <c>cost</c> block
+        ///         (<c>edgeCost</c> + <c>vertexCost</c> per step, defaulting to 1 per edge) and the
+        ///         <c>maxPathWeight</c> bound, so <c>totalWeight</c> reflects the real cost. With
+        ///         <c>maxResults &gt; 1</c> it returns the K least-weight loop-free paths in
+        ///         non-decreasing weight order (Yen's algorithm).
+        ///       </description>
+        ///     </item>
+        ///   </list>
+        /// </remarks>
         /// <example>BLS</example>
         [Required]
         [DefaultValue("BLS")]

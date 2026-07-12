@@ -57,8 +57,12 @@ weights into `BLS`. Rationale:
   `vertexCost → 0.0`. Thus **with no cost delegates the algorithm computes a fewest-hop shortest
   path** (each edge costs 1) — a sensible drop-in that agrees with `BLS` on path *length*.
 - **Non-negative costs.** Dijkstra assumes non-negative step costs. Costs are expected `>= 0`;
-  behaviour under negative costs is undefined (documented). The implementation should guard defensively
-  (see plan) rather than loop or silently misorder.
+  behaviour under negative costs is undefined. **Documented defensive rule:** if a computed step cost
+  `edgeCost(e) + vertexCost(v)` is `< 0`, it is **clamped to `0`** — for both the priority ordering and
+  the recorded element weight — and a warning is logged once per calculation. This keeps the search
+  finite and consistently ordered (so `Path.Weight` still equals the sum of the element step costs) and
+  never loops or silently misorders; it does not attempt to compute a correct negative-weight result
+  (that is out of scope — see §4).
 - **Traversal direction.** Matches `BLS`: both incoming and outgoing edges are traversable
   (undirected reachability over directed edges), and each `PathElement` records the traversal
   `Direction`. This keeps results comparable to `BLS` and honours the same filters.

@@ -64,12 +64,31 @@ then wiring/docs. Every phase: failing test → implementation → green.
   README is optional. No on-disk/format changes.
 
 ## Status
-- [ ] Phase 1 — weighted Dijkstra (single least-weight path) + discriminating tests
-- [ ] Phase 2 — Yen's K-shortest loop-free paths
-- [ ] Phase 3 — name resolution + end-to-end REST test + fix the misleading test + docs
+- [x] Phase 1 — weighted Dijkstra (single least-weight path) + discriminating tests
+- [x] Phase 2 — Yen's K-shortest loop-free paths
+- [x] Phase 3 — name resolution + end-to-end REST test + fix the misleading test + docs
+
+Implemented as `fallen-8-core/Algorithms/Path/WeightedDijkstraShortestPath.cs` (plugin name
+`"DIJKSTRA"`). Tests: `fallen-8-unittest/WeightedDijkstraPathTest.cs` (25 tests) plus the renamed
+BLS test in `PathTest.cs`. Full suite green at 230 tests. `BLS` is unchanged (behaviour + default).
+Notes on the two deviations from the plan text are in the "Notes" section below.
 
 ## Notes
 - Keep `BLS` untouched (behaviour + default). Factor shared neighbour-enumeration carefully so a
   refactor does not regress `BLS`'s existing tests.
 - `PriorityQueue<,>` is available on net10; no external dependency.
 - Bidirectional/A\* and negative-weight algorithms are explicit non-goals (spec §4).
+
+### Deviations / refinements (implementation)
+- **No shared neighbour-enumeration refactor.** `BLS`'s `GetValid*Edges` interleave a persistent
+  `alreadyVisited` HashSet (level-synchronous BFS bookkeeping) with the filter checks; a Dijkstra
+  needs per-vertex enumeration *without* that cross-call dedup. Rather than risk regressing `BLS`,
+  the plugin duplicates a small, self-contained neighbour enumeration that applies the same three
+  filters in the same order (edge-property → edge → vertex). `BLS` was not touched. (The plan
+  explicitly allowed duplicating when a refactor would be risky.)
+- **Hop dimension in the search state.** To honour `MaxDepth` *exactly* (reject a cheaper-but-longer
+  route in favour of a costlier route that fits the budget), the Dijkstra label is keyed by
+  `(vertexId, hops)`, not by vertex alone. A plain per-vertex distance would let the cheap long
+  route settle the destination and hide the admissible short one. State space is `O(V · MaxDepth)`.
+- **Loop-free guarantee.** Reconstruction excises any repeated vertex; with non-negative (clamped)
+  costs a repeat only occurs across a zero-weight cycle, so excision preserves weight and validity.

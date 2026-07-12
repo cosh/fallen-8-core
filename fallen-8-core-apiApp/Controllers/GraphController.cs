@@ -949,6 +949,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <remarks>
         /// The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.
         ///
+        /// Choose the algorithm with "pathAlgorithmName": "BLS" is a hop-count (unweighted) shortest
+        /// path and ignores the "cost" block (totalWeight is 0), whereas "DIJKSTRA" is a weighted
+        /// shortest path that honours the "cost" block and "maxPathWeight" (and returns the K
+        /// least-weight loop-free paths when "maxResults" &gt; 1).
+        ///
         /// IMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a "return" statement.
         /// These are compiled at runtime into delegate methods.
         ///
