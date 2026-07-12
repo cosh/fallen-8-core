@@ -62,12 +62,19 @@ of scope** here (this theme changes only private-behind-accessor state).
 
 - A large-graph retained-memory measurement shows a material drop vs. baseline after M1+M2 (on top
   of the storage change). **Met:** measured on a 200k-vertex / 200k-edge property graph (a full
-  1M/10M RSS run is impractical in the test environment; the per-element numbers scale linearly),
-  retained memory dropped from **877→245 B/vertex** (4 properties) and **760→388 B/edge**, and the
-  whole graph from **312→121 MB (−61%)**. See `plan.md` for the harness and full numbers.
-- Insert-heavy workload shows lower peak (M3) and steady (M4) memory; a soak test confirms no
-  unbounded growth from retained transactions/tombstones. **Met:** `MemoryFootprintTest` asserts
-  the master store stays bounded under churn far exceeding the auto-trim threshold.
+  1M/10M run is impractical in the test environment; the per-element numbers scale linearly). The
+  metric is **managed-heap retained** memory (`GC.GetTotalMemory(true)` after a forced blocking
+  collection), NOT process RSS / working set. It dropped from **877→245 B/vertex** (4 properties)
+  and **760→388 B/edge**, and the whole graph from **312→121 MB managed-heap retained (−61%)**. See
+  `plan.md` for the harness and full numbers.
+- Insert-heavy workload: M3 targets a lower **peak** and M4 a bounded **steady-state** under churn.
+  **Met, with a caveat on M3:** this is not a direct peak measurement. The M3 claim rests on a
+  structural argument — each transaction's heavy input is released at commit rather than lingering
+  until `Trim`, so it is not retained across the rest of a batch — backed by the M4 soak test; the
+  single-snapshot harness does not measure peak, and in fact shows *transient* allocation rising
+  **+6–7%** (M2's interned-key copies, disclosed in `plan.md`). M4's bounded steady-state is
+  asserted directly: `MemoryFootprintTest` shows the master store stays bounded under churn far
+  exceeding the auto-trim threshold.
 - All existing tests pass; property typed-round-trip fidelity is preserved or improved (M1 must not
   regress `TryGetProperty` typing). **Met:** `PropertyStoreFidelityTest` pins int/long/double/bool/
   string/DateTime/null round-trips, missing keys, empty/null sets, and de-boxing.
@@ -80,3 +87,29 @@ small amount of transient write-path allocation (an interned-key copy of each in
 map) for the retained de-duplication — a good trade for a footprint theme. M5 is **deferred** to
 `persistence-hardening` because it changes the on-disk format and must land behind that theme's
 format versioning; it is **not** implemented here.
+
+**M1 behaviour change (safer):** `SetProperty` on a property-less element previously threw a
+`NullReferenceException` (it called `Add` on a null `ImmutableDictionary`); it now allocates the
+store and adds the first property. This is strictly safer — a former crash becomes the obvious
+"add" intent — and is pinned by
+`PropertyStoreFidelityTest.AddPropertyToPropertyLessElement_Succeeds`.
+
+**N1 (accepted trade-off — not fixed here):** `GetAllProperties()` now builds a fresh
+`ImmutableDictionary` on each call (it used to hand back a cached reference), a minor allocation on
+the save and DTO-read paths. This is inherent to the compact-array design and is deliberately **not**
+optimised in this theme: routing serialization through the raw sorted store would change the
+on-disk property **byte order** (ordinal, vs. the old dictionary hash order). That is
+load-compatible but violates this theme's "on-disk format unchanged" invariant, so a
+serialization-path accessor is **deferred to `persistence-hardening`** to land behind that theme's
+format-version gate (with M5). See `features/persistence-hardening/plan.md`.
+
+**Intern-table bound:** the M2 intern table is capped (a generous, schema-far-exceeding
+1,000,000 distinct strings) and stops adding past the cap (interning becomes a value-equal no-op),
+so a pathological high-cardinality-key/label workload cannot pin unbounded strings for the process
+lifetime. It is cleared on a full reset (`TabulaRasa`/`Dispose`) but **not** on `Trim`, where the
+interned strings are still referenced by the surviving elements.
+
+**Transaction lifecycle:** read created-models
+(`GetCreatedVertices()`/`VertexCreated`/`GetCreatedEdges()`) promptly after `WaitUntilFinished()` —
+they are dropped at the next `Trim`, **including M4's auto-trim**, after which the handles read
+empty.

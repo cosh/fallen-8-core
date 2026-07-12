@@ -12,7 +12,9 @@ Companion to [spec.md](./spec.md). Findings M1–M6 defined there.
   `Error` stay in place (B6 observability intact), and the captured **created-models**
   (`GetCreatedVertices()`/`VertexCreated`/`GetCreatedEdges()`) are preserved for a waited-on caller
   and dropped only at `Trim`. The BFS subgraph algorithm was fixed to capture its edge count before
-  waiting (it used to read the now-released input list post-commit).
+  waiting (it used to read the now-released input list post-commit). **Usage:** read the
+  created-models promptly after `WaitUntilFinished()` — they are dropped at the next `Trim`,
+  **including M4's auto-trim**, after which the handles read empty.
 - **M5 (DEFERRED to `persistence-hardening`)** — tokenizing `EdgePropertyId` in the serializer is
   an on-disk **format** change; done unversioned it would break loading old save files. Moved to
   `persistence-hardening` to land behind that theme's format versioning. Recorded in
@@ -40,19 +42,21 @@ Companion to [spec.md](./spec.md). Findings M1–M6 defined there.
 
 ## Measurement
 
-Harness: `fallen-8-unittest/MemoryFootprintBenchmark.cs` (`[TestCategory("Benchmark")]`-gated, like
-`StorageBenchmark`). Retained memory via `GC.GetTotalMemory(true)` after a forced blocking GC;
-allocations via `GC.GetTotalAllocatedBytes(true)`. A full 1M/10M RSS run is impractical in the test
-environment, so the harness uses a **200k-vertex / 200k-edge** property graph (mixed-typed
-properties, repeated labels/keys) — the per-element numbers scale linearly. Numbers are real,
-captured before (merge-base) and after (M1+M2+M3+M4+M6) on this machine (net10.0):
+Harness: `fallen-8-unittest/MemoryFootprintBenchmark.cs` (`[TestCategory("Benchmark")]` **and**
+`[Ignore]`, so it is excluded from the default `dotnet test`; run it explicitly, like
+`StorageBenchmark`). The memory metric is **managed-heap retained** via `GC.GetTotalMemory(true)`
+after a forced blocking GC (NOT process RSS / working set); allocations via
+`GC.GetTotalAllocatedBytes(true)`. A full 1M/10M run is impractical in the test environment, so the
+harness uses a **200k-vertex / 200k-edge** property graph (mixed-typed properties, repeated
+labels/keys) — the per-element numbers scale linearly. Numbers are real, captured before
+(merge-base) and after (M1+M2+M3+M4+M6) on this machine (net10.0):
 
 | Metric (200k V + 200k E) | Before | After | Δ |
 |---|---|---|---|
 | Per-vertex, 4 properties (retained) | 877.1 B | 244.6 B | **−72%** |
 | Per-vertex property-container overhead | 744.1 B | 162.0 B | **−78%** |
 | Per-edge, 1 property (retained) | 760.4 B | 388.3 B | **−49%** |
-| Whole graph retained | 312.3 MB | 120.7 MB | **−61%** |
+| Whole graph retained (managed heap, not RSS) | 312.3 MB | 120.7 MB | **−61%** |
 | Bulk-insert alloc, vertices (transient) | 214.8 MB | 228.1 MB | +6% |
 | Bulk-insert alloc, edges (transient) | 252.7 MB | 270.0 MB | +7% |
 
@@ -75,4 +79,5 @@ F8_MEM_LABEL=after  dotnet test --filter "FullyQualifiedName~MemoryFootprintBenc
   `persistence-hardening` (format-versioned).
 - [x] Phase 2 — removed-element reclamation via post-commit auto-trim (M4) + soak test.
 - [x] Phase 3 — property storage compaction + de-boxing (M1) + fidelity tests.
-- Build: 0 warnings / 0 errors. Tests: full suite green (265 non-benchmark + 2 benchmark).
+- Build: 0 warnings / 0 errors. Tests: default suite green — 268 passed, 2 benchmark tests skipped
+  (now `[Ignore]`; opt-in, run explicitly).

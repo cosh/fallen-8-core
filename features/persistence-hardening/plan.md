@@ -28,6 +28,12 @@ Companion to [spec.md](./spec.md). Correctness/durability first, then performanc
   deferred out of `memory-footprint` to here** because it changes the on-disk format and must land
   behind the **C4** `formatVersion` gate so old (untokenized) save files still load. Owner of M5 is
   now this theme.
+- **N1 (from `memory-footprint`)** add a serialization-path property accessor so `Save` reads the
+  raw sorted compact property store directly instead of building a fresh `ImmutableDictionary` per
+  element via `GetAllProperties()` (a minor per-call allocation on the save + DTO-read paths).
+  Deferred out of `memory-footprint` to here because emitting the sorted store changes the on-disk
+  property **byte order** (ordinal vs. the old dictionary hash order) - load-compatible but a format
+  change, so it must land behind the **C4** `formatVersion` gate (with M5/P2).
 - **P7** var-int (`WriteOptimized`) for counts and small ids.
 - **C9** full spatial (R-Tree) index Save/Load serialization: persist the tree (nodes/leaves +
   MBRs + the container map) and its build config (metric, min/max node counts, space/dimensions)
