@@ -59,14 +59,142 @@ namespace NoSQL.GraphDB.Core.Model
         public UInt32 ModificationDate;
 
         /// <summary>
-        ///   The properties.
+        ///   The properties, stored as a compact array of key/value pairs kept sorted by key
+        ///   (ordinal), or <c>null</c> when the element has no properties (finding M1). This
+        ///   replaces the former per-element <see cref="ImmutableDictionary{TKey,TValue}" />, whose
+        ///   hash-array-mapped-trie carried ~100 bytes of container overhead for even a single
+        ///   property; the array is one object plus 16 bytes per entry, and a binary search over it
+        ///   is as fast as the dictionary lookup for the handful-of-properties case that dominates.
+        ///   An absent/empty property set allocates nothing (the field stays <c>null</c>).
+        ///
+        ///   Concurrency: mutation is copy-on-write (a new array is published by a single reference
+        ///   assignment; the array is never mutated in place) and only ever runs on the single
+        ///   transaction-writer thread, while lock-free readers capture the field into a local
+        ///   once - the same discipline the immutable dictionary provided, so a reader always sees
+        ///   a fully built, self-consistent array.
         /// </summary>
-        private ImmutableDictionary<String, Object> _properties;
+        private KeyValuePair<String, Object>[] _properties;
 
         /// <summary>
         ///  Defines if the object has been removed. If it is set to true then it will not be returned in searches
         /// </summary>
         internal bool _removed = false;
+
+        #endregion
+
+        #region value canonicalization (de-boxing, finding M1)
+
+        /// <summary>The single shared box for <c>true</c>.</summary>
+        private static readonly Object BoxedTrue = true;
+
+        /// <summary>The single shared box for <c>false</c>.</summary>
+        private static readonly Object BoxedFalse = false;
+
+        /// <summary>Lowest integer value with a cached box.</summary>
+        private const int SmallIntMin = -128;
+
+        /// <summary>Number of cached small-integer boxes (covers <c>-128..383</c>).</summary>
+        private const int SmallIntCount = 512;
+
+        /// <summary>Cached boxes for common small integers, so N elements holding, say, the int 0 share one box.</summary>
+        private static readonly Object[] SmallInts = BuildSmallIntCache();
+
+        private static Object[] BuildSmallIntCache()
+        {
+            var cache = new Object[SmallIntCount];
+            for (int i = 0; i < SmallIntCount; i++)
+            {
+                cache[i] = SmallIntMin + i;
+            }
+            return cache;
+        }
+
+        /// <summary>
+        ///   Returns a canonical, shared box for the common value-typed properties (booleans and
+        ///   small integers) so that many elements storing the same value share one boxed instance
+        ///   instead of each retaining its own (finding M1). The returned object is always
+        ///   value-equal to and of the same runtime type as the input, so typing and round-trip
+        ///   fidelity are unchanged; any other value (including <c>null</c>) is returned as-is.
+        /// </summary>
+        private static Object Canonicalize(Object value)
+        {
+            if (value is bool b)
+            {
+                return b ? BoxedTrue : BoxedFalse;
+            }
+
+            if (value is int i && i >= SmallIntMin && i < SmallIntMin + SmallIntCount)
+            {
+                return SmallInts[i - SmallIntMin];
+            }
+
+            return value;
+        }
+
+        /// <summary>
+        ///   Builds the compact, key-sorted property store from a source dictionary, or returns
+        ///   <c>null</c> for an absent/empty map (keeping the "no container for no properties"
+        ///   invariant). Values are canonicalized for de-boxing.
+        /// </summary>
+        private static KeyValuePair<String, Object>[] BuildStore(Dictionary<String, Object> properties)
+        {
+            if (properties == null || properties.Count == 0)
+            {
+                return null;
+            }
+
+            var store = new KeyValuePair<String, Object>[properties.Count];
+            var idx = 0;
+            foreach (var kv in properties)
+            {
+                store[idx++] = new KeyValuePair<String, Object>(kv.Key, Canonicalize(kv.Value));
+            }
+
+            // Dictionary keys are unique, so no duplicates; sort by key so lookups binary-search.
+            Array.Sort(store, static (a, b) => String.CompareOrdinal(a.Key, b.Key));
+            return store;
+        }
+
+        /// <summary>
+        ///   Binary-searches the (key-sorted) store for a key. Returns the index when found, or the
+        ///   bitwise complement of the insertion point (a negative value) when not.
+        /// </summary>
+        private static int IndexOfKey(KeyValuePair<String, Object>[] store, String key)
+        {
+            int lo = 0;
+            int hi = store.Length - 1;
+            while (lo <= hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                int cmp = String.CompareOrdinal(store[mid].Key, key);
+                if (cmp == 0)
+                {
+                    return mid;
+                }
+                if (cmp < 0)
+                {
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid - 1;
+                }
+            }
+            return ~lo;
+        }
+
+        private static Boolean ValueEquals(Object a, Object b)
+        {
+            if (ReferenceEquals(a, b))
+            {
+                return true;
+            }
+            if (a == null || b == null)
+            {
+                return false;
+            }
+            return a.Equals(b);
+        }
 
         #endregion
 
@@ -84,7 +212,7 @@ namespace NoSQL.GraphDB.Core.Model
             Id = id;
             CreationDate = creationDate;
             ModificationDate = 0;
-            _properties = properties != null ? properties.ToImmutableDictionary() : null;
+            _properties = BuildStore(properties);
             Label = label;
         }
 
@@ -116,23 +244,31 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> Count of Properties </returns>
         public Int32 GetPropertyCount()
         {
-            if (_properties == null)
-            {
-                return 0;
-            }
-
-            return _properties.Count;
+            var store = _properties;
+            return store == null ? 0 : store.Length;
         }
 
         /// <summary>
-        ///   Gets all properties.
+        ///   Gets all properties. Returns an immutable snapshot (never <c>null</c>; empty when the
+        ///   element has no properties), built on demand from the compact store so the public
+        ///   contract - an <see cref="ImmutableDictionary{TKey,TValue}" /> of the current
+        ///   properties - is unchanged.
         /// </summary>
         /// <returns> All properties. </returns>
         public ImmutableDictionary<String, Object> GetAllProperties()
         {
-            return _properties != null
-                        ? _properties
-                        : ImmutableDictionary.Create<String, Object>();
+            var store = _properties;
+            if (store == null || store.Length == 0)
+            {
+                return ImmutableDictionary.Create<String, Object>();
+            }
+
+            var builder = ImmutableDictionary.CreateBuilder<String, Object>();
+            for (int i = 0; i < store.Length; i++)
+            {
+                builder[store[i].Key] = store[i].Value;
+            }
+            return builder.ToImmutable();
         }
 
         /// <summary>
@@ -144,12 +280,15 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
         public Boolean TryGetProperty<TProperty>(out TProperty result, String propertyId)
         {
-            if (_properties != null)
+            // Capture the store once: a concurrent single-writer mutation republishes a new array
+            // by reference, so a local read yields a self-consistent snapshot.
+            var store = _properties;
+            if (store != null)
             {
-                object pValue;
-                if (_properties.TryGetValue(propertyId, out pValue))
+                int idx = IndexOfKey(store, propertyId);
+                if (idx >= 0)
                 {
-                    result = (TProperty)pValue;
+                    result = (TProperty)store[idx].Value;
 
                     return true;
                 }
@@ -181,7 +320,41 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void SetProperty(String propertyId, object property)
         {
-            _properties = _properties.Add(propertyId, property);
+            property = Canonicalize(property);
+            var store = _properties;
+
+            if (store == null)
+            {
+                // First property on this element: allocate a one-entry store. (The former
+                // ImmutableDictionary field threw here for a null store; creating it is strictly
+                // safer and matches the "add" intent.)
+                _properties = new[] { new KeyValuePair<String, Object>(propertyId, property) };
+            }
+            else
+            {
+                int idx = IndexOfKey(store, propertyId);
+                if (idx >= 0)
+                {
+                    // Key present: preserve the previous ImmutableDictionary.Add semantics - a
+                    // no-op when the value is equal, an error when it differs (callers update via
+                    // RemoveProperty followed by SetProperty).
+                    if (!ValueEquals(store[idx].Value, property))
+                    {
+                        throw new ArgumentException(
+                            "An element with the same key but a different value already exists.", nameof(propertyId));
+                    }
+                }
+                else
+                {
+                    // Insert at the sorted position, copy-on-write (never mutate the live array).
+                    int insert = ~idx;
+                    var next = new KeyValuePair<String, Object>[store.Length + 1];
+                    Array.Copy(store, 0, next, 0, insert);
+                    next[insert] = new KeyValuePair<String, Object>(propertyId, property);
+                    Array.Copy(store, insert, next, insert + 1, store.Length - insert);
+                    _properties = next;
+                }
+            }
 
             ModificationDate = DateHelper.GetModificationDate(CreationDate);
         }
@@ -194,15 +367,32 @@ namespace NoSQL.GraphDB.Core.Model
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void RemoveProperty(String propertyId)
         {
-            if (_properties != null)
+            var store = _properties;
+            if (store == null)
             {
-                if (_properties.ContainsKey(propertyId))
-                {
-                    _properties = _properties.Remove(propertyId);
-
-                    ModificationDate = DateHelper.GetModificationDate(CreationDate);
-                }
+                return;
             }
+
+            int idx = IndexOfKey(store, propertyId);
+            if (idx < 0)
+            {
+                return;
+            }
+
+            if (store.Length == 1)
+            {
+                // Last property removed: drop the container so an empty property set stays null.
+                _properties = null;
+            }
+            else
+            {
+                var next = new KeyValuePair<String, Object>[store.Length - 1];
+                Array.Copy(store, 0, next, 0, idx);
+                Array.Copy(store, idx + 1, next, idx, store.Length - idx - 1);
+                _properties = next;
+            }
+
+            ModificationDate = DateHelper.GetModificationDate(CreationDate);
         }
 
         /// <summary>
