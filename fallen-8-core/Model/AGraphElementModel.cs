@@ -73,7 +73,7 @@ namespace NoSQL.GraphDB.Core.Model
         ///   once - the same discipline the immutable dictionary provided, so a reader always sees
         ///   a fully built, self-consistent array.
         /// </summary>
-        private KeyValuePair<String, Object>[] _properties;
+        private volatile KeyValuePair<String, Object>[] _properties;
 
         /// <summary>
         ///  Defines if the object has been removed. If it is set to true then it will not be returned in searches
@@ -317,7 +317,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> <c>true</c> if it was an update; otherwise, <c>false</c> . </returns>
         /// <param name='propertyId'> If set to <c>true</c> property identifier. </param>
         /// <param name='property'> If set to <c>true</c> property. </param>
-        /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
+        /// <exception cref='ArgumentException'>Is thrown when the key already exists with a different value.</exception>
         internal void SetProperty(String propertyId, object property)
         {
             property = Canonicalize(property);
