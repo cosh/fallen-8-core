@@ -25,6 +25,15 @@ Companion to [spec.md](./spec.md). Correctness/durability first, then performanc
 - **P2** UTF-32 → UTF-8, bulk read/write instead of per-byte loops, route string values +
   `EdgePropertyId` through the tokenized path (shared with memory-footprint M5).
 - **P7** var-int (`WriteOptimized`) for counts and small ids.
+- **C9** full spatial (R-Tree) index Save/Load serialization: persist the tree (nodes/leaves +
+  MBRs + the container map) and its build config (metric, min/max node counts, space/dimensions)
+  so a reloaded spatial index is functional, replacing today's skip-on-checkpoint (`RTree.Save`/
+  `Load` throw and the persistency guards drop the index). Behind the C4 version gate. Deferred
+  here from correctness-fixes-followups B7. As part of this, replace the implicit
+  `NotSupportedException` "not persistable" signal with an explicit `IIndex` capability flag (e.g.
+  `CanPersist`): `PersistencyFactory` then skips a non-persistable index silently (Information) and
+  reserves Error-level logging for genuine serialization failures, rather than classifying intent by
+  catching a specific exception type.
 
 ## Phase 4 — Non-blocking, right-sized save (M)
 - **P3** capture the immutable snapshot inside the tx (O(1)); perform file writing off the worker.
@@ -42,6 +51,6 @@ Companion to [spec.md](./spec.md). Correctness/durability first, then performanc
 ## Status
 - [ ] Phase 1 — worker try/catch, id-space sizing, buffer size
 - [ ] Phase 2 — atomic + versioned + integrity-checked format, recipe manifest, OtherType framing
-- [ ] Phase 3 — UTF-8 + tokenized values + var-int
+- [ ] Phase 3 — UTF-8 + tokenized values + var-int; full spatial (R-Tree) index serialization (C9)
 - [ ] Phase 4 — non-blocking save + partitioning + load memory
 - [ ] Phase 5 — WAL / incremental checkpoints

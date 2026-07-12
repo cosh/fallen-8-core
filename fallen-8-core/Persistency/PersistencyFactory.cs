@@ -245,10 +245,23 @@ namespace NoSQL.GraphDB.Core.Persistency
                     writer.Write(aFileStreamName.Result);
                 }
 
-                writer.Write(indexSaver.Length);
+                // Only reference the indices that persisted successfully: SaveIndex returns null
+                // for any index that failed to serialize, so one bad index does not abort the
+                // whole checkpoint (nor leave a dangling manifest entry pointing at a broken file).
+                var savedIndexFileNames = new List<String>();
                 foreach (var aIndexFileName in indexSaver)
                 {
-                    writer.Write(aIndexFileName.Result);
+                    var savedIndexFileName = aIndexFileName.Result;
+                    if (savedIndexFileName != null)
+                    {
+                        savedIndexFileNames.Add(savedIndexFileName);
+                    }
+                }
+
+                writer.Write(savedIndexFileNames.Count);
+                foreach (var aIndexFileName in savedIndexFileNames)
+                {
+                    writer.Write(aIndexFileName);
                 }
 
                 writer.Write(serviceSaver.Length);
@@ -361,20 +374,65 @@ namespace NoSQL.GraphDB.Core.Persistency
         {
             var indexFileName = path + Constants.IndexSaveString + indexName;
 
-            using (var indexFile = File.Create(indexFileName, Constants.BufferSize, FileOptions.SequentialScan))
+            try
             {
-                var indexWriter = new SerializationWriter(indexFile);
+                using (var indexFile = File.Create(indexFileName, Constants.BufferSize, FileOptions.SequentialScan))
+                {
+                    var indexWriter = new SerializationWriter(indexFile);
 
-                indexWriter.Write(indexName);
-                indexWriter.Write(index.PluginName);
-                index.Save(indexWriter);
+                    indexWriter.Write(indexName);
+                    indexWriter.Write(index.PluginName);
+                    index.Save(indexWriter);
 
-                indexWriter.UpdateHeader();
-                indexWriter.Flush();
-                indexFile.Flush();
+                    indexWriter.UpdateHeader();
+                    indexWriter.Flush();
+                    indexFile.Flush();
+                }
+
+                return Path.GetFileName(indexFileName);
             }
+            catch (NotSupportedException nse)
+            {
+                // Expected, not an error: some indices (e.g. the spatial R-Tree) deliberately declare
+                // themselves not-yet-persistable by throwing NotSupportedException from Save. Log it
+                // quietly and drop the index from the manifest so the checkpoint proceeds - a scary
+                // Error-level "could not persist" line on every checkpoint that holds a spatial index
+                // would be misleading.
+                _logger.LogInformation(String.Format("Index \"{0}\" is not persistable ({1}); it is skipped in this checkpoint.", indexName, nse.Message));
 
-            return Path.GetFileName(indexFileName);
+                DeletePartialIndexFile(indexFileName);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                // Defense in depth: a single index that fails to serialize for a genuine, unexpected
+                // reason must not abort the whole checkpoint. Log it loudly and skip it (the caller
+                // drops null entries from the index manifest).
+                _logger.LogError(ex, String.Format("Could not persist index \"{0}\"; it will be skipped in this checkpoint.", indexName));
+
+                DeletePartialIndexFile(indexFileName);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Removes the (now partial) index sidecar that <see cref="File.Create(string,int,FileOptions)"/>
+        /// had already created before <c>Save</c> threw, so the save directory is not littered with
+        /// orphaned, unreferenced sidecars. Best-effort only - never let cleanup mask the original failure.
+        /// </summary>
+        private void DeletePartialIndexFile(string indexFileName)
+        {
+            try
+            {
+                if (File.Exists(indexFileName))
+                {
+                    File.Delete(indexFileName);
+                }
+            }
+            catch (Exception cleanupEx)
+            {
+                _logger.LogWarning(cleanupEx, String.Format("Could not delete the partial index file \"{0}\" after a failed save.", indexFileName));
+            }
         }
 
         /// <summary>
@@ -461,7 +519,16 @@ namespace NoSQL.GraphDB.Core.Persistency
             //load the indices
             for (var i = 0; i < indexStreams.Count; i++)
             {
-                LoadAnIndex(indexStreams[i], fallen8, indexFactory);
+                try
+                {
+                    LoadAnIndex(indexStreams[i], fallen8, indexFactory);
+                }
+                catch (Exception ex)
+                {
+                    // Defense in depth: a single index that fails to deserialize must not abort
+                    // loading the whole checkpoint (graph elements and every other index).
+                    _logger.LogError(ex, String.Format("Could not load index from \"{0}\"; it will be skipped.", indexStreams[i]));
+                }
             }
         }
 

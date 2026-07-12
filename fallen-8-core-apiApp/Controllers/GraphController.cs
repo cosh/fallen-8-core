@@ -113,10 +113,12 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <response code="204">Vertex successfully created</response>
         /// <response code="400">Invalid vertex specification</response>
+        /// <response code="500">The transaction was rolled back (only when waitForCompletion is true)</response>
         [HttpPut("/vertex")]
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public Task<IActionResult> AddVertex([FromBody] VertexSpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             #region initial checks
@@ -143,6 +145,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -216,11 +225,13 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <response code="204">Edge successfully created</response>
-        /// <response code="400">Invalid edge specification or referenced vertices do not exist</response>
+        /// <response code="400">Invalid edge specification</response>
+        /// <response code="500">The transaction was rolled back - e.g. a referenced vertex does not exist (only when waitForCompletion is true)</response>
         [HttpPut("/edge")]
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public Task<IActionResult> AddEdge(EdgeSpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             #region initial checks
@@ -250,6 +261,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -702,10 +720,12 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <response code="204">Property successfully added</response>
         /// <response code="400">Invalid property specification or graph element not found</response>
+        /// <response code="500">The transaction was rolled back (only when waitForCompletion is true)</response>
         [HttpPut("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public Task<IActionResult> AddProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
@@ -730,6 +750,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -749,9 +776,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <response code="204">Property successfully removed</response>
         /// <response code="400">Graph element or property not found</response>
+        /// <response code="500">The transaction was rolled back (only when waitForCompletion is true)</response>
         [HttpDelete("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public Task<IActionResult> TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
@@ -768,6 +797,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -786,9 +822,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <response code="204">Graph element successfully removed</response>
         /// <response code="400">Graph element not found</response>
+        /// <response code="500">The transaction was rolled back (only when waitForCompletion is true)</response>
         [HttpDelete("/graphelement/{graphElementIdentifier}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public Task<IActionResult> TryRemoveGraphElement([FromRoute] string graphElementIdentifier, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
@@ -803,6 +841,13 @@ namespace NoSQL.GraphDB.App.Controllers
             if (waitForCompletion)
             {
                 transactionTask.WaitUntilFinished();
+
+                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
+                // caller waited for the outcome, a rolled-back write must not be reported as success.
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return Task.FromResult<IActionResult>(RolledBackResult());
+                }
             }
 
             return Task.FromResult<IActionResult>(Accepted());
@@ -1189,6 +1234,15 @@ namespace NoSQL.GraphDB.App.Controllers
         #endregion
 
         #region private helper
+
+        /// <summary>
+        ///   Builds the error result returned when a waited-on mutation transaction was rolled back.
+        /// </summary>
+        private IActionResult RolledBackResult()
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                "The transaction was rolled back; the operation did not complete.");
+        }
 
         /// <summary>
         ///   Creats the result
