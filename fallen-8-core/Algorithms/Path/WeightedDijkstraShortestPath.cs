@@ -128,20 +128,40 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
             #endregion
 
+            // Bound the effective hop budget to min(MaxDepth, VertexCount - 1).
+            //
+            // Correctness (see features/weighted-shortest-paths/spec.md §2): with non-negative
+            // (clamped) step costs the minimum-weight walk is achieved by a SIMPLE path, and this
+            // algorithm only ever returns loop-free paths. A loop-free/simple path visits at most
+            // VertexCount vertices, i.e. at most VertexCount - 1 edges. So capping the hop bound at
+            // VertexCount - 1 cannot exclude any returned path or change any result (neither the
+            // single least-weight path nor Yen's K loop-free paths) -- it only stops the
+            // (vertexId, hops) search from exploring redundant deeper states, bounding the
+            // otherwise O(V * MaxDepth) state space (a resource guard for a huge opt-in MaxDepth
+            // against an unreachable destination in a cyclic component). The cap never INCREASES
+            // the caller's MaxDepth. Applied once here so it flows into both the single Dijkstra
+            // and Yen's spur searches.
+            var effectiveMaxDepth = definition.MaxDepth;
+            var hopCap = _fallen8.VertexCount - 1;
+            if (hopCap >= 1 && hopCap < effectiveMaxDepth)
+            {
+                effectiveMaxDepth = hopCap;
+            }
+
             var search = new Search(definition, _fallen8, _logger);
 
             List<Path> paths;
             if (definition.MaxResults == 1)
             {
                 var single = search.TryShortestPath(
-                    sourceVertex, destinationVertex, definition.MaxDepth, definition.MaxPathWeight, null, null);
+                    sourceVertex, destinationVertex, effectiveMaxDepth, definition.MaxPathWeight, null, null);
 
                 paths = single != null ? new List<Path> { single } : new List<Path>();
             }
             else
             {
                 paths = search.KShortestPaths(
-                    sourceVertex, destinationVertex, definition.MaxResults, definition.MaxDepth, definition.MaxPathWeight);
+                    sourceVertex, destinationVertex, definition.MaxResults, effectiveMaxDepth, definition.MaxPathWeight);
             }
 
             if (paths.Count > 0)
@@ -379,7 +399,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                 accepted.Add(shortest);
                 acceptedSignatures.Add(Signature(shortest));
 
-                var candidates = new PriorityQueue<Path, (double Weight, int Hops, string Signature)>();
+                var candidates = new PriorityQueue<Path, (double Weight, int Hops, string Signature)>(CandidatePriorityComparer.Instance);
                 var candidateSignatures = new HashSet<string>();
 
                 for (var index = 1; index < k; index++)
@@ -541,9 +561,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 var steps = new List<NeighbourStep>();
 
-                if (vertex.OutEdges != null)
+                var outEdges = vertex.OutEdges;
+                if (outEdges != null)
                 {
-                    foreach (var container in vertex.OutEdges)
+                    foreach (var container in outEdges)
                     {
                         if (_edgePropertyFilter != null && !_edgePropertyFilter(container.Key))
                         {
@@ -568,9 +589,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     }
                 }
 
-                if (vertex.InEdges != null)
+                var inEdges = vertex.InEdges;
+                if (inEdges != null)
                 {
-                    foreach (var container in vertex.InEdges)
+                    foreach (var container in inEdges)
                     {
                         if (_edgePropertyFilter != null && !_edgePropertyFilter(container.Key))
                         {
@@ -641,6 +663,38 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             #endregion
 
             #region helper types
+
+            /// <summary>
+            ///   Orders K-shortest candidates by (weight, hops, signature). The signature tie-break
+            ///   uses an ORDINAL string comparison so the choice between equal-weight, equal-length
+            ///   candidates is culture-invariant and the returned K paths are byte-identical across
+            ///   locales. (The default <c>ValueTuple</c> comparer would compare the signature with the
+            ///   culture-sensitive default string comparer, so which tie is emitted when
+            ///   <c>MaxResults</c> is smaller than a tie group could otherwise differ per locale.)
+            /// </summary>
+            private sealed class CandidatePriorityComparer : IComparer<(double Weight, int Hops, string Signature)>
+            {
+                public static readonly CandidatePriorityComparer Instance = new CandidatePriorityComparer();
+
+                public int Compare(
+                    (double Weight, int Hops, string Signature) x,
+                    (double Weight, int Hops, string Signature) y)
+                {
+                    var byWeight = x.Weight.CompareTo(y.Weight);
+                    if (byWeight != 0)
+                    {
+                        return byWeight;
+                    }
+
+                    var byHops = x.Hops.CompareTo(y.Hops);
+                    if (byHops != 0)
+                    {
+                        return byHops;
+                    }
+
+                    return String.CompareOrdinal(x.Signature, y.Signature);
+                }
+            }
 
             /// <summary>
             ///   A candidate traversal from the currently expanded vertex to a neighbour.
