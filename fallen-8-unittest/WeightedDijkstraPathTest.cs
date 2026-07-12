@@ -87,10 +87,10 @@ namespace NoSQL.GraphDB.Tests
                 return _ids[name];
             }
 
-            public GraphBuilder Edge(String from, String to, Double weight, String label = "edge")
+            public GraphBuilder Edge(String from, String to, Double weight, String label = "edge", String edgePropertyId = "e")
             {
                 var tx = new CreateEdgesTransaction();
-                tx.AddEdge(_ids[from], "e", _ids[to], 0, label, new Dictionary<String, Object> { { "weight", weight } });
+                tx.AddEdge(_ids[from], edgePropertyId, _ids[to], 0, label, new Dictionary<String, Object> { { "weight", weight } });
                 Fallen8.EnqueueTransaction(tx).WaitUntilFinished();
 
                 return this;
@@ -129,6 +129,18 @@ namespace NoSQL.GraphDB.Tests
             }
 
             return result;
+        }
+
+        /// <summary>Asserts two result lists are identical in count, per-path vertex order and weight.</summary>
+        private static void AssertSameResult(List<Path> expected, List<Path> actual)
+        {
+            Assert.AreEqual(expected.Count, actual.Count, "result path count differs");
+            for (var i = 0; i < expected.Count; i++)
+            {
+                CollectionAssert.AreEqual(VertexIds(expected[i]), VertexIds(actual[i]),
+                    "path or vertex order differs at index " + i);
+                Assert.AreEqual(expected[i].Weight, actual[i].Weight, 1e-9, "weight differs at index " + i);
+            }
         }
 
         #endregion
@@ -298,13 +310,13 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void MaxPathWeight_ReturnsRouteWithinBound_PrunesOverweight()
         {
-            // Arrange - cheap two-hop route (2) plus expensive short-cut (10).
+            // Arrange - expensive direct short-cut (weight 10) plus a cheap detour A->C->B (weight 2).
             var graph = new GraphBuilder("A", "B", "C");
             graph.Edge("A", "B", 10);
             graph.Edge("A", "C", 1);
             graph.Edge("C", "B", 1);
 
-            // Act - bound of 5 excludes the weight-10 route but admits the weight-2 route.
+            // Act - single least-weight path within a bound of 5.
             List<Path> paths;
             var found = graph.Fallen8.TryCalculateShortestPath(out paths, "DIJKSTRA", new ShortestPathDefinition
             {
@@ -316,11 +328,39 @@ namespace NoSQL.GraphDB.Tests
                 EdgeCost = WeightCost()
             });
 
-            // Assert
+            // Assert - the in-bound detour is returned.
             Assert.IsTrue(found);
             CollectionAssert.AreEqual(
                 new List<Int32> { graph.Id("A"), graph.Id("C"), graph.Id("B") }, VertexIds(paths[0]));
             Assert.IsTrue(paths[0].Weight <= 5.0);
+
+            // Isolate the pruning: the weight-10 direct route genuinely exists - it is returned as a
+            // second path when unbounded - but the bound excludes it. Same graph and same K; only the
+            // bound differs, so the missing route is attributable solely to MaxPathWeight (not to the
+            // detour simply being the least-weight route).
+            ShortestPathDefinition AllRoutes(Double maxPathWeight) => new ShortestPathDefinition
+            {
+                SourceVertexId = graph.Id("A"),
+                DestinationVertexId = graph.Id("B"),
+                MaxDepth = 5,
+                MaxResults = 25,
+                MaxPathWeight = maxPathWeight,
+                EdgeCost = WeightCost()
+            };
+
+            List<Path> unbounded;
+            var unboundedFound = graph.Fallen8.TryCalculateShortestPath(out unbounded, "DIJKSTRA", AllRoutes(Double.MaxValue));
+            Assert.IsTrue(unboundedFound);
+            Assert.AreEqual(2, unbounded.Count, "the weight-10 direct route exists alongside the weight-2 detour");
+            Assert.IsTrue(unbounded.Any(p => p.Weight > 5.0), "one existing route is over the bound");
+
+            List<Path> bounded;
+            var boundedFound = graph.Fallen8.TryCalculateShortestPath(out bounded, "DIJKSTRA", AllRoutes(5.0));
+            Assert.IsTrue(boundedFound);
+            Assert.AreEqual(1, bounded.Count, "the bound must prune the over-weight route the unbounded query returned");
+            Assert.IsTrue(bounded.All(p => p.Weight <= 5.0));
+            CollectionAssert.AreEqual(
+                new List<Int32> { graph.Id("A"), graph.Id("C"), graph.Id("B") }, VertexIds(bounded[0]));
         }
 
         [TestMethod]
@@ -406,6 +446,116 @@ namespace NoSQL.GraphDB.Tests
             CollectionAssert.AreEqual(
                 new List<Int32> { graph.Id("A"), graph.Id("C"), graph.Id("D"), graph.Id("B") }, VertexIds(deep[0]));
             Assert.AreEqual(3.0, deep[0].Weight, 1e-9);
+        }
+
+        [TestMethod]
+        public void MaxDepth_CheapDeepArrivalDoesNotShadowCostlyShallowArrival()
+        {
+            // A cheap many-hop arrival at an intermediate vertex must NOT shadow a costly few-hop
+            // arrival that is the ONLY way to reach the destination within MaxDepth. This is exactly
+            // why the Dijkstra label is keyed on (vertexId, hops) rather than per-vertex: a per-vertex
+            // distance would settle M at its cheap 2-hop weight and discard the costly 1-hop arrival
+            // that alone can still reach B within a tight hop budget. A future "simplification" to
+            // per-vertex distances must fail this test.
+            //
+            // Arrange - two ways to reach the intermediate M:
+            //   costly & shallow:  A->M      (weight 10, 1 hop)
+            //   cheap  & deep:      A->X->M   (weight 1 + 1 = 2, 2 hops)
+            // plus M->B (weight 1). So A->M->B is 2 hops / weight 11; A->X->M->B is 3 hops / weight 3.
+            var graph = new GraphBuilder("A", "B", "M", "X");
+            graph.Edge("A", "M", 10);
+            graph.Edge("M", "B", 1);
+            graph.Edge("A", "X", 1);
+            graph.Edge("X", "M", 1);
+
+            // Act + Assert - at MaxDepth 2 the ONLY route within budget is the costlier short one:
+            // B is reachable only via M, and M is reachable in 1 hop only by the weight-10 edge.
+            List<Path> shallow;
+            var shallowFound = graph.Fallen8.TryCalculateShortestPath(out shallow, "DIJKSTRA", new ShortestPathDefinition
+            {
+                SourceVertexId = graph.Id("A"),
+                DestinationVertexId = graph.Id("B"),
+                MaxDepth = 2,
+                MaxResults = 1,
+                EdgeCost = WeightCost()
+            });
+            Assert.IsTrue(shallowFound, "A->M->B (2 hops) must be found at MaxDepth 2");
+            CollectionAssert.AreEqual(
+                new List<Int32> { graph.Id("A"), graph.Id("M"), graph.Id("B") }, VertexIds(shallow[0]),
+                "the cheap 2-hop arrival at M must not shadow the costly 1-hop arrival that reaches B within 2 hops");
+            Assert.AreEqual(11.0, shallow[0].Weight, 1e-9);
+
+            // At MaxDepth 3 the cheaper long route becomes reachable and wins.
+            List<Path> deep;
+            var deepFound = graph.Fallen8.TryCalculateShortestPath(out deep, "DIJKSTRA", new ShortestPathDefinition
+            {
+                SourceVertexId = graph.Id("A"),
+                DestinationVertexId = graph.Id("B"),
+                MaxDepth = 3,
+                MaxResults = 1,
+                EdgeCost = WeightCost()
+            });
+            Assert.IsTrue(deepFound);
+            CollectionAssert.AreEqual(
+                new List<Int32> { graph.Id("A"), graph.Id("X"), graph.Id("M"), graph.Id("B") }, VertexIds(deep[0]));
+            Assert.AreEqual(3.0, deep[0].Weight, 1e-9);
+        }
+
+        [TestMethod]
+        public void MaxDepth_HopCapIsResultInvariant_HugeDepthMatchesVertexCountDepth()
+        {
+            // The engine caps the effective hop budget at VertexCount - 1: a returned loop-free path
+            // has at most that many edges, so the cap cannot change any result - it only stops the
+            // (vertexId, hops) search from enumerating O(V * MaxDepth) states for a huge opt-in
+            // MaxDepth. On a cyclic graph, an absurd MaxDepth must return exactly the same
+            // paths/weights/order as MaxDepth = VertexCount, and must return promptly. Guards a future
+            // regression of the cap.
+            //
+            // Arrange - directed triangle A->B->C->A (an undirected cycle) plus a tail C->D->E; all
+            // unit weights. VertexCount = 5 (cap 4). Shortest A->E is A->C->D->E (C reached via the
+            // C->A edge traversed backward), 3 hops / weight 3.
+            var graph = new GraphBuilder("A", "B", "C", "D", "E");
+            graph.Edge("A", "B", 1);
+            graph.Edge("B", "C", 1);
+            graph.Edge("C", "A", 1);
+            graph.Edge("C", "D", 1);
+            graph.Edge("D", "E", 1);
+
+            ShortestPathDefinition Def(Int32 maxDepth, Int32 maxResults) => new ShortestPathDefinition
+            {
+                SourceVertexId = graph.Id("A"),
+                DestinationVertexId = graph.Id("E"),
+                MaxDepth = maxDepth,
+                MaxResults = maxResults,
+                EdgeCost = WeightCost()
+            };
+
+            var vertexCount = graph.Fallen8.VertexCount;
+
+            // Single least-weight path: huge MaxDepth vs MaxDepth = VertexCount.
+            List<Path> reference1;
+            graph.Fallen8.TryCalculateShortestPath(out reference1, "DIJKSTRA", Def(vertexCount, 1));
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            List<Path> huge1;
+            var huge1Found = graph.Fallen8.TryCalculateShortestPath(out huge1, "DIJKSTRA", Def(10_000, 1));
+            stopwatch.Stop();
+
+            Assert.IsTrue(huge1Found);
+            AssertSameResult(reference1, huge1);
+            CollectionAssert.AreEqual(
+                new List<Int32> { graph.Id("A"), graph.Id("C"), graph.Id("D"), graph.Id("E") }, VertexIds(huge1[0]),
+                "shortest A->E is the 3-hop A->C->D->E (C reached via the C->A edge backward)");
+            Assert.AreEqual(3.0, huge1[0].Weight, 1e-9);
+            Assert.IsTrue(stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                "the capped search must return promptly, not enumerate O(V * MaxDepth) states");
+
+            // K-shortest (Yen's): the cap must flow into the spur searches identically too.
+            List<Path> referenceK;
+            graph.Fallen8.TryCalculateShortestPath(out referenceK, "DIJKSTRA", Def(vertexCount, 3));
+            List<Path> hugeK;
+            graph.Fallen8.TryCalculateShortestPath(out hugeK, "DIJKSTRA", Def(10_000, 3));
+            AssertSameResult(referenceK, hugeK);
         }
 
         #endregion
@@ -656,6 +806,82 @@ namespace NoSQL.GraphDB.Tests
                 new List<Int32> { graph.Id("A"), graph.Id("B"), graph.Id("D") }, VertexIds(paths[0]));
         }
 
+        [TestMethod]
+        public void EdgePropertyFilter_ExcludesEdgesOfRejectedPropertyId()
+        {
+            // Arrange - the direct edge is stored under edge-property id "toll"; the two-hop detour
+            // under "free". The direct route (weight 1, 1 hop) is cheaper and shorter, so without the
+            // filter DIJKSTRA would take it - rejecting the "toll" property id must make it
+            // non-traversable and force the detour, isolating the edge-property filter's effect.
+            var graph = new GraphBuilder("A", "B", "C");
+            graph.Edge("A", "B", 1, "edge", "toll");
+            graph.Edge("A", "C", 1, "edge", "free");
+            graph.Edge("C", "B", 1, "edge", "free");
+
+            // Act - reject the "toll" edge-property id.
+            List<Path> paths;
+            var found = graph.Fallen8.TryCalculateShortestPath(out paths, "DIJKSTRA", new ShortestPathDefinition
+            {
+                SourceVertexId = graph.Id("A"),
+                DestinationVertexId = graph.Id("B"),
+                MaxDepth = 5,
+                MaxResults = 1,
+                EdgeCost = WeightCost(),
+                EdgePropertyFilter = id => id != "toll"
+            });
+
+            // Assert - forced onto A->C->B; every traversed edge sits under the allowed property id.
+            Assert.IsTrue(found);
+            CollectionAssert.AreEqual(
+                new List<Int32> { graph.Id("A"), graph.Id("C"), graph.Id("B") }, VertexIds(paths[0]));
+            foreach (var element in paths[0].GetPathElements())
+            {
+                Assert.AreEqual("free", element.EdgePropertyId, "the rejected 'toll' property must not be traversed");
+            }
+        }
+
+        #endregion
+
+        #region incoming-edge (against direction) traversal
+
+        [TestMethod]
+        public void IncomingEdgeTraversal_OnlyRouteRunsAgainstEdgeDirection()
+        {
+            // The only route to C runs A->B (with the edge direction), then B->C AGAINST the
+            // direction of the C->B edge (undirected reachability over directed edges, as
+            // documented). Pins that the backward step is recorded as Direction.IncomingEdge with
+            // the correct route and weight.
+            //
+            // Arrange - A->B (weight 2) and C->B (weight 5). C's only edge is C->B, so C is reachable
+            // from B only by traversing that edge backward.
+            var graph = new GraphBuilder("A", "B", "C");
+            graph.Edge("A", "B", 2);
+            graph.Edge("C", "B", 5);
+
+            // Act
+            List<Path> paths;
+            var found = graph.Fallen8.TryCalculateShortestPath(out paths, "DIJKSTRA", new ShortestPathDefinition
+            {
+                SourceVertexId = graph.Id("A"),
+                DestinationVertexId = graph.Id("C"),
+                MaxDepth = 5,
+                MaxResults = 1,
+                EdgeCost = WeightCost()
+            });
+
+            // Assert - route A->B->C, weight 7, and the second step is an incoming (backward) traversal.
+            Assert.IsTrue(found);
+            CollectionAssert.AreEqual(
+                new List<Int32> { graph.Id("A"), graph.Id("B"), graph.Id("C") }, VertexIds(paths[0]));
+            Assert.AreEqual(7.0, paths[0].Weight, 1e-9, "2 (A->B) + 5 (C->B traversed backward)");
+
+            var elements = paths[0].GetPathElements();
+            Assert.AreEqual(Direction.OutgoingEdge, elements[0].Direction, "A->B follows the edge direction");
+            Assert.AreEqual(Direction.IncomingEdge, elements[1].Direction, "B->C runs against the C->B edge direction");
+            Assert.AreEqual(graph.Id("B"), elements[1].SourceVertex.Id);
+            Assert.AreEqual(graph.Id("C"), elements[1].TargetVertex.Id);
+        }
+
         #endregion
 
         #region K-shortest (Yen's)
@@ -858,12 +1084,15 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void NegativeStepCost_IsClampedAndStillTerminates()
         {
-            // Arrange - a negative edge weight would break plain Dijkstra; it must be clamped, not
-            // loop forever or misorder catastrophically.
+            // A negative edge weight would break plain Dijkstra; the combined step cost must be
+            // clamped to 0 (for the ordering AND the recorded weight), the search must terminate,
+            // and the reported weight must reflect the clamp exactly. The only route runs through
+            // the negative edge, so the clamp is observable on the returned path.
+            //
+            // Arrange - A->B (weight 3), B->C (weight -5); no direct A->C.
             var graph = new GraphBuilder("A", "B", "C");
-            graph.Edge("A", "B", 1);
+            graph.Edge("A", "B", 3);
             graph.Edge("B", "C", -5);
-            graph.Edge("A", "C", 1);
 
             // Act
             List<Path> paths;
@@ -876,10 +1105,15 @@ namespace NoSQL.GraphDB.Tests
                 EdgeCost = WeightCost()
             });
 
-            // Assert - a path is returned, the search terminated, and the reported weight is
-            // non-negative (the negative step was clamped to 0).
+            // Assert - route A->B->C; the -5 step is clamped to 0, so the total is exactly 3 + 0 = 3
+            // and every element weight is non-negative.
             Assert.IsTrue(found);
-            Assert.IsTrue(paths[0].Weight >= 0.0, "clamped weight must be non-negative");
+            CollectionAssert.AreEqual(
+                new List<Int32> { graph.Id("A"), graph.Id("B"), graph.Id("C") }, VertexIds(paths[0]));
+            var elements = paths[0].GetPathElements();
+            Assert.AreEqual(3.0, elements[0].Weight, 1e-9, "A->B contributes its weight of 3");
+            Assert.AreEqual(0.0, elements[1].Weight, 1e-9, "the negative B->C step is clamped to 0, not -5");
+            Assert.AreEqual(3.0, paths[0].Weight, 1e-9, "total weight = 3 + clamp(-5) = 3");
         }
 
         #endregion
