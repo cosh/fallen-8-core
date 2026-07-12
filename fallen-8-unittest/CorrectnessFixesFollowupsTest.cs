@@ -168,6 +168,67 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region B6 follow-up (engine level) - the real worker records the fault on TransactionInformation.Error
+
+        // These pin the PRODUCTION wiring in TransactionManager.ProcessTransaction directly (not via a
+        // controller decorator that fabricates the outcome). The worker maps BOTH a thrown exception and
+        // a clean TryExecute()==false to TransactionState.RolledBack, and it is the manager's single
+        // "faultedInfo.Error = ex" line that lets a waited-on caller tell the two apart. The whole
+        // SubGraphController fault->500 vs clean->400 split rests on exactly this distinction, yet the
+        // existing controller tests would still pass if that line were deleted (RollbackForcingFallen8
+        // sets Error itself). We drive it through REAL transactions rather than a bespoke throwing
+        // ATransaction subclass: ATransaction's TryExecute/Rollback/Cleanup are internal abstract and the
+        // test assembly has no InternalsVisibleTo, so a cross-assembly subclass cannot compile
+        // (CS0115/CS0534).
+
+        [TestMethod]
+        public void ProcessTransaction_WhenTryExecuteThrows_RecordsThrownExceptionAndRollsBack()
+        {
+            // Arrange - a real transaction whose TryExecute throws: removing an out-of-range id makes
+            // Fallen8.TryRemoveGraphElement_private index the _graphElements ImmutableList at int.MaxValue,
+            // throwing an ArgumentOutOfRangeException that escapes TryExecute up to the worker's catch.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var tx = new RemoveGraphElementTransaction { GraphElementId = int.MaxValue };
+
+            // Act
+            var txInfo = fallen8.EnqueueTransaction(tx);
+            txInfo.WaitUntilFinished();
+
+            // Assert - the terminal state is RolledBack (as for a clean false) AND the fault is recorded.
+            // The Error assertions are load-bearing: delete "faultedInfo.Error = ex" from
+            // TransactionManager.ProcessTransaction and this test fails while the state assertion alone
+            // would still pass.
+            Assert.AreEqual(TransactionState.RolledBack, txInfo.TransactionState,
+                "A transaction whose TryExecute throws must end up RolledBack.");
+            Assert.IsNotNull(txInfo.Error,
+                "The real worker must record the thrown exception on TransactionInformation.Error.");
+            Assert.IsInstanceOfType(txInfo.Error, typeof(ArgumentOutOfRangeException),
+                "Error must be the exact exception that escaped TryExecute, not a substitute.");
+        }
+
+        [TestMethod]
+        public void ProcessTransaction_WhenTryExecuteReturnsFalseCleanly_RollsBackWithNullError()
+        {
+            // Arrange - a real transaction whose TryExecute returns false WITHOUT throwing: removing a
+            // subgraph that does not exist makes RemoveSubGraphTransaction return a clean false.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var tx = new RemoveSubGraphTransaction { SubGraphName = "does-not-exist" };
+
+            // Act
+            var txInfo = fallen8.EnqueueTransaction(tx);
+            txInfo.WaitUntilFinished();
+
+            // Assert - same terminal state as a genuine fault, but Error stays null. This is the exact
+            // distinction SubGraphController.CreateSubGraph relies on to map a clean rollback to 400
+            // rather than 500.
+            Assert.AreEqual(TransactionState.RolledBack, txInfo.TransactionState,
+                "A clean TryExecute()==false must end up RolledBack.");
+            Assert.IsNull(txInfo.Error,
+                "A clean rollback (no thrown exception) must leave TransactionInformation.Error null.");
+        }
+
+        #endregion
+
         #region B7 follow-up - a spatial index must not crash the whole checkpoint
 
         [TestMethod]
@@ -565,11 +626,21 @@ namespace NoSQL.GraphDB.Tests
     /// <summary>
     /// A minimal index that SAVES fine but always throws on Load. It is deliberately a top-level
     /// public type with a public parameterless constructor so <c>PluginFactory</c> discovers it
-    /// (nested types are excluded from discovery): only then can <c>IndexFactory.OpenIndex</c>
-    /// instantiate it by plugin name on load and actually invoke the throwing <see cref="Load"/>,
-    /// exercising the per-index catch in <c>PersistencyFactory.LoadIndices</c>. Everything else is
-    /// an inert no-op - it never needs to hold data.
+    /// (nested types report <c>IsNestedPublic</c>, not <c>IsPublic</c>, so PluginFactory skips them):
+    /// only then can <c>IndexFactory.OpenIndex</c> instantiate it by plugin name on load and actually
+    /// invoke the throwing <see cref="Load"/>, exercising the per-index catch in
+    /// <c>PersistencyFactory.LoadIndices</c>. Everything else is an inert no-op - it never needs to
+    /// hold data.
     /// </summary>
+    /// <remarks>
+    /// Consequence of being globally discoverable: this double - and any other top-level public
+    /// <see cref="IIndex"/> added to the test assembly - is enumerated by
+    /// <c>PluginFactory.TryGetAvailablePlugins&lt;IIndex&gt;()</c> during test runs (that is what
+    /// <c>IndexFactory</c> and the admin endpoint use to list index plugins). Any FUTURE test that
+    /// asserts an exact set or count of available index plugins must therefore filter out these
+    /// test-manufacturer doubles (e.g. by <see cref="Manufacturer"/> == "fallen-8 tests") rather than
+    /// expecting only the production indices.
+    /// </remarks>
     public sealed class ThrowingOnLoadIndex : IIndex
     {
         public const string TestPluginName = "ThrowingOnLoadTestIndex";
