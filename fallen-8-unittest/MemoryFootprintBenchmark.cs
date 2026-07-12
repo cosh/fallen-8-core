@@ -85,6 +85,7 @@ namespace NoSQL.GraphDB.Tests
 
         [TestMethod]
         [TestCategory("Benchmark")]
+        [Ignore("Benchmark harness; run explicitly, e.g. remove [Ignore] or run the method directly. Not part of the default suite.")]
         public void PropertyGraph_RetainedFootprint_Benchmark()
         {
             double scale = Scale;
