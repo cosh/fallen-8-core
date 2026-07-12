@@ -147,8 +147,12 @@ namespace NoSQL.GraphDB.App.Controllers
                 txInfo.WaitUntilFinished();
 
                 // The worker maps BOTH a thrown exception AND a clean TryExecute()==false to
-                // TransactionState.RolledBack, so the state alone cannot tell them apart. Only a
-                // genuine fault is a 500: txInfo.Error is non-null exactly for a thrown exception.
+                // TransactionState.RolledBack, so the state alone cannot tell them apart. txInfo.Error
+                // is non-null only for an exception that ESCAPES the worker's TryExecute. A fault that
+                // SubGraphFactory.CreateAndRegisterSubGraph catches internally is turned into a clean
+                // false, so it surfaces below as a 400 (clean rollback), not a 500. See
+                // features/correctness-fixes-followups/spec.md section 5 (CreateSubGraph fault-vs-clean
+                // split) for that known gap.
                 if (txInfo.Error != null)
                 {
                     _logger?.LogError(txInfo.Error, "Creation of subgraph '{0}' faulted and was rolled back.", specification.Name);

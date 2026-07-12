@@ -80,3 +80,25 @@ not "fixed" — widening the fault window is out of scope. See plan.md.
   / `<response code="204">` annotations on `AddVertex`/`AddEdge`/`AddProperty`/`TryRemoveProperty`/
   `TryRemoveGraphElement`. Not touched here; align the attributes and XML docs with the actual `202`
   in a follow-up.
+
+- **No-match semantics inconsistency (subgraph create).** An *empty graph* with a pattern defined
+  returns `400` (the vertex-copy stage copies zero vertices → the algorithm short-circuits to a clean
+  `false`), whereas a *populated graph whose pattern matches nothing* returns `201` with an empty
+  subgraph (all vertices are copied, so the short-circuit is skipped, then the pattern filters them
+  all out and the algorithm returns `true`). Both are pinned by tests
+  (`Create_OnEmptyGraph_Returns400`, `Create_WhenPatternMatchesNothingOnPopulatedGraph_Returns201`).
+  Decide and document a single consistent contract — either both `201` with an empty subgraph, or
+  both `400` — and align the algorithm's early-return.
+
+- **Quota status inconsistency (subgraph create).** The subgraph **count** ceiling is rejected
+  up-front by the controller and returns `409 Conflict`, while the per-subgraph and total **element**
+  ceilings are enforced post-materialization inside the factory as a clean `false`, so they surface
+  as `400` (clean rollback). Unify quota breaches under the structured-failure-reasons follow-up (see
+  the `GraphController` bullet above) so all quota rejections share one status/shape.
+
+- **`TransactionInformation.Error` visibility for pollers.** The worker sets
+  `TransactionState = RolledBack` and `.Error` as two separate steps, so only a caller that
+  `WaitUntilFinished()` (which establishes the happens-before via `Task.Wait()`) is guaranteed to
+  observe `Error`; a caller that merely polls `GetState()` may see `RolledBack` before `.Error` is
+  set. Either assign `.Error` before publishing the terminal `RolledBack` state, or document the
+  wait-first precondition more prominently than the current XML remark on `TransactionInformation.Error`.
