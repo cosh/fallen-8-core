@@ -28,6 +28,8 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -56,7 +58,56 @@ namespace NoSQL.GraphDB.Tests
         private const string EdgeLabel = "knows";
         private const string EdgePropertyId = "friend";
 
+        // Per outer reader pass, number of tight O(1) frontier probes. Large so readers watch the
+        // newest slot near-continuously and reliably observe a torn append; the pass is still cheap
+        // (each probe is three field reads + an array index) and the test stays writer-bound.
+        private const int FrontierWatchBurst = 200_000;
+
         private static int ReaderCount => Math.Max(4, Environment.ProcessorCount);
+
+        // Low-latency accessors into the engine's private segmented master store, built once. The
+        // engine keeps the store behind a private volatile Snapshot holder and declares no
+        // InternalsVisibleTo, so this suite reaches it by reflection rather than widening visibility
+        // (the same convention as SpatialIndexTest / JsonSourceGenParityTest). Plain
+        // FieldInfo.GetValue proved too slow for the strict no-null-slot check: the reflective read
+        // sitting between capturing Count and reading the frontier slot let the single writer always
+        // fill the torn slot first (the window is only a few ns), so the check could not observe it.
+        // Skip-visibility DynamicMethod getters read a field in a few ns, keeping the Count->slot gap
+        // down to a plain array index so the race is winnable. See AssertPublishedRangeHasNoNullSlot.
+        private static readonly Func<Fallen8, object> ReadSnapshot;
+        private static readonly Func<object, int> ReadSnapshotCount;
+        private static readonly Func<object, AGraphElementModel[][]> ReadSnapshotSegments;
+
+        static ConcurrentStorageTest()
+        {
+            var snapshotField = typeof(Fallen8).GetField("_snapshot", BindingFlags.NonPublic | BindingFlags.Instance);
+            var snapshotType = snapshotField.FieldType;
+            var countField = snapshotType.GetField("Count", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+            var segmentsField = snapshotType.GetField("Segments", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+
+            ReadSnapshot = BuildFieldGetter<Fallen8, object>(snapshotField);
+            ReadSnapshotCount = BuildFieldGetter<object, int>(countField);
+            ReadSnapshotSegments = BuildFieldGetter<object, AGraphElementModel[][]>(segmentsField);
+        }
+
+        private static Func<TInstance, TField> BuildFieldGetter<TInstance, TField>(FieldInfo field)
+        {
+            var dm = new DynamicMethod(
+                "read_" + field.Name,
+                typeof(TField),
+                new[] { typeof(TInstance) },
+                typeof(Fallen8).Module,
+                skipVisibility: true);
+            var il = dm.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            if (typeof(TInstance) != field.DeclaringType)
+            {
+                il.Emit(OpCodes.Castclass, field.DeclaringType);
+            }
+            il.Emit(OpCodes.Ldfld, field);
+            il.Emit(OpCodes.Ret);
+            return (Func<TInstance, TField>)dm.CreateDelegate(typeof(Func<TInstance, TField>));
+        }
 
         private ILoggerFactory _loggerFactory;
 
@@ -128,11 +179,28 @@ namespace NoSQL.GraphDB.Tests
                     }
 
                     // A captured snapshot must be internally consistent for its whole duration.
+                    // (GetAllVertices pre-filters nulls, so the meaningful signal is the label, not
+                    // a null check the scan can never surface.)
                     var vertexSnapshot = fallen8.GetAllVertices(VertexLabel);
                     foreach (var vertex in vertexSnapshot)
                     {
-                        Assert.IsNotNull(vertex, "GetAllVertices snapshot contained a null element.");
                         Assert.AreEqual(VertexLabel, vertex.Label, "GetAllVertices snapshot contained a wrong-label element.");
+                    }
+
+                    // The strict invariant TryGet*/GetAll* cannot surface: no null slot within the
+                    // published range [0, Count). A torn append (Count bumped before the slot write)
+                    // would leave a live index transiently null here.
+                    AssertPublishedRangeHasNoNullSlot(fallen8);
+
+                    // Watch the append frontier tightly. A torn publish leaves the NEWEST slot
+                    // transiently null (until the slot write becomes visible on this core); the
+                    // heavier probes above only sample it rarely, so keep readers reading the
+                    // frontier near-continuously. This is what makes a reintroduced Count-before-slot
+                    // inversion (or a dropped `volatile`, on weak-memory hardware) reliably FAIL here
+                    // rather than slip through on a lucky interleaving.
+                    for (var h = 0; h < FrontierWatchBurst && Volatile.Read(ref writerDone) == 0; h++)
+                    {
+                        AssertFrontierSlotNotNull(fallen8);
                     }
                 }
             }, errors);
@@ -233,14 +301,17 @@ namespace NoSQL.GraphDB.Tests
 
                     foreach (var vertex in fallen8.GetAllVertices())
                     {
-                        Assert.IsNotNull(vertex, "GetAllVertices snapshot contained a null element during removals.");
+                        Assert.AreEqual(VertexLabel, vertex.Label, "GetAllVertices returned a wrong-label vertex during removals.");
                     }
                     foreach (var edge in fallen8.GetAllEdges())
                     {
-                        Assert.IsNotNull(edge, "GetAllEdges snapshot contained a null element during removals.");
                         Assert.IsNotNull(edge.SourceVertex, "Snapshot edge has a null source during removals.");
                         Assert.IsNotNull(edge.TargetVertex, "Snapshot edge has a null target during removals.");
                     }
+
+                    // Soft-removal only flips the element's removed flag; it never clears a slot, so
+                    // [0, Count) stays fully populated. Assert the strict no-null-slot invariant.
+                    AssertPublishedRangeHasNoNullSlot(fallen8);
                 }
             }, errors);
 
@@ -325,8 +396,12 @@ namespace NoSQL.GraphDB.Tests
 
                     foreach (var vertex in fallen8.GetAllVertices())
                     {
-                        Assert.IsNotNull(vertex, "GetAllVertices snapshot contained a null element across a trim.");
+                        Assert.AreEqual(VertexLabel, vertex.Label, "GetAllVertices returned a wrong-label vertex across a trim.");
                     }
+
+                    // Trim republishes a fully dense, compacted array, so [0, Count) must have no
+                    // null slot at any instant across the renumbering.
+                    AssertPublishedRangeHasNoNullSlot(fallen8);
                 }
             }, errors);
 
@@ -476,6 +551,92 @@ namespace NoSQL.GraphDB.Tests
                 var distinct = errors.Select(e => e.GetType().Name + ": " + e.Message).Distinct().Take(10);
                 Assert.Fail("Concurrent readers observed " + errors.Count + " error(s):\n" + string.Join("\n", distinct));
             }
+        }
+
+        /// <summary>
+        /// The strict storage invariant that the public readers CANNOT surface: every slot in the
+        /// published live range <c>[0, Count)</c> is non-null. <c>TryGet*</c> folds an in-range null
+        /// slot into a clean <c>false</c> (<c>result != null &amp;&amp; !result._removed</c>) and the
+        /// <c>GetAll*</c> scans pre-filter nulls, so a torn / half-published append — <c>Count</c>
+        /// bumped before the slot write, or a lost release from dropping <c>volatile</c> on the
+        /// holder — is invisible to every public read path (a standalone probe recorded &gt;1000 such
+        /// corruption events while the existing assertions tripped on none of them).
+        ///
+        /// This capture reads the private volatile <c>_snapshot</c> exactly once (an atomic reference
+        /// read); <c>Count</c> and <c>Segments</c> are then taken from that single immutable holder,
+        /// so the bound and the slots are mutually consistent and the check is race-free with respect
+        /// to concurrent single-writer appends/Trim — it can only fire on a genuine in-range null.
+        /// In these append / soft-remove / Trim test graphs no id below <c>Count</c> is ever null
+        /// (removal only flags the element, Trim rebuilds a dense array, and nothing is loaded from a
+        /// gapped save file), so a null slot here can only mean corruption.
+        ///
+        /// The scan walks the range frontier-first (highest id down): a torn single-element append
+        /// leaves the NEWEST slot (id == <c>Count - 1</c>) transiently null, so probing the top ids
+        /// first maximises the chance of observing the tear before the writer fills the slot.
+        /// Reflection is used deliberately (the engine declares no <c>InternalsVisibleTo</c>) so the
+        /// public surface stays unchanged.
+        /// </summary>
+        private static void AssertPublishedRangeHasNoNullSlot(Fallen8 fallen8)
+        {
+            var snapshot = ReadSnapshot(fallen8);
+            Assert.IsNotNull(snapshot, "The storage snapshot holder must never be null while the graph is live.");
+
+            // Read Segments FIRST and Count LAST. The torn slot is null for only a few nanoseconds
+            // (from publishing Count until the writer fills the slot); the ONLY work allowed between
+            // capturing Count and reading the frontier slot is plain array indexing. Any slower read
+            // sitting between them would let the writer always win the race, so the check could never
+            // observe the tear (an earlier Count-first, GetValue-based ordering indeed missed it).
+            var segments = ReadSnapshotSegments(snapshot);
+            int count = ReadSnapshotCount(snapshot);
+            if (count == 0)
+            {
+                return;
+            }
+
+            // Segments are uniform, full-size blocks (the writer always allocates a whole segment),
+            // so the segment size is simply the length of an allocated segment — no need to mirror
+            // the engine's private SegmentSize constant here. Walk frontier-first (id == Count-1
+            // down) so the newest, most-recently-torn slot is read with minimal latency after Count.
+            int segmentSize = segments[0].Length;
+            for (int id = count - 1; id >= 0; id--)
+            {
+                AGraphElementModel element = segments[id / segmentSize][id % segmentSize];
+                Assert.IsNotNull(element,
+                    "Torn / half-published append: null slot at live id " + id + " within [0, Count=" + count +
+                    "). TryGet*/GetAll* mask this; a Count-before-slot publication inversion, or dropping " +
+                    "volatile on the snapshot holder, would reintroduce exactly this corruption.");
+            }
+        }
+
+        /// <summary>
+        /// O(1) sibling of <see cref="AssertPublishedRangeHasNoNullSlot"/> that checks ONLY the newest
+        /// live slot (id == <c>Count - 1</c>) — where a torn single-element append always leaves its
+        /// transient null. Kept allocation-free and reflection-free (via the pre-built getters) so it
+        /// can run in a tight burst, keeping a reader on the frontier almost continuously. Count is
+        /// read LAST so the only work between capturing it and reading the slot is an array index.
+        /// </summary>
+        private static void AssertFrontierSlotNotNull(Fallen8 fallen8)
+        {
+            var snapshot = ReadSnapshot(fallen8);
+            if (snapshot == null)
+            {
+                return;
+            }
+
+            var segments = ReadSnapshotSegments(snapshot);
+            int count = ReadSnapshotCount(snapshot);
+            if (count == 0)
+            {
+                return;
+            }
+
+            int frontier = count - 1;
+            int segmentSize = segments[0].Length;
+            AGraphElementModel element = segments[frontier / segmentSize][frontier % segmentSize];
+            Assert.IsNotNull(element,
+                "Torn / half-published append: null slot at frontier id " + frontier + " (Count=" + count +
+                "). TryGet*/GetAll* mask this; a Count-before-slot publication inversion, or dropping " +
+                "volatile on the snapshot holder, would reintroduce exactly this corruption.");
         }
 
         #endregion
