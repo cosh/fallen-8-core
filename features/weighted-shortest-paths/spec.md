@@ -69,10 +69,19 @@ weights into `BLS`. Rationale:
 - **Filters.** `EdgePropertyFilter`, `EdgeFilter`, `VertexFilter` are applied exactly as in `BLS`
   (an edge/vertex rejected by a filter is not traversable).
 - **Bounds.**
-  - `MaxDepth` — maximum number of edges (hops) in a returned path; a path may not exceed it.
+  - `MaxDepth` — maximum number of edges (hops) in a returned path; a path may not exceed it. The
+    search is keyed on `(vertexId, hops)`, so its state space is `O(V · MaxDepth)`. **Hop-cap
+    correctness argument:** with non-negative (clamped) step costs the minimum-weight walk is
+    achieved by a *simple* path, and the algorithm returns only loop-free paths; a loop-free/simple
+    path visits at most `VertexCount` vertices, i.e. at most `VertexCount − 1` edges. The engine
+    therefore caps the effective hop bound at `min(MaxDepth, VertexCount − 1)`. This is
+    **result-invariant** — it cannot exclude any returned path (neither the single least-weight path
+    nor Yen's K loop-free paths) and never *increases* the caller's `MaxDepth` — and it only stops a
+    huge opt-in `MaxDepth` from enumerating redundant deeper states against an unreachable
+    destination in a cyclic component (a resource guard on that opt-in request).
   - `MaxPathWeight` — a path whose cumulative weight exceeds it is never returned (pruned during
-    search).
-  - `MaxResults` — the number of paths to return.
+    search). The bound is **inclusive**: a path whose weight *equals* `MaxPathWeight` is allowed.
+  - `MaxResults` — the number of paths to return (the `K` in K-shortest when `MaxResults > 1`).
 - **Result semantics.**
   - `MaxResults == 1`: the single least-weight path within the bounds (ties broken deterministically,
     e.g. fewer hops then lower first-differing edge id).

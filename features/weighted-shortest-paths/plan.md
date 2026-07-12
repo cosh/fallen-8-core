@@ -89,6 +89,34 @@ Notes on the two deviations from the plan text are in the "Notes" section below.
 - **Hop dimension in the search state.** To honour `MaxDepth` *exactly* (reject a cheaper-but-longer
   route in favour of a costlier route that fits the budget), the Dijkstra label is keyed by
   `(vertexId, hops)`, not by vertex alone. A plain per-vertex distance would let the cheap long
-  route settle the destination and hide the admissible short one. State space is `O(V · MaxDepth)`.
+  route settle the destination and hide the admissible short one. State space is `O(V · MaxDepth)`,
+  bounded at entry by capping the effective hop budget at `min(MaxDepth, VertexCount − 1)`
+  (result-invariant; see the nit fixes below and spec §2).
 - **Loop-free guarantee.** Reconstruction excises any repeated vertex; with non-negative (clamped)
   costs a repeat only occurs across a zero-weight cycle, so excision preserves weight and validity.
+
+### Merge-review nit fixes
+Applied after the unanimous APPROVE_WITH_NITS review (all result-invariant / quality nits; `BLS`
+behaviour untouched):
+- **Bounded search state space.** Cap the effective hop budget at `min(MaxDepth, VertexCount − 1)`
+  once at the entry point so it flows into both the single Dijkstra and Yen's spur searches —
+  guarding a huge opt-in `MaxDepth` against an unreachable destination in a cyclic component. The
+  cap never increases the caller's `MaxDepth` and is result-invariant (spec §2); covered by a
+  large-`MaxDepth`-vs-`VertexCount` invariance test plus an intermediate-shadowing regression test.
+- **Deterministic K-shortest tie-break.** The candidate priority queue compares the path signature
+  with `String.CompareOrdinal`, so the tie chosen when `MaxResults` is smaller than a tie group is
+  culture-invariant (byte-identical across locales).
+- **Snapshot `OutEdges`/`InEdges` into locals** before the null-check + iterate in the neighbour
+  enumeration (mirrors `BLS`; behaviour-preserving robustness).
+- **Doc clarifications** in `GraphController` (grammar), `PathSpecification` (aligned the
+  `maxResults` `DefaultValue` to `65535`; noted `maxResults = 1` for the least-weight-only case;
+  noted `maxPathWeight` is inclusive) and `PathREST` (`totalWeight` is `0` for `BLS`).
+- **Added/strengthened tests:** incoming-edge (against-direction) traversal; `EdgePropertyFilter`;
+  stronger `MaxPathWeight` (isolates pruning) and negative-cost (exact clamped weight) assertions.
+
+### Known perf follow-up
+- **Large-`MaxResults` Yen's cost.** `MaxResults` defaults to `65535`; for `DIJKSTRA` that is the
+  `K` in K-shortest, so an unbounded `maxResults` can make Yen's algorithm do a lot of spur work on
+  large graphs. Callers wanting only the least-weight path should pass `maxResults = 1`. A future
+  optimisation could short-circuit very large `K` or bound candidate generation; not required for
+  correctness.
