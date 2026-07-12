@@ -91,10 +91,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <param name="fromSubGraph">Optional name of an existing subgraph to source this one from (creates a nested subgraph). When omitted, the subgraph is sourced from the whole graph.</param>
         /// <response code="201">The subgraph was created and registered</response>
-        /// <response code="400">The specification was invalid or a filter failed to compile</response>
+        /// <response code="400">No valid subgraph was produced (the pattern matched nothing, was structurally invalid, or a resource quota was exceeded), the specification was invalid, or a filter failed to compile</response>
         /// <response code="404">The source subgraph named by fromSubGraph does not exist</response>
         /// <response code="409">A subgraph with the same name already exists</response>
-        /// <response code="500">The create transaction was rolled back, or an unexpected error occurred</response>
+        /// <response code="500">The create transaction faulted with an internal error</response>
         [HttpPut("/subgraph")]
         [Consumes("application/json")]
         [Produces("application/json")]
@@ -146,21 +146,23 @@ namespace NoSQL.GraphDB.App.Controllers
                 var txInfo = _fallen8.EnqueueTransaction(tx);
                 txInfo.WaitUntilFinished();
 
-                // A worker-rolled-back create is a real internal failure (the create faulted, or the
-                // factory refused the write after materialization - e.g. an element quota). That is
-                // not a client bad-request, so surface it as 500 rather than the misleading 400
-                // below (correctness-fixes B6).
-                if (txInfo.TransactionState == TransactionState.RolledBack)
+                // The worker maps BOTH a thrown exception AND a clean TryExecute()==false to
+                // TransactionState.RolledBack, so the state alone cannot tell them apart. Only a
+                // genuine fault is a 500: txInfo.Error is non-null exactly for a thrown exception.
+                if (txInfo.Error != null)
                 {
+                    _logger?.LogError(txInfo.Error, "Creation of subgraph '{0}' faulted and was rolled back.", specification.Name);
                     return StatusCode(StatusCodes.Status500InternalServerError,
-                        String.Format("Creation of subgraph '{0}' was rolled back; the operation did not complete.", specification.Name));
+                        String.Format("Creation of subgraph '{0}' failed due to an internal error.", specification.Name));
                 }
 
                 if (tx.SubGraphCreated == null)
                 {
-                    // Non-rollback null result: the pattern sequence produced no valid subgraph.
+                    // Clean rollback / no result: the create ran without faulting but produced no
+                    // subgraph - the pattern matched nothing, was structurally invalid, or a resource
+                    // quota was exceeded. Those are client-correctable, so 400 rather than 500.
                     return BadRequest(String.Format(
-                        "Failed to create subgraph '{0}'. The pattern sequence may be invalid or a resource quota was exceeded.",
+                        "No valid subgraph was produced for '{0}' - the pattern matched nothing, was structurally invalid, or a resource quota was exceeded.",
                         specification.Name));
                 }
 

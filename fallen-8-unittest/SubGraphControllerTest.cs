@@ -104,6 +104,25 @@ namespace NoSQL.GraphDB.Tests
             };
         }
 
+        /// <summary>
+        /// A pattern sequence that compiles fine but is structurally invalid: two vertex patterns
+        /// in a row. Code generation accepts it (validation happens at execution), but the
+        /// algorithm's ValidatePattern rejects it (a vertex pattern must be followed by an edge),
+        /// so the create transaction returns false - a clean rollback, not a fault.
+        /// </summary>
+        private static SubGraphSpecification VertexThenVertex(string name = "invalid")
+        {
+            return new SubGraphSpecification
+            {
+                Name = name,
+                Patterns = new List<PatternSpecification>
+                {
+                    new PatternSpecification { Type = "Vertex", PatternName = "a", GraphElementFilter = "return (ge) => ge.Label == \"person\";" },
+                    new PatternSpecification { Type = "Vertex", PatternName = "b", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                }
+            };
+        }
+
         [TestMethod]
         public void Create_ValidSpecification_Returns201WithSummary()
         {
@@ -250,20 +269,69 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(sourceEdgeCount, _fallen8.EdgeCount, "Source graph edges must be unchanged");
         }
 
-        // ---- B6 follow-up: a rolled-back subgraph mutation must not be reported as success ----
+        // ---- CreateSubGraph outcome mapping: a clean rollback is 400, a genuine fault is 500 ----
 
         [TestMethod]
-        public void Create_WhenTransactionRollsBack_Returns500()
+        public void Create_WhenNothingMatches_Returns400()
+        {
+            // A valid, compilable pattern on a graph where nothing matches: the vertex-copy stage
+            // finds no vertices, so with a pattern defined the algorithm returns false. That is a
+            // clean rollback (no exception), i.e. a client-correctable empty result -> 400, not 500.
+            var emptyLoggerFactory = TestLoggerFactory.Create();
+            var emptyFallen8 = new Fallen8(emptyLoggerFactory);
+            var controller = new SubGraphController(
+                emptyLoggerFactory.CreateLogger<SubGraphController>(), emptyFallen8);
+
+            var result = controller.CreateSubGraph(AllPersons());
+
+            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult),
+                "A pattern that matches nothing is a clean rollback and must be 400, not 500.");
+            Assert.AreEqual(StatusCodes.Status400BadRequest, StatusCodeOf(result));
+        }
+
+        [TestMethod]
+        public void Create_WhenPatternStructurallyInvalid_Returns400()
+        {
+            // Two vertex patterns in a row compile fine but fail the algorithm's ValidatePattern at
+            // execution, so the create transaction returns false: a clean rollback, hence 400.
+            var result = _controller.CreateSubGraph(VertexThenVertex());
+
+            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult),
+                "A structurally-invalid pattern is a clean rollback and must be 400, not 500.");
+            Assert.AreEqual(StatusCodes.Status400BadRequest, StatusCodeOf(result));
+        }
+
+        [TestMethod]
+        public void Create_WhenQuotaExceeded_Returns400()
         {
             // A post-materialization quota breach makes the factory refuse the write, so the create
-            // transaction is rolled back. That is a real internal failure and must surface as 500 -
-            // not the misleading 400 "pattern may be invalid or quota exceeded".
+            // transaction returns false (a clean rollback, not a thrown fault). A quota breach is a
+            // client-correctable request, so it must surface as 400 - proving the clean-false path
+            // maps to 400, not the misleading 500 a previous fix round introduced.
             _fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxElementsPerSubGraph = 1 };
 
             var result = _controller.CreateSubGraph(AllPersons());
 
+            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult),
+                "A quota breach is a clean rollback and must be 400, not 500.");
+            Assert.AreEqual(StatusCodes.Status400BadRequest, StatusCodeOf(result));
+        }
+
+        [TestMethod]
+        public void Create_WhenTransactionFaults_Returns500()
+        {
+            // Drive CreateSubGraph against a Fallen8 whose create transaction reports RolledBack AND
+            // carries a genuine exception (txInfo.Error != null). Only a real fault - not an empty
+            // match, invalid pattern or quota breach - must map to 500.
+            var faultingFallen8 = new RollbackForcingFallen8(
+                _fallen8, new InvalidOperationException("simulated internal fault"));
+            var controller = new SubGraphController(
+                TestLoggerFactory.Create().CreateLogger<SubGraphController>(), faultingFallen8);
+
+            var result = controller.CreateSubGraph(AllPersons("faulting"));
+
             Assert.AreEqual(StatusCodes.Status500InternalServerError, StatusCodeOf(result),
-                "A create whose transaction rolled back must be reported as 500, not 400.");
+                "A create whose transaction faulted with an exception must be reported as 500.");
         }
 
         [TestMethod]
@@ -298,19 +366,23 @@ namespace NoSQL.GraphDB.Tests
         /// transaction as <see cref="TransactionState.RolledBack"/> without running it; every other
         /// member forwards to a real inner instance so the controller's pre-checks (e.g.
         /// <see cref="SubGraphFactory"/> lookups) behave normally. Lets a controller test drive the
-        /// "the worker rolled the write back" branch deterministically.
+        /// "the worker rolled the write back" branch deterministically. When an <c>error</c> is
+        /// supplied it is exposed as <see cref="TransactionInformation.Error"/>, mirroring a
+        /// genuine fault (versus a clean rollback when it is null).
         /// </summary>
         private sealed class RollbackForcingFallen8 : IFallen8
         {
             private readonly IFallen8 _inner;
+            private readonly Exception _error;
 
-            public RollbackForcingFallen8(IFallen8 inner)
+            public RollbackForcingFallen8(IFallen8 inner, Exception error = null)
             {
                 _inner = inner;
+                _error = error;
             }
 
             public TransactionInformation EnqueueTransaction(ATransaction tx)
-                => new TransactionInformation(null) { Transaction = tx, TransactionState = TransactionState.RolledBack };
+                => new TransactionInformation(null) { Transaction = tx, TransactionState = TransactionState.RolledBack, Error = _error };
 
             // Everything below simply forwards to the real instance.
             public Guid Id => _inner.Id;
