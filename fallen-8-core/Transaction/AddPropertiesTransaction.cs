@@ -65,9 +65,17 @@ namespace NoSQL.GraphDB.Core.Transaction
             return this;
         }
 
+        internal override void ReleaseAfterCompletion()
+        {
+            // Drop the input definitions (and the boxed property values they carry) once the
+            // transaction completes (M3).
+            Properties = null;
+        }
+
         internal override void Cleanup()
         {
-            Properties.Clear();
+            // Null-safe: ReleaseAfterCompletion() may already have dropped Properties.
+            Properties = null;
         }
     }
 }

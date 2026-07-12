@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -156,6 +157,33 @@ namespace NoSQL.GraphDB.Core
         ///   The current identifier.
         /// </summary>
         private Int32 _currentId = 0;
+
+        /// <summary>
+        ///   Runtime intern table for the low-cardinality, schema-like strings that repeat across
+        ///   many elements: labels, property keys and edge-property-ids (finding M2). It mirrors
+        ///   what the load path's string token table already does, but for the runtime create /
+        ///   <c>SetProperty</c> paths: without it, every element deserialized from a distinct REST
+        ///   request holds its OWN copy of the same <c>"person"</c> label or <c>"name"</c> key, so
+        ///   N duplicate strings are retained instead of one shared instance. It is populated only
+        ///   from the single-writer transaction thread, so a plain dictionary would suffice; a
+        ///   <see cref="ConcurrentDictionary{TKey,TValue}"/> is used for defensiveness. Bounded by
+        ///   the schema cardinality (distinct labels/keys/edge-property-ids), never by element
+        ///   count. Interning is purely a footprint optimisation: it never changes an observable
+        ///   value, because it only ever substitutes a value-equal string instance.
+        /// </summary>
+        private readonly ConcurrentDictionary<String, String> _internTable = new ConcurrentDictionary<String, String>(StringComparer.Ordinal);
+
+        /// <summary>
+        ///   Upper bound on the number of distinct strings the <see cref="_internTable" /> retains.
+        ///   The table is bounded by schema cardinality (distinct labels / property keys /
+        ///   edge-property-ids), so this cap is far above any real schema; it exists only so a
+        ///   pathological high-cardinality-key/label workload cannot pin an unbounded number of
+        ///   distinct strings for the process lifetime (which would undercut M4's store bounding).
+        ///   Past the cap <see cref="Intern" /> becomes a no-op and returns its argument as-is -
+        ///   correctness is unaffected because interning only ever substitutes a value-equal
+        ///   instance. A field (not a const) so a test can lower it.
+        /// </summary>
+        internal int _internTableCap = 1_000_000;
 
         /// <summary>
         ///   Binary operator delegate.
@@ -375,10 +403,57 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
+        /// <summary>
+        ///   Interns a schema-like string (label / property key / edge-property-id) so all
+        ///   elements that use the same value share one instance (finding M2). Returns the
+        ///   argument unchanged for <c>null</c>. The returned string is always value-equal to the
+        ///   argument, so callers observe no change.
+        /// </summary>
+        internal String Intern(String value)
+        {
+            if (value == null)
+            {
+                return null;
+            }
+
+            // Bound the table (see _internTableCap): once it holds a cap's worth of distinct
+            // strings, stop adding new ones and return the argument unchanged, so interning becomes
+            // a no-op past the cap. The Count read races with a concurrent writer, but the table is
+            // populated only from the single transaction-writer thread and the goal is bounding,
+            // not an exact size, so a slight overshoot is harmless. Correctness is unaffected
+            // either way: the result is always value-equal to the argument.
+            if (_internTable.Count >= _internTableCap)
+            {
+                return value;
+            }
+
+            return _internTable.GetOrAdd(value, value);
+        }
+
+        /// <summary>
+        ///   Returns a property dictionary whose KEYS are interned (finding M2). The values are
+        ///   never touched (they are user data, not schema). Returns the input unchanged when it
+        ///   is null or empty (an empty/absent property map allocates no container, per M1).
+        /// </summary>
+        private Dictionary<String, Object> InternPropertyKeys(Dictionary<String, Object> properties)
+        {
+            if (properties == null || properties.Count == 0)
+            {
+                return properties;
+            }
+
+            var interned = new Dictionary<String, Object>(properties.Count, StringComparer.Ordinal);
+            foreach (var kv in properties)
+            {
+                interned[Intern(kv.Key)] = kv.Value;
+            }
+            return interned;
+        }
+
         internal VertexModel CreateVertex_internal(UInt32 creationDate, String label, Dictionary<String, Object> properties = null)
         {
-            //create the new vertex
-            var newVertex = new VertexModel(_currentId, creationDate, label, properties);
+            //create the new vertex (interning the label and property keys, finding M2)
+            var newVertex = new VertexModel(_currentId, creationDate, Intern(label), InternPropertyKeys(properties));
 
             //insert it
             AppendGraphElement(newVertex);
@@ -400,8 +475,8 @@ namespace NoSQL.GraphDB.Core
             {
                 foreach (var aVertexDef in definitions)
                 {
-                    //create the new vertex
-                    var newVertex = new VertexModel(_currentId, aVertexDef.CreationDate, aVertexDef.Label, aVertexDef.Properties);
+                    //create the new vertex (interning the label and property keys, finding M2)
+                    var newVertex = new VertexModel(_currentId, aVertexDef.CreationDate, Intern(aVertexDef.Label), InternPropertyKeys(aVertexDef.Properties));
 
                     newVertices.Add(newVertex);
 
@@ -732,7 +807,9 @@ namespace NoSQL.GraphDB.Core
             //get the related vertices
             if (sourceVertex != null && targetVertex != null)
             {
-                outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, label, edgePropertyId, properties);
+                //intern the label, edge-property-id and property keys (finding M2)
+                edgePropertyId = Intern(edgePropertyId);
+                outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, Intern(label), edgePropertyId, InternPropertyKeys(properties));
 
                 //add the edge to the graph elements
                 AppendGraphElement(outgoingEdge);
@@ -767,8 +844,10 @@ namespace NoSQL.GraphDB.Core
                     //get the related vertices
                     if (sourceVertex != null && targetVertex != null)
                     {
+                        //intern the label, edge-property-id and property keys (finding M2)
+                        var edgePropertyId = Intern(aEdgeDefinition.EdgePropertyId);
                         var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex,
-                            aEdgeDefinition.Label, aEdgeDefinition.EdgePropertyId, aEdgeDefinition.Properties);
+                            Intern(aEdgeDefinition.Label), edgePropertyId, InternPropertyKeys(aEdgeDefinition.Properties));
 
                         newEdges.Add(newEdge);
 
@@ -776,10 +855,10 @@ namespace NoSQL.GraphDB.Core
                         Interlocked.Increment(ref _currentId);
 
                         //add the edge to the source vertex
-                        sourceVertex.AddOutEdge(aEdgeDefinition.EdgePropertyId, newEdge);
+                        sourceVertex.AddOutEdge(edgePropertyId, newEdge);
 
                         //link the vertices
-                        targetVertex.AddIncomingEdge(aEdgeDefinition.EdgePropertyId, newEdge);
+                        targetVertex.AddIncomingEdge(edgePropertyId, newEdge);
 
                         //increase the edgeCount
                         EdgeCount++;
@@ -801,7 +880,8 @@ namespace NoSQL.GraphDB.Core
             AGraphElementModel graphElement = GetGraphElementForMutation(graphElementId);
             if (graphElement != null)
             {
-                graphElement.SetProperty(propertyId, property);
+                //intern the property key (finding M2)
+                graphElement.SetProperty(Intern(propertyId), property);
             }
         }
 
@@ -1023,6 +1103,11 @@ namespace NoSQL.GraphDB.Core
             IndexFactory.DeleteAllIndices();
             VertexCount = 0;
             EdgeCount = 0;
+            // Reclaim the intern table on a full reset: its entries are only referenced by the
+            // graph elements being discarded here, so a reset should release them too. (It is
+            // deliberately NOT cleared on Trim, where interned strings are still referenced by the
+            // surviving elements.)
+            _internTable.Clear();
         }
 
         /// <summary>
@@ -1244,6 +1329,42 @@ namespace NoSQL.GraphDB.Core
         private static Boolean BinaryGreaterOrEqualMethod(IComparable property, IComparable literal)
         {
             return property.CompareTo(literal) >= 0;
+        }
+
+        /// <summary>
+        ///   Tombstone count (soft-deleted or load-gap slots) at or above which a committed
+        ///   removal triggers an automatic compaction (finding M4). Removal is a soft delete: a
+        ///   removed element keeps its full body (properties + adjacency) until a <c>Trim</c>
+        ///   rebuilds the store without it. Under sustained add/remove churn those tombstones would
+        ///   otherwise grow unboundedly. Auto-trim reuses the existing <see cref="Trim_internal" />
+        ///   (which is rollback-agnostic and safe for lock-free readers), so it never frees a field
+        ///   on the removal path itself. The default is deliberately conservative so ordinary
+        ///   workloads and the test suite never trigger it (and it never surprises callers with an
+        ///   id reassignment); it is a field rather than a const so a soak test can lower it.
+        /// </summary>
+        internal int _autoTrimTombstoneThreshold = 100_000;
+
+        /// <summary>
+        ///   Considers an automatic compaction after a committed element removal (finding M4).
+        ///   Runs ONLY on the single transaction-worker thread, after the removal has committed
+        ///   (never inside <c>TryExecute</c>, so a rolled-back removal - which restores adjacency
+        ///   and counts - is never affected). The live counts are maintained, so the tombstone
+        ///   estimate is O(1). When the store is compacted, removed elements are dropped entirely,
+        ///   reclaiming their properties and adjacency and bounding memory under churn.
+        /// </summary>
+        internal void MaybeAutoTrim()
+        {
+            var snap = _snapshot;
+            // Live elements are counted in VertexCount + EdgeCount; the remainder of the published
+            // slots are tombstones (removed) or load gaps. Both are what a Trim would reclaim.
+            int tombstones = snap.Count - VertexCount - EdgeCount;
+
+            if (tombstones >= _autoTrimTombstoneThreshold)
+            {
+                _logger.LogInformation("Auto-trim: {Tombstones} reclaimable slots >= threshold {Threshold}; compacting the master store.",
+                    tombstones, _autoTrimTombstoneThreshold);
+                Trim_internal();
+            }
         }
 
         /// <summary>

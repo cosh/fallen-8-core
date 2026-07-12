@@ -68,7 +68,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         private readonly PluginCache _pluginCache;
 
         /// <summary>
-        /// Resource ceilings enforced at creation time. Unlimited by default.
+        /// Resource ceilings enforced at creation time. Generous but bounded by default (M6).
         /// </summary>
         private SubGraphQuota _quota = new SubGraphQuota();
 
@@ -98,7 +98,8 @@ namespace NoSQL.GraphDB.Core.SubGraph
 
         /// <summary>
         /// Gets or sets the resource ceilings enforced when creating subgraphs. Setting null
-        /// resets to unlimited. Defaults to unlimited so embedded/trusted use is unaffected.
+        /// resets to the default quota. Defaults to a generous-but-bounded quota (M6) so ordinary
+        /// embedded/trusted use is unaffected while a runaway caller cannot exhaust memory.
         /// </summary>
         public SubGraphQuota Quota
         {

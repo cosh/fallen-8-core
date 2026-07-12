@@ -32,37 +32,51 @@ namespace NoSQL.GraphDB.Core.SubGraph
     /// to bound the memory a caller can consume by materializing many or large subgraphs.
     /// </summary>
     /// <remarks>
-    /// Every limit defaults to <see cref="Int32.MaxValue"/> (effectively unlimited) so
-    /// embedded/trusted use is unaffected. A hosting layer that exposes subgraph creation to
-    /// untrusted callers should set conservative values.
+    /// The defaults are generous but finite (finding M6): they never get in the way of ordinary
+    /// embedded/trusted use, yet they bound the memory a runaway or hostile caller can consume by
+    /// materializing unboundedly many or unboundedly large subgraphs (the previous
+    /// <see cref="Int32.MaxValue"/> defaults were effectively unlimited). A hosting layer that
+    /// exposes subgraph creation to untrusted callers should still set tighter, use-case-specific
+    /// values; a trusted embedder that genuinely wants no ceiling can set the limits back to
+    /// <see cref="Int32.MaxValue"/>.
     /// </remarks>
     public sealed class SubGraphQuota
     {
+        /// <summary>The default <see cref="MaxSubGraphCount"/>: generous for real use, but bounded.</summary>
+        public const int DefaultMaxSubGraphCount = 1024;
+
+        /// <summary>The default <see cref="MaxElementsPerSubGraph"/>: up to a large-graph scale.</summary>
+        public const int DefaultMaxElementsPerSubGraph = 10_000_000;
+
+        /// <summary>The default <see cref="MaxTotalElements"/> summed across all subgraphs.</summary>
+        public const int DefaultMaxTotalElements = 25_000_000;
+
         /// <summary>
         /// Maximum number of registered subgraphs. Creation is rejected when this many
-        /// subgraphs already exist.
+        /// subgraphs already exist. Defaults to <see cref="DefaultMaxSubGraphCount"/>.
         /// </summary>
         public int MaxSubGraphCount
         {
             get; set;
-        } = Int32.MaxValue;
+        } = DefaultMaxSubGraphCount;
 
         /// <summary>
         /// Maximum number of materialized elements (vertices + edges) in a single subgraph.
-        /// A subgraph that would exceed this is rejected and not registered.
+        /// A subgraph that would exceed this is rejected and not registered. Defaults to
+        /// <see cref="DefaultMaxElementsPerSubGraph"/>.
         /// </summary>
         public int MaxElementsPerSubGraph
         {
             get; set;
-        } = Int32.MaxValue;
+        } = DefaultMaxElementsPerSubGraph;
 
         /// <summary>
         /// Maximum number of materialized elements (vertices + edges) summed across all
-        /// registered subgraphs.
+        /// registered subgraphs. Defaults to <see cref="DefaultMaxTotalElements"/>.
         /// </summary>
         public int MaxTotalElements
         {
             get; set;
-        } = Int32.MaxValue;
+        } = DefaultMaxTotalElements;
     }
 }

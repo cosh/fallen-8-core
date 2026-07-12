@@ -262,7 +262,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Try to get geometry property using reflection since SetProperty is internal
             object propertyValue;
-            var properties = GetPropertiesViaReflection(element);
+            var properties = GetProperties(element);
 
             if (properties != null && properties.TryGetValue("geometry", out propertyValue) && propertyValue is IGeometry)
             {
@@ -274,18 +274,13 @@ namespace NoSQL.GraphDB.Tests
             return false;
         }
 
-        private ImmutableDictionary<string, object> GetPropertiesViaReflection(AGraphElementModel element)
+        private ImmutableDictionary<string, object> GetProperties(AGraphElementModel element)
         {
-            // Use reflection to access the private _properties field of AGraphElementModel
-            var field = typeof(AGraphElementModel).GetField("_properties",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-            if (field != null)
-            {
-                return (ImmutableDictionary<string, object>)field.GetValue(element);
-            }
-
-            return null;
+            // Read the properties through the public accessor. (This formerly reflected the private
+            // _properties field and cast it to ImmutableDictionary; the memory-footprint compaction
+            // changed that field's concrete type to a compact array, so we go through the accessor,
+            // which still returns the same ImmutableDictionary snapshot.)
+            return element.GetAllProperties();
         }
 
         // Implementation of IMetric for Euclidean distance calculations

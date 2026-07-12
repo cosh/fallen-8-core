@@ -89,12 +89,17 @@ namespace NoSQL.GraphDB.Core.Transaction
             return ImmutableList.CreateRange(_edgesAdded);
         }
 
+        internal override void ReleaseAfterCompletion()
+        {
+            // Drop the input definitions (and their property dictionaries) once the transaction
+            // completes (M3). The created-model list is kept for GetCreatedEdges() after waiting.
+            Edges = null;
+        }
+
         internal override void Cleanup()
         {
-            Edges.Clear();
+            // Null-safe: ReleaseAfterCompletion() may already have dropped Edges.
             Edges = null;
-
-            _edgesAdded.Clear();
             _edgesAdded = null;
         }
     }

@@ -80,12 +80,18 @@ namespace NoSQL.GraphDB.Core.Transaction
             return ImmutableList.CreateRange(_verticesCreated);
         }
 
+        internal override void ReleaseAfterCompletion()
+        {
+            // Drop the input definitions (and the property dictionaries they carry) as soon as the
+            // transaction completes (M3). The created-model list is kept so a waited-on caller can
+            // still read GetCreatedVertices() after WaitUntilFinished().
+            Vertices = null;
+        }
+
         internal override void Cleanup()
         {
-            _verticesCreated.Clear();
+            // Null-safe: ReleaseAfterCompletion() may already have dropped Vertices.
             _verticesCreated = null;
-
-            Vertices.Clear();
             Vertices = null;
         }
     }

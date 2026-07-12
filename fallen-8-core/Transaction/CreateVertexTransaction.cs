@@ -41,6 +41,13 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
+        internal override void ReleaseAfterCompletion()
+        {
+            // Drop the input definition once the transaction completes (M3). VertexCreated is kept
+            // so a waited-on caller can still read it after WaitUntilFinished().
+            Definition = null;
+        }
+
         internal override void Cleanup()
         {
             Definition = null;
