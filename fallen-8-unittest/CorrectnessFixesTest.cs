@@ -270,6 +270,65 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region RangeIndex - discards the ImmutableList return (same defect class as B1/B2)
+
+        [TestMethod]
+        public void RangeIndex_WhenAddingMultipleValuesUnderOneKey_RangeQueryShouldReturnAllOfThem()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+            var index = new RangeIndex();
+            index.Initialize(fallen8, null);
+
+            // Act - three elements share the single range key 20.
+            index.AddOrUpdate(20, vertices[0]);
+            index.AddOrUpdate(20, vertices[1]);
+            index.AddOrUpdate(20, vertices[2]);
+
+            // Assert - a range that covers key 20 must return ALL three, not just the first.
+            ImmutableList<AGraphElementModel> result;
+            bool found = index.Between(out result, 10, 30, true, true);
+            Assert.IsTrue(found, "The range scan should report success.");
+            Assert.AreEqual(3, result.Count, "All three values under the covered range key must be retained.");
+            CollectionAssert.AreEquivalent(
+                new AGraphElementModel[] { vertices[0], vertices[1], vertices[2] },
+                result.ToList(),
+                "The range bucket must contain exactly the three added elements.");
+
+            // ...and a direct key lookup must agree.
+            ImmutableList<AGraphElementModel> byKey;
+            Assert.IsTrue(index.TryGetValue(out byKey, 20), "The key should be present in the index.");
+            Assert.AreEqual(3, byKey.Count, "All three values must be retained under the key.");
+        }
+
+        [TestMethod]
+        public void RangeIndex_WhenRemovingOneValueFromAKey_RangeQueryShouldKeepTheRest()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+            var index = new RangeIndex();
+            index.Initialize(fallen8, null);
+            index.AddOrUpdate(20, vertices[0]);
+            index.AddOrUpdate(20, vertices[1]);
+            index.AddOrUpdate(20, vertices[2]);
+
+            // Act
+            index.RemoveValue(vertices[1]);
+
+            // Assert - the removed value is gone, the rest remain and are still range-queryable.
+            ImmutableList<AGraphElementModel> result;
+            bool found = index.Between(out result, 10, 30, true, true);
+            Assert.IsTrue(found, "The range scan should still report success.");
+            Assert.AreEqual(2, result.Count, "Exactly the removed value should be gone.");
+            Assert.IsTrue(result.Contains(vertices[0]), "The first value must remain.");
+            Assert.IsTrue(result.Contains(vertices[2]), "The third value must remain.");
+            Assert.IsFalse(result.Contains(vertices[1]), "The removed value must be gone.");
+        }
+
+        #endregion
+
         #region B4 - TryRemoveGraphElement_private rollback path
 
         [TestMethod]
