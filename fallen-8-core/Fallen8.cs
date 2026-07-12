@@ -1104,7 +1104,10 @@ namespace NoSQL.GraphDB.Core
         {
             TabulaRasa_internal();
 
-            _snapshot = null;
+            // Publish the empty snapshot rather than null on teardown: a reader racing Dispose then
+            // captures a holder with Count == 0 (a clean "not found"/empty result) instead of
+            // dereferencing a null holder and throwing a NullReferenceException on snap.Count.
+            _snapshot = EmptySnapshot;
 
             IndexFactory.DeleteAllIndices();
             IndexFactory = null;
