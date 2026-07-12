@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="Fallen-8 architecture: the API app talks to the engine, which holds transactions, indices, algorithms, plugins and persistence.">
+  <style>
+    .title { font-size: 20px; font-weight: 700; fill: #6E7681; }
+    .layer { font-size: 13px; font-weight: 700; }
+    .box   { font-size: 13px; font-weight: 600; }
+    .sub   { font-size: 12px; }
+    .note  { font-size: 11px; fill: #6E7681; }
+  </style>
+
+  <text x="24" y="34" class="title">Fallen-8 &#8212; architecture</text>
+
+  <!-- API app layer -->
+  <rect x="24" y="52" width="852" height="118" rx="10" fill="#4C78A8"/>
+  <text x="40" y="76" class="layer" fill="#FFFFFF">fallen-8-core-apiApp &#8212; ASP.NET Core REST API (OpenAPI + Scalar)</text>
+  <g>
+    <rect x="40" y="88" width="180" height="66" rx="7" fill="#EAF1F8"/>
+    <text x="130" y="116" class="box" fill="#1B2733" text-anchor="middle">GraphController</text>
+    <text x="130" y="136" class="sub" fill="#3A4A5A" text-anchor="middle">vertices / edges / paths</text>
+
+    <rect x="232" y="88" width="180" height="66" rx="7" fill="#EAF1F8"/>
+    <text x="322" y="116" class="box" fill="#1B2733" text-anchor="middle">SubGraphController</text>
+    <text x="322" y="136" class="sub" fill="#3A4A5A" text-anchor="middle">subgraph CRUD + recalc</text>
+
+    <rect x="424" y="88" width="200" height="66" rx="7" fill="#EAF1F8"/>
+    <text x="524" y="116" class="box" fill="#1B2733" text-anchor="middle">AdminController</text>
+    <text x="524" y="136" class="sub" fill="#3A4A5A" text-anchor="middle">save / load / status</text>
+
+    <rect x="636" y="88" width="224" height="66" rx="7" fill="#EAF1F8"/>
+    <text x="748" y="112" class="box" fill="#1B2733" text-anchor="middle">CodeGenerationHelper</text>
+    <text x="748" y="132" class="sub" fill="#3A4A5A" text-anchor="middle">compiles C# filter fragments</text>
+  </g>
+
+  <!-- arrow -->
+  <line x1="450" y1="170" x2="450" y2="200" stroke="#9AA4AE" stroke-width="2.5"/>
+  <polygon points="450,206 444,196 456,196" fill="#9AA4AE"/>
+  <text x="462" y="192" class="note">transactions / reads</text>
+
+  <!-- Engine layer -->
+  <rect x="24" y="208" width="852" height="234" rx="10" fill="#59A14F"/>
+  <text x="40" y="232" class="layer" fill="#FFFFFF">fallen-8-core &#8212; in-memory graph engine</text>
+
+  <rect x="40" y="244" width="256" height="80" rx="7" fill="#ECF6EA"/>
+  <text x="168" y="272" class="box" fill="#18301A" text-anchor="middle">Model &amp; Transactions</text>
+  <text x="168" y="292" class="sub" fill="#2E4A2F" text-anchor="middle">vertices, edges, properties</text>
+  <text x="168" y="310" class="sub" fill="#2E4A2F" text-anchor="middle">all mutation is transactional</text>
+
+  <rect x="308" y="244" width="256" height="80" rx="7" fill="#ECF6EA"/>
+  <text x="436" y="272" class="box" fill="#18301A" text-anchor="middle">Algorithms (plugins)</text>
+  <text x="436" y="292" class="sub" fill="#2E4A2F" text-anchor="middle">Path finding</text>
+  <text x="436" y="310" class="sub" fill="#2E4A2F" text-anchor="middle">SubGraph extraction + factory</text>
+
+  <rect x="576" y="244" width="284" height="80" rx="7" fill="#ECF6EA"/>
+  <text x="718" y="272" class="box" fill="#18301A" text-anchor="middle">Indices (plugins)</text>
+  <text x="718" y="292" class="sub" fill="#2E4A2F" text-anchor="middle">dictionary, range,</text>
+  <text x="718" y="310" class="sub" fill="#2E4A2F" text-anchor="middle">fulltext, spatial (R-Tree)</text>
+
+  <rect x="40" y="338" width="392" height="84" rx="7" fill="#ECF6EA"/>
+  <text x="236" y="366" class="box" fill="#18301A" text-anchor="middle">Persistence</text>
+  <text x="236" y="386" class="sub" fill="#2E4A2F" text-anchor="middle">checkpoint save / load of graph elements,</text>
+  <text x="236" y="404" class="sub" fill="#2E4A2F" text-anchor="middle">indices, services, and subgraph recipes</text>
+
+  <rect x="444" y="338" width="416" height="84" rx="7" fill="#ECF6EA"/>
+  <text x="652" y="366" class="box" fill="#18301A" text-anchor="middle">Plugin system</text>
+  <text x="652" y="386" class="sub" fill="#2E4A2F" text-anchor="middle">discovers indices, algorithms and services;</text>
+  <text x="652" y="404" class="sub" fill="#2E4A2F" text-anchor="middle">extend the engine without changing the core</text>
+</svg>

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="330" viewBox="0 0 900 330" font-family="Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="A subgraph is extracted from a source graph by matching a person-knows-person pattern; the company vertex and works_at edge are pruned.">
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 z" fill="#8A929B"/>
+    </marker>
+    <marker id="flow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 z" fill="#4C78A8"/>
+    </marker>
+  </defs>
+  <style>
+    .panel  { fill: #F5F7FA; stroke: #D0D7DE; stroke-width: 1.5; }
+    .cap    { font-size: 13px; font-weight: 700; fill: #3A4653; }
+    .nlabel { font-size: 12px; font-weight: 700; fill: #FFFFFF; }
+    .elabel { font-size: 10.5px; fill: #59636E; }
+    .legend { font-size: 11.5px; fill: #3A4653; }
+  </style>
+
+  <!-- Panel 1: source graph -->
+  <rect class="panel" x="16" y="44" width="250" height="250" rx="10"/>
+  <text class="cap" x="141" y="70" text-anchor="middle">Source graph</text>
+  <!-- edges -->
+  <line x1="90" y1="120" x2="90" y2="178" stroke="#8A929B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="elabel" x="98" y="152">knows</text>
+  <line x1="90" y1="212" x2="90" y2="252" stroke="#8A929B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="elabel" x="98" y="236">knows</text>
+  <line x1="112" y1="104" x2="182" y2="104" stroke="#8A929B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="elabel" x="120" y="96">works_at</text>
+  <!-- nodes -->
+  <circle cx="90" cy="104" r="18" fill="#4C78A8"/><text class="nlabel" x="90" y="108" text-anchor="middle">A</text>
+  <circle cx="90" cy="195" r="18" fill="#4C78A8"/><text class="nlabel" x="90" y="199" text-anchor="middle">B</text>
+  <circle cx="90" cy="269" r="18" fill="#4C78A8"/><text class="nlabel" x="90" y="273" text-anchor="middle">C</text>
+  <circle cx="200" cy="104" r="18" fill="#E1812C"/><text class="nlabel" x="200" y="108" text-anchor="middle">Co</text>
+
+  <!-- flow arrow 1 -->
+  <line x1="278" y1="169" x2="322" y2="169" stroke="#4C78A8" stroke-width="2.5" marker-end="url(#flow)"/>
+
+  <!-- Panel 2: pattern -->
+  <rect class="panel" x="334" y="44" width="232" height="250" rx="10"/>
+  <text class="cap" x="450" y="70" text-anchor="middle">Pattern</text>
+  <line x1="410" y1="150" x2="410" y2="206" stroke="#8A929B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="elabel" x="418" y="182">knows (out)</text>
+  <circle cx="410" cy="134" r="20" fill="#4C78A8"/><text class="nlabel" x="410" y="138" text-anchor="middle">person</text>
+  <circle cx="410" cy="226" r="20" fill="#4C78A8"/><text class="nlabel" x="410" y="230" text-anchor="middle">person</text>
+  <text class="elabel" x="450" y="278" text-anchor="middle">Vertex &#8594; Edge &#8594; Vertex</text>
+
+  <!-- flow arrow 2 -->
+  <line x1="578" y1="169" x2="622" y2="169" stroke="#4C78A8" stroke-width="2.5" marker-end="url(#flow)"/>
+
+  <!-- Panel 3: matched subgraph -->
+  <rect class="panel" x="634" y="44" width="250" height="250" rx="10"/>
+  <text class="cap" x="759" y="70" text-anchor="middle">Matched subgraph</text>
+  <line x1="759" y1="120" x2="759" y2="178" stroke="#8A929B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="elabel" x="767" y="152">knows</text>
+  <line x1="759" y1="212" x2="759" y2="252" stroke="#8A929B" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="elabel" x="767" y="236">knows</text>
+  <circle cx="759" cy="104" r="18" fill="#4C78A8"/><text class="nlabel" x="759" y="108" text-anchor="middle">A</text>
+  <circle cx="759" cy="195" r="18" fill="#4C78A8"/><text class="nlabel" x="759" y="199" text-anchor="middle">B</text>
+  <circle cx="759" cy="269" r="18" fill="#4C78A8"/><text class="nlabel" x="759" y="273" text-anchor="middle">C</text>
+
+  <!-- legend -->
+  <circle cx="30" cy="316" r="7" fill="#4C78A8"/><text class="legend" x="42" y="320">person</text>
+  <circle cx="120" cy="316" r="7" fill="#E1812C"/><text class="legend" x="132" y="320">company (pruned &#8212; not on a matching path)</text>
+</svg>

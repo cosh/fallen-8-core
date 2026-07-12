@@ -4,30 +4,50 @@
 
 ![Fallen-8 logo.](https://raw.githubusercontent.com/cosh/fallen-8-core/main/pics/F8White.svg)
 
-Fallen-8 is an in-memory [graph database](http://en.wikipedia.org/wiki/Graph_database) implemented in C#. Its focus is to provide raw speed for heavy graph algorithms.
+Fallen-8 is an in-memory [graph database](http://en.wikipedia.org/wiki/Graph_database) implemented in C# (.NET 10). Its focus is to provide raw speed for heavy graph algorithms.
 
-This is the .NET Core version of the original [fallen-8](https://github.com/cosh/fallen-8). The core of fallen-8 stays unchanged but the webservices have been upgraded with a proper swagger interface.
+This is the .NET Core version of the original [fallen-8](https://github.com/cosh/fallen-8). The core of fallen-8 stays unchanged, and the web services expose a modern OpenAPI description rendered with the [Scalar](https://github.com/scalar/scalar) API reference.
 
-### Key featues
+### Key features
 
 - **Properties** on vertices and edges
-- **Indexes** on vertices and edges
+- **Indexes** on vertices and edges (dictionary, range, fulltext, spatial R-Tree)
+- **Path finding** with runtime-compiled filter and cost functions
+- **Subgraphs** — extract a pattern-matched subset of the graph as a standalone graph, recalculate it when the source changes, and persist it (see [Subgraphs](#subgraphs))
 - **Plugins** for indexes, algorithms and services
 - Checkpoint **persistency**
 
 ### Sweet spots
 
-- **Enterprise Search** (Semantic adhoc queries on multi-dimensional graphs)
-- **Lawful Interception** (Mass analysis)
-- **E-Commerce** (Bid- and portfolio-management)
+- **Enterprise Search** (semantic ad-hoc queries on multi-dimensional graphs)
+- **Lawful Interception** (mass analysis)
+- **E-Commerce** (bid- and portfolio-management)
+
+## Architecture
+
+The REST API app (`fallen-8-core-apiApp`) is a thin layer over the in-memory engine
+(`fallen-8-core`). All mutation flows through transactions; indices, algorithms and services
+are plugins; and the engine can checkpoint its state to disk.
+
+![Fallen-8 architecture: the REST API app sits on top of the engine, which holds the model and transactions, algorithms, indices, persistence and the plugin system.](./pics/architecture.svg)
+
+## Running it
+
+```bash
+dotnet run --project fallen-8-core-apiApp
+```
+
+In the Development environment the API description and interactive reference are available at:
+
+- **OpenAPI document:** `https://localhost:5001/openapi/v0.1.json`
+- **Scalar API reference:** `https://localhost:5001/scalar/v0.1`
+
+![The Scalar API reference for fallen-8-core, listing the Admin, Graph, SubGraph and other endpoint groups.](./pics/scalarApiReference.png)
 
 ## Samples
 
-Start the fallen-8-core-apiApp and have fun.
-
-Docs can be found by opening the [swagger](https://localhost:5001/swagger/index.html) page.
-
-![Swagger docs.](https://raw.githubusercontent.com/cosh/fallen-8-core/main/pics/swaggerDoc.png)
+Start `fallen-8-core-apiApp` and have fun. The following walkthrough uses the built-in
+sample graph.
 
 ### Create a sample graph
 
@@ -185,6 +205,34 @@ Response
   }
 ]
 ```
+
+## Subgraphs
+
+A **subgraph** is a pattern-matched subset of the graph, extracted into a new, standalone
+Fallen-8 instance. You give it optional vertex/edge pre-filters and an ordered pattern
+(alternating vertex/edge), and the engine keeps only the elements that lie on a matching
+path. The example below matches `person -knows-> person` and prunes everything else (the
+company vertex and its `works_at` edge):
+
+![A subgraph extracted from a source graph by matching a person-knows-person pattern; the company vertex and works_at edge are pruned.](./pics/subgraph-illustration.svg)
+
+Over REST, filters are C# code fragments compiled at runtime (just like the path API):
+
+```jsonc
+PUT /subgraph
+{
+  "name": "people-who-know-people",
+  "patterns": [
+    { "type": "Vertex", "patternName": "p1", "graphElementFilter": "return (ge) => ge.Label == \"person\";" },
+    { "type": "Edge",   "patternName": "knows", "direction": "OutgoingEdge", "edgePropertyFilter": "return (p) => p == \"knows\";" },
+    { "type": "Vertex", "patternName": "p2", "graphElementFilter": "return (ge) => ge.Label == \"person\";" }
+  ]
+}
+```
+
+Subgraphs can be listed, read, recalculated against their (possibly changed) source, deleted,
+and nested (a subgraph of a subgraph). See [features/subgraph/](features/subgraph/) for the
+full specification and REST reference.
 
 ## Additional information
 
