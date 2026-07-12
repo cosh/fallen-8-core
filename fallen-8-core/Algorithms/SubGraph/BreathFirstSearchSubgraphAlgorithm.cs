@@ -232,14 +232,19 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                 createEdgesTransaction.AddEdge(edgeDef);
             }
 
+            // Capture the edge count BEFORE enqueueing: once the transaction completes, the engine
+            // releases its input definition list (memory-footprint M3), so reading
+            // createEdgesTransaction.Edges after WaitUntilFinished() is no longer valid.
+            int edgeCount = createEdgesTransaction.Edges.Count;
+
             // Execute the batch transaction if there are edges to create
-            if (createEdgesTransaction.Edges.Count > 0)
+            if (edgeCount > 0)
             {
                 var txInfo = subgraph.EnqueueTransaction(createEdgesTransaction);
                 txInfo.WaitUntilFinished();
             }
 
-            return createEdgesTransaction.Edges.Count;
+            return edgeCount;
         }
 
         /// <summary>

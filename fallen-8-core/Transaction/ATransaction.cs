@@ -32,7 +32,31 @@ namespace NoSQL.GraphDB.Core.Transaction
     public abstract class ATransaction
     {
         public readonly string TransactionId = Guid.NewGuid().ToString();
+
+        /// <summary>
+        ///   Fully releases every reference the transaction still holds (both its input
+        ///   definition and any captured created-model list). Called by the transaction manager
+        ///   at <c>Trim</c>, once the transaction is no longer observable.
+        /// </summary>
         internal abstract void Cleanup();
+
+        /// <summary>
+        ///   Releases the transaction's HEAVY INPUT payload (the definition and the property
+        ///   dictionaries the caller supplied) as soon as the transaction reaches a terminal
+        ///   state, so that transient data is not retained in duplicate until the next
+        ///   <c>Trim</c> (finding M3). The default is a no-op; transactions that carry a bulk
+        ///   definition override it.
+        ///
+        ///   Contract: this MUST NOT drop anything a waited-on caller still reads after
+        ///   <c>WaitUntilFinished()</c> - in particular the captured created-models
+        ///   (<c>GetCreatedVertices()</c> / <c>VertexCreated</c> / ...). Only the input side is
+        ///   released here; the created-models are dropped later, in <see cref="Cleanup"/>.
+        /// </summary>
+        internal virtual void ReleaseAfterCompletion()
+        {
+            // no-op by default
+        }
+
         abstract internal void Rollback(Fallen8 f8);
         abstract internal Boolean TryExecute(Fallen8 f8);
     }

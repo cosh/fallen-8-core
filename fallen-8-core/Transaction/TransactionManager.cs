@@ -116,6 +116,12 @@ namespace NoSQL.GraphDB.Core.Transaction
                 // place before the task completes so Task.Wait() publishes it (B6 follow-up).
                 var faultedInfo = SetTransactionState(tx, TransactionState.RolledBack);
                 faultedInfo.Error = ex;
+
+                // The rollback above has already run and the terminal state (with Error) is set, so
+                // the heavy input payload can be dropped now instead of lingering until Trim (M3).
+                // This releases ONLY the input; the TransactionInformation entry, its state and its
+                // Error stay in place and readable.
+                ReleaseInputsSafely(tx, transactionType);
                 return;
             }
 
@@ -125,6 +131,10 @@ namespace NoSQL.GraphDB.Core.Transaction
                 _logger.LogInformation("Transaction {TransactionId} ({TransactionType}) finished successfully in {ElapsedMilliseconds}ms",
                     tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
                 SetTransactionState(tx, TransactionState.Finished);
+
+                // Drop the heavy input payload now that the transaction is committed (M3). The
+                // captured created-models are intentionally kept for a waited-on caller to read.
+                ReleaseInputsSafely(tx, transactionType);
             }
             else
             {
@@ -133,6 +143,22 @@ namespace NoSQL.GraphDB.Core.Transaction
                     tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
                 RollbackSafely(tx, transactionType);
                 SetTransactionState(tx, TransactionState.RolledBack);
+                ReleaseInputsSafely(tx, transactionType);
+            }
+        }
+
+        private void ReleaseInputsSafely(ATransaction tx, String transactionType)
+        {
+            try
+            {
+                tx.ReleaseAfterCompletion();
+            }
+            catch (Exception releaseEx)
+            {
+                // Releasing transient input state must never fault the worker thread; the data is
+                // freed at the latest by the next Trim regardless.
+                _logger.LogError(releaseEx, "Releasing input state of transaction {TransactionId} ({TransactionType}) after completion failed",
+                    tx.TransactionId, transactionType);
             }
         }
 
