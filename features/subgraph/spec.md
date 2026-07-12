@@ -231,5 +231,6 @@ detail.
   [collectible-codegen-assemblies](../collectible-codegen-assemblies/spec.md) feature: both
   the path and subgraph compile paths load into collectible contexts that unload once
   unreferenced.
-- **No ceiling on subgraph count / materialized size**; add quotas before exposing creation
-  publicly.
+- ~~**No ceiling on subgraph count / materialized size**~~ — addressed by the
+  [subgraph-quotas](../subgraph-quotas/spec.md) feature: `SubGraphFactory.Quota` bounds
+  subgraph count and per-subgraph/total materialized elements (unlimited by default).
