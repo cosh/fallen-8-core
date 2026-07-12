@@ -25,7 +25,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -34,7 +37,11 @@ using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Controllers;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.App.Controllers.Model;
+using NoSQL.GraphDB.Core.Expression;
+using NoSQL.GraphDB.Core.Serializer;
+using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
@@ -189,6 +196,353 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNotNull(roundTripped);
             Assert.AreEqual(reflectionDefault, JsonSerializer.Serialize(roundTripped, AppJsonContext.Default.SubGraphSpecification),
                 "SubGraphSpecification round-trip parity");
+        }
+
+        /// <summary>
+        /// Data-driven sweep: every DTO registered in <see cref="AppJsonContext"/> must serialize
+        /// identically under source generation and reflection. A durability guard then asserts that
+        /// every registered <c>[JsonSerializable]</c> type is actually covered, so adding a new DTO
+        /// to the context without a parity assertion fails this test.
+        /// </summary>
+        [TestMethod]
+        public void AllRegisteredAppDtos_SourceGen_MatchReflection()
+        {
+            var representatives = RepresentativeAppDtos();
+
+            // 1) Parity for each representative instance (serialized by runtime type, as MVC does).
+            foreach (var (value, name) in representatives)
+            {
+                AssertSameJson(value, name);
+            }
+
+            // 2) Durability guard. Enumerate the [JsonSerializable(typeof(T))] declarations straight
+            //    from metadata (ConstructorArguments, so it does not depend on the attribute exposing
+            //    the type at runtime) and require every one to be covered somewhere.
+            var registered = typeof(AppJsonContext)
+                .GetCustomAttributesData()
+                .Where(a => a.AttributeType == typeof(JsonSerializableAttribute))
+                .Select(a => (Type)a.ConstructorArguments[0].Value)
+                .ToHashSet();
+
+            var covered = new HashSet<Type>(representatives.Select(r => r.Value.GetType()));
+            // Graph/Vertex/Edge need live engine models -> GraphResponseDtos_SourceGen_MatchReflection.
+            covered.Add(typeof(Graph));
+            covered.Add(typeof(Vertex));
+            covered.Add(typeof(Edge));
+            // PathREST/PathElementREST need a computed Path -> PathDtos_SourceGen_MatchReflection.
+            covered.Add(typeof(PathREST));
+            covered.Add(typeof(PathElementREST));
+
+            var uncovered = registered.Where(t => !covered.Contains(t)).OrderBy(t => t.Name).ToList();
+            Assert.AreEqual(0, uncovered.Count,
+                "AppJsonContext registers types without JSON source-gen parity coverage: " +
+                string.Join(", ", uncovered.Select(t => t.Name)) +
+                ". Add a representative instance to RepresentativeAppDtos (or cover it in a dedicated test).");
+
+            // Keep the covered set honest: everything claimed must still be registered.
+            var stale = covered.Where(t => !registered.Contains(t)).OrderBy(t => t.Name).ToList();
+            Assert.AreEqual(0, stale.Count,
+                "Parity coverage claims types no longer registered in AppJsonContext: " +
+                string.Join(", ", stale.Select(t => t.Name)));
+        }
+
+        /// <summary>
+        /// The path response DTOs carry only transfer constructors, so build them from a real
+        /// engine-computed <see cref="Path"/> and prove source-gen parity for both.
+        /// </summary>
+        [TestMethod]
+        public async Task PathDtos_SourceGen_MatchReflection()
+        {
+            await _controller.AddVertex(NewVertex("person", "name", "A"), true);
+            await _controller.AddVertex(NewVertex("person", "name", "B"), true);
+
+            var graph = _controller.GetGraph();
+            var sourceId = graph.Vertices[0].Id;
+            var targetId = graph.Vertices[1].Id;
+
+            await _controller.AddEdge(new EdgeSpecification
+            {
+                CreationDate = 1713862800u,
+                SourceVertex = sourceId,
+                TargetVertex = targetId,
+                EdgePropertyId = "knows",
+                Label = "friendship"
+            }, true);
+
+            var definition = new ShortestPathDefinition
+            {
+                SourceVertexId = sourceId,
+                DestinationVertexId = targetId,
+                MaxDepth = 7,
+                MaxResults = 1
+            };
+            var found = _fallen8.TryCalculateShortestPath(out var paths, "BLS", definition);
+            Assert.IsTrue(found, "BLS should find a path from A to B.");
+            Assert.IsTrue(paths != null && paths.Count > 0, "The BLS result must contain a path.");
+
+            var pathRest = new PathREST(paths[0]);
+            Assert.IsTrue(pathRest.PathElements.Count > 0, "The path must contain at least one element.");
+
+            AssertSameJson(pathRest, "PathREST (BLS A->B)");
+            AssertSameJson(pathRest.PathElements[0], "PathElementREST");
+        }
+
+        /// <summary>
+        /// Engine (<c>CoreJsonContext</c>) parity for <see cref="SubGraphRecipe"/>: the source-gen
+        /// serialization used by <c>PersistencyFactory</c> must equal the reflection baseline.
+        /// </summary>
+        [TestMethod]
+        public void SubGraphRecipe_SourceGen_MatchesReflection()
+        {
+            var coreContext = ResolveCoreJsonContext();
+            var recipe = new SubGraphRecipe
+            {
+                Name = "friends-of-alice",
+                SubGraphId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                AlgorithmPluginName = "RecipeSubGraphAlgorithm",
+                SourceFallen8Id = Guid.Parse("22222222-2222-2222-2222-222222222222"),
+                SpecificationJson = "{\"name\":\"friends-of-alice\"}"
+            };
+
+            // Source-gen: PersistencyFactory's path is JsonSerializer.Serialize(recipe,
+            // CoreJsonContext.Default.SubGraphRecipe); the context's options carry the same (default)
+            // settings and the generated metadata.
+            var sourceGen = JsonSerializer.Serialize(recipe, typeof(SubGraphRecipe), coreContext.Options);
+            // Reflection baseline: CoreJsonContext declares no options, so it carries default option
+            // values; the baseline is therefore default options with a pure reflection resolver.
+            var reflectionOptions = new JsonSerializerOptions { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+            var reflection = JsonSerializer.Serialize(recipe, typeof(SubGraphRecipe), reflectionOptions);
+
+            Assert.AreEqual(reflection, sourceGen, "SubGraphRecipe source-gen vs reflection");
+        }
+
+        /// <summary>
+        /// Engine (<c>CoreJsonContext</c>) parity for the internal <c>DelegateDescriptor</c>: the JSON
+        /// that <see cref="DelegateJson"/> actually emits (source-gen resolver) must equal the
+        /// reflection baseline for the same descriptor, both for a static method with a signature
+        /// hash and for an instance method carrying a target spec.
+        /// </summary>
+        [TestMethod]
+        public void DelegateDescriptor_SourceGen_MatchesReflection()
+        {
+            var coreContext = ResolveCoreJsonContext();
+            var descriptorType = typeof(SubGraphRecipe).Assembly
+                .GetType("NoSQL.GraphDB.Core.Serializer.DelegateDescriptor", throwOnError: true);
+
+            var sourceGenOptions = BuildDelegateJsonOptions(coreContext);
+            // Same option values as DelegateJson, but a pure reflection resolver for the baseline.
+            var reflectionOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+            };
+
+            // Static method + signature hash: Target/Notes stay null, exercising WhenWritingNull.
+            var staticJson = DelegateJson.Serialize((Func<int, int>)SampleStaticDelegateTarget, includeSignatureHash: true);
+            AssertDescriptorParity(descriptorType, staticJson, sourceGenOptions, reflectionOptions, "static+hash");
+
+            // Instance method + target spec: the nested DelegateTargetSpec object is present.
+            var targetSpec = new DelegateTargetSpec
+            {
+                FactoryTypeAssemblyQualifiedName = typeof(string).AssemblyQualifiedName,
+                JsonArgs = "{\"k\":1}"
+            };
+            var instanceJson = DelegateJson.Serialize((Func<string>)SampleInstanceDelegateTarget, targetSpec);
+            AssertDescriptorParity(descriptorType, instanceJson, sourceGenOptions, reflectionOptions, "instance+target");
+        }
+
+        private static void AssertDescriptorParity(Type descriptorType, string producedJson,
+            JsonSerializerOptions sourceGenOptions, JsonSerializerOptions reflectionOptions, string because)
+        {
+            var descriptor = JsonSerializer.Deserialize(producedJson, descriptorType, sourceGenOptions);
+            Assert.IsNotNull(descriptor, "descriptor round-trip (" + because + ")");
+
+            var sourceGen = JsonSerializer.Serialize(descriptor, descriptorType, sourceGenOptions);
+            var reflection = JsonSerializer.Serialize(descriptor, descriptorType, reflectionOptions);
+
+            Assert.AreEqual(reflection, sourceGen, "DelegateDescriptor source-gen vs reflection (" + because + ")");
+            // The production DelegateJson output itself must equal the reflection baseline.
+            Assert.AreEqual(reflection, producedJson, "DelegateJson output vs reflection baseline (" + because + ")");
+        }
+
+        /// <summary>
+        /// Reaches the engine's <c>CoreJsonContext</c> singleton by reflection. The engine keeps the
+        /// context (and <c>DelegateDescriptor</c>) internal by design and declares no
+        /// <c>InternalsVisibleTo</c>, so the test reflects rather than widening that visibility.
+        /// </summary>
+        private static JsonSerializerContext ResolveCoreJsonContext()
+        {
+            var contextType = typeof(SubGraphRecipe).Assembly
+                .GetType("NoSQL.GraphDB.Core.Serializer.CoreJsonContext", throwOnError: true);
+            var defaultProperty = contextType.GetProperty("Default",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.IsNotNull(defaultProperty, "CoreJsonContext.Default was not found (renamed?).");
+            return (JsonSerializerContext)defaultProperty.GetValue(null);
+        }
+
+        /// <summary>
+        /// Mirrors <c>DelegateJson.CreateJsonOptions</c> (camelCase, indented, ignore nulls) with the
+        /// engine's source-gen context as the resolver.
+        /// </summary>
+        private static JsonSerializerOptions BuildDelegateJsonOptions(JsonSerializerContext coreContext)
+        {
+            var options = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
+            options.TypeInfoResolverChain.Insert(0, coreContext);
+            return options;
+        }
+
+        private static int SampleStaticDelegateTarget(int x) => x + 1;
+
+        private string SampleInstanceDelegateTarget() => "instance-" + GetType().Name;
+
+        /// <summary>
+        /// One representative, fully-populated instance for each directly-constructible DTO
+        /// registered in <see cref="AppJsonContext"/>. Graph/Vertex/Edge (need engine models) and
+        /// PathREST/PathElementREST (need a computed path) are covered by dedicated tests instead.
+        /// </summary>
+        private static List<(object Value, string Name)> RepresentativeAppDtos()
+        {
+            return new List<(object, string)>
+            {
+                (new VertexSpecification
+                {
+                    Label = "person",
+                    CreationDate = 1713862800u,
+                    Properties = new List<PropertySpecification>
+                    {
+                        new PropertySpecification { PropertyId = "name", PropertyValue = "John Doe", FullQualifiedTypeName = "System.String" }
+                    }
+                }, "VertexSpecification"),
+                (new EdgeSpecification
+                {
+                    CreationDate = 1713862800u,
+                    SourceVertex = 1,
+                    TargetVertex = 2,
+                    EdgePropertyId = "knows",
+                    Label = "friendship",
+                    Properties = new List<PropertySpecification>
+                    {
+                        new PropertySpecification { PropertyId = "since", PropertyValue = "2024", FullQualifiedTypeName = "System.String" }
+                    }
+                }, "EdgeSpecification"),
+                (new PropertySpecification { PropertyId = "age", PropertyValue = "42", FullQualifiedTypeName = "System.Int32" }, "PropertySpecification"),
+                (new Property { PropertyId = "name", PropertyValue = "John Doe" }, "Property"),
+                (new StatusREST
+                {
+                    UsedMemory = 1073741824L,
+                    VertexCount = 10000,
+                    EdgeCount = 25000,
+                    AvailableIndexPlugins = new List<string> { "DictionaryIndex", "SpatialIndex" },
+                    AvailablePathPlugins = new List<string> { "BLS", "DIJKSTRA" },
+                    AvailableServicePlugins = new List<string>()
+                }, "StatusREST"),
+                (new SampleStats { VertexCount = 3, EdgeCount = 7 }, "SampleStats"),
+                (SampleSpecification(), "SubGraphSpecification"),
+                (new SubGraphSummary
+                {
+                    Name = "friends-of-alice",
+                    VertexCount = 2,
+                    EdgeCount = 1,
+                    AlgorithmPluginName = "RecipeSubGraphAlgorithm",
+                    SourceFallen8Id = Guid.Parse("33333333-3333-3333-3333-333333333333"),
+                    CanRecalculate = true,
+                    AdditionalInformation = new Dictionary<string, string> { { "owner", "alice" } }
+                }, "SubGraphSummary"),
+                (new PatternSpecification
+                {
+                    Type = "Edge",
+                    PatternName = "rel",
+                    Direction = "OutgoingEdge",
+                    EdgePropertyFilter = "return (p) => p == \"knows\";",
+                    MinLength = 1,
+                    MaxLength = 3
+                }, "PatternSpecification"),
+                (new ScanSpecification
+                {
+                    Operator = BinaryOperator.Equals,
+                    Literal = new LiteralSpecification { Value = "John Doe", FullQualifiedTypeName = "System.String" },
+                    Label = "person",
+                    ResultType = ResultTypeSpecification.Both
+                }, "ScanSpecification"),
+                (new IndexScanSpecification
+                {
+                    IndexId = "idx-name",
+                    Operator = BinaryOperator.Greater,
+                    Literal = new LiteralSpecification { Value = "10", FullQualifiedTypeName = "System.Int32" },
+                    Label = "age",
+                    ResultType = ResultTypeSpecification.Vertices
+                }, "IndexScanSpecification"),
+                (new RangeIndexScanSpecification
+                {
+                    IndexId = "idx-age",
+                    LeftLimit = "1",
+                    RightLimit = "100",
+                    FullQualifiedTypeName = "System.Int32",
+                    IncludeLeft = true,
+                    IncludeRight = false,
+                    ResultType = ResultTypeSpecification.Edges
+                }, "RangeIndexScanSpecification"),
+                (new FulltextIndexScanSpecification { IndexId = "ft-idx", RequestString = "graph database" }, "FulltextIndexScanSpecification"),
+                (BuildFulltextSearchResult(), "FulltextSearchResultREST"),
+                (BuildFulltextSearchResultElement(), "FulltextSearchResultElementREST"),
+                (new SearchDistanceSpecification { IndexId = "spatial", GraphElementId = 5, Distance = 2.5f }, "SearchDistanceSpecification"),
+                (new PathSpecification
+                {
+                    PathAlgorithmName = "DIJKSTRA",
+                    MaxDepth = 5,
+                    MaxResults = 10,
+                    MaxPathWeight = 100.0,
+                    Filter = new PathFilterSpecification(),
+                    Cost = new PathCostSpecification()
+                }, "PathSpecification"),
+                (new PathFilterSpecification(), "PathFilterSpecification"),
+                (new PathCostSpecification(), "PathCostSpecification"),
+                (new LiteralSpecification { Value = "John Doe", FullQualifiedTypeName = "System.String" }, "LiteralSpecification"),
+                (new PluginSpecification
+                {
+                    UniqueId = "indexService1",
+                    PluginType = "DictionaryIndex",
+                    PluginOptions = new Dictionary<string, PropertySpecification>
+                    {
+                        { "cacheSize", new PropertySpecification { PropertyId = "cacheSize", PropertyValue = "1000", FullQualifiedTypeName = "System.Int32" } }
+                    }
+                }, "PluginSpecification"),
+                (new IndexAddToSpecification
+                {
+                    GraphElementId = 7,
+                    Key = new PropertySpecification { PropertyId = "name", PropertyValue = "John", FullQualifiedTypeName = "System.String" }
+                }, "IndexAddToSpecification"),
+                (new LoadSpecification { StartServices = true, SaveGameLocation = "C:/Fallen8/database.f8s" }, "LoadSpecification"),
+                (new SaveSpecification { SaveGameLocation = "C:/Fallen8/database.f8s", SavePartitions = 8 }, "SaveSpecification"),
+                (ResultTypeSpecification.Both, "ResultTypeSpecification")
+            };
+        }
+
+        private static FulltextSearchResultREST BuildFulltextSearchResult()
+        {
+            // The transfer constructor tolerates a null engine result; populate via the public setters.
+            return new FulltextSearchResultREST(null)
+            {
+                MaximumScore = 0.87,
+                Elements = new List<FulltextSearchResultElementREST> { BuildFulltextSearchResultElement() }
+            };
+        }
+
+        private static FulltextSearchResultElementREST BuildFulltextSearchResultElement()
+        {
+            return new FulltextSearchResultElementREST(null)
+            {
+                GraphElementId = 123,
+                Score = 0.87,
+                Highlights = new List<string> { "a <em>graph</em> <em>database</em> doc" }
+            };
         }
 
         private static VertexSpecification NewVertex(string label, string propId, string propValue)
