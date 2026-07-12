@@ -22,6 +22,17 @@
     <PackageTags>graph;database;inmemory</PackageTags>
   </PropertyGroup>
 
+  <!-- Explicit garbage collector configuration (N5). The engine keeps a large resident graph
+       in memory, which favours Server GC with background (concurrent) collection. A non-web
+       host of this library defaults to Workstation GC, so these settings are declared here to
+       express the intended mode for such hosts (the app applies them via its own project too).
+       DATAS is left at the .NET 10 runtime default; see
+       features/dotnet10-modernization/spec.md for the trade-off. -->
+  <PropertyGroup>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Remove="pics\**" />
     <EmbeddedResource Remove="pics\**" />
@@ -37,8 +48,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.4" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.4" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
   </ItemGroup>
 
 </Project>

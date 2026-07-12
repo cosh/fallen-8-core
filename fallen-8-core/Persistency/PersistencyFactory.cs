@@ -300,7 +300,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 var recipeFileName = path + Constants.SubGraphSaveString + counter;
                 try
                 {
-                    File.WriteAllText(recipeFileName, JsonSerializer.Serialize(recipe));
+                    File.WriteAllText(recipeFileName, JsonSerializer.Serialize(recipe, CoreJsonContext.Default.SubGraphRecipe));
                     counter++;
                 }
                 catch (Exception ex)
@@ -329,7 +329,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             {
                 try
                 {
-                    var recipe = JsonSerializer.Deserialize<SubGraphRecipe>(File.ReadAllText(recipeFile));
+                    var recipe = JsonSerializer.Deserialize(File.ReadAllText(recipeFile), CoreJsonContext.Default.SubGraphRecipe);
                     if (recipe != null)
                     {
                         result.Add(recipe);

@@ -213,11 +213,22 @@ namespace NoSQL.GraphDB.Core.Serializer
         public override string ReadString()
         {
             var counter = ReadInt32();
-            Byte[] byteArray = new byte[counter];
+            // Read the encoded bytes in a single bulk call. This mirrors the writer's
+            // bulk Write(byte[]) and is equivalent to the previous per-byte ReadByte loop
+            // because the writer always emits exactly 'counter' bytes for the string.
+            var byteArray = ReadBytes(counter);
 
-            for (int i = 0; i < counter; i++)
+            // BinaryReader.ReadBytes returns a SHORT array at end-of-stream instead of
+            // throwing, so a truncated/corrupt stream would otherwise yield a silently
+            // short/garbled string and misframe every subsequent read. A valid stream always
+            // carries exactly 'counter' payload bytes after the length prefix, so this guard
+            // is inert on well-formed data and restores the loud failure the previous
+            // per-byte ReadByte loop produced on truncation.
+            if (byteArray.Length != counter)
             {
-                byteArray[i] = ReadByte();
+                throw new EndOfStreamException(string.Format(
+                    "Unexpected end of stream while reading a string: the length prefix claimed {0} byte(s) but only {1} were available.",
+                    counter, byteArray.Length));
             }
 
             return _enc.GetString(byteArray);

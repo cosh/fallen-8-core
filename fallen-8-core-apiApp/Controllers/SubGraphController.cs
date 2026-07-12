@@ -103,7 +103,6 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Trimming is disabled for this application; the specification type is a simple DTO")]
         public IActionResult CreateSubGraph([FromBody] SubGraphSpecification specification, [FromQuery] String fromSubGraph = null)
         {
             if (specification == null)
@@ -179,7 +178,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     SubGraphId = tx.SubGraphCreated.SubGraph.Id,
                     AlgorithmPluginName = tx.SubGraphCreated.AlgorithmPluginName,
                     SourceFallen8Id = tx.SubGraphCreated.SourceFallen8Id,
-                    SpecificationJson = JsonSerializer.Serialize(specification)
+                    SpecificationJson = JsonSerializer.Serialize(specification, AppJsonContext.Default.SubGraphSpecification)
                 };
 
                 var summary = SubGraphSummary.FromResult(tx.SubGraphCreated,

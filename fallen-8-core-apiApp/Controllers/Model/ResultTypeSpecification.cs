@@ -33,7 +33,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   Specifies which types of graph elements to include in query results
     /// </summary>
     /// <example>Vertices</example>
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<ResultTypeSpecification>))]
     public enum ResultTypeSpecification
     {
         /// <summary>

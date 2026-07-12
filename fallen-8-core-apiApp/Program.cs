@@ -38,7 +38,7 @@ namespace NoSQL.GraphDB.App
 {
     public class Program
     {
-        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "MVC Controllers use reflection which is incompatible with trimming. Trimming is disabled for this application.")]
+        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "MVC Controllers use reflection (AddControllers is RequiresUnreferencedCode) which is incompatible with trimming. Trimming is disabled for this application.")]
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
@@ -85,7 +85,14 @@ namespace NoSQL.GraphDB.App
 
             // Add services to the container.
             builder.Services.AddSingleton<IFallen8, Fallen8>();
-            builder.Services.AddControllers();
+            builder.Services.AddControllers().AddJsonOptions(options =>
+            {
+                // Serve the REST DTOs through source-generated metadata instead of runtime
+                // reflection. The context uses the same camelCase Web defaults as MVC, and is
+                // inserted ahead of the default reflection-based resolver (which stays as a
+                // fallback), so the emitted/accepted JSON is unchanged.
+                options.JsonSerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default);
+            });
 
             var app = builder.Build();
 
