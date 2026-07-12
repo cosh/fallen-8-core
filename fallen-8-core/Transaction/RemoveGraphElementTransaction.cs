@@ -36,6 +36,11 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
+        internal override Boolean TriggersAutoTrim
+        {
+            get { return true; }
+        }
+
         internal override void Rollback(Fallen8 f8)
         {
             //rollback is implemented in the TryRemoveGraphElement_private method

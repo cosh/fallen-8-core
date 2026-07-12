@@ -135,6 +135,15 @@ namespace NoSQL.GraphDB.Core.Transaction
                 // Drop the heavy input payload now that the transaction is committed (M3). The
                 // captured created-models are intentionally kept for a waited-on caller to read.
                 ReleaseInputsSafely(tx, transactionType);
+
+                // A committed element removal may have pushed the tombstone count over the
+                // auto-compaction threshold (M4). Checking here - after commit, on the single
+                // writer thread, and only for removal transactions (which hold no created-models) -
+                // keeps reclamation off the rollback-sensitive removal path.
+                if (tx.TriggersAutoTrim)
+                {
+                    MaybeAutoTrimSafely(tx, transactionType);
+                }
             }
             else
             {
@@ -158,6 +167,21 @@ namespace NoSQL.GraphDB.Core.Transaction
                 // Releasing transient input state must never fault the worker thread; the data is
                 // freed at the latest by the next Trim regardless.
                 _logger.LogError(releaseEx, "Releasing input state of transaction {TransactionId} ({TransactionType}) after completion failed",
+                    tx.TransactionId, transactionType);
+            }
+        }
+
+        private void MaybeAutoTrimSafely(ATransaction tx, String transactionType)
+        {
+            try
+            {
+                _f8.MaybeAutoTrim();
+            }
+            catch (Exception trimEx)
+            {
+                // An auto-compaction failure must never fault the worker thread. The store is left
+                // correct (soft-deleted tombstones remain); the next removal or explicit Trim retries.
+                _logger.LogError(trimEx, "Auto-trim after transaction {TransactionId} ({TransactionType}) failed",
                     tx.TransactionId, transactionType);
             }
         }

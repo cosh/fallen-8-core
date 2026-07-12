@@ -59,5 +59,17 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         abstract internal void Rollback(Fallen8 f8);
         abstract internal Boolean TryExecute(Fallen8 f8);
+
+        /// <summary>
+        ///   Whether a successful commit of this transaction should let the engine consider an
+        ///   automatic compaction (finding M4). Scoped to element-removal transactions: only they
+        ///   raise the tombstone count, and (unlike the create transactions) they hold no
+        ///   created-models a caller reads afterwards, so compacting right after they commit is
+        ///   safe. Default is <c>false</c>.
+        /// </summary>
+        internal virtual Boolean TriggersAutoTrim
+        {
+            get { return false; }
+        }
     }
 }

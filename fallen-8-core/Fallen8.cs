@@ -1304,6 +1304,42 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Tombstone count (soft-deleted or load-gap slots) at or above which a committed
+        ///   removal triggers an automatic compaction (finding M4). Removal is a soft delete: a
+        ///   removed element keeps its full body (properties + adjacency) until a <c>Trim</c>
+        ///   rebuilds the store without it. Under sustained add/remove churn those tombstones would
+        ///   otherwise grow unboundedly. Auto-trim reuses the existing <see cref="Trim_internal" />
+        ///   (which is rollback-agnostic and safe for lock-free readers), so it never frees a field
+        ///   on the removal path itself. The default is deliberately conservative so ordinary
+        ///   workloads and the test suite never trigger it (and it never surprises callers with an
+        ///   id reassignment); it is a field rather than a const so a soak test can lower it.
+        /// </summary>
+        internal int _autoTrimTombstoneThreshold = 100_000;
+
+        /// <summary>
+        ///   Considers an automatic compaction after a committed element removal (finding M4).
+        ///   Runs ONLY on the single transaction-worker thread, after the removal has committed
+        ///   (never inside <c>TryExecute</c>, so a rolled-back removal - which restores adjacency
+        ///   and counts - is never affected). The live counts are maintained, so the tombstone
+        ///   estimate is O(1). When the store is compacted, removed elements are dropped entirely,
+        ///   reclaiming their properties and adjacency and bounding memory under churn.
+        /// </summary>
+        internal void MaybeAutoTrim()
+        {
+            var snap = _snapshot;
+            // Live elements are counted in VertexCount + EdgeCount; the remainder of the published
+            // slots are tombstones (removed) or load gaps. Both are what a Trim would reclaim.
+            int tombstones = snap.Count - VertexCount - EdgeCount;
+
+            if (tombstones >= _autoTrimTombstoneThreshold)
+            {
+                _logger.LogInformation("Auto-trim: {Tombstones} reclaimable slots >= threshold {Threshold}; compacting the master store.",
+                    tombstones, _autoTrimTombstoneThreshold);
+                Trim_internal();
+            }
+        }
+
+        /// <summary>
         ///   Trims the Fallen-8 by removing null entries and compacting IDs.
         /// </summary>
         internal void Trim_internal()
