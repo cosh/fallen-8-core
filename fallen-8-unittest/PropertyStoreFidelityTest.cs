@@ -282,5 +282,47 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(v.TryGetProperty(out value, "k"));
             Assert.AreEqual(1, value, "The original value must be retained after the rolled-back duplicate add.");
         }
+
+        [TestMethod]
+        public void SetProperty_DuplicateKeySameValue_IsSilentNoOp()
+        {
+            // Counterpart to the different-value case above: re-adding an existing key with the
+            // SAME value pins the ImmutableDictionary.Add semantics M1 preserves - it is a silent
+            // no-op (no throw, so the transaction commits), and the property count and value are
+            // left unchanged.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vtx = new CreateVertexTransaction
+            {
+                Definition = new VertexDefinition
+                {
+                    CreationDate = 1,
+                    Properties = new Dictionary<string, object> { { "k", 1 }, { "other", "x" } }
+                }
+            };
+            fallen8.EnqueueTransaction(vtx).WaitUntilFinished();
+            int id = vtx.VertexCreated.Id;
+
+            VertexModel before;
+            Assert.IsTrue(fallen8.TryGetVertex(out before, id));
+            int countBefore = before.GetPropertyCount();
+
+            var dup = new AddPropertyTransaction
+            {
+                Definition = new PropertyAddDefinition { GraphElementId = id, PropertyId = "k", Property = 1 }
+            };
+            var info = fallen8.EnqueueTransaction(dup);
+            info.WaitUntilFinished();
+
+            Assert.AreEqual(TransactionState.Finished, info.TransactionState,
+                "Re-adding an existing key with the SAME value must be a silent no-op, not a rollback.");
+
+            VertexModel v;
+            Assert.IsTrue(fallen8.TryGetVertex(out v, id));
+            Assert.AreEqual(countBefore, v.GetPropertyCount(),
+                "A same-value re-add must not change the property count.");
+            int value;
+            Assert.IsTrue(v.TryGetProperty(out value, "k"));
+            Assert.AreEqual(1, value, "A same-value re-add must leave the value unchanged.");
+        }
     }
 }
