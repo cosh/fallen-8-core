@@ -25,7 +25,37 @@ Companion to [spec.md](./spec.md). Findings P1–P10 defined there. Ordered by v
   counting; use `ParallelHelper.GetOptimalNumberOfTasks()` where parallelism is kept.
 
 ## Status
-- [ ] Phase 1 — quick wins (P1, P2, P3, P9, P10)
+- [x] Phase 1 — quick wins (P1, P2, P3, P9, P10) — done
 - [ ] Phase 2 — index/query complexity (P4, P5)
 - [ ] Phase 3 — algorithms (P6, P8)
 - [ ] Phase 4 — scan strategy (P7)
+
+### Phase 1 notes
+- **P1** done. `GeneratedCodeCache`'s backing `MemoryCache` is now `static` (process-wide),
+  mirroring the subgraph plugin cache. Chosen over a DI singleton to avoid churning the 17
+  `new GraphController(logger, fallen8)` call sites; a compiled traverser depends only on the
+  value-equality `PathSpecification`, never on a graph instance, so sharing it process-wide is
+  safe. New test `EnginePerformanceTest.PathCompileCache_IsSharedAcrossControllerInstances_CompilesOnce`
+  proves a second controller reuses the first's compiled traverser (reference-equal via a
+  separate cache handle).
+- **P2** done. `TransactionManager` now uses ONE background consumer thread that blocks on a
+  `BlockingCollection<Task>` (no `Thread.Sleep(1)` idle spin) and runs each transaction inline
+  via `Task.RunSynchronously()` (single writer; the body can never be inlined onto an
+  enqueuer's `Wait()` because the task is never scheduled to a `TaskScheduler`). `WaitUntilFinished`
+  still blocks the enqueuer via `Task.Wait()` and the task-completion happens-before still
+  publishes the volatile master-store snapshot + terminal `TransactionState`/`Error`. The
+  `TransactionInformation` is now registered in the state dictionary BEFORE the task is enqueued,
+  so the eager consumer's `SetTransactionState` updates the caller's exact instance (fixes a race
+  the old lazy poller masked; keeps B6 `Error` observable). `Dispose()` completes the queue and
+  joins the worker; wired into `Fallen8.Dispose`.
+- **P3** done. Vertex removal maintains counts incrementally (decrement by 1 vertex + the count
+  of DISTINCT cascaded edges that transition live->removed), replacing the O(n)
+  `RecalculateGraphElementCounter`. The rollback path keeps the full recount in `finally`, so a
+  rolled-back removal restores exact counts. Self-loops counted once. Tests:
+  committed-cascade, self-loop, edge-only, and rolled-back (counts intact).
+- **P9** done (over M3). M3 already released each transaction's heavy INPUT at its terminal
+  state; the remaining leak was that `Trim` only reclaimed `Finished` dictionary entries.
+  `Trim` now reclaims `RolledBack` entries too, bounding retention. B6 observability via a held
+  `TransactionInformation` reference is unaffected.
+- **P10** done. `Interlocked.Increment(ref _currentId)` replaced with a plain `_currentId++`
+  (single-writer field; no non-writer thread reads it, so no `volatile` needed).

@@ -28,7 +28,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using System.Threading;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Cache;
@@ -458,8 +457,9 @@ namespace NoSQL.GraphDB.Core
             //insert it
             AppendGraphElement(newVertex);
 
-            //increment the id
-            Interlocked.Increment(ref _currentId);
+            //increment the id (single-writer field: a plain increment, consistent with the
+            //VertexCount/EdgeCount counters beside it - finding P10)
+            _currentId++;
 
             //Increase the vertex count
             VertexCount++;
@@ -480,8 +480,8 @@ namespace NoSQL.GraphDB.Core
 
                     newVertices.Add(newVertex);
 
-                    //increment the id
-                    Interlocked.Increment(ref _currentId);
+                    //increment the id (single-writer field, plain increment - finding P10)
+                    _currentId++;
 
                     //Increase the vertex count
                     VertexCount++;
@@ -814,8 +814,8 @@ namespace NoSQL.GraphDB.Core
                 //add the edge to the graph elements
                 AppendGraphElement(outgoingEdge);
 
-                //increment the ids
-                Interlocked.Increment(ref _currentId);
+                //increment the ids (single-writer field, plain increment - finding P10)
+                _currentId++;
 
                 //add the edge to the source vertex
                 sourceVertex.AddOutEdge(edgePropertyId, outgoingEdge);
@@ -851,8 +851,8 @@ namespace NoSQL.GraphDB.Core
 
                         newEdges.Add(newEdge);
 
-                        //increment the ids
-                        Interlocked.Increment(ref _currentId);
+                        //increment the ids (single-writer field, plain increment - finding P10)
+                        _currentId++;
 
                         //add the edge to the source vertex
                         sourceVertex.AddOutEdge(edgePropertyId, newEdge);
@@ -920,6 +920,14 @@ namespace NoSQL.GraphDB.Core
 
                     var vertex = (VertexModel)graphElement;
 
+                    // Count the DISTINCT cascaded edges that actually transition from live to removed,
+                    // so the counters can be maintained incrementally instead of via an O(n) recount
+                    // (finding P3). Guarding each MarkAsRemoved on !_removed makes the count exact even
+                    // for a self-loop (present in both OutEdges and InEdges): the out-edge pass marks
+                    // and counts it, and the target-side detach removes it from InEdges before the
+                    // in-edge pass is captured, so it is never double-counted.
+                    int removedEdgeCount = 0;
+
                     #region out edges
 
                     var outgoingEdgeContainer = vertex.OutEdges;
@@ -932,8 +940,12 @@ namespace NoSQL.GraphDB.Core
                                 //remove from incoming edges of target vertex
                                 aOutEdge.TargetVertex.RemoveIncomingEdge(aOutEdgeProperty.Key, aOutEdge);
 
-                                //remove the edge itself
-                                aOutEdge.MarkAsRemoved();
+                                //remove the edge itself (counting only a genuine live->removed transition)
+                                if (!aOutEdge._removed)
+                                {
+                                    aOutEdge.MarkAsRemoved();
+                                    removedEdgeCount++;
+                                }
                             }
                         }
                     }
@@ -952,16 +964,25 @@ namespace NoSQL.GraphDB.Core
                                 //remove from outgoing edges of source vertex
                                 aInEdge.SourceVertex.RemoveOutGoingEdge(aInEdgeProperty.Key, aInEdge);
 
-                                //remove the edge itself
-                                aInEdge.MarkAsRemoved();
+                                //remove the edge itself (counting only a genuine live->removed transition)
+                                if (!aInEdge._removed)
+                                {
+                                    aInEdge.MarkAsRemoved();
+                                    removedEdgeCount++;
+                                }
                             }
                         }
                     }
 
                     #endregion
 
-                    //update the EdgeCount --> hard way
-                    RecalculateGraphElementCounter();
+                    // Maintain the counts incrementally (finding P3): the vertex itself and its distinct
+                    // cascaded edges leave the live set. This runs only on the commit path; if any step
+                    // above threw, control is in the catch/finally below, which restores adjacency and
+                    // does a full RecalculateGraphElementCounter, so a rolled-back removal is unaffected
+                    // and the counts stay exactly correct.
+                    VertexCount--;
+                    EdgeCount -= removedEdgeCount;
 
                     #endregion
                 }
@@ -1187,6 +1208,12 @@ namespace NoSQL.GraphDB.Core
 
         public override void Dispose()
         {
+            // Stop the single transaction-writer thread FIRST (finding P2), so no in-flight or queued
+            // transaction can run concurrently with - or after - the state teardown below. This both
+            // gives the worker a clean shutdown and removes any race between a late transaction and
+            // the factory/snapshot reset that follows.
+            _txManager.Dispose();
+
             TabulaRasa_internal();
 
             // Publish the empty snapshot rather than null on teardown: a reader racing Dispose then
