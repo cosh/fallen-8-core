@@ -164,6 +164,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <response code="204">Database loaded successfully</response>
         /// <response code="400">Invalid load specification or file not found</response>
+        /// <response code="500">The load transaction was rolled back and did not complete</response>
         [HttpPut("/load")]
         [Consumes("application/json")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -208,6 +209,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <response code="200">Returns the path where the database was saved</response>
         /// <response code="400">Invalid save specification</response>
+        /// <response code="500">The save transaction was rolled back and did not complete</response>
         [HttpPut("/save")]
         [Consumes("application/json")]
         [Produces("application/json")]

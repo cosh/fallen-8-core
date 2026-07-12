@@ -27,6 +27,14 @@ Load, and Trim are separate transactions on the single worker; `/save` does **no
 | C8 | Version suffix uses `DateTime.Now` (local, DST-sensitive) and collides within a tick | `PersistencyFactory.cs:169` | Fragile save versioning |
 | C9 | Spatial (R-Tree) index is not serialized: `RTree.Save`/`Load` throw `NotSupportedException`, so the checkpoint guards deliberately skip it (deferred here from correctness-fixes-followups B7) | `Index/Spatial/Implementation/RTree/RTree.cs` (`Save`/`Load`) | A spatial index does not survive a save/load — it is absent after load and must be recreated by the caller |
 
+> **C9 follow-up (capability flag):** today `PersistencyFactory.SaveIndex` distinguishes "not yet
+> persistable" from a genuine serialization failure by catching `NotSupportedException` specifically
+> (Information-level skip) vs any other exception (Error-level skip). That is an implicit,
+> exception-typed signal. Replace it with an explicit `IIndex` capability flag (e.g. `CanPersist`):
+> the factory can then skip a non-persistable index *silently* and reserve Error-level logging (and
+> partial-sidecar cleanup) for real failures, without relying on a thrown exception type to classify
+> intent. Fold this in when C9's full R-Tree serialization lands.
+
 ## 3. Performance / memory / design
 
 | # | Issue | Location | Impact |

@@ -55,3 +55,28 @@ behaviour untouched, and one rollback branch remained untested.
 The `outEdgeRemovals` replay in the edge-removal restore block is effectively unreachable with the
 current removal structure (nothing throws after both removal lists are populated); this is noted,
 not "fixed" — widening the fault window is out of scope. See plan.md.
+
+## 5. Known limitations / follow-ups
+
+- **`SubGraphController.CreateSubGraph` fault-vs-clean split.** `TransactionManager` maps *both* a
+  clean `TryExecute() == false` and a thrown exception to `TransactionState.RolledBack`, so the
+  state alone cannot distinguish them. `TransactionInformation.Error` now exposes the caught
+  exception (null on a clean rollback), and `CreateSubGraph` uses it: `Error != null` → `500`
+  (genuine internal fault), otherwise a null result (empty match / structurally-invalid pattern /
+  post-materialization quota) → `400`. This corrected an earlier round that returned `500` for all
+  rolled-back creates, mis-classifying valid-but-empty and invalid-pattern requests. `DeleteSubGraph`
+  keeps `RolledBack → 500` (its only failure paths are internal).
+
+- **Client-caused rollbacks on `GraphController` mutations still surface as `500`.** e.g. `AddEdge`
+  referencing a non-existent vertex faults inside the worker, so the new faulted flag (`Error`) is
+  *not* a reliable client-vs-internal proxy there — a client error legitimately manifests as a
+  thrown exception. We therefore did **not** rewire `GraphController` here. The proper fix is
+  structured, per-transaction failure reasons/categories (a transaction declaring "invalid input"
+  vs "internal fault") so client-caused rollbacks can return the right `4xx`. Until then the
+  `GraphController` mutations keep their approved `RolledBack → 500` behaviour.
+
+- **`GraphController` mutation success returns `202 Accepted` but docs/attributes still declare
+  `204`.** Pre-existing mismatch between the `Accepted()` result and the `[ProducesResponseType(204)]`
+  / `<response code="204">` annotations on `AddVertex`/`AddEdge`/`AddProperty`/`TryRemoveProperty`/
+  `TryRemoveGraphElement`. Not touched here; align the attributes and XML docs with the actual `202`
+  in a follow-up.

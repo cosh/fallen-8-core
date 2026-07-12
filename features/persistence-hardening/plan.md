@@ -29,7 +29,11 @@ Companion to [spec.md](./spec.md). Correctness/durability first, then performanc
   MBRs + the container map) and its build config (metric, min/max node counts, space/dimensions)
   so a reloaded spatial index is functional, replacing today's skip-on-checkpoint (`RTree.Save`/
   `Load` throw and the persistency guards drop the index). Behind the C4 version gate. Deferred
-  here from correctness-fixes-followups B7.
+  here from correctness-fixes-followups B7. As part of this, replace the implicit
+  `NotSupportedException` "not persistable" signal with an explicit `IIndex` capability flag (e.g.
+  `CanPersist`): `PersistencyFactory` then skips a non-persistable index silently (Information) and
+  reserves Error-level logging for genuine serialization failures, rather than classifying intent by
+  catching a specific exception type.
 
 ## Phase 4 — Non-blocking, right-sized save (M)
 - **P3** capture the immutable snapshot inside the tx (O(1)); perform file writing off the worker.
