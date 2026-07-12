@@ -94,6 +94,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="400">The specification was invalid or a filter failed to compile</response>
         /// <response code="404">The source subgraph named by fromSubGraph does not exist</response>
         /// <response code="409">A subgraph with the same name already exists</response>
+        /// <response code="500">The create transaction was rolled back, or an unexpected error occurred</response>
         [HttpPut("/subgraph")]
         [Consumes("application/json")]
         [Produces("application/json")]
@@ -101,6 +102,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Trimming is disabled for this application; the specification type is a simple DTO")]
         public IActionResult CreateSubGraph([FromBody] SubGraphSpecification specification, [FromQuery] String fromSubGraph = null)
         {
@@ -141,12 +143,22 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
 
                 var tx = new CreateSubGraphTransaction { Definition = definition, SourceSubGraphName = fromSubGraph };
-                _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+                var txInfo = _fallen8.EnqueueTransaction(tx);
+                txInfo.WaitUntilFinished();
+
+                // A worker-rolled-back create is a real internal failure (the create faulted, or the
+                // factory refused the write after materialization - e.g. an element quota). That is
+                // not a client bad-request, so surface it as 500 rather than the misleading 400
+                // below (correctness-fixes B6).
+                if (txInfo.TransactionState == TransactionState.RolledBack)
+                {
+                    return StatusCode(StatusCodes.Status500InternalServerError,
+                        String.Format("Creation of subgraph '{0}' was rolled back; the operation did not complete.", specification.Name));
+                }
 
                 if (tx.SubGraphCreated == null)
                 {
-                    // Either the pattern matched nothing valid, or a per-subgraph / total
-                    // element quota was exceeded (enforced in the factory after materialization).
+                    // Non-rollback null result: the pattern sequence produced no valid subgraph.
                     return BadRequest(String.Format(
                         "Failed to create subgraph '{0}'. The pattern sequence may be invalid or a resource quota was exceeded.",
                         specification.Name));
@@ -286,9 +298,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="name">The subgraph name</param>
         /// <response code="204">The subgraph was deleted</response>
         /// <response code="404">No subgraph with the given name exists</response>
+        /// <response code="500">The removal transaction was rolled back and did not complete</response>
         [HttpDelete("/subgraph/{name}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public IActionResult DeleteSubGraph([FromRoute] String name)
         {
             if (!_fallen8.SubGraphFactory.TryGetSubGraph(out _, name))
@@ -297,7 +311,18 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             var tx = new RemoveSubGraphTransaction { SubGraphName = name };
-            _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+            var txInfo = _fallen8.EnqueueTransaction(tx);
+            txInfo.WaitUntilFinished();
+
+            // RemoveSubGraphTransaction.TryExecute returns false (→ terminal RolledBack) on its
+            // failure paths. A rolled-back removal must not be reported to the client as a
+            // successful 204 (correctness-fixes B6); surface it as 500, as the graph/admin
+            // controllers do for their waited-on mutations.
+            if (txInfo.TransactionState == TransactionState.RolledBack)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    String.Format("The removal of subgraph '{0}' was rolled back; the operation did not complete.", name));
+            }
 
             return NoContent();
         }

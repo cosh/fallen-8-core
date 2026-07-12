@@ -25,15 +25,24 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.App.Controllers.Model;
+using NoSQL.GraphDB.Core.Expression;
+using NoSQL.GraphDB.Core.Index;
+using NoSQL.GraphDB.Core.Index.Fulltext;
+using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
@@ -239,6 +248,103 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(sourceVertexCount, _fallen8.VertexCount, "Source graph vertices must be unchanged");
             Assert.AreEqual(sourceEdgeCount, _fallen8.EdgeCount, "Source graph edges must be unchanged");
+        }
+
+        // ---- B6 follow-up: a rolled-back subgraph mutation must not be reported as success ----
+
+        [TestMethod]
+        public void Create_WhenTransactionRollsBack_Returns500()
+        {
+            // A post-materialization quota breach makes the factory refuse the write, so the create
+            // transaction is rolled back. That is a real internal failure and must surface as 500 -
+            // not the misleading 400 "pattern may be invalid or quota exceeded".
+            _fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxElementsPerSubGraph = 1 };
+
+            var result = _controller.CreateSubGraph(AllPersons());
+
+            Assert.AreEqual(StatusCodes.Status500InternalServerError, StatusCodeOf(result),
+                "A create whose transaction rolled back must be reported as 500, not 400.");
+        }
+
+        [TestMethod]
+        public void Delete_WhenRemoveTransactionRollsBack_Returns500()
+        {
+            // Register the subgraph so the controller's existence check passes (would 404 otherwise)...
+            Assert.IsInstanceOfType(_controller.CreateSubGraph(PersonKnowsPerson()), typeof(CreatedResult));
+
+            // ...then drive DeleteSubGraph against a Fallen8 whose remove transaction reports
+            // RolledBack. Before the fix DeleteSubGraph returned 204 regardless; it must now return 500.
+            var rollbackFallen8 = new RollbackForcingFallen8(_fallen8);
+            var controller = new SubGraphController(
+                TestLoggerFactory.Create().CreateLogger<SubGraphController>(), rollbackFallen8);
+
+            var result = controller.DeleteSubGraph("people");
+
+            Assert.AreEqual(StatusCodes.Status500InternalServerError, StatusCodeOf(result),
+                "A delete whose remove transaction rolled back must be reported as 500, not 204.");
+        }
+
+        private static int StatusCodeOf(IActionResult result)
+        {
+            var statusResult = result as IStatusCodeActionResult;
+            Assert.IsNotNull(statusResult,
+                "Expected a status-code action result but got " + (result?.GetType().Name ?? "null") + ".");
+            Assert.IsTrue(statusResult.StatusCode.HasValue, "Expected an explicit status code.");
+            return statusResult.StatusCode.Value;
+        }
+
+        /// <summary>
+        /// An <see cref="IFallen8"/> decorator whose <see cref="EnqueueTransaction"/> reports every
+        /// transaction as <see cref="TransactionState.RolledBack"/> without running it; every other
+        /// member forwards to a real inner instance so the controller's pre-checks (e.g.
+        /// <see cref="SubGraphFactory"/> lookups) behave normally. Lets a controller test drive the
+        /// "the worker rolled the write back" branch deterministically.
+        /// </summary>
+        private sealed class RollbackForcingFallen8 : IFallen8
+        {
+            private readonly IFallen8 _inner;
+
+            public RollbackForcingFallen8(IFallen8 inner)
+            {
+                _inner = inner;
+            }
+
+            public TransactionInformation EnqueueTransaction(ATransaction tx)
+                => new TransactionInformation(null) { Transaction = tx, TransactionState = TransactionState.RolledBack };
+
+            // Everything below simply forwards to the real instance.
+            public Guid Id => _inner.Id;
+            public int VertexCount => _inner.VertexCount;
+            public int EdgeCount => _inner.EdgeCount;
+            public IndexFactory IndexFactory => _inner.IndexFactory;
+            public ServiceFactory ServiceFactory => _inner.ServiceFactory;
+            public SubGraphFactory SubGraphFactory => _inner.SubGraphFactory;
+            public ISubGraphRecipeCompiler SubGraphRecipeCompiler
+            {
+                get => _inner.SubGraphRecipeCompiler;
+                set => _inner.SubGraphRecipeCompiler = value;
+            }
+            public ILoggerFactory LoggerFactory => _inner.LoggerFactory;
+            public void SetId(Guid id) => _inner.SetId(id);
+            public TransactionState GetTransactionState(string txId) => _inner.GetTransactionState(txId);
+            public bool TryGetGraphElement(out AGraphElementModel result, int id) => _inner.TryGetGraphElement(out result, id);
+            public bool TryGetEdge(out EdgeModel result, int id) => _inner.TryGetEdge(out result, id);
+            public bool TryGetVertex(out VertexModel result, int id) => _inner.TryGetVertex(out result, id);
+            public ImmutableList<VertexModel> GetAllVertices(string interestingLabel = null) => _inner.GetAllVertices(interestingLabel);
+            public ImmutableList<EdgeModel> GetAllEdges(string interestingLabel = null) => _inner.GetAllEdges(interestingLabel);
+            public ImmutableList<AGraphElementModel> GetAllGraphElements(string interestingLabel = null) => _inner.GetAllGraphElements(interestingLabel);
+            public bool GraphScan(out List<AGraphElementModel> result, string propertyId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals, string interestingLabel = null)
+                => _inner.GraphScan(out result, propertyId, literal, binOp, interestingLabel);
+            public bool IndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
+                => _inner.IndexScan(out result, indexId, literal, binOp);
+            public bool RangeIndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
+                => _inner.RangeIndexScan(out result, indexId, leftLimit, rightLimit, includeLeft, includeRight);
+            public bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery)
+                => _inner.FulltextIndexScan(out result, indexId, searchQuery);
+            public bool TryCalculateShortestPath(out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, string plugin, ShortestPathDefinition definition)
+                => _inner.TryCalculateShortestPath(out result, plugin, definition);
+            public bool TryCalculateShortestPath<T>(out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm
+                => _inner.TryCalculateShortestPath<T>(out result, definition);
         }
     }
 }
