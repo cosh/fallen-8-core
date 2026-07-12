@@ -740,83 +740,104 @@ namespace NoSQL.GraphDB.Core
             {
                 #region restore
 
-                _graphElements.Insert(graphElementId, graphElement);
-
-                if (graphElement is VertexModel)
+                // Restoring the graph can itself fault (for example on a half-constructed edge).
+                // Guard the restore so that a secondary failure neither skips the counter recompute
+                // nor masks the original removal failure, which must remain the observed exception.
+                try
                 {
-                    #region restore vertex
+                    // Removal is a soft-delete: the element is only flagged via MarkAsRemoved and is
+                    // never taken out of _graphElements. The correct rollback is therefore to clear that
+                    // flag again. (Re-inserting into _graphElements would duplicate the still-present
+                    // element and break the id==index invariant, and would not clear the removed flag.)
+                    graphElement.MarkAsNotRemoved();
 
-                    var vertex = (VertexModel)graphElement;
-
-                    #region out edges
-
-                    var outgoingEdgeContainer = vertex.OutEdges;
-                    if (outgoingEdgeContainer != null)
+                    if (graphElement is VertexModel)
                     {
-                        foreach (var aOutEdgeProperty in outgoingEdgeContainer)
-                        {
-                            foreach (var aOutEdge in aOutEdgeProperty.Value)
-                            {
-                                //remove from incoming edges of target vertex
-                                aOutEdge.TargetVertex.AddIncomingEdge(aOutEdgeProperty.Key, aOutEdge);
+                        #region restore vertex
 
-                                //reset the edge
-                                aOutEdge.MarkAsNotRemoved();
+                        var vertex = (VertexModel)graphElement;
+
+                        #region out edges
+
+                        var outgoingEdgeContainer = vertex.OutEdges;
+                        if (outgoingEdgeContainer != null)
+                        {
+                            foreach (var aOutEdgeProperty in outgoingEdgeContainer)
+                            {
+                                foreach (var aOutEdge in aOutEdgeProperty.Value)
+                                {
+                                    //restore into the incoming edges of the target vertex
+                                    aOutEdge.TargetVertex.AddIncomingEdge(aOutEdgeProperty.Key, aOutEdge);
+
+                                    //reset the edge
+                                    aOutEdge.MarkAsNotRemoved();
+                                }
                             }
                         }
-                    }
 
-                    #endregion
+                        #endregion
 
-                    #region in edges
+                        #region in edges
 
-                    var incomingEdgeContainer = vertex.OutEdges;
-                    if (incomingEdgeContainer != null)
-                    {
-                        foreach (var aInEdgeProperty in incomingEdgeContainer)
+                        var incomingEdgeContainer = vertex.InEdges;
+                        if (incomingEdgeContainer != null)
                         {
-                            foreach (var aInEdge in aInEdgeProperty.Value)
+                            foreach (var aInEdgeProperty in incomingEdgeContainer)
                             {
-                                //remove from incoming edges of target vertex
-                                aInEdge.SourceVertex.AddIncomingEdge(aInEdgeProperty.Key, aInEdge);
+                                foreach (var aInEdge in aInEdgeProperty.Value)
+                                {
+                                    //restore into the outgoing edges of the source vertex
+                                    //(removal detached it via RemoveOutGoingEdge, so the inverse is AddOutEdge)
+                                    aInEdge.SourceVertex.AddOutEdge(aInEdgeProperty.Key, aInEdge);
 
-                                //reset the edge
-                                aInEdge.MarkAsNotRemoved();
+                                    //reset the edge
+                                    aInEdge.MarkAsNotRemoved();
+                                }
                             }
                         }
+
+                        #endregion
+
+                        #endregion
                     }
+                    else
+                    {
+                        #region restore edge
 
-                    #endregion
+                        var edge = (EdgeModel)graphElement;
 
-                    #endregion
+                        if (inEdgeRemovals != null)
+                        {
+                            for (var i = 0; i < inEdgeRemovals.Count; i++)
+                            {
+                                edge.TargetVertex.AddIncomingEdge(inEdgeRemovals[i], edge);
+                            }
+                        }
+
+                        if (outEdgeRemovals != null)
+                        {
+                            for (var i = 0; i < outEdgeRemovals.Count; i++)
+                            {
+                                edge.SourceVertex.AddOutEdge(outEdgeRemovals[i], edge);
+                            }
+                        }
+
+                        #endregion
+                    }
                 }
-                else
+                catch (Exception restoreException)
                 {
-                    #region restore edge
-
-                    var edge = (EdgeModel)graphElement;
-
-                    if (inEdgeRemovals != null)
-                    {
-                        for (var i = 0; i < inEdgeRemovals.Count; i++)
-                        {
-                            edge.TargetVertex.AddIncomingEdge(inEdgeRemovals[i], edge);
-                        }
-                    }
-
-                    if (outEdgeRemovals != null)
-                    {
-                        for (var i = 0; i < outEdgeRemovals.Count; i++)
-                        {
-                            edge.SourceVertex.AddOutEdge(outEdgeRemovals[i], edge);
-                        }
-                    }
-
-                    #endregion
+                    // Swallow (but log) the restore failure so it does not replace the original
+                    // removal failure that is rethrown below.
+                    _logger.LogError(restoreException,
+                        "Failed to fully restore graph element {GraphElementId} after a faulted removal; rolling back with the original failure.",
+                        graphElementId);
                 }
-
-                //recalculate the counter
-                RecalculateGraphElementCounter();
+                finally
+                {
+                    //recalculate the counter (must run even when the restore above faulted)
+                    RecalculateGraphElementCounter();
+                }
 
                 #endregion
 
