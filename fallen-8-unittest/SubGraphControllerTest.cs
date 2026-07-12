@@ -272,11 +272,13 @@ namespace NoSQL.GraphDB.Tests
         // ---- CreateSubGraph outcome mapping: a clean rollback is 400, a genuine fault is 500 ----
 
         [TestMethod]
-        public void Create_WhenNothingMatches_Returns400()
+        public void Create_OnEmptyGraph_Returns400()
         {
-            // A valid, compilable pattern on a graph where nothing matches: the vertex-copy stage
-            // finds no vertices, so with a pattern defined the algorithm returns false. That is a
-            // clean rollback (no exception), i.e. a client-correctable empty result -> 400, not 500.
+            // Mechanism: on an EMPTY graph the vertex-copy stage copies zero vertices, so with a
+            // pattern defined the algorithm short-circuits and returns false (a clean rollback, no
+            // exception) -> 400. This is the empty-GRAPH path, NOT "a pattern that matches nothing";
+            // a populated graph whose pattern matches nothing returns 201 instead (see
+            // Create_WhenPatternMatchesNothingOnPopulatedGraph_Returns201).
             var emptyLoggerFactory = TestLoggerFactory.Create();
             var emptyFallen8 = new Fallen8(emptyLoggerFactory);
             var controller = new SubGraphController(
@@ -285,8 +287,35 @@ namespace NoSQL.GraphDB.Tests
             var result = controller.CreateSubGraph(AllPersons());
 
             Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult),
-                "A pattern that matches nothing is a clean rollback and must be 400, not 500.");
+                "An empty graph copies zero vertices - a clean rollback that must be 400, not 500.");
             Assert.AreEqual(StatusCodes.Status400BadRequest, StatusCodeOf(result));
+        }
+
+        [TestMethod]
+        public void Create_WhenPatternMatchesNothingOnPopulatedGraph_Returns201()
+        {
+            // Contract pin (documents the real, arguably-inconsistent behavior so it cannot silently
+            // change): on the POPULATED fixture graph, a valid, compilable pattern whose filter matches
+            // no vertex returns 201 with an EMPTY subgraph - not 400. Mechanism: with no top-level
+            // vertex filter the vertex-copy stage copies all vertices (so the "0 vertices copied"
+            // clean-false short-circuit that yields 400 on an empty graph is NOT taken), the pattern
+            // stage then filters every vertex out, and the algorithm returns true -> a registered,
+            // empty subgraph. Contrast Create_OnEmptyGraph_Returns400.
+            var spec = AllPersons("empty-match");
+            spec.Patterns[0].GraphElementFilter = "return (ge) => ge.Label == \"nonexistent\";";
+
+            var result = _controller.CreateSubGraph(spec);
+
+            Assert.AreEqual(StatusCodes.Status201Created, StatusCodeOf(result),
+                "A populated-graph pattern that matches nothing returns 201 with an empty subgraph.");
+
+            var created = result as CreatedResult;
+            Assert.IsNotNull(created, "Expected a 201 Created result carrying a summary.");
+            var summary = created.Value as SubGraphSummary;
+            Assert.IsNotNull(summary, "A summary must be returned even when the subgraph is empty.");
+            Assert.AreEqual("empty-match", summary.Name);
+            Assert.AreEqual(0, summary.VertexCount, "The pattern matched no vertex, so the subgraph is empty.");
+            Assert.AreEqual(0, summary.EdgeCount, "An empty subgraph has no edges.");
         }
 
         [TestMethod]
