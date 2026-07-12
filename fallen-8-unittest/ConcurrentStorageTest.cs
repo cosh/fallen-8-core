@@ -1,0 +1,483 @@
+// MIT License
+//
+// ConcurrentStorageTest.cs
+//
+// Copyright (c) 2025 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using System.Threading;
+using Microsoft.Extensions.Logging;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Transaction;
+
+namespace NoSQL.GraphDB.Tests
+{
+    /// <summary>
+    /// Guardrail tests for the lock-free-reader / single-writer storage contract
+    /// (see features/core-storage-representation). These encode the invariant that must never
+    /// break: while the single TransactionManager thread appends/removes/trims graph elements,
+    /// concurrent readers that capture a snapshot must NEVER observe a torn or half-published
+    /// element, a null slot within the published range, an id != index element, nor throw an
+    /// out-of-range/null-reference exception. They must pass unchanged both before and after any
+    /// change to the underlying storage representation.
+    ///
+    /// Readers run on dedicated background threads (not the thread pool) so they cannot starve
+    /// the pool threads the TransactionManager uses to execute transactions.
+    /// </summary>
+    [TestClass]
+    public class ConcurrentStorageTest
+    {
+        private const string VertexLabel = "person";
+        private const string EdgeLabel = "knows";
+        private const string EdgePropertyId = "friend";
+
+        private static int ReaderCount => Math.Max(4, Environment.ProcessorCount);
+
+        private ILoggerFactory _loggerFactory;
+
+        [TestInitialize]
+        public void TestInitialize()
+        {
+            _loggerFactory = TestLoggerFactory.Create();
+        }
+
+        /// <summary>
+        /// Many readers hammer TryGet*/scans while the single writer appends thousands of
+        /// vertices and edges one small transaction at a time (maximising the number of
+        /// publish boundaries, i.e. race windows). Any resolved element must be fully
+        /// published and satisfy id == index.
+        /// </summary>
+        [TestMethod]
+        public void ConcurrentReaders_DuringSingleWriterAppends_NeverSeeTornNullOrOutOfRange()
+        {
+            var fallen8 = new Fallen8(_loggerFactory);
+
+            const int vertexTarget = 4000;
+            const int edgeTarget = 4000;
+
+            var errors = new ConcurrentQueue<Exception>();
+            int writerDone = 0;
+
+            var readers = StartReaders(() =>
+            {
+                var rng = new Random(Thread.CurrentThread.ManagedThreadId * 7919 + Environment.TickCount);
+                while (Volatile.Read(ref writerDone) == 0)
+                {
+                    // Probe across the moving frontier so ids just below, at, and beyond the
+                    // published count are all exercised.
+                    int upper = Math.Max(1, fallen8.VertexCount + fallen8.EdgeCount + 2);
+                    for (var k = 0; k < 256; k++)
+                    {
+                        int id = rng.Next(0, upper);
+
+                        // TryGetGraphElement on any id must never throw and, when it resolves,
+                        // must return the element whose Id equals the requested index.
+                        AGraphElementModel ge;
+                        if (fallen8.TryGetGraphElement(out ge, id))
+                        {
+                            Assert.IsNotNull(ge, "TryGetGraphElement returned true with a null element (null slot).");
+                            Assert.AreEqual(id, ge.Id, "id == index invariant violated (master store).");
+                        }
+
+                        VertexModel v;
+                        if (fallen8.TryGetVertex(out v, id))
+                        {
+                            Assert.IsNotNull(v, "TryGetVertex returned true with a null vertex (null slot).");
+                            Assert.AreEqual(id, v.Id, "id == index invariant violated for a vertex.");
+                            Assert.AreEqual(VertexLabel, v.Label, "Torn read: unexpected vertex label.");
+                            int seq;
+                            Assert.IsTrue(v.TryGetProperty(out seq, "seq"),
+                                "Torn read: published vertex is missing its 'seq' property.");
+                            Assert.AreEqual(id, seq, "Torn read: 'seq' property does not match the id.");
+                        }
+
+                        EdgeModel e;
+                        if (fallen8.TryGetEdge(out e, id))
+                        {
+                            Assert.IsNotNull(e, "TryGetEdge returned true with a null edge (null slot).");
+                            Assert.AreEqual(id, e.Id, "id == index invariant violated for an edge.");
+                            Assert.AreEqual(EdgeLabel, e.Label, "Torn read: unexpected edge label.");
+                            Assert.IsNotNull(e.SourceVertex, "Torn read: edge has a null source vertex.");
+                            Assert.IsNotNull(e.TargetVertex, "Torn read: edge has a null target vertex.");
+                        }
+                    }
+
+                    // A captured snapshot must be internally consistent for its whole duration.
+                    var vertexSnapshot = fallen8.GetAllVertices(VertexLabel);
+                    foreach (var vertex in vertexSnapshot)
+                    {
+                        Assert.IsNotNull(vertex, "GetAllVertices snapshot contained a null element.");
+                        Assert.AreEqual(VertexLabel, vertex.Label, "GetAllVertices snapshot contained a wrong-label element.");
+                    }
+                }
+            }, errors);
+
+            try
+            {
+                // Single writer: append vertices, then edges, one small transaction each. The
+                // transactions queue up and are drained back-to-back by the single worker thread.
+                TransactionInformation last = null;
+                for (var i = 0; i < vertexTarget; i++)
+                {
+                    var tx = new CreateVerticesTransaction();
+                    tx.AddVertex(1u, VertexLabel, new Dictionary<string, object> { { "seq", i } });
+                    last = fallen8.EnqueueTransaction(tx);
+                }
+                last.WaitUntilFinished();
+
+                var edgeRng = new Random(1234);
+                for (var j = 0; j < edgeTarget; j++)
+                {
+                    int source = edgeRng.Next(0, vertexTarget);
+                    int target = edgeRng.Next(0, vertexTarget);
+                    var tx = new CreateEdgesTransaction();
+                    tx.AddEdge(source, EdgePropertyId, target, 1u, EdgeLabel);
+                    last = fallen8.EnqueueTransaction(tx);
+                }
+                last.WaitUntilFinished();
+            }
+            finally
+            {
+                Volatile.Write(ref writerDone, 1);
+            }
+
+            JoinReaders(readers);
+            AssertNoErrors(errors);
+
+            Assert.AreEqual(vertexTarget, fallen8.VertexCount, "All vertices must be present at the end.");
+            Assert.AreEqual(edgeTarget, fallen8.EdgeCount, "All edges must be present at the end.");
+
+            // Post-hoc (no longer racy): every id in the dense range resolves and satisfies id == index,
+            // proving no slot was permanently left null by the concurrent appends.
+            for (var id = 0; id < vertexTarget + edgeTarget; id++)
+            {
+                AGraphElementModel ge;
+                Assert.IsTrue(fallen8.TryGetGraphElement(out ge, id), "Every appended id must resolve.");
+                Assert.AreEqual(id, ge.Id, "id == index must hold for every element.");
+            }
+        }
+
+        /// <summary>
+        /// Readers scan and look up ids while the single writer soft-removes elements. Removed
+        /// elements must disappear cleanly (TryGet returns false, scans exclude them) and no read
+        /// may throw or observe a null.
+        /// </summary>
+        [TestMethod]
+        public void ConcurrentReaders_DuringSingleWriterRemovals_NeverThrowOrSeeNull()
+        {
+            var fallen8 = new Fallen8(_loggerFactory);
+
+            const int vertexTarget = 2000;
+            const int edgeTarget = 1500;
+            int totalIds = vertexTarget + edgeTarget;
+
+            // Seed the graph first.
+            var vertexTx = new CreateVerticesTransaction();
+            for (var i = 0; i < vertexTarget; i++)
+            {
+                vertexTx.AddVertex(1u, VertexLabel, new Dictionary<string, object> { { "seq", i } });
+            }
+            fallen8.EnqueueTransaction(vertexTx).WaitUntilFinished();
+
+            var seedEdgeRng = new Random(99);
+            var edgeTx = new CreateEdgesTransaction();
+            for (var j = 0; j < edgeTarget; j++)
+            {
+                edgeTx.AddEdge(seedEdgeRng.Next(0, vertexTarget), EdgePropertyId, seedEdgeRng.Next(0, vertexTarget), 1u, EdgeLabel);
+            }
+            fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
+
+            var errors = new ConcurrentQueue<Exception>();
+            int writerDone = 0;
+
+            var readers = StartReaders(() =>
+            {
+                var rng = new Random(Thread.CurrentThread.ManagedThreadId * 104729 + Environment.TickCount);
+                while (Volatile.Read(ref writerDone) == 0)
+                {
+                    for (var k = 0; k < 256; k++)
+                    {
+                        int id = rng.Next(0, totalIds);
+                        AGraphElementModel ge;
+                        if (fallen8.TryGetGraphElement(out ge, id))
+                        {
+                            Assert.IsNotNull(ge, "Resolved element must not be null.");
+                            Assert.AreEqual(id, ge.Id, "id == index must hold even while others are being removed.");
+                        }
+                    }
+
+                    foreach (var vertex in fallen8.GetAllVertices())
+                    {
+                        Assert.IsNotNull(vertex, "GetAllVertices snapshot contained a null element during removals.");
+                    }
+                    foreach (var edge in fallen8.GetAllEdges())
+                    {
+                        Assert.IsNotNull(edge, "GetAllEdges snapshot contained a null element during removals.");
+                        Assert.IsNotNull(edge.SourceVertex, "Snapshot edge has a null source during removals.");
+                        Assert.IsNotNull(edge.TargetVertex, "Snapshot edge has a null target during removals.");
+                    }
+                }
+            }, errors);
+
+            try
+            {
+                // Single writer removes every 3rd vertex (which cascades to its edges), one tx at a time.
+                for (var id = 0; id < vertexTarget; id += 3)
+                {
+                    var tx = new RemoveGraphElementTransaction { GraphElementId = id };
+                    fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+                }
+            }
+            finally
+            {
+                Volatile.Write(ref writerDone, 1);
+            }
+
+            JoinReaders(readers);
+            AssertNoErrors(errors);
+
+            // Every removed vertex is gone; a surviving vertex still satisfies id == index.
+            for (var id = 0; id < vertexTarget; id += 3)
+            {
+                VertexModel removed;
+                Assert.IsFalse(fallen8.TryGetVertex(out removed, id), "A removed vertex must not resolve.");
+            }
+        }
+
+        /// <summary>
+        /// The specific Trim hazard: Trim renumbers ids and republishes a smaller store. Readers
+        /// that probe ids up to the ORIGINAL (pre-trim) upper bound must, after a trim shrinks the
+        /// store, get a clean "not found" for now-out-of-range ids — never an out-of-range throw —
+        /// because the bound check and the indexer must read the same captured snapshot.
+        /// </summary>
+        [TestMethod]
+        public void ConcurrentReaders_DuringTrimRenumbering_NeverGoOutOfRange()
+        {
+            var fallen8 = new Fallen8(_loggerFactory);
+
+            const int vertexTarget = 2000;
+            const int edgeTarget = 1000;
+            int originalUpperBound = vertexTarget + edgeTarget;
+
+            var vertexTx = new CreateVerticesTransaction();
+            for (var i = 0; i < vertexTarget; i++)
+            {
+                vertexTx.AddVertex(1u, VertexLabel, new Dictionary<string, object> { { "seq", i } });
+            }
+            fallen8.EnqueueTransaction(vertexTx).WaitUntilFinished();
+
+            var seedEdgeRng = new Random(7);
+            var edgeTx = new CreateEdgesTransaction();
+            for (var j = 0; j < edgeTarget; j++)
+            {
+                edgeTx.AddEdge(seedEdgeRng.Next(0, vertexTarget), EdgePropertyId, seedEdgeRng.Next(0, vertexTarget), 1u, EdgeLabel);
+            }
+            fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
+
+            var errors = new ConcurrentQueue<Exception>();
+            int writerDone = 0;
+
+            var readers = StartReaders(() =>
+            {
+                var rng = new Random(Thread.CurrentThread.ManagedThreadId * 1299709 + Environment.TickCount);
+                while (Volatile.Read(ref writerDone) == 0)
+                {
+                    // Deliberately probe up to the ORIGINAL bound; after a trim the store is smaller,
+                    // so most of these are out of range and must resolve to a clean "false".
+                    for (var k = 0; k < 256; k++)
+                    {
+                        int id = rng.Next(0, originalUpperBound);
+                        AGraphElementModel ge;
+                        if (fallen8.TryGetGraphElement(out ge, id))
+                        {
+                            Assert.IsNotNull(ge, "Resolved element must not be null across a trim.");
+                        }
+                        VertexModel v;
+                        fallen8.TryGetVertex(out v, id);
+                        EdgeModel e;
+                        fallen8.TryGetEdge(out e, id);
+                    }
+
+                    foreach (var vertex in fallen8.GetAllVertices())
+                    {
+                        Assert.IsNotNull(vertex, "GetAllVertices snapshot contained a null element across a trim.");
+                    }
+                }
+            }, errors);
+
+            try
+            {
+                // The writer interleaves removals and trims: each trim compacts ids and republishes
+                // a smaller store while readers are mid-flight.
+                for (var round = 0; round < 6; round++)
+                {
+                    // Remove a slice of the (current) vertices.
+                    var removeRng = new Random(round + 1);
+                    for (var n = 0; n < 100; n++)
+                    {
+                        int currentVertexCount = fallen8.VertexCount;
+                        if (currentVertexCount <= 1)
+                        {
+                            break;
+                        }
+                        var tx = new RemoveGraphElementTransaction { GraphElementId = removeRng.Next(0, currentVertexCount) };
+                        fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+                    }
+
+                    fallen8.EnqueueTransaction(new TrimTransaction()).WaitUntilFinished();
+                }
+            }
+            finally
+            {
+                Volatile.Write(ref writerDone, 1);
+            }
+
+            JoinReaders(readers);
+            AssertNoErrors(errors);
+
+            // After all trims, the store is dense again: every id in [0, VertexCount+EdgeCount)
+            // resolves with id == index.
+            int finalCount = fallen8.VertexCount + fallen8.EdgeCount;
+            for (var id = 0; id < finalCount; id++)
+            {
+                AGraphElementModel ge;
+                Assert.IsTrue(fallen8.TryGetGraphElement(out ge, id), "Post-trim store must be dense (id == index).");
+                Assert.AreEqual(id, ge.Id, "Post-trim id == index must hold.");
+            }
+        }
+
+        /// <summary>
+        /// A snapshot captured by a reader must remain stable and consistent for its whole
+        /// lifetime, regardless of how many mutations the writer publishes afterwards.
+        /// </summary>
+        [TestMethod]
+        public void CapturedSnapshot_RemainsStable_WhileWriterKeepsMutating()
+        {
+            var fallen8 = new Fallen8(_loggerFactory);
+
+            const int initial = 1000;
+            var vertexTx = new CreateVerticesTransaction();
+            for (var i = 0; i < initial; i++)
+            {
+                vertexTx.AddVertex(1u, VertexLabel, new Dictionary<string, object> { { "seq", i } });
+            }
+            fallen8.EnqueueTransaction(vertexTx).WaitUntilFinished();
+
+            // Capture a snapshot up front.
+            ImmutableList<VertexModel> snapshot = fallen8.GetAllVertices(VertexLabel);
+            int snapshotCount = snapshot.Count;
+            Assert.AreEqual(initial, snapshotCount);
+
+            var errors = new ConcurrentQueue<Exception>();
+            int writerDone = 0;
+
+            // A reader re-iterates the SAME captured snapshot repeatedly while the writer mutates.
+            var readers = StartReaders(() =>
+            {
+                while (Volatile.Read(ref writerDone) == 0)
+                {
+                    Assert.AreEqual(snapshotCount, snapshot.Count, "A captured snapshot must not change size.");
+                    foreach (var v in snapshot)
+                    {
+                        Assert.IsNotNull(v, "A captured snapshot must not develop null entries.");
+                    }
+                }
+            }, errors);
+
+            try
+            {
+                for (var i = 0; i < 2000; i++)
+                {
+                    var tx = new CreateVerticesTransaction();
+                    tx.AddVertex(1u, VertexLabel, new Dictionary<string, object> { { "seq", initial + i } });
+                    fallen8.EnqueueTransaction(tx);
+                }
+                var flush = new CreateVerticesTransaction();
+                flush.AddVertex(1u, VertexLabel);
+                fallen8.EnqueueTransaction(flush).WaitUntilFinished();
+            }
+            finally
+            {
+                Volatile.Write(ref writerDone, 1);
+            }
+
+            JoinReaders(readers);
+            AssertNoErrors(errors);
+
+            // The captured snapshot is unchanged; the live graph has grown.
+            Assert.AreEqual(snapshotCount, snapshot.Count);
+            Assert.IsTrue(fallen8.VertexCount > initial, "The live graph must have grown past the snapshot.");
+        }
+
+        #region helpers
+
+        private static Thread[] StartReaders(Action readerBody, ConcurrentQueue<Exception> errors)
+        {
+            var threads = new Thread[ReaderCount];
+            for (var i = 0; i < threads.Length; i++)
+            {
+                threads[i] = new Thread(() =>
+                {
+                    try
+                    {
+                        readerBody();
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Enqueue(ex);
+                    }
+                })
+                {
+                    IsBackground = true,
+                    Name = "storage-reader-" + i
+                };
+                threads[i].Start();
+            }
+            return threads;
+        }
+
+        private static void JoinReaders(Thread[] readers)
+        {
+            foreach (var reader in readers)
+            {
+                Assert.IsTrue(reader.Join(TimeSpan.FromMinutes(2)), "A reader thread did not terminate in time (possible deadlock).");
+            }
+        }
+
+        private static void AssertNoErrors(ConcurrentQueue<Exception> errors)
+        {
+            if (!errors.IsEmpty)
+            {
+                var distinct = errors.Select(e => e.GetType().Name + ": " + e.Message).Distinct().Take(10);
+                Assert.Fail("Concurrent readers observed " + errors.Count + " error(s):\n" + string.Join("\n", distinct));
+            }
+        }
+
+        #endregion
+    }
+}
