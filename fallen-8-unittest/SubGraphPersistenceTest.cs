@@ -108,6 +108,18 @@ namespace NoSQL.GraphDB.Tests
             };
         }
 
+        private static SubGraphSpecification AllPersons(string name)
+        {
+            return new SubGraphSpecification
+            {
+                Name = name,
+                Patterns = new List<PatternSpecification>
+                {
+                    new PatternSpecification { Type = "Vertex", PatternName = "p", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                }
+            };
+        }
+
         private string SaveGraph(Fallen8 fallen8)
         {
             var savePath = Path.Combine(_tempDir, "savegame.f8s");
@@ -208,6 +220,37 @@ namespace NoSQL.GraphDB.Tests
 
             var recipes = new List<SubGraphRecipe>(fallen8.SubGraphFactory.GetPersistableRecipes());
             Assert.AreEqual(0, recipes.Count, "A subgraph without a recipe is not persistable");
+        }
+
+        [TestMethod]
+        public void SaveThenLoad_NestedSubgraph_IsRehydratedFromItsParent()
+        {
+            // A is a root subgraph; B is nested (sourced from A). Both must survive a
+            // save/load cycle, with B rebuilt from the rehydrated A rather than the root.
+            var source = CreateGraphWithData(withCompiler: true);
+            var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(), source);
+
+            Assert.IsInstanceOfType(controller.CreateSubGraph(AllPersons("A")),
+                typeof(Microsoft.AspNetCore.Mvc.CreatedResult), "root subgraph A");
+            Assert.IsInstanceOfType(controller.CreateSubGraph(AllPersons("B"), "A"),
+                typeof(Microsoft.AspNetCore.Mvc.CreatedResult), "nested subgraph B from A");
+
+            Assert.IsTrue(source.SubGraphFactory.TryGetSubGraph(out var aBefore, "A"));
+            Assert.IsTrue(source.SubGraphFactory.TryGetSubGraph(out var bBefore, "B"));
+            Assert.AreEqual(aBefore.SubGraph.Id, bBefore.SourceFallen8Id, "B is sourced from A before save");
+
+            var actualPath = SaveGraph(source);
+
+            var loaded = new Fallen8(TestLoggerFactory.Create());
+            loaded.SubGraphRecipeCompiler = new RecipeSubGraphCompiler();
+            loaded.EnqueueTransaction(new LoadTransaction { Path = actualPath }).WaitUntilFinished();
+
+            Assert.IsTrue(loaded.SubGraphFactory.TryGetSubGraph(out var a, "A"), "A rehydrated");
+            Assert.IsTrue(loaded.SubGraphFactory.TryGetSubGraph(out var b, "B"), "B (nested) rehydrated");
+            Assert.AreEqual(2, a.SubGraph.VertexCount);
+            Assert.AreEqual(2, b.SubGraph.VertexCount);
+            Assert.AreEqual(loaded.Id, a.SourceFallen8Id, "A is sourced from the loaded root");
+            Assert.AreEqual(a.SubGraph.Id, b.SourceFallen8Id, "B is sourced from the rehydrated A, not the root");
         }
     }
 }

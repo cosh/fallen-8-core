@@ -169,10 +169,10 @@ the opaque specification text) and recompiles on load via `ISubGraphRecipeCompil
 supersedes the original plan's DelegateJson approach.
 
 ## Known limitations (documented, not fixed)
-- **Nested subgraph recalculation is not wired.** Every subgraph a factory creates is
-  sourced from that factory's own graph, and a subgraph-of-a-subgraph registers on the
-  child's factory, so `RecalculateAllSubGraphs` only refreshes root-level subgraphs. Full
-  cross-factory dependency tracking is a follow-up.
+- ~~**Nested subgraph recalculation is not wired.**~~ Resolved by the
+  [nested-subgraph-recalculation](../nested-subgraph-recalculation/) feature —
+  `TryCreateSubGraphFromSource` registers nested subgraphs with the correct source and
+  `RecalculateAllSubGraphs` refreshes the whole dependency tree in order.
 - **Only root-level subgraphs are persisted**, and only those created from a specification
   (delegate-only subgraphs have no recipe). Rehydrated subgraphs are recomputed, so they
   reflect the graph at load time and receive new ids.

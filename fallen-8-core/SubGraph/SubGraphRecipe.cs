@@ -56,6 +56,17 @@ namespace NoSQL.GraphDB.Core.SubGraph
             get; set;
         }
 
+        /// <summary>
+        /// The subgraph's own graph id at save time. Used on load to resolve nested
+        /// subgraphs whose source is this subgraph (their <see cref="SourceFallen8Id"/>
+        /// equals this value).
+        /// </summary>
+        [JsonPropertyName("subGraphId")]
+        public Guid SubGraphId
+        {
+            get; set;
+        }
+
         /// <summary>The plugin name of the algorithm used to create the subgraph.</summary>
         [JsonPropertyName("algorithmPluginName")]
         public String AlgorithmPluginName
