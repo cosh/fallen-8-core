@@ -1881,20 +1881,29 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         public void Save(SerializationWriter writer)
         {
             // Full R-Tree serialization is deferred to the persistence-hardening theme. Until it
-            // lands this MUST be a graceful no-op: throwing here faults the index saver task and
-            // PersistencyFactory would then abort the entire checkpoint (all graph elements and
-            // every other index). The spatial index is simply empty after a reload.
-            _logger?.LogWarning("Spatial index persistence is not yet implemented; this R-Tree index will be empty after load.");
+            // lands, a spatial index cannot be persisted, and it must NOT be written to the
+            // checkpoint as an empty/degenerate index either: a reloaded R-Tree with only its
+            // container map initialised has a null _root/Metric/Space and would throw a
+            // NullReferenceException on the first spatial query or add.
+            //
+            // Signalling non-persistability here is safe: PersistencyFactory.SaveIndex catches
+            // this, logs it, and returns null so the index is dropped from the checkpoint manifest
+            // (the per-index guard means one non-persistable index does not abort the whole
+            // checkpoint). The spatial index therefore simply has to be recreated after a load.
+            throw new NotSupportedException(
+                "The spatial (R-Tree) index is not yet persistable; recreate it after load.");
         }
 
         public void Load(SerializationReader reader, IFallen8 fallen8)
         {
-            // Counterpart to Save: deserialization is deferred. Come up as a valid, EMPTY index
-            // instead of throwing so the surrounding checkpoint still loads; the index has to be
-            // rebuilt afterwards.
-            _logger = fallen8.LoggerFactory.CreateLogger<RTree>();
-            _logger.LogWarning("Spatial index persistence is not yet implemented; this R-Tree index is empty after load.");
-            _mapOfContainers = new Dictionary<int, IRTreeDataContainer>();
+            // Counterpart to Save: an R-Tree cannot be rehydrated yet, and must not come up as a
+            // half-initialised (and therefore NPE-prone) index. Older save points written before
+            // Save began skipping the index still carry a manifest entry that reaches this path, so
+            // throw a clear signal that IndexFactory.OpenIndex propagates and
+            // PersistencyFactory.LoadIndices catches: the index is then simply NOT registered
+            // (absent after load, to be recreated) rather than present-but-broken.
+            throw new NotSupportedException(
+                "The spatial (R-Tree) index is not yet persistable; recreate it after load.");
         }
         #endregion
 

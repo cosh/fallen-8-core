@@ -396,6 +396,22 @@ namespace NoSQL.GraphDB.Core.Persistency
                 // Defense in depth: a single index that fails to serialize must not abort the whole
                 // checkpoint. Log and skip it (the caller drops null entries from the index manifest).
                 _logger.LogError(ex, String.Format("Could not persist index \"{0}\"; it will be skipped in this checkpoint.", indexName));
+
+                // File.Create above already created a (now partial) index file before Save threw;
+                // remove it so the save directory is not littered with orphaned, unreferenced
+                // sidecars. Best-effort only - never let cleanup mask the original failure.
+                try
+                {
+                    if (File.Exists(indexFileName))
+                    {
+                        File.Delete(indexFileName);
+                    }
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx, String.Format("Could not delete the partial index file \"{0}\" after a failed save.", indexFileName));
+                }
+
                 return null;
             }
         }

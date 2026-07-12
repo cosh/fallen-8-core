@@ -37,9 +37,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Spatial;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
@@ -169,7 +171,7 @@ namespace NoSQL.GraphDB.Tests
         #region B7 follow-up - a spatial index must not crash the whole checkpoint
 
         [TestMethod]
-        public void SaveAndLoad_WithSpatialIndexPresent_DoesNotThrowAndRoundTripsGraphAndOtherIndices()
+        public void SaveAndLoad_WithSpatialIndexPresent_CheckpointSucceedsAndGraphAndOtherIndicesRoundTrip()
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
@@ -182,9 +184,9 @@ namespace NoSQL.GraphDB.Tests
             dictIndex.AddOrUpdate("alice", vertices[0]);
             dictIndex.AddOrUpdate("bob", vertices[1]);
 
-            // A spatial R-Tree index. Its Save/Load previously threw NotImplementedException, and
-            // PersistencyFactory dereferenced the faulted saver task's .Result - so the presence of
-            // this single index aborted the ENTIRE checkpoint (all graph elements, all other indices).
+            // A spatial R-Tree index holding a value. It is not yet persistable (Save/Load throw
+            // NotSupportedException); the PersistencyFactory guards must ensure its presence neither
+            // aborts the checkpoint nor yields a broken, NPE-prone index after load.
             IIndex spatialIndex;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out spatialIndex, "spatialIdx", "SpatialIndex", CreateRTreeParameters()),
                 "The spatial index should be created.");
@@ -200,7 +202,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 CleanupSavegames(saveGameDirectory, saveGameName);
 
-                // Act - save. Before the fix this rolled the whole checkpoint back.
+                // Act - save. The non-persistable spatial index must not roll the checkpoint back.
                 var saveTx = new SaveTransaction { Path = saveGameLocation, SavePartitions = 1 };
                 fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
 
@@ -209,13 +211,17 @@ namespace NoSQL.GraphDB.Tests
                 actualPath = saveTx.ActualPath;
                 Assert.IsNotNull(actualPath, "The save must have produced a path.");
 
+                // The skipped spatial index must not leave an orphaned partial sidecar behind (fix 5).
+                Assert.IsFalse(File.Exists(actualPath + Constants.IndexSaveString + "spatialIdx"),
+                    "A non-persistable index must not leave a partial index sidecar behind.");
+
                 // Load into a fresh instance.
                 var reloaded = new Fallen8(_loggerFactory);
                 var loadTx = new LoadTransaction { Path = actualPath };
                 reloaded.EnqueueTransaction(loadTx).WaitUntilFinished();
 
                 Assert.AreEqual(TransactionState.Finished, reloaded.GetTransactionState(loadTx.TransactionId),
-                    "Loading a checkpoint that contains a spatial index must not throw.");
+                    "Loading a checkpoint that contained a spatial index must not throw.");
 
                 // The graph elements round-trip.
                 Assert.AreEqual(3, reloaded.VertexCount, "All vertices must round-trip.");
@@ -229,15 +235,96 @@ namespace NoSQL.GraphDB.Tests
                     "The dictionary index must retain its keys across the checkpoint.");
                 Assert.AreEqual(1, aliceHits.Count, "The dictionary index must retain its values across the checkpoint.");
 
-                // The spatial index is present but INTENTIONALLY EMPTY after load: full R-Tree
-                // serialization is deferred to the persistence-hardening theme, so Save/Load are
-                // graceful no-ops. The point added before the save is therefore gone.
-                IIndex reloadedSpatial;
-                Assert.IsTrue(reloaded.IndexFactory.TryGetIndex(out reloadedSpatial, "spatialIdx"),
-                    "The spatial index must still be registered after load.");
-                Assert.IsInstanceOfType(reloadedSpatial, typeof(ISpatialIndex));
-                Assert.AreEqual(0, reloadedSpatial.CountOfValues(),
-                    "The spatial index is intentionally EMPTY after load (R-Tree persistence is not yet implemented).");
+                // The spatial index is not persistable yet, so it is intentionally ABSENT after load
+                // rather than present-but-broken: it is skipped on save (dropped from the manifest)
+                // and would be skipped on load too. It must therefore be RECREATED - and adding to /
+                // querying the freshly recreated index must not throw (the landmine this fix removes).
+                IIndex absentSpatial;
+                Assert.IsFalse(reloaded.IndexFactory.TryGetIndex(out absentSpatial, "spatialIdx"),
+                    "The spatial index must be absent after load (recreate it), never present-but-NPE-prone.");
+
+                IIndex recreatedSpatial;
+                Assert.IsTrue(reloaded.IndexFactory.TryCreateIndex(out recreatedSpatial, "spatialIdx", "SpatialIndex", CreateRTreeParameters()),
+                    "Recreating the spatial index after load must succeed.");
+
+                VertexModel reloadedVertex;
+                Assert.IsTrue(reloaded.TryGetVertex(out reloadedVertex, vertices[0].Id), "The indexed vertex must exist after load.");
+
+                // A spatial add + query on the post-load, freshly recreated index must not throw.
+                recreatedSpatial.AddOrUpdate(new Point(1.0f, 1.0f), reloadedVertex);
+                Assert.AreEqual(1, recreatedSpatial.CountOfValues(), "The recreated spatial index holds the re-added value.");
+
+                ImmutableList<AGraphElementModel> distanceHits;
+                Assert.IsTrue(((ISpatialIndex)recreatedSpatial).SearchDistance(out distanceHits, 5.0f, reloadedVertex),
+                    "A spatial query on the recreated index must run and find the re-added vertex.");
+            }
+            finally
+            {
+                CleanupSavegames(saveGameDirectory, actualPath != null ? Path.GetFileName(actualPath) : saveGameName);
+            }
+        }
+
+        [TestMethod]
+        public void SaveAndLoad_WithThrowingIndexPresent_SkipsItAndCompletesCheckpoint()
+        {
+            // Arrange - a graph, a good dictionary index that MUST round-trip, and a deliberately
+            // broken index whose Save throws. This is the headline B7 promise proven directly: the
+            // per-index guard in PersistencyFactory.SaveIndex (return null on failure) plus the
+            // per-index catch in LoadIndices mean one throwing index is skipped, never fatal to the
+            // whole checkpoint.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 2);
+
+            IIndex dictIndex;
+            Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out dictIndex, "goodIdx", "DictionaryIndex"),
+                "The good dictionary index should be created.");
+            dictIndex.AddOrUpdate("alice", vertices[0]);
+
+            // Register a throwing stub directly (it is not a discoverable plugin).
+            fallen8.IndexFactory.Indices.Add("throwingIdx", new ThrowingOnSaveIndex());
+
+            var saveGameName = "ThrowingIndexCheckpointTest.f8s";
+            var saveGameDirectory = ".";
+            var saveGameLocation = Path.Combine(saveGameDirectory, saveGameName);
+            string actualPath = null;
+
+            try
+            {
+                CleanupSavegames(saveGameDirectory, saveGameName);
+
+                var saveTx = new SaveTransaction { Path = saveGameLocation, SavePartitions = 1 };
+                fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+
+                Assert.AreEqual(TransactionState.Finished, fallen8.GetTransactionState(saveTx.TransactionId),
+                    "A single throwing index must NOT roll the whole checkpoint back.");
+                actualPath = saveTx.ActualPath;
+                Assert.IsNotNull(actualPath, "The save must have produced a path.");
+
+                // The throwing index must not leave an orphaned partial sidecar behind (fix 5).
+                Assert.IsFalse(File.Exists(actualPath + Constants.IndexSaveString + "throwingIdx"),
+                    "A throwing index must not leave a partial index sidecar behind.");
+
+                var reloaded = new Fallen8(_loggerFactory);
+                var loadTx = new LoadTransaction { Path = actualPath };
+                reloaded.EnqueueTransaction(loadTx).WaitUntilFinished();
+
+                Assert.AreEqual(TransactionState.Finished, reloaded.GetTransactionState(loadTx.TransactionId),
+                    "Loading a checkpoint whose save skipped a throwing index must not throw.");
+
+                // Graph elements and the good index round-trip; the throwing index was skipped.
+                Assert.AreEqual(2, reloaded.VertexCount, "All vertices must round-trip.");
+
+                IIndex reloadedGood;
+                Assert.IsTrue(reloaded.IndexFactory.TryGetIndex(out reloadedGood, "goodIdx"),
+                    "The good index must be present after load.");
+                ImmutableList<AGraphElementModel> aliceHits;
+                Assert.IsTrue(reloadedGood.TryGetValue(out aliceHits, "alice"),
+                    "The good index must retain its data across the checkpoint.");
+                Assert.AreEqual(1, aliceHits.Count, "The good index must retain its values.");
+
+                IIndex skipped;
+                Assert.IsFalse(reloaded.IndexFactory.TryGetIndex(out skipped, "throwingIdx"),
+                    "The throwing index must simply be absent after load (skipped, not fatal).");
             }
             finally
             {
@@ -358,6 +445,47 @@ namespace NoSQL.GraphDB.Tests
             {
                 File.Delete(file);
             }
+        }
+
+        /// <summary>
+        /// A minimal, deliberately-broken index whose Save always throws. Used to prove that the
+        /// per-index guards in PersistencyFactory skip a failing index instead of aborting the
+        /// whole checkpoint. Everything else is an inert no-op - it never needs to hold data.
+        /// </summary>
+        private sealed class ThrowingOnSaveIndex : IIndex
+        {
+            public string PluginName => "ThrowingTestIndex";
+            public Type PluginCategory => typeof(IIndex);
+            public string Description => "A test index whose Save throws.";
+            public string Manufacturer => "fallen-8 tests";
+
+            public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) { }
+
+            public void Save(SerializationWriter writer)
+            {
+                throw new InvalidOperationException("This index deliberately fails to serialize.");
+            }
+
+            public void Load(SerializationReader reader, IFallen8 fallen8) { }
+
+            public int CountOfKeys() => 0;
+            public int CountOfValues() => 0;
+            public void AddOrUpdate(object key, AGraphElementModel graphElement) { }
+            public bool TryRemoveKey(object key) => false;
+            public void RemoveValue(AGraphElementModel graphElement) { }
+            public void Wipe() { }
+            public IEnumerable<object> GetKeys() => Enumerable.Empty<object>();
+
+            public IEnumerable<KeyValuePair<object, ImmutableList<AGraphElementModel>>> GetKeyValues()
+                => Enumerable.Empty<KeyValuePair<object, ImmutableList<AGraphElementModel>>>();
+
+            public bool TryGetValue(out ImmutableList<AGraphElementModel> result, object key)
+            {
+                result = ImmutableList<AGraphElementModel>.Empty;
+                return false;
+            }
+
+            public void Dispose() { }
         }
 
         #endregion

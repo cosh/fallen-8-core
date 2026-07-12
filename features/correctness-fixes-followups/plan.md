@@ -17,15 +17,22 @@ where the behaviour is observable.
   returns success; the fire-and-forget path still returns `Accepted()`.
 
 ## Phase 2 — B7: a spatial index must not crash the checkpoint
-- `RTree.Save`: graceful no-op that logs a warning (do **not** throw).
-- `RTree.Load`: no-op that logs the warning and comes up as a valid **empty** index (initialize
-  the container map so it is queryable/countable), do **not** throw.
-- `PersistencyFactory.SaveIndex`: try/catch — on failure log and return `null`; the `Save` index
-  manifest drops `null` entries so one bad index is skipped, not fatal.
+- `RTree.Save`/`Load`: throw a clear `NotSupportedException` ("the spatial (R-Tree) index is not
+  yet persistable; recreate it after load"). The R-Tree is **not** persisted — coming up as an
+  "empty" index is not viable because `Load` lacks the config to build a valid tree (a container
+  map alone leaves `_root`/`Metric`/`Space` null and NPEs on the first query/add).
+- `PersistencyFactory.SaveIndex`: try/catch — on failure log, **delete the partial sidecar** that
+  `File.Create` already made, and return `null`; the `Save` index manifest drops `null` entries so
+  the spatial (and any throwing) index is skipped, not fatal, and not referenced by the manifest.
 - `PersistencyFactory.LoadIndices`: try/catch around each `LoadAnIndex` — log and skip a failing
-  index rather than aborting the load.
+  index rather than aborting the load. `IndexFactory.OpenIndex` calls `Load` before registering,
+  so a throwing `Load` (e.g. an older save point that still lists the spatial index) leaves the
+  index **unregistered** (absent) rather than half-initialised.
 - Test: a graph with an R-Tree index + a non-spatial index saves and loads without throwing;
-  graph elements and the non-spatial index round-trip; the spatial index is empty after load.
+  the checkpoint succeeds and graph elements + the non-spatial index round-trip; the spatial index
+  is absent after load and can be recreated (add/query then work). A separate test registers a
+  deliberately-throwing stub index alongside a good one and asserts the checkpoint still finishes,
+  the good index round-trips, and the throwing one is skipped with no orphaned sidecar.
 
 ## Phase 3 — edge-removal rollback regression test
 - Test-only. Drive `Fallen8.TryRemoveGraphElement_private`'s edge (`else`) branch to fault after

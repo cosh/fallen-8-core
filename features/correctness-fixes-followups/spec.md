@@ -24,18 +24,28 @@ behaviour untouched, and one rollback branch remained untested.
   property that the manager mutates on the very instance the controller holds (`AddOrUpdate`
   updates the existing entry), and `Task.Wait()` inside `WaitUntilFinished()` establishes the
   happens-before that makes the terminal state visible. No change needed there.
-- **Spatial index persistence:** minimal only. `RTree.Save`/`Load` become graceful, logged
-  no-ops (come up empty after load); full R-Tree serialization stays deferred to the
-  `persistence-hardening` theme. Additionally guard the save/load index paths so a single
-  throwing index is skipped, not fatal (defense in depth for any future index).
+- **Spatial index persistence:** minimal only, and the R-Tree is *not* persisted. `RTree.Save`/
+  `Load` throw a clear `NotSupportedException` ("the spatial (R-Tree) index is not yet
+  persistable; recreate it after load"), which the per-index guards in `PersistencyFactory` catch:
+  `SaveIndex` logs it and drops the index from the checkpoint manifest, and `LoadIndices` skips it
+  (`OpenIndex` calls `Load` *before* registering, so a throwing `Load` means the index is never
+  registered). Net effect: after a load a spatial index is simply **absent and must be recreated**
+  — never present-but-half-initialised. (A reloaded R-Tree with only its container map set has a
+  null `_root`/`Metric`/`Space` and would NPE on the first spatial query or add; that landmine is
+  what this avoids.) Full R-Tree serialization stays deferred to the `persistence-hardening` theme.
+  The same per-index guards make any single throwing index skipped, not fatal (defense in depth for
+  any future index), and `SaveIndex` now deletes the partial sidecar it had already created before
+  the failure.
 
 ## 3. Acceptance criteria
 
 - A `waitForCompletion=true` mutation that rolls back returns `500`, not `202`; a normal mutation
   still returns success. The fire-and-forget (`waitForCompletion=false`) path is unchanged.
-- A graph containing a spatial (R-Tree) index saves and loads without throwing; graph elements
-  and non-spatial indices round-trip; the spatial index is empty after load (documented in the
-  test).
+- A graph containing a spatial (R-Tree) index saves and loads without throwing; the checkpoint
+  succeeds and graph elements and non-spatial indices round-trip; the spatial index is absent after
+  load (not persisted) and can be recreated, after which a spatial add/query works (documented in
+  the test). A separate deliberately-throwing index is likewise skipped, not fatal, and leaves no
+  orphaned sidecar.
 - The edge-removal rollback path has a regression test asserting the edge and its endpoint
   adjacency are restored.
 - Full suite stays green.
