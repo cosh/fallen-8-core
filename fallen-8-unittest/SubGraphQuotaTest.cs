@@ -129,17 +129,38 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void DefaultQuota_IsUnlimited()
+        public void DefaultQuota_IsGenerousEnoughForOrdinaryUse()
         {
             var fallen8 = CreatePeopleGraph();
 
+            // The default quota (M6) is bounded but generous, so ordinary use - here, many small
+            // subgraphs - is unaffected by the ceiling.
             for (int i = 0; i < 10; i++)
             {
                 Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
-                    out _, "sg" + i, AllPersons("sg" + i)), "unlimited by default");
+                    out _, "sg" + i, AllPersons("sg" + i)), "generous default does not block ordinary use");
             }
 
             Assert.AreEqual(10, fallen8.SubGraphFactory.SubGraphCount);
+        }
+
+        [TestMethod]
+        public void DefaultQuota_HasDocumentedGenerousButBoundedValues()
+        {
+            // Pin the shipped default (M6): non-unlimited (not Int32.MaxValue) yet generous.
+            var quota = new SubGraphQuota();
+
+            Assert.AreEqual(SubGraphQuota.DefaultMaxSubGraphCount, quota.MaxSubGraphCount);
+            Assert.AreEqual(SubGraphQuota.DefaultMaxElementsPerSubGraph, quota.MaxElementsPerSubGraph);
+            Assert.AreEqual(SubGraphQuota.DefaultMaxTotalElements, quota.MaxTotalElements);
+
+            Assert.AreNotEqual(int.MaxValue, quota.MaxSubGraphCount, "the default must be bounded, not unlimited");
+            Assert.AreNotEqual(int.MaxValue, quota.MaxElementsPerSubGraph, "the default must be bounded, not unlimited");
+            Assert.AreNotEqual(int.MaxValue, quota.MaxTotalElements, "the default must be bounded, not unlimited");
+
+            // A factory with no explicit quota reports the same bounded default.
+            var fallen8 = CreatePeopleGraph();
+            Assert.AreEqual(SubGraphQuota.DefaultMaxSubGraphCount, fallen8.SubGraphFactory.Quota.MaxSubGraphCount);
         }
 
         [TestMethod]
