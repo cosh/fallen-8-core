@@ -133,9 +133,9 @@ namespace NoSQL.GraphDB.Tests
             int keyCount = dictionaryIndex.CountOfKeys();
             Assert.AreEqual(2, keyCount, "Dictionary index should have 2 keys");
 
-            // Assert - CountOfValues
+            // Assert - CountOfValues (key1 holds two values, key2 holds one)
             int valueCount = dictionaryIndex.CountOfValues();
-            Assert.AreEqual(2, valueCount, "Dictionary index should have 2 values");
+            Assert.AreEqual(3, valueCount, "Dictionary index should have 3 values");
 
             // Assert - GetKeys
             var keys = dictionaryIndex.GetKeys().ToList();
@@ -143,16 +143,13 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(keys.Contains("key1"), "Dictionary index should contain 'key1'");
             Assert.IsTrue(keys.Contains("key2"), "Dictionary index should contain 'key2'");
 
-            // Assert - TryGetValue with existing key
+            // Assert - TryGetValue with existing key (values accumulate under the same key)
             ImmutableList<AGraphElementModel> result;
             bool found = dictionaryIndex.TryGetValue(out result, "key1");
             Assert.IsTrue(found, "Dictionary index should find 'key1'");
-            Assert.AreEqual(1, result.Count, "Dictionary index should have 1 value for 'key1'");
-
-            // The behavior seems to be that the DictionaryIndex implementation replaces
-            // values rather than accumulating them. Instead of expecting testVertex2,
-            // let's just verify we have a valid result.
-            Assert.IsNotNull(result[0], "Dictionary index should return a non-null result");
+            Assert.AreEqual(2, result.Count, "Dictionary index should have 2 values for 'key1'");
+            Assert.IsTrue(result.Contains(testVertex1), "Dictionary index should retain testVertex1 for 'key1'");
+            Assert.IsTrue(result.Contains(testVertex2), "Dictionary index should retain testVertex2 for 'key1'");
 
             // Act - GetKeyValues
             var keyValues = dictionaryIndex.GetKeyValues().ToList();
@@ -167,14 +164,18 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1, result.Count, "Dictionary index should have 1 value for 'key3'");
             Assert.AreSame(testVertex1, result[0], "Dictionary index should return testVertex1 for key3");
 
-            // Act - RemoveValue
-            // The DictionaryIndex implementation doesn't actually remove the value when calling RemoveValue
-            // This appears to be a bug or limitation in the implementation
-            // Instead of testing the expected behavior, let's skip this assertion and focus on direct key removal
+            // Act - RemoveValue removes the element from every bucket it appears in.
+            // testVertex1 lives under both "key1" (alongside testVertex2) and "key3".
             dictionaryIndex.RemoveValue(testVertex1);
 
-            // Instead of asserting specific behavior for RemoveValue which appears problematic,
-            // let's continue with the TryRemoveKey test which does work correctly
+            // Assert - "key1" keeps testVertex2, while "key3" (whose only value was testVertex1) is dropped.
+            found = dictionaryIndex.TryGetValue(out result, "key1");
+            Assert.IsTrue(found, "Dictionary index should still find 'key1' after removing testVertex1");
+            Assert.AreEqual(1, result.Count, "'key1' should have only testVertex2 remaining");
+            Assert.AreSame(testVertex2, result[0], "The remaining value for 'key1' should be testVertex2");
+
+            found = dictionaryIndex.TryGetValue(out result, "key3");
+            Assert.IsFalse(found, "'key3' should be gone once its only value was removed");
 
             // Act - TryRemoveKey (direct key removal should work)
             bool keyRemoved = dictionaryIndex.TryRemoveKey("key2");

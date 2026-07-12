@@ -130,7 +130,7 @@ namespace NoSQL.GraphDB.Core.Index
                     ImmutableList<AGraphElementModel> values;
                     if (_idx.TryGetValue(key, out values))
                     {
-                        values.Add(graphElement);
+                        _idx[key] = values.Add(graphElement);
                     }
                     else
                     {
@@ -181,12 +181,13 @@ namespace NoSQL.GraphDB.Core.Index
                 {
                     var toBeRemovedKeys = new List<IComparable>();
 
-                    foreach (var aKv in _idx)
+                    foreach (var aKey in _idx.Keys.ToList())
                     {
-                        aKv.Value.Remove(graphElement);
-                        if (aKv.Value.Count == 0)
+                        var updatedValues = _idx[aKey].Remove(graphElement);
+                        _idx[aKey] = updatedValues;
+                        if (updatedValues.Count == 0)
                         {
-                            toBeRemovedKeys.Add(aKv.Key);
+                            toBeRemovedKeys.Add(aKey);
                         }
                     }
 

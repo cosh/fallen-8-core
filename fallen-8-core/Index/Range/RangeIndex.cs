@@ -417,12 +417,12 @@ namespace NoSQL.GraphDB.Core.Index.Range
                     .AsParallel()
                         .Where(aKV =>
                                (includeLowerLimit
-                               ? aKV.Key.CompareTo(lowerLimit) <= 0
-                               : aKV.Key.CompareTo(lowerLimit) < 0)
+                               ? aKV.Key.CompareTo(lowerLimit) >= 0
+                               : aKV.Key.CompareTo(lowerLimit) > 0)
                                &&
                                (includeUpperLimit
-                               ? aKV.Key.CompareTo(upperLimit) >= 0
-                               : aKV.Key.CompareTo(upperLimit) > 0))
+                               ? aKV.Key.CompareTo(upperLimit) <= 0
+                               : aKV.Key.CompareTo(upperLimit) < 0))
                         .Select(aRelevantKV => aRelevantKV.Value)
                         .SelectMany(_ => _)
                         .ToList();
