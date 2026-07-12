@@ -34,6 +34,6 @@ where the behaviour is observable.
   structure — the reachable rollback replays `inEdgeRemovals` and leaves the source untouched.
 
 ## Status
-- [ ] Phase 1 — surface rolled-back transactions (B6 follow-up)
-- [ ] Phase 2 — spatial index must not crash the checkpoint (B7 follow-up)
-- [ ] Phase 3 — edge-removal rollback regression test
+- [x] Phase 1 — surface rolled-back transactions (B6 follow-up)
+- [x] Phase 2 — spatial index must not crash the checkpoint (B7 follow-up)
+- [x] Phase 3 — edge-removal rollback regression test
