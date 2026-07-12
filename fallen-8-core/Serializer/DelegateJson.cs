@@ -225,12 +225,24 @@ namespace NoSQL.GraphDB.Core.Serializer
     /// </summary>
     public static class DelegateJson
     {
-        private static readonly JsonSerializerOptions JsonOptions = new()
+        private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
+
+        private static JsonSerializerOptions CreateJsonOptions()
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            WriteIndented = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        };
+            var options = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
+
+            // Resolve DelegateDescriptor (and its nested DelegateTargetSpec) through
+            // source-generated metadata. Only the resolver is added; every option value above is
+            // unchanged, so the produced JSON is byte-for-byte identical to the previous
+            // reflection-based output.
+            options.TypeInfoResolverChain.Insert(0, CoreJsonContext.Default);
+            return options;
+        }
 
         /// <summary>
         /// Serializes a delegate to a JSON string descriptor.

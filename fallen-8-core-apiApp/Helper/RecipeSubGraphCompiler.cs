@@ -24,8 +24,8 @@
 // SOFTWARE.
 
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.App.Helper;
@@ -43,7 +43,6 @@ namespace NoSQL.GraphDB.App.Helper
     /// </remarks>
     public sealed class RecipeSubGraphCompiler : ISubGraphRecipeCompiler
     {
-        [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Trimming is disabled for this application; the specification type is a simple DTO")]
         public bool TryCompile(SubGraphRecipe recipe, out SubGraphDefinition definition, out String error)
         {
             definition = null;
@@ -64,7 +63,7 @@ namespace NoSQL.GraphDB.App.Helper
             SubGraphSpecification specification;
             try
             {
-                specification = JsonSerializer.Deserialize<SubGraphSpecification>(recipe.SpecificationJson);
+                specification = JsonSerializer.Deserialize(recipe.SpecificationJson, AppJsonContext.Default.SubGraphSpecification);
             }
             catch (Exception ex)
             {
