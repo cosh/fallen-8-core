@@ -386,6 +386,27 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(2, fallen8.VertexCount, "Vertex count must be restored.");
             Assert.AreEqual(1, fallen8.EdgeCount, "Edge count must be restored.");
+
+            // ...and the SOURCE-side adjacency is restored correctly. Removal detached the in-edge from
+            // the source vertex via RemoveOutGoingEdge, so the rollback must re-file it through the
+            // inverse, AddOutEdge - i.e. back into the source's OUTgoing edges. The buggy restore called
+            // AddIncomingEdge, which left OutEdges empty and mis-filed the edge into the source's InEdges.
+            // (The poisoned in-edge is ordered last, so the real in-edge is restored before the poison
+            // faults the restore loop; the hardened restore still runs the counter recompute.)
+            VertexModel restoredSource;
+            Assert.IsTrue(fallen8.TryGetVertex(out restoredSource, sourceId),
+                "The source vertex must still be present.");
+
+            ImmutableList<EdgeModel> sourceOutEdges;
+            Assert.IsTrue(restoredSource.TryGetOutEdge(out sourceOutEdges, "in"),
+                "The source vertex must still expose its outgoing-edge bucket for property \"in\".");
+            Assert.IsTrue(sourceOutEdges.Any(e => e.Id == inEdgeId),
+                "The restored in-edge must be back in the SOURCE vertex's OutEdges (restore must call AddOutEdge, not AddIncomingEdge).");
+
+            ImmutableList<EdgeModel> sourceInEdges;
+            bool sourceHasInBucket = restoredSource.TryGetInEdge(out sourceInEdges, "in");
+            Assert.IsFalse(sourceHasInBucket && sourceInEdges.Any(e => e.Id == inEdgeId),
+                "The restored in-edge must NOT be mis-filed into the source vertex's InEdges.");
         }
 
         #endregion
