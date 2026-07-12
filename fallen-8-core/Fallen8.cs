@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -156,6 +157,21 @@ namespace NoSQL.GraphDB.Core
         ///   The current identifier.
         /// </summary>
         private Int32 _currentId = 0;
+
+        /// <summary>
+        ///   Runtime intern table for the low-cardinality, schema-like strings that repeat across
+        ///   many elements: labels, property keys and edge-property-ids (finding M2). It mirrors
+        ///   what the load path's string token table already does, but for the runtime create /
+        ///   <c>SetProperty</c> paths: without it, every element deserialized from a distinct REST
+        ///   request holds its OWN copy of the same <c>"person"</c> label or <c>"name"</c> key, so
+        ///   N duplicate strings are retained instead of one shared instance. It is populated only
+        ///   from the single-writer transaction thread, so a plain dictionary would suffice; a
+        ///   <see cref="ConcurrentDictionary{TKey,TValue}"/> is used for defensiveness. Bounded by
+        ///   the schema cardinality (distinct labels/keys/edge-property-ids), never by element
+        ///   count. Interning is purely a footprint optimisation: it never changes an observable
+        ///   value, because it only ever substitutes a value-equal string instance.
+        /// </summary>
+        private readonly ConcurrentDictionary<String, String> _internTable = new ConcurrentDictionary<String, String>(StringComparer.Ordinal);
 
         /// <summary>
         ///   Binary operator delegate.
@@ -375,10 +391,46 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
+        /// <summary>
+        ///   Interns a schema-like string (label / property key / edge-property-id) so all
+        ///   elements that use the same value share one instance (finding M2). Returns the
+        ///   argument unchanged for <c>null</c>. The returned string is always value-equal to the
+        ///   argument, so callers observe no change.
+        /// </summary>
+        internal String Intern(String value)
+        {
+            if (value == null)
+            {
+                return null;
+            }
+
+            return _internTable.GetOrAdd(value, value);
+        }
+
+        /// <summary>
+        ///   Returns a property dictionary whose KEYS are interned (finding M2). The values are
+        ///   never touched (they are user data, not schema). Returns the input unchanged when it
+        ///   is null or empty (an empty/absent property map allocates no container, per M1).
+        /// </summary>
+        private Dictionary<String, Object> InternPropertyKeys(Dictionary<String, Object> properties)
+        {
+            if (properties == null || properties.Count == 0)
+            {
+                return properties;
+            }
+
+            var interned = new Dictionary<String, Object>(properties.Count, StringComparer.Ordinal);
+            foreach (var kv in properties)
+            {
+                interned[Intern(kv.Key)] = kv.Value;
+            }
+            return interned;
+        }
+
         internal VertexModel CreateVertex_internal(UInt32 creationDate, String label, Dictionary<String, Object> properties = null)
         {
-            //create the new vertex
-            var newVertex = new VertexModel(_currentId, creationDate, label, properties);
+            //create the new vertex (interning the label and property keys, finding M2)
+            var newVertex = new VertexModel(_currentId, creationDate, Intern(label), InternPropertyKeys(properties));
 
             //insert it
             AppendGraphElement(newVertex);
@@ -400,8 +452,8 @@ namespace NoSQL.GraphDB.Core
             {
                 foreach (var aVertexDef in definitions)
                 {
-                    //create the new vertex
-                    var newVertex = new VertexModel(_currentId, aVertexDef.CreationDate, aVertexDef.Label, aVertexDef.Properties);
+                    //create the new vertex (interning the label and property keys, finding M2)
+                    var newVertex = new VertexModel(_currentId, aVertexDef.CreationDate, Intern(aVertexDef.Label), InternPropertyKeys(aVertexDef.Properties));
 
                     newVertices.Add(newVertex);
 
@@ -732,7 +784,9 @@ namespace NoSQL.GraphDB.Core
             //get the related vertices
             if (sourceVertex != null && targetVertex != null)
             {
-                outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, label, edgePropertyId, properties);
+                //intern the label, edge-property-id and property keys (finding M2)
+                edgePropertyId = Intern(edgePropertyId);
+                outgoingEdge = new EdgeModel(_currentId, creationDate, targetVertex, sourceVertex, Intern(label), edgePropertyId, InternPropertyKeys(properties));
 
                 //add the edge to the graph elements
                 AppendGraphElement(outgoingEdge);
@@ -767,8 +821,10 @@ namespace NoSQL.GraphDB.Core
                     //get the related vertices
                     if (sourceVertex != null && targetVertex != null)
                     {
+                        //intern the label, edge-property-id and property keys (finding M2)
+                        var edgePropertyId = Intern(aEdgeDefinition.EdgePropertyId);
                         var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex,
-                            aEdgeDefinition.Label, aEdgeDefinition.EdgePropertyId, aEdgeDefinition.Properties);
+                            Intern(aEdgeDefinition.Label), edgePropertyId, InternPropertyKeys(aEdgeDefinition.Properties));
 
                         newEdges.Add(newEdge);
 
@@ -776,10 +832,10 @@ namespace NoSQL.GraphDB.Core
                         Interlocked.Increment(ref _currentId);
 
                         //add the edge to the source vertex
-                        sourceVertex.AddOutEdge(aEdgeDefinition.EdgePropertyId, newEdge);
+                        sourceVertex.AddOutEdge(edgePropertyId, newEdge);
 
                         //link the vertices
-                        targetVertex.AddIncomingEdge(aEdgeDefinition.EdgePropertyId, newEdge);
+                        targetVertex.AddIncomingEdge(edgePropertyId, newEdge);
 
                         //increase the edgeCount
                         EdgeCount++;
@@ -801,7 +857,8 @@ namespace NoSQL.GraphDB.Core
             AGraphElementModel graphElement = GetGraphElementForMutation(graphElementId);
             if (graphElement != null)
             {
-                graphElement.SetProperty(propertyId, property);
+                //intern the property key (finding M2)
+                graphElement.SetProperty(Intern(propertyId), property);
             }
         }
 
