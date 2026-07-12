@@ -269,5 +269,90 @@ namespace NoSQL.GraphDB.Tests
         }
 
         #endregion
+
+        #region B4 - TryRemoveGraphElement_private rollback path
+
+        [TestMethod]
+        public void RemoveGraphElement_WhenRemovalFaultsMidway_ShouldRollBackVertexAndItsInEdge()
+        {
+            // Arrange - S --("in")--> V . We then give V a second, poisoned in-edge (null source)
+            // under the same edge-property key so that removing V throws while its in-edges are being
+            // detached, driving the internal restore/rollback path.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 2);
+            int sourceId = vertices[0].Id;
+            int vId = vertices[1].Id;
+
+            var edgeTx = new CreateEdgeTransaction
+            {
+                Definition = new EdgeDefinition
+                {
+                    CreationDate = 1,
+                    SourceVertexId = sourceId,
+                    TargetVertexId = vId,
+                    EdgePropertyId = "in"
+                }
+            };
+            fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
+
+            VertexModel v;
+            Assert.IsTrue(fallen8.TryGetVertex(out v, vId));
+            var realInEdge = v.InEdges["in"][0];
+            int inEdgeId = realInEdge.Id;
+
+            Assert.AreEqual(2, fallen8.VertexCount, "Two vertices before the faulting removal.");
+            Assert.AreEqual(1, fallen8.EdgeCount, "One edge before the faulting removal.");
+
+            // Poison: an in-edge whose SourceVertex is null. It is appended after the real in-edge so
+            // the real one is detached first, then the poison throws.
+            var poison = new EdgeModel(int.MaxValue, 1, v, null, "poison", "in");
+            v.InEdges = v.InEdges.SetItem("in", v.InEdges["in"].Add(poison));
+
+            // Act - the removal faults and the transaction manager rolls it back.
+            var removeTx = new RemoveGraphElementTransaction { GraphElementId = vId };
+            fallen8.EnqueueTransaction(removeTx).WaitUntilFinished();
+
+            // Assert - the removal did not succeed...
+            Assert.AreEqual(TransactionState.RolledBack, fallen8.GetTransactionState(removeTx.TransactionId),
+                "A faulting removal must be reported as rolled back.");
+
+            // ...and the graph state is restored: the vertex and its in-edge are present again.
+            VertexModel restoredVertex;
+            Assert.IsTrue(fallen8.TryGetVertex(out restoredVertex, vId),
+                "The vertex must be restored (not left flagged as removed) after a rolled-back removal.");
+
+            EdgeModel restoredEdge;
+            Assert.IsTrue(fallen8.TryGetEdge(out restoredEdge, inEdgeId),
+                "The in-edge must be restored - the in-edge restore branch must read InEdges, not OutEdges.");
+
+            Assert.AreEqual(2, fallen8.VertexCount, "Vertex count must be restored.");
+            Assert.AreEqual(1, fallen8.EdgeCount, "Edge count must be restored.");
+        }
+
+        #endregion
+
+        #region B5 - GetPropertyCount NRE on a property-less element
+
+        [TestMethod]
+        public void GetPropertyCount_OnElementCreatedWithoutProperties_ShouldReturnZero()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var tx = new CreateVertexTransaction
+            {
+                Definition = new VertexDefinition { CreationDate = 1, Properties = null }
+            };
+            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+            var vertex = tx.VertexCreated;
+            Assert.IsNotNull(vertex, "The vertex should have been created.");
+
+            // Act
+            int count = vertex.GetPropertyCount();
+
+            // Assert
+            Assert.AreEqual(0, count, "A property-less element must report a property count of zero.");
+        }
+
+        #endregion
     }
 }

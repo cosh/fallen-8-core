@@ -116,9 +116,12 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> Count of Properties </returns>
         public Int32 GetPropertyCount()
         {
+            if (_properties == null)
+            {
+                return 0;
+            }
 
             return _properties.Count;
-
         }
 
         /// <summary>

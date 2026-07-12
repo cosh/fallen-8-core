@@ -740,7 +740,11 @@ namespace NoSQL.GraphDB.Core
             {
                 #region restore
 
-                _graphElements.Insert(graphElementId, graphElement);
+                // Removal is a soft-delete: the element is only flagged via MarkAsRemoved and is
+                // never taken out of _graphElements. The correct rollback is therefore to clear that
+                // flag again. (Re-inserting into _graphElements would duplicate the still-present
+                // element and break the id==index invariant, and would not clear the removed flag.)
+                graphElement.MarkAsNotRemoved();
 
                 if (graphElement is VertexModel)
                 {
@@ -770,7 +774,7 @@ namespace NoSQL.GraphDB.Core
 
                     #region in edges
 
-                    var incomingEdgeContainer = vertex.OutEdges;
+                    var incomingEdgeContainer = vertex.InEdges;
                     if (incomingEdgeContainer != null)
                     {
                         foreach (var aInEdgeProperty in incomingEdgeContainer)
