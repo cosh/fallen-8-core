@@ -109,7 +109,13 @@ namespace NoSQL.GraphDB.Core.Transaction
                     tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
 
                 RollbackSafely(tx, transactionType);
-                SetTransactionState(tx, TransactionState.RolledBack);
+
+                // Keep the terminal state RolledBack (as for a clean TryExecute()==false), but ALSO
+                // record the fault on the same TransactionInformation instance the caller holds, so a
+                // waited-on caller can distinguish a genuine exception from a clean rollback. Set in
+                // place before the task completes so Task.Wait() publishes it (B6 follow-up).
+                var faultedInfo = SetTransactionState(tx, TransactionState.RolledBack);
+                faultedInfo.Error = ex;
                 return;
             }
 

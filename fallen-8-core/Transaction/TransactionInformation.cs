@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System;
 using System.Threading.Tasks;
 
 namespace NoSQL.GraphDB.Core.Transaction
@@ -35,6 +36,21 @@ namespace NoSQL.GraphDB.Core.Transaction
         }
 
         public TransactionState TransactionState
+        {
+            get; set;
+        }
+
+        /// <summary>
+        /// The exception that faulted the transaction during execution, if any. It is
+        /// <c>null</c> when the transaction finished successfully or rolled back cleanly (its
+        /// <c>TryExecute</c> returned <c>false</c> without throwing). Because the worker maps
+        /// both a thrown exception and a clean <c>false</c> to
+        /// <see cref="TransactionState.RolledBack"/>, this property is what lets a caller that
+        /// waited on the outcome tell a genuine internal fault apart from a clean rollback.
+        /// Set in place by the transaction manager before the transaction task completes, so it
+        /// is visible under the same happens-before edge as <see cref="TransactionState"/>.
+        /// </summary>
+        public Exception Error
         {
             get; set;
         }
