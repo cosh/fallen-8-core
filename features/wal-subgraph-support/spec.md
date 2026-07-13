@@ -8,9 +8,9 @@
 > logs on the writer thread); two additive `WalEntryType` values (`CreateSubGraph = 12`,
 > `RemoveSubGraph = 13`); the recipe round-trips as the same `CoreJsonContext.SubGraphRecipe` JSON the
 > snapshot manifest uses; commit-order replay recreates subgraphs (nested resolved by name) and skips
-> the delegate-only / no-compiler / torn cases with a warning. The unanchored log replays during
-> construction, so an optional compiler was added to the WAL constructor for that path. Full suite
-> **352 passed / 10 skipped**; WAL format version stays 1.
+> the delegate-only / no-compiler / torn / throwing-compiler cases with a warning. The unanchored log
+> replays during construction, so an optional compiler was added to the WAL constructor for that path.
+> Full suite **353 passed / 10 skipped**; WAL format version stays 1.
 
 ## 1. Problem / current state
 

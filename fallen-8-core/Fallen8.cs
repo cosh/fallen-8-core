@@ -1452,26 +1452,41 @@ namespace NoSQL.GraphDB.Core
                     recipe.Name, recipe.AlgorithmPluginName);
             }
 
-            if (!compiler.TryCompile(recipe, out var definition, out var error))
+            // Compile + re-execute are guarded: a registered ISubGraphRecipeCompiler is third-party
+            // code, and if it throws (violating the Try contract) the throw must NOT abort recovery of
+            // later entries. Any failure here - a compile failure, a create returning false, or an
+            // unexpected throw from the compiler or the create - is warned and skipped so recovery
+            // continues; subgraphs are rebuildable derived state. (The built-in compiler + factory
+            // already catch internally, so this guard only matters for a misbehaving custom compiler.)
+            try
             {
-                _logger.LogWarning(
-                    "Could not compile the recipe for logged subgraph \"{Name}\" during recovery: {Error}; it is skipped.",
-                    recipe.Name, error);
-                return;
+                if (!compiler.TryCompile(recipe, out var definition, out var error))
+                {
+                    _logger.LogWarning(
+                        "Could not compile the recipe for logged subgraph \"{Name}\" during recovery: {Error}; it is skipped.",
+                        recipe.Name, error);
+                    return;
+                }
+
+                var tx = new CreateSubGraphTransaction
+                {
+                    Definition = definition,
+                    SourceSubGraphName = string.IsNullOrEmpty(sourceSubGraphName) ? null : sourceSubGraphName,
+                    SpecificationJson = recipe.SpecificationJson
+                };
+
+                if (!tx.TryExecute(this))
+                {
+                    _logger.LogWarning(
+                        "Re-executing a logged CreateSubGraph transaction for subgraph \"{Name}\" during recovery returned false (reason {Reason}); it is skipped.",
+                        recipe.Name, tx.FailureReason);
+                }
             }
-
-            var tx = new CreateSubGraphTransaction
+            catch (Exception ex)
             {
-                Definition = definition,
-                SourceSubGraphName = string.IsNullOrEmpty(sourceSubGraphName) ? null : sourceSubGraphName,
-                SpecificationJson = recipe.SpecificationJson
-            };
-
-            if (!tx.TryExecute(this))
-            {
-                _logger.LogWarning(
-                    "Re-executing a logged CreateSubGraph transaction for subgraph \"{Name}\" during recovery returned false (reason {Reason}); it is skipped.",
-                    recipe.Name, tx.FailureReason);
+                _logger.LogWarning(ex,
+                    "Recovering logged subgraph \"{Name}\" threw during recovery; it is skipped and recovery continues with later entries.",
+                    recipe.Name);
             }
         }
 

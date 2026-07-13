@@ -35,7 +35,6 @@ using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.App.Controllers.Model;
 using NoSQL.GraphDB.Core.App.Helper;
-using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.App.Controllers

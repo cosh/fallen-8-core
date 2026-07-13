@@ -214,6 +214,13 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
+        /// <summary>A misbehaving custom compiler that THROWS from TryCompile (violates the Try contract).</summary>
+        private sealed class ThrowingRecipeCompiler : ISubGraphRecipeCompiler
+        {
+            public bool TryCompile(SubGraphRecipe recipe, out SubGraphDefinition definition, out string error)
+                => throw new InvalidOperationException("boom from a misbehaving custom compiler");
+        }
+
         #endregion
 
         #region snapshot-paired recovery
@@ -304,13 +311,21 @@ namespace NoSQL.GraphDB.Tests
             // (both are logged; commit-order replay applies create then remove).
             var source = NewEngineWithWalAndCompiler();
             AddPeopleGraph(source);
+            // "control" is created and KEPT; "ephemeral" is created then removed. Both creates are
+            // logged, so after replay the only difference between them is the logged removal - the
+            // control being PRESENT while ephemeral is ABSENT proves the remove entry is what makes
+            // ephemeral disappear, not a failure to log/replay the create.
+            CreateSubGraphViaController(source, AllPersons("control"));
             CreateSubGraphViaController(source, AllPersons("ephemeral"));
             source.EnqueueTransaction(new RemoveSubGraphTransaction { SubGraphName = "ephemeral" }).WaitUntilFinished();
+            Assert.IsTrue(source.SubGraphFactory.TryGetSubGraph(out _, "control"), "Control kept before the crash.");
             Assert.IsFalse(source.SubGraphFactory.TryGetSubGraph(out _, "ephemeral"), "Removed before the crash.");
             source.Dispose();
 
             var recovered = NewEngineWithWalAndCompiler();
             Assert.AreEqual(3, recovered.VertexCount, "The base graph still recovers.");
+            Assert.IsTrue(recovered.SubGraphFactory.TryGetSubGraph(out _, "control"),
+                "The kept subgraph's create is logged and replayed - so 'ephemeral' being absent is due to the removal, not a missing create.");
             Assert.IsFalse(recovered.SubGraphFactory.TryGetSubGraph(out _, "ephemeral"),
                 "The create+remove pair replays to absent - the removal is logged and replayed too.");
             recovered.Dispose();
@@ -405,6 +420,30 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void ThrowingCompilerAtRecovery_SubgraphEntrySkipped_RecoveryContinues()
+        {
+            // A registered ISubGraphRecipeCompiler is third-party code; if it THROWS (violating the
+            // Try contract) recovery must SKIP that subgraph and keep going, not abort. Without the
+            // guard in ReplaySubGraphCreate the throw would escape the constructor's unanchored replay
+            // and the fresh-engine construction below would itself throw. Pins that guard.
+            var source = NewEngineWithWalAndCompiler();
+            AddPeopleGraph(source);
+            CreateSubGraphViaController(source, AllPersons("people")); // logged (recipe present)
+            var after = new CreateVerticesTransaction();
+            after.AddVertex(1u, "person", new Dictionary<string, object> { { "name", "Zoe" } }); // id 3, logged AFTER
+            source.EnqueueTransaction(after).WaitUntilFinished();
+            source.Dispose();
+
+            // Unanchored replay happens in the constructor, here with a compiler that throws.
+            var recovered = new Fallen8(_loggerFactory, new WriteAheadLogOptions(WalPath), new ThrowingRecipeCompiler());
+            Assert.AreEqual(4, recovered.VertexCount,
+                "A throwing compiler must not abort recovery - the vertex logged after the subgraph still recovers.");
+            Assert.IsFalse(recovered.SubGraphFactory.TryGetSubGraph(out _, "people"),
+                "The subgraph whose compile threw is skipped, and recovery continued past it.");
+            recovered.Dispose();
+        }
+
+        [TestMethod]
         public void TornTail_TruncatedSubgraphEntry_IsIgnored_EarlierEntriesRecover()
         {
             // The subgraph create is the LAST appended entry; truncating a few trailing bytes tears its
@@ -422,6 +461,8 @@ namespace NoSQL.GraphDB.Tests
 
             var recovered = NewEngineWithWalAndCompiler();
             Assert.AreEqual(3, recovered.VertexCount, "The complete graph entries recover.");
+            Assert.AreEqual(2, recovered.EdgeCount,
+                "Both edge entries (before the subgraph) are intact - proving ONLY the trailing subgraph frame tore, uniquely pinning this as a subgraph-tail test.");
             Assert.IsFalse(recovered.SubGraphFactory.TryGetSubGraph(out _, "people"),
                 "The torn trailing subgraph entry is ignored, never half-applied.");
             recovered.Dispose();

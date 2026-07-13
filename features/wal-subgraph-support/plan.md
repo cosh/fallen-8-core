@@ -72,10 +72,22 @@ subgraph transactions → replay them in commit order, mirroring snapshot persis
   `SubGraphRecipeCompiler` property could be set, so the `Fallen8(loggerFactory, walOptions,
   subGraphRecipeCompiler = null)` constructor gained an optional compiler that is registered before the
   log opens. The snapshot-paired path sets the compiler before `Load` as before.
-- [x] Phase 4 — tests & document. `WalSubGraphSupportTest` (8 methods): snapshot-paired replay;
-  snapshot-manifest + WAL both recover; unanchored create; create+remove → absent; nested by name;
-  delegate-only excluded; no-compiler skip-with-warning + later entries still replay; torn-tail
-  subgraph entry ignored. Full suite **352 passed / 10 skipped**. WAL format version stays 1.
+- [x] Phase 4 — tests & document. `WalSubGraphSupportTest` (9 methods): snapshot-paired replay;
+  snapshot-manifest + WAL both recover; unanchored create; create+remove → absent (with a kept
+  control so the removal is the load-bearing difference); nested by name; delegate-only excluded;
+  no-compiler skip-with-warning + later entries still replay; a THROWING custom compiler is skipped
+  and recovery continues; torn-tail subgraph entry ignored (asserting the edges survive). Full suite
+  **353 passed / 10 skipped**. WAL format version stays 1.
+
+## Council fix round (all three lenses APPROVE_WITH_NITS, zero must-fix)
+- **Correctness:** `ReplaySubGraphCreate` now wraps compile + re-execute in try/catch → warn+skip, so
+  the documented "compile failure / throw → skip, recovery continues" guarantee holds even for a
+  misbehaving custom `ISubGraphRecipeCompiler` that throws (the built-in compiler already catches
+  internally). Pinned by `ThrowingCompilerAtRecovery_SubgraphEntrySkipped_RecoveryContinues`.
+- **Regressions:** removed the now-unused `using NoSQL.GraphDB.Core.SubGraph;` in `SubGraphController`.
+- **Tests:** `create+remove` gained a kept "control" subgraph so the logged removal is independently
+  load-bearing; `torn-tail` now asserts `EdgeCount == 2` so it uniquely pins the trailing subgraph
+  frame as the torn one.
 
 ## Notes
 - Preserve: WAL envelope/framing/CRC, snapshot recipe-manifest format, the single-writer +
