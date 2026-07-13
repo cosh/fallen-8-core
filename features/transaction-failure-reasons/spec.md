@@ -56,6 +56,16 @@ a *known* reason, and have controllers map it to the correct HTTP status.
   quota/fault. If making empty-graph return 201-empty is disproportionate, the acceptable fallback is
   both → `400` "no valid subgraph produced" — but the two cases MUST end up identical and documented.
 
+  **Decision (implemented): the preferred contract.** The BFS algorithm now (a) validates the
+  pattern STRUCTURE up front — before touching the source graph — so a structurally-invalid pattern
+  is a clean `false` (⇒ `InvalidInput` ⇒ `400`) whether the graph is empty or populated; and (b)
+  when the vertex-copy stage yields zero vertices (empty source graph, or a top-level vertex filter
+  that matched nothing), returns the **empty subgraph** (`true`) instead of `false`. So the
+  empty-graph and populated-no-match cases are now IDENTICAL — both **201 with an empty subgraph** —
+  pinned by `Create_OnEmptyGraph_Returns201WithEmptySubGraph` and
+  `Create_WhenPatternMatchesNothingOnPopulatedGraph_Returns201`. Structurally-invalid patterns stay
+  `400`; quota breaches are `409`.
+
 ## 3. Acceptance criteria
 
 - `POST /edge` with a non-existent source/target vertex returns a `4xx` (NotFound/InvalidInput), not

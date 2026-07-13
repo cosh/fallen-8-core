@@ -272,13 +272,14 @@ namespace NoSQL.GraphDB.Tests
         // ---- CreateSubGraph outcome mapping: a clean rollback is 400, a genuine fault is 500 ----
 
         [TestMethod]
-        public void Create_OnEmptyGraph_Returns400()
+        public void Create_OnEmptyGraph_Returns201WithEmptySubGraph()
         {
-            // Mechanism: on an EMPTY graph the vertex-copy stage copies zero vertices, so with a
-            // pattern defined the algorithm short-circuits and returns false (a clean rollback, no
-            // exception) -> 400. This is the empty-GRAPH path, NOT "a pattern that matches nothing";
-            // a populated graph whose pattern matches nothing returns 201 instead (see
-            // Create_WhenPatternMatchesNothingOnPopulatedGraph_Returns201).
+            // MIGRATED (transaction-failure-reasons): the empty-graph and populated-no-match paths
+            // now behave IDENTICALLY. A syntactically-valid pattern that matches nothing (here
+            // because the source graph is empty) is a valid EMPTY result -> 201 with an empty
+            // subgraph, NOT the former 400. This is the exact same outcome as
+            // Create_WhenPatternMatchesNothingOnPopulatedGraph_Returns201; the two are pinned
+            // together so the "no-match" contract cannot silently diverge again.
             var emptyLoggerFactory = TestLoggerFactory.Create();
             var emptyFallen8 = new Fallen8(emptyLoggerFactory);
             var controller = new SubGraphController(
@@ -286,21 +287,25 @@ namespace NoSQL.GraphDB.Tests
 
             var result = controller.CreateSubGraph(AllPersons());
 
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult),
-                "An empty graph copies zero vertices - a clean rollback that must be 400, not 500.");
-            Assert.AreEqual(StatusCodes.Status400BadRequest, StatusCodeOf(result));
+            Assert.AreEqual(StatusCodes.Status201Created, StatusCodeOf(result),
+                "An empty source graph with a valid pattern is a valid empty result -> 201, not 400.");
+
+            var created = result as CreatedResult;
+            Assert.IsNotNull(created, "Expected a 201 Created result carrying a summary.");
+            var summary = created.Value as SubGraphSummary;
+            Assert.IsNotNull(summary, "A summary must be returned even when the subgraph is empty.");
+            Assert.AreEqual(0, summary.VertexCount, "An empty source graph yields an empty subgraph.");
+            Assert.AreEqual(0, summary.EdgeCount, "An empty subgraph has no edges.");
         }
 
         [TestMethod]
         public void Create_WhenPatternMatchesNothingOnPopulatedGraph_Returns201()
         {
-            // Contract pin (documents the real, arguably-inconsistent behavior so it cannot silently
-            // change): on the POPULATED fixture graph, a valid, compilable pattern whose filter matches
-            // no vertex returns 201 with an EMPTY subgraph - not 400. Mechanism: with no top-level
-            // vertex filter the vertex-copy stage copies all vertices (so the "0 vertices copied"
-            // clean-false short-circuit that yields 400 on an empty graph is NOT taken), the pattern
-            // stage then filters every vertex out, and the algorithm returns true -> a registered,
-            // empty subgraph. Contrast Create_OnEmptyGraph_Returns400.
+            // Contract pin: on the POPULATED fixture graph, a valid, compilable pattern whose filter
+            // matches no vertex returns 201 with an EMPTY subgraph. Since transaction-failure-reasons
+            // this is IDENTICAL to the empty-source-graph case (Create_OnEmptyGraph_Returns201WithEmptySubGraph):
+            // a syntactically-valid pattern that matches nothing is always a valid empty result (201),
+            // never a 400. 400 is reserved for a structurally-invalid pattern; 409 for a quota breach.
             var spec = AllPersons("empty-match");
             spec.Patterns[0].GraphElementFilter = "return (ge) => ge.Label == \"nonexistent\";";
 
@@ -331,19 +336,19 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void Create_WhenQuotaExceeded_Returns400()
+        public void Create_WhenElementQuotaExceeded_Returns409()
         {
-            // A post-materialization quota breach makes the factory refuse the write, so the create
-            // transaction returns false (a clean rollback, not a thrown fault). A quota breach is a
-            // client-correctable request, so it must surface as 400 - proving the clean-false path
-            // maps to 400, not the misleading 500 a previous fix round introduced.
+            // MIGRATED (transaction-failure-reasons): a post-materialization element-quota breach is
+            // a clean QuotaExceeded rollback. ALL quota breaches (this per-subgraph/total element
+            // ceiling AND the up-front subgraph-count ceiling) now share ONE status - 409 - instead
+            // of the former 400-vs-409 split. AllPersons materializes 2 person vertices; cap at 1.
             _fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxElementsPerSubGraph = 1 };
 
             var result = _controller.CreateSubGraph(AllPersons());
 
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult),
-                "A quota breach is a clean rollback and must be 400, not 500.");
-            Assert.AreEqual(StatusCodes.Status400BadRequest, StatusCodeOf(result));
+            Assert.IsInstanceOfType(result, typeof(ConflictObjectResult),
+                "A quota breach must be 409 (QuotaExceeded), consistent with the count-ceiling breach.");
+            Assert.AreEqual(StatusCodes.Status409Conflict, StatusCodeOf(result));
         }
 
         [TestMethod]

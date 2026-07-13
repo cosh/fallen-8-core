@@ -39,10 +39,23 @@ a test.
   the coverage intent, update the expected status.
 
 ## Status
-- [ ] Phase 1 — reason channel on TransactionInformation
-- [ ] Phase 2 — engine mutations set reasons (edge existence check, quota, invalid pattern)
-- [ ] Phase 3 — controller mapping + 202/204 + no-match consistency
-- [ ] Phase 4 — tests (new mappings + migrated)
+- [x] Phase 1 — reason channel on TransactionInformation (`TransactionFailureReason` enum;
+  `TransactionInformation.FailureReason` + `ATransaction.FailureReason`; recorded in
+  `TransactionManager.ProcessTransaction` under the same happens-before as `Error`/state — exception
+  path ⇒ `InternalError`, clean false ⇒ the tx's recorded reason, default `None`).
+- [x] Phase 2 — engine mutations set reasons. `CreateEdge(s)` resolve endpoints via a new
+  `Fallen8.TryResolveLiveVertexForEdge` (null for out-of-range/empty/non-vertex/removed) instead of
+  the throwing `GetGraphElementForMutation`, so a missing/removed endpoint ⇒ clean `NotFound`
+  (batch is all-or-nothing); the removal/property paths keep the throwing resolver (B6 unaffected).
+  `CreateSubGraph` ⇒ `QuotaExceeded` (count + per-subgraph + total element ceilings, unified),
+  `InvalidInput` (structurally-invalid pattern / bad spec), `Conflict` (name race), `InternalError`
+  (fault). `RemoveSubGraph` ⇒ `NotFound`/`InvalidInput`/`InternalError`.
+- [x] Phase 3 — controller mapping (`InvalidInput→400`, `NotFound→404`, `QuotaExceeded`/`Conflict→409`,
+  else `→500`) in `GraphController.RolledBackResult(reason)` and `SubGraphController`
+  create/delete; five GraphController mutations' docs `204→202`; no-match consistency implemented
+  (see spec decision below).
+- [x] Phase 4 — tests: new `TransactionFailureReasonTest` (engine reason channel + edge/subgraph
+  reasons + controller mappings + fire-and-forget); migrated the old-code tests to the new contract.
 
 ## Notes
 - Preserve single-writer, `WaitUntilFinished`, B6 Error/state observability, memory-footprint M3
