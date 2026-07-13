@@ -76,7 +76,7 @@ removal/rollback behaviour; keep the REST contract unchanged; measure the win.
   to the new mechanism and still asserting removal-rollback restoration; path-finding (BLS +
   DIJKSTRA), subgraph, and degree/neighbor/edge-id behaviour is identical.
 - Save/load round-trip unaffected (the persistence layer already builds adjacency via
-  `Dictionary<string, List<EdgeModel>>` on load — see the internal ctor / `SetOutEdges`).
+  `Dictionary<string, List<EdgeModel>>` on load — see the internal ctor).
 - The REST `/vertex` response shape is byte-unchanged; the library version is bumped.
 
 ## 6. Risks

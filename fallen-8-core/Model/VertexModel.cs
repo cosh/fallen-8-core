@@ -121,15 +121,6 @@ namespace NoSQL.GraphDB.Core.Model
         }
 
         /// <summary>
-        ///   Replaces the whole set of out edges from a <c>Dictionary&lt;string, List&lt;EdgeModel&gt;&gt;</c>.
-        /// </summary>
-        /// <param name='outEdges'> Out edges. </param>
-        internal void SetOutEdges(Dictionary<String, List<EdgeModel>> outEdges)
-        {
-            _outEdges = EdgeAdjacency.FromListGroups(outEdges);
-        }
-
-        /// <summary>
         ///   Adds the incoming edge.
         /// </summary>
         /// <param name='edgePropertyId'> Edge property identifier. </param>

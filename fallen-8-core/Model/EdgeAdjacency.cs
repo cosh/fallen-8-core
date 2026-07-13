@@ -88,7 +88,7 @@ namespace NoSQL.GraphDB.Core.Model
 
         /// <summary>
         ///   Builds an adjacency from the <c>Dictionary&lt;string, List&lt;EdgeModel&gt;&gt;</c> shape the
-        ///   persistency layer reconstructs on load (and the internal ctor / <c>SetOutEdges</c> take).
+        ///   persistency layer reconstructs on load (and the internal ctor takes).
         ///   A single-entry source becomes the inline shape; a multi-entry source snapshots each group
         ///   into its own contiguous array under a fresh map. A <c>null</c>/empty source has no
         ///   adjacency and returns <c>null</c> (empty =&gt; <c>null</c>, matching the property-store

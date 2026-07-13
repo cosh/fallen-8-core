@@ -13,7 +13,7 @@ Every phase: failing/observable test → change → green.
 ## Phase 1 — Storage swap (internal)
 - Replace `OutEdges`/`InEdges` internal storage with copy-on-write `Dictionary<string, EdgeModel[]>`
   behind `volatile` references (empty → `null`). Rewrite `AddOutEdge`/`AddIncomingEdge`,
-  `RemoveOutGoingEdge`/`RemoveIncomingEdge` (both overloads), and `SetOutEdges`/the internal ctor to
+  `RemoveOutGoingEdge`/`RemoveIncomingEdge` (both overloads), and the internal ctor to
   build-new-and-swap (never mutate a published array/dict in place). Keep grouping by
   edge-property-id.
 - Preserve the removal contract exactly: `RemoveOutGoingEdge(edge)`/`RemoveIncomingEdge(edge)` still
