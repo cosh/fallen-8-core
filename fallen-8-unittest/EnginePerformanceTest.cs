@@ -23,9 +23,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
@@ -47,6 +51,12 @@ namespace NoSQL.GraphDB.Tests
     ///        reuses the traverser the first one compiled instead of recompiling it.
     ///  - P3: element removal maintains VertexCount/EdgeCount incrementally, and the counts stay
     ///        exactly correct for a committed cascade removal, a self-loop, and a rolled-back removal.
+    ///  - P4: the RangeIndex's cached sorted-key structure answers ordered range queries correctly
+    ///        across value-only updates, new/removed keys, and Greater/Lower bracketing.
+    ///  - P5: the memoized PluginFactory discovery still resolves every plugin by name and enumerates
+    ///        every index plugin, and an Assimilate-style invalidation rebuilds a fresh name map (M1).
+    ///  - P6: bounded BLS reconstruction caps the result to maxResults while preserving the first-k
+    ///        path order of the unbounded run.
     /// </summary>
     [TestClass]
     public class EnginePerformanceTest
@@ -297,6 +307,64 @@ namespace NoSQL.GraphDB.Tests
             IIndex range;
             Assert.IsTrue(PluginFactory.TryFindPlugin(out range, "RangeIndex"));
             Assert.AreEqual("RangeIndex", range.PluginName);
+        }
+
+        [TestMethod]
+        public void PluginFactory_AfterDiscoveryInvalidation_RebuildsFreshNameMapAndStillResolves()
+        {
+            // M1 regression. InvalidateDiscoveryCache (the Assimilate path) clears the memoized
+            // candidate set AND every derived per-category name map under _discoveryLock, and
+            // GetNameMap now BUILDS AND STORES the name map under that SAME lock. So an invalidation
+            // can never be overtaken by the store of a map built from the pre-invalidation candidate
+            // set: after an invalidation the very next by-name lookup must rebuild a FRESH map that
+            // still resolves the full plugin set - never a lingering stale map. This pins the
+            // invalidate -> rebuild -> fresh-set contract deterministically (no timing dependency).
+
+            // Reach the private discovery cache + invalidation hook by reflection: the engine declares
+            // no InternalsVisibleTo, so - as elsewhere in this suite - the test reflects rather than
+            // widening that visibility.
+            var nameMapsField = typeof(PluginFactory).GetField("_nameMaps",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.IsNotNull(nameMapsField, "PluginFactory._nameMaps (the per-category name-map cache) must exist.");
+            var nameMaps = (ConcurrentDictionary<Type, FrozenDictionary<String, Type>>)nameMapsField.GetValue(null);
+
+            var invalidate = typeof(PluginFactory).GetMethod("InvalidateDiscoveryCache",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.IsNotNull(invalidate, "PluginFactory.InvalidateDiscoveryCache (the Assimilate invalidation) must exist.");
+
+            // Prime the path-algorithm category's name map (built + cached on first by-name lookup).
+            IShortestPathAlgorithm bls;
+            Assert.IsTrue(PluginFactory.TryFindPlugin(out bls, "BLS"),
+                "BLS must resolve on the priming lookup that builds the name map.");
+            Assert.IsTrue(nameMaps.TryGetValue(typeof(IShortestPathAlgorithm), out var mapBefore),
+                "Resolving by name must have cached the category's name map.");
+
+            // Simulate Assimilate dropping in a new plugin DLL: invalidate discovery + all name maps.
+            invalidate.Invoke(null, null);
+
+            // The invalidation must drop the cached map immediately, forcing the next lookup to
+            // rebuild from a fresh scan rather than serving the stale pre-invalidation map.
+            Assert.IsFalse(nameMaps.ContainsKey(typeof(IShortestPathAlgorithm)),
+                "Invalidation must clear the cached per-category name maps.");
+
+            // The next by-name lookups must rebuild the map (under the lock) and still resolve the
+            // FULL, fresh set - both shipped path algorithms - not an empty or stale map.
+            IShortestPathAlgorithm blsAfter;
+            Assert.IsTrue(PluginFactory.TryFindPlugin(out blsAfter, "BLS"),
+                "BLS must still resolve after an invalidation + rebuild.");
+            Assert.AreEqual("BLS", blsAfter.PluginName);
+
+            IShortestPathAlgorithm dijkstraAfter;
+            Assert.IsTrue(PluginFactory.TryFindPlugin(out dijkstraAfter, "DIJKSTRA"),
+                "DIJKSTRA must still resolve after an invalidation + rebuild.");
+            Assert.AreEqual("DIJKSTRA", dijkstraAfter.PluginName);
+
+            // The rebuilt map is a genuinely fresh instance, proving the invalidation took effect (a
+            // stale store surviving the invalidation - the M1 bug - would have kept the old instance).
+            Assert.IsTrue(nameMaps.TryGetValue(typeof(IShortestPathAlgorithm), out var mapAfter),
+                "A rebuilt name map must be cached again after the next lookup.");
+            Assert.AreNotSame(mapBefore, mapAfter,
+                "The rebuild must produce a fresh map instance (the invalidation dropped the old one).");
         }
 
         #endregion

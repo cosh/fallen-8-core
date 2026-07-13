@@ -218,7 +218,18 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <typeparam name='T'> The type of the plugin. </typeparam>
         private static IEnumerable<Type> GetAllTypes<T>(Boolean checkForIPlugin = true)
         {
-            foreach (var candidate in GetCandidateTypes())
+            return FilterTypes<T>(GetCandidateTypes(), checkForIPlugin);
+        }
+
+        /// <summary>
+        ///   Applies the cheap, I/O-free interface/category filters to a supplied candidate list,
+        ///   preserving discovery order. Split out from <see cref="GetCandidateTypes" /> so the
+        ///   name-map build can filter a candidate set captured ONCE under <see cref="_discoveryLock" />
+        ///   (finding M1) without re-entering that lock.
+        /// </summary>
+        private static IEnumerable<Type> FilterTypes<T>(IEnumerable<Type> candidates, Boolean checkForIPlugin = true)
+        {
+            foreach (var candidate in candidates)
             {
                 if (checkForIPlugin && !IsInterfaceOf<IPlugin>(candidate))
                 {
@@ -249,8 +260,19 @@ namespace NoSQL.GraphDB.Core.Plugin
 
             lock (_discoveryLock)
             {
-                return _candidateTypes ??= DiscoverCandidateTypes();
+                return GetCandidateTypesLocked();
             }
+        }
+
+        /// <summary>
+        ///   The lock-free core of <see cref="GetCandidateTypes" />: discovers the candidate set on
+        ///   first use and publishes it. The caller MUST already hold <see cref="_discoveryLock" />.
+        ///   Exists so <see cref="GetNameMap{T}" /> can discover candidates and build the derived name
+        ///   map under a SINGLE lock acquisition (finding M1), with no re-entrancy.
+        /// </summary>
+        private static IReadOnlyList<Type> GetCandidateTypesLocked()
+        {
+            return _candidateTypes ??= DiscoverCandidateTypes();
         }
 
         /// <summary>
@@ -276,23 +298,53 @@ namespace NoSQL.GraphDB.Core.Plugin
         }
 
         /// <summary>
-        ///   Builds (and memoizes) the <c>PluginName</c> -> CLR type map for a plugin category, by
-        ///   activating each candidate once to read its name. First type wins for a duplicated name,
-        ///   matching the old first-match linear scan. An activation that throws is skipped so a
-        ///   single malformed plugin cannot break name resolution for the whole category.
+        ///   Returns the memoized <c>PluginName</c> -> CLR type map for a plugin category, building it
+        ///   on first use. The build AND its store run under <see cref="_discoveryLock" /> - the same
+        ///   lock that guards candidate discovery and <see cref="InvalidateDiscoveryCache" /> (finding
+        ///   M1). Serializing them means a concurrent <see cref="Assimilate" /> invalidation can never
+        ///   be overtaken by the store of a map built from the pre-invalidation candidate set: the
+        ///   invalidation either completes before this acquisition (so the rebuild rediscovers the
+        ///   fresh set) or after it releases (so its <c>Clear</c> drops this map and the next lookup
+        ///   rebuilds). The candidate set is captured once here and passed into the build, so the build
+        ///   never re-enters the lock.
         /// </summary>
         private static FrozenDictionary<String, Type> GetNameMap<T>()
             where T : class, IPlugin
         {
-            return _nameMaps.GetOrAdd(typeof(T), _ => BuildNameMap<T>());
+            // Fast path: an already-built map. ConcurrentDictionary reads need no lock; only the
+            // build/store below - and invalidation - are serialized on _discoveryLock.
+            if (_nameMaps.TryGetValue(typeof(T), out var cached))
+            {
+                return cached;
+            }
+
+            lock (_discoveryLock)
+            {
+                // Re-check under the lock: another thread may have built it while we waited.
+                if (_nameMaps.TryGetValue(typeof(T), out cached))
+                {
+                    return cached;
+                }
+
+                // Capture the candidate set and build the map under the SAME lock, then store it.
+                var map = BuildNameMap<T>(GetCandidateTypesLocked());
+                _nameMaps[typeof(T)] = map;
+                return map;
+            }
         }
 
-        private static FrozenDictionary<String, Type> BuildNameMap<T>()
+        /// <summary>
+        ///   Builds the <c>PluginName</c> -> CLR type map for a plugin category from a supplied
+        ///   candidate set, by activating each candidate once to read its name. First type wins for a
+        ///   duplicated name, matching the old first-match linear scan. An activation that throws is
+        ///   skipped so a single malformed plugin cannot break name resolution for the whole category.
+        /// </summary>
+        private static FrozenDictionary<String, Type> BuildNameMap<T>(IReadOnlyList<Type> candidates)
             where T : class, IPlugin
         {
             var map = new Dictionary<String, Type>(StringComparer.Ordinal);
 
-            foreach (var aPluginTypeOfT in GetAllTypes<T>())
+            foreach (var aPluginTypeOfT in FilterTypes<T>(candidates))
             {
                 T instance;
                 try
