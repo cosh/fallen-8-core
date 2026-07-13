@@ -34,8 +34,9 @@ Every phase: failing/observable test → change → green.
 ## Phase 3 — Migrate the poison-injection rollback tests
 - Provide an internal fault-injection mechanism (e.g. an `internal` test hook to set a raw/poison
   adjacency state) replacing the removed `v.InEdges = v.InEdges.SetItem(...)` writes, and update
-  `CorrectnessFixesTest` + `CorrectnessFixesFollowupsTest` to use it — still forcing the mid-removal
-  fault and asserting counts + adjacency are restored on rollback. Coverage preserved, not weakened.
+  `CorrectnessFixesTest` + `CorrectnessFixesFollowupsTest` + `EnginePerformanceTest` (all three used
+  the idiom) to use it — still forcing the mid-removal fault and asserting counts + adjacency are
+  restored on rollback. Coverage preserved, not weakened.
 
 ## Phase 4 — Measure & document
 - Re-run the Phase 0 benchmark; record the before/after adjacency memory here. Update the

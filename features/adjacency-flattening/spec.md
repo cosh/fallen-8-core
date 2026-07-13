@@ -21,8 +21,9 @@ master-store slot — landed; **~96 B/edge + the per-vertex dict overhead remain
 - `VertexModel.OutEdges`/`InEdges` are **public fields** typed `ImmutableDictionary<…>`; the public
   methods `TryGetOutEdge`/`TryGetInEdge` return `ImmutableList<EdgeModel>`. Changing the storage
   changes the **public API** → a **major/library-version bump**.
-- Two rollback tests inject a poison edge through the immutable API to force a mid-removal fault:
-  `v.InEdges = v.InEdges.SetItem("in", v.InEdges["in"].Add(poison))` (`CorrectnessFixesTest`) and
+- Three rollback tests inject a poison edge through the immutable API to force a mid-removal fault:
+  `v.InEdges = v.InEdges.SetItem("in", v.InEdges["in"].Add(poison))` (`CorrectnessFixesTest` and
+  `EnginePerformanceTest`, which share this in-edge idiom) and
   `source.OutEdges = source.OutEdges.SetItem("knows", source.OutEdges["knows"].Add(null))`
   (`CorrectnessFixesFollowupsTest`). They must be **migrated** to a new fault-injection mechanism —
   the removal-rollback coverage must be preserved, not weakened.
