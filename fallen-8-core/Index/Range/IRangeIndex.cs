@@ -33,6 +33,13 @@ namespace NoSQL.GraphDB.Core.Index.Range
     /// <summary>
     /// Fallen8 range index.
     /// </summary>
+    /// <remarks>
+    /// Keys MUST form a TOTAL ORDER. The ordered operations sort keys via
+    /// <see cref="System.IComparable.CompareTo" /> and binary-search a sorted key array, so a key set
+    /// containing mutually-incomparable values (mixed types, or <c>Double.NaN</c>) has undefined
+    /// ordering and may throw while sorting. A range index is expected to hold a single comparable key
+    /// type.
+    /// </remarks>
     public interface IRangeIndex : IIndex
     {
         /// <summary>

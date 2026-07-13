@@ -26,8 +26,10 @@ Companion to [spec.md](./spec.md). Findings P1–P10 defined there. Ordered by v
 
 ## Status
 - [x] Phase 1 — quick wins (P1, P2, P3, P9, P10) — done
-- [x] Phase 2 — index/query complexity (P4 done, ordered IndexScan reroute deferred; P5 done)
-- [x] Phase 3 — algorithms (P6 done; P8 delivered via P7 + review)
+- [x] Phase 2 — index/query complexity (P4 done; ordered IndexScan reroute LANDED in
+  engine-performance-followups; P5 done)
+- [x] Phase 3 — algorithms (P6 bounded reconstruction done; parent-pointer rewrite definitively
+  DEFERRED in engine-performance-followups; P8 delivered via P7 + review)
 - [x] Phase 4 — scan strategy (P7) — done
 
 ### Phase 1 notes
@@ -76,6 +78,11 @@ Companion to [spec.md](./spec.md). Findings P1–P10 defined there. Ordered by v
   the range structure: that path (`FindElementsIndex`) applies `.Distinct()` across buckets and
   serves ALL index kinds, so rerouting risked a semantic change for little gain; the range-scan
   endpoint (the primary range surface) is fully covered.
+  **Follow-up:** the reroute was subsequently LANDED in `engine-performance-followups` (P4).
+  `IndexScan` now routes an `IRangeIndex` + ordered operator through `GreaterThan`/`LowerThan` and
+  reapplies the cross-bucket `.Distinct()`, so the deduped result set is byte-identical to the
+  generic path (proven by a RangeIndex-vs-DictionaryIndex parity suite); non-range indices and
+  `Equals`/`NotEquals` keep the generic path.
 - **P5** done. `PluginFactory` memoizes the expensive discovery (enumerate DLLs + `Assembly.Load`
   + `GetExportedTypes` + structural filter) ONCE into `_candidateTypes` (was repeated on every
   op); `GetAllTypes<T>` now applies only the cheap interface/category filters over the cached list,
@@ -120,6 +127,13 @@ Companion to [spec.md](./spec.md). Findings P1–P10 defined there. Ordered by v
   (the `PathTest` suite, incl. exact-path assertions at `maxResults=1`), which the guardrail says to
   protect. New test proves `maxResults=2` returns exactly the first two paths of an unbounded
   (`maxResults=100`) run, element-for-element. DIJKSTRA untouched.
+  **Follow-up:** re-evaluated in `engine-performance-followups` (P6) and DEFINITIVELY DEFERRED. The
+  reconstruction's reversal seam (build middle->source, `ReversePath`, then extend middle->target)
+  makes a byte-identical parent-pointer rewrite high-risk, and an opt-in allocation benchmark
+  quantified the low reward: BLS reconstructs only ~(# middle vertices) paths (the shared
+  `visitedVertices` set makes predecessors a spanning tree — a graph with 4.3 billion equal-length
+  routes still yields 2 paths), so copy-on-extend is a small, length-driven slice of a cost dominated
+  by frontier expansion. `Path`/`PathElement` stay unchanged.
 - **P8** delivered via P7 + review. The subgraph algorithm (`BreathFirstSearchSubgraphAlgorithm`)
   was re-read against its CURRENT shape (prior themes, esp. memory-footprint M3, already tidied
   it): each phase's whole-graph scan goes through `GetAllVertices`/`GetAllEdges`/
