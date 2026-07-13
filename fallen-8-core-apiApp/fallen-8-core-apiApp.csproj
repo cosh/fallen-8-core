@@ -41,7 +41,12 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning" Version="5.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.1.0" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <!-- Explicit pin: Microsoft.AspNetCore.OpenApi 10.0.9 transitively resolves
+         Microsoft.OpenApi 2.0.0, which carries a high-severity advisory (NU1903,
+         GHSA-v5pm-xwqc-g5wc). 2.10.0 is the patched version that clears it without an
+         NU1605 downgrade, verified by the vulnerable-package scan. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.10.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.2" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.1.17" />
