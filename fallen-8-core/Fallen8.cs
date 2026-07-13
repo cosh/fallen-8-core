@@ -1184,6 +1184,7 @@ namespace NoSQL.GraphDB.Core
             var oldSubGraphFactory = SubGraphFactory;
             oldServiceFactory.ShutdownAllServices();
             var oldSnapshot = _snapshot;
+            var oldCurrentId = _currentId;
 
             _snapshot = EmptySnapshot;
 
@@ -1192,7 +1193,29 @@ namespace NoSQL.GraphDB.Core
             // rehydration resolves element ids through TryGetGraphElement against the
             // published master store. Publication goes through that method rather than a
             // by-ref out-parameter so the volatile snapshot field is written atomically.
-            var success = _persistencyFactory.Load(this, path, ref _currentId, startServices);
+            bool success;
+            try
+            {
+                success = _persistencyFactory.Load(this, path, ref _currentId, startServices);
+            }
+            catch (Exception ex)
+            {
+                // A rejected load - the file was not a Fallen-8 save (missing magic / unknown
+                // version), failed its integrity check, or was truncated/corrupt (findings C2/C4/C5)
+                // - must leave the engine exactly as it was, then surface as a rolled-back
+                // transaction (the worker maps a throw to RolledBack + Error, which the REST layer
+                // maps to 500). Restore the pre-load state and rethrow. The single-writer worker
+                // survives this (C3/B6): only the transaction rolls back, the thread keeps running.
+                _logger.LogError(ex, "Loading the savegame from \"{Path}\" was rejected; the database is left unchanged.", path);
+
+                _currentId = oldCurrentId;
+                _snapshot = oldSnapshot;
+                IndexFactory = oldIndexFactory;
+                ServiceFactory = oldServiceFactory;
+                SubGraphFactory = oldSubGraphFactory;
+                ServiceFactory.StartAllServices();
+                throw;
+            }
 
             if (success)
             {
