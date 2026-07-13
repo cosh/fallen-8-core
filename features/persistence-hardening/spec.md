@@ -1,8 +1,8 @@
 # Persistence / Checkpointing Hardening — Specification
 
-> **Status:** Planned. Durability, robustness, and efficiency improvements to the checkpoint
-> layer, from the persistence review. Correctness/durability items take priority over the
-> performance items.
+> **Status:** Implemented (P3 non-blocking save deferred; see plan). Durability, robustness, and
+> efficiency improvements to the checkpoint layer, from the persistence review.
+> Correctness/durability items take priority over the performance items.
 
 ## 1. How it works today (verified)
 
@@ -25,15 +25,14 @@ Load, and Trim are separate transactions on the single worker; `/save` does **no
 | C6 | Recipe sidecars: counter restarts at 0 each save, so a save with fewer recipes leaves stale higher-numbered files that the directory-scan load rehydrates; non-atomic `WriteAllText`; prefix-glob discovery is unscoped | `PersistencyFactory.cs:277,303` | Stale/rehydrated or silently-dropped subgraphs |
 | C7 | `OtherType` JSON fallback: writer emits a length-prefixed UTF-32 string, reader hands the raw stream to `JsonSerializer.Deserialize<object>` | `SerializationWriter.cs:606` vs `SerializationReader.cs:1582` | Complex (non-primitive) property values not round-trippable |
 | C8 | Version suffix uses `DateTime.Now` (local, DST-sensitive) and collides within a tick | `PersistencyFactory.cs:169` | Fragile save versioning |
-| C9 | Spatial (R-Tree) index is not serialized: `RTree.Save`/`Load` throw `NotSupportedException`, so the checkpoint guards deliberately skip it (deferred here from correctness-fixes-followups B7) | `Index/Spatial/Implementation/RTree/RTree.cs` (`Save`/`Load`) | A spatial index does not survive a save/load — it is absent after load and must be recreated by the caller |
+| C9 | ~~Spatial (R-Tree) index is not serialized: `RTree.Save`/`Load` throw `NotSupportedException`, so the checkpoint guards deliberately skip it (deferred here from correctness-fixes-followups B7)~~ **RESOLVED (Stage B):** `RTree.Save`/`Load` now serialize the build config + entries and rebuild an equivalent, queryable tree on load; the index survives a checkpoint. | `Index/Spatial/Implementation/RTree/RTree.cs` (`Save`/`Load`) | ~~A spatial index does not survive a save/load — it is absent after load and must be recreated by the caller~~ A spatial index now **survives** a save/load and is queryable on reload (no recreation needed). |
 
-> **C9 follow-up (capability flag):** today `PersistencyFactory.SaveIndex` distinguishes "not yet
-> persistable" from a genuine serialization failure by catching `NotSupportedException` specifically
-> (Information-level skip) vs any other exception (Error-level skip). That is an implicit,
-> exception-typed signal. Replace it with an explicit `IIndex` capability flag (e.g. `CanPersist`):
-> the factory can then skip a non-persistable index *silently* and reserve Error-level logging (and
-> partial-sidecar cleanup) for real failures, without relying on a thrown exception type to classify
-> intent. Fold this in when C9's full R-Tree serialization lands.
+> **C9 follow-up (capability flag): DONE (Stage B).** `PersistencyFactory.SaveIndex` no longer
+> classifies intent by catching `NotSupportedException`. `IIndex` now carries an explicit `CanPersist`
+> flag: the factory skips a `CanPersist == false` index *silently* (Information) and reserves
+> Error-level logging (and partial-sidecar cleanup) for a genuine serialization failure of an index
+> that claims it can persist. Every built-in index (including the now-serializable R-Tree) returns
+> `CanPersist == true`.
 
 ## 3. Performance / memory / design
 
@@ -64,8 +63,9 @@ write-ahead log for durability between snapshots.
   loudly on mismatch (C2, C4). A truncated/garbage file is rejected without a huge allocation or
   worker death (C3, C5). Recipe sidecars can't rehydrate stale entries (C6). Complex property
   values round-trip (C7).
-- Save peak memory drops (P1); save no longer stalls concurrent reads/writes (P3); large-graph
-  save/load throughput improves (P2, P6) — measured.
+- Save peak memory drops (P1); save no longer stalls concurrent reads/writes (P3 — deferred; see
+  plan Stage C; blocking-but-correct save retained); large-graph save/load throughput improves
+  (P2, P6) — measured.
 - WAL: after a crash between snapshots, load replays the log and recovers committed transactions.
 - On-disk format changes are gated behind the new version field; existing tests + new
   crash/corruption tests pass.

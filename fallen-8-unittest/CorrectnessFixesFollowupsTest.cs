@@ -42,6 +42,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Spatial;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
+using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
@@ -229,10 +230,10 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
-        #region B7 follow-up - a spatial index must not crash the whole checkpoint
+        #region B7 follow-up - a spatial index survives a checkpoint (C9)
 
         [TestMethod]
-        public void SaveAndLoad_WithSpatialIndexPresent_CheckpointSucceedsAndGraphAndOtherIndicesRoundTrip()
+        public void SaveAndLoad_WithSpatialIndexPresent_SpatialIndexSurvivesAndIsQueryable()
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
@@ -245,14 +246,16 @@ namespace NoSQL.GraphDB.Tests
             dictIndex.AddOrUpdate("alice", vertices[0]);
             dictIndex.AddOrUpdate("bob", vertices[1]);
 
-            // A spatial R-Tree index holding a value. It is not yet persistable (Save/Load throw
-            // NotSupportedException); the PersistencyFactory guards must ensure its presence neither
-            // aborts the checkpoint nor yields a broken, NPE-prone index after load.
+            // A spatial R-Tree index holding points. With C9 it is now FULLY persistable: it must
+            // survive the checkpoint and come back queryable (before, Save/Load threw and the index
+            // was skipped, so it was absent after load and had to be recreated by the caller).
             IIndex spatialIndex;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out spatialIndex, "spatialIdx", "SpatialIndex", CreateRTreeParameters()),
                 "The spatial index should be created.");
             spatialIndex.AddOrUpdate(new Point(1.0f, 1.0f), vertices[0]);
-            Assert.AreEqual(1, spatialIndex.CountOfValues(), "Sanity: the spatial index holds one value before save.");
+            spatialIndex.AddOrUpdate(new Point(2.0f, 2.0f), vertices[1]);
+            spatialIndex.AddOrUpdate(new Point(3.0f, 3.0f), vertices[2]);
+            Assert.AreEqual(3, spatialIndex.CountOfValues(), "Sanity: the spatial index holds three values before save.");
 
             var saveGameName = "SpatialCheckpointFollowupTest.f8s";
             var saveGameDirectory = ".";
@@ -263,18 +266,18 @@ namespace NoSQL.GraphDB.Tests
             {
                 CleanupSavegames(saveGameDirectory, saveGameName);
 
-                // Act - save. The non-persistable spatial index must not roll the checkpoint back.
+                // Act - save. The spatial index is persisted like any other.
                 var saveTx = new SaveTransaction { Path = saveGameLocation, SavePartitions = 1 };
                 fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
 
                 Assert.AreEqual(TransactionState.Finished, fallen8.GetTransactionState(saveTx.TransactionId),
-                    "Saving a graph that contains a spatial index must NOT roll the whole checkpoint back.");
+                    "Saving a graph that contains a spatial index must succeed.");
                 actualPath = saveTx.ActualPath;
                 Assert.IsNotNull(actualPath, "The save must have produced a path.");
 
-                // The skipped spatial index must not leave an orphaned partial sidecar behind (fix 5).
-                Assert.IsFalse(File.Exists(actualPath + Constants.IndexSaveString + "spatialIdx"),
-                    "A non-persistable index must not leave a partial index sidecar behind.");
+                // The spatial index now WRITES its sidecar (C9), unlike the former skip-on-save.
+                Assert.IsTrue(File.Exists(actualPath + Constants.IndexSaveString + "spatialIdx"),
+                    "A persistable spatial index must write its sidecar.");
 
                 // Load into a fresh instance.
                 var reloaded = new Fallen8(_loggerFactory);
@@ -296,28 +299,32 @@ namespace NoSQL.GraphDB.Tests
                     "The dictionary index must retain its keys across the checkpoint.");
                 Assert.AreEqual(1, aliceHits.Count, "The dictionary index must retain its values across the checkpoint.");
 
-                // The spatial index is not persistable yet, so it is intentionally ABSENT after load
-                // rather than present-but-broken: it is skipped on save (dropped from the manifest)
-                // and would be skipped on load too. It must therefore be RECREATED - and adding to /
-                // querying the freshly recreated index must not throw (the landmine this fix removes).
-                IIndex absentSpatial;
-                Assert.IsFalse(reloaded.IndexFactory.TryGetIndex(out absentSpatial, "spatialIdx"),
-                    "The spatial index must be absent after load (recreate it), never present-but-NPE-prone.");
+                // C9 headline: the spatial index is PRESENT after load (not absent-and-recreated) and
+                // holds its entries...
+                IIndex reloadedSpatial;
+                Assert.IsTrue(reloaded.IndexFactory.TryGetIndex(out reloadedSpatial, "spatialIdx"),
+                    "The spatial index must survive the checkpoint and be present after load.");
+                Assert.AreEqual(3, reloadedSpatial.CountOfValues(),
+                    "The reloaded spatial index must retain all three entries.");
 
-                IIndex recreatedSpatial;
-                Assert.IsTrue(reloaded.IndexFactory.TryCreateIndex(out recreatedSpatial, "spatialIdx", "SpatialIndex", CreateRTreeParameters()),
-                    "Recreating the spatial index after load must succeed.");
+                // ...and a spatial QUERY on the RELOADED index runs and returns the correct subset -
+                // the exact thing the pre-C9 skip-and-recreate could not do (a reloaded spatial index
+                // used to NPE). A region covering (1,1) and (2,2) but not (3,3):
+                ImmutableList<AGraphElementModel> regionHits;
+                Assert.IsTrue(((ISpatialIndex)reloadedSpatial).SearchRegion(out regionHits,
+                        new NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer.MBR(
+                            new[] { 0.5f, 0.5f }, new[] { 2.5f, 2.5f })),
+                    "A region query on the reloaded index must run and find matches.");
+                var hitIds = regionHits.Select(e => e.Id).OrderBy(id => id).ToArray();
+                CollectionAssert.AreEqual(new[] { vertices[0].Id, vertices[1].Id }, hitIds,
+                    "The region query must return exactly the two vertices inside the region.");
 
+                // A distance query on the reloaded index also works against a reloaded vertex.
                 VertexModel reloadedVertex;
                 Assert.IsTrue(reloaded.TryGetVertex(out reloadedVertex, vertices[0].Id), "The indexed vertex must exist after load.");
-
-                // A spatial add + query on the post-load, freshly recreated index must not throw.
-                recreatedSpatial.AddOrUpdate(new Point(1.0f, 1.0f), reloadedVertex);
-                Assert.AreEqual(1, recreatedSpatial.CountOfValues(), "The recreated spatial index holds the re-added value.");
-
                 ImmutableList<AGraphElementModel> distanceHits;
-                Assert.IsTrue(((ISpatialIndex)recreatedSpatial).SearchDistance(out distanceHits, 5.0f, reloadedVertex),
-                    "A spatial query on the recreated index must run and find the re-added vertex.");
+                Assert.IsTrue(((ISpatialIndex)reloadedSpatial).SearchDistance(out distanceHits, 5.0f, reloadedVertex),
+                    "A distance query on the reloaded index must run and find neighbours.");
             }
             finally
             {
@@ -464,6 +471,146 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
+        [TestMethod]
+        public void SaveAndLoad_WithThrowingServicePresent_SkipsItAndCompletesCheckpoint()
+        {
+            // Fix 2: SaveService is now best-effort, symmetric with SaveIndex and with the load side
+            // (ValidateOptionalSidecars already skips a bad service sidecar). A service whose Save
+            // throws must be skipped - logged at Error, no partial sidecar left behind - while the
+            // rest of the checkpoint (graph elements + a good index) still completes and reloads.
+            // Before the fix, the throw propagated via serviceEntries.Add(saver.Result) and aborted
+            // the WHOLE checkpoint.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 2);
+
+            IIndex dictIndex;
+            Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out dictIndex, "goodIdx", "DictionaryIndex"),
+                "The good dictionary index should be created.");
+            dictIndex.AddOrUpdate("alice", vertices[0]);
+
+            // Register a throwing service double directly (it is not a discoverable plugin).
+            fallen8.ServiceFactory.Services.Add("throwingSvc", new ThrowingOnSaveService());
+
+            var saveGameName = "ThrowingServiceCheckpointTest.f8s";
+            var saveGameDirectory = ".";
+            var saveGameLocation = Path.Combine(saveGameDirectory, saveGameName);
+            string actualPath = null;
+
+            try
+            {
+                CleanupSavegames(saveGameDirectory, saveGameName);
+
+                var saveTx = new SaveTransaction { Path = saveGameLocation, SavePartitions = 1 };
+                fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+
+                Assert.AreEqual(TransactionState.Finished, fallen8.GetTransactionState(saveTx.TransactionId),
+                    "A single throwing service must NOT roll the whole checkpoint back.");
+                actualPath = saveTx.ActualPath;
+                Assert.IsNotNull(actualPath, "The save must have produced a path.");
+
+                // The throwing service must not leave an orphaned partial sidecar behind.
+                Assert.IsFalse(File.Exists(actualPath + Constants.ServiceSaveString + "throwingSvc"),
+                    "A throwing service must not leave a partial service sidecar behind.");
+
+                var reloaded = new Fallen8(_loggerFactory);
+                var loadTx = new LoadTransaction { Path = actualPath };
+                reloaded.EnqueueTransaction(loadTx).WaitUntilFinished();
+
+                Assert.AreEqual(TransactionState.Finished, reloaded.GetTransactionState(loadTx.TransactionId),
+                    "Loading a checkpoint whose save skipped a throwing service must not throw.");
+
+                // Graph elements and the good index round-trip; the throwing service was skipped.
+                Assert.AreEqual(2, reloaded.VertexCount, "All vertices must round-trip.");
+
+                IIndex reloadedGood;
+                Assert.IsTrue(reloaded.IndexFactory.TryGetIndex(out reloadedGood, "goodIdx"),
+                    "The good index must be present after load (the checkpoint completed).");
+                ImmutableList<AGraphElementModel> aliceHits;
+                Assert.IsTrue(reloadedGood.TryGetValue(out aliceHits, "alice"),
+                    "The good index must retain its data across the checkpoint.");
+                Assert.AreEqual(1, aliceHits.Count, "The good index must retain its values.");
+
+                Assert.IsFalse(reloaded.ServiceFactory.Services.ContainsKey("throwingSvc"),
+                    "The throwing service must simply be absent after load (skipped, not fatal).");
+            }
+            finally
+            {
+                CleanupSavegames(saveGameDirectory, actualPath != null ? Path.GetFileName(actualPath) : saveGameName);
+            }
+        }
+
+        [TestMethod]
+        public void SaveAndLoad_WithGeoMetricSpatialIndex_RoundTripsMetricStateAndQueries()
+        {
+            // Fix 3 (preferred, round-trip): GeoMetric is a STATEFUL metric (it carries an earth
+            // radius and has NO public parameterless ctor). The R-Tree now serializes the metric's
+            // STATE, not just its type name, and reconstructs it via a non-public parameterless ctor
+            // + IMetric.RestoreState - so a GeoMetric-backed R-Tree genuinely round-trips and stays
+            // queryable, rather than throwing on load (Activator on a ctor-less type) and being
+            // skipped. The distance query below only returns the right subset if the earth radius was
+            // actually restored (a default/zero radius would make every point equidistant).
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+
+            IIndex geoIndex;
+            Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out geoIndex, "geoIdx", "SpatialIndex", CreateGeoRTreeParameters()),
+                "The GeoMetric spatial index should be created.");
+            // Geo points as (latitude, longitude): two near Munich, one far north-east.
+            geoIndex.AddOrUpdate(new Point(48.00f, 11.00f), vertices[0]);
+            geoIndex.AddOrUpdate(new Point(48.05f, 11.05f), vertices[1]); // ~6 km from the first
+            geoIndex.AddOrUpdate(new Point(60.00f, 25.00f), vertices[2]); // ~1500 km away
+            Assert.AreEqual(3, geoIndex.CountOfValues(), "Sanity: the geo index holds three values before save.");
+
+            var saveGameName = "GeoSpatialCheckpointTest.f8s";
+            var saveGameDirectory = ".";
+            var saveGameLocation = Path.Combine(saveGameDirectory, saveGameName);
+            string actualPath = null;
+
+            try
+            {
+                CleanupSavegames(saveGameDirectory, saveGameName);
+
+                var saveTx = new SaveTransaction { Path = saveGameLocation, SavePartitions = 1 };
+                fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+
+                Assert.AreEqual(TransactionState.Finished, fallen8.GetTransactionState(saveTx.TransactionId),
+                    "Saving a graph with a GeoMetric spatial index must succeed.");
+                actualPath = saveTx.ActualPath;
+                Assert.IsNotNull(actualPath, "The save must have produced a path.");
+                Assert.IsTrue(File.Exists(actualPath + Constants.IndexSaveString + "geoIdx"),
+                    "A GeoMetric R-Tree is persistable and must write its sidecar.");
+
+                var reloaded = new Fallen8(_loggerFactory);
+                var loadTx = new LoadTransaction { Path = actualPath };
+                reloaded.EnqueueTransaction(loadTx).WaitUntilFinished();
+
+                Assert.AreEqual(TransactionState.Finished, reloaded.GetTransactionState(loadTx.TransactionId),
+                    "Loading a GeoMetric R-Tree must not throw - the metric state round-trips (no ctor-less Activator failure).");
+
+                IIndex reloadedGeo;
+                Assert.IsTrue(reloaded.IndexFactory.TryGetIndex(out reloadedGeo, "geoIdx"),
+                    "The GeoMetric spatial index must survive the checkpoint (not be skipped on load).");
+                Assert.AreEqual(3, reloadedGeo.CountOfValues(), "All three entries round-trip.");
+
+                // A distance query on the RELOADED index uses the reconstructed GeoMetric. Within
+                // 100 km of (48.00, 11.00): the two nearby points, NOT the far one. If the earth
+                // radius had not been restored (zero), TransformationOfDistance would blow the search
+                // region up and the far point would wrongly match - so this pins the state round-trip.
+                VertexModel anchor;
+                Assert.IsTrue(reloaded.TryGetVertex(out anchor, vertices[0].Id), "The anchor vertex must exist after load.");
+                ImmutableList<AGraphElementModel> near;
+                Assert.IsTrue(((ISpatialIndex)reloadedGeo).SearchDistance(out near, 100.0f, anchor),
+                    "A distance query on the reloaded GeoMetric index must run and find neighbours.");
+                var nearIds = near.Select(e => e.Id).OrderBy(id => id).ToArray();
+                CollectionAssert.AreEqual(new[] { vertices[0].Id, vertices[1].Id }, nearIds,
+                    "Within 100 km of (48.00,11.00): exactly the two nearby points - proves the earth radius (metric state) was restored.");
+            }
+            finally
+            {
+                CleanupSavegames(saveGameDirectory, actualPath != null ? Path.GetFileName(actualPath) : saveGameName);
+            }
+        }
+
         #endregion
 
         #region edge-removal rollback regression (else branch of TryRemoveGraphElement_private)
@@ -538,9 +685,13 @@ namespace NoSQL.GraphDB.Tests
 
         private static IDictionary<string, object> CreateRTreeParameters()
         {
+            // Use the framework's public, stateless EuclidianMetric (not a private test metric): C9
+            // reconstructs the metric and dimensions from their assembly-qualified type names on load,
+            // so they must be publicly resolvable + parameterless-constructible for the reloaded index
+            // to be functional.
             return new Dictionary<string, object>
             {
-                ["IMetric"] = new EuclideanMetric(),
+                ["IMetric"] = new NoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric.EuclidianMetric(),
                 ["MinCount"] = 2,
                 ["MaxCount"] = 5,
                 ["Space"] = new List<IDimension>
@@ -551,23 +702,22 @@ namespace NoSQL.GraphDB.Tests
             };
         }
 
-        private sealed class EuclideanMetric : IMetric
+        private static IDictionary<string, object> CreateGeoRTreeParameters()
         {
-            public float Distance(IMBP point1, IMBP point2)
+            // GeoMetric is the framework's one STATEFUL built-in metric (it carries an earth radius,
+            // here km, and has no public parameterless ctor). Fix 3 serializes that state so this
+            // metric reconstructs faithfully on load.
+            return new Dictionary<string, object>
             {
-                var sum = 0.0f;
-                for (int i = 0; i < point1.Coordinates.Length; i++)
+                ["IMetric"] = new NoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric.GeoMetric(6371.0f),
+                ["MinCount"] = 2,
+                ["MaxCount"] = 5,
+                ["Space"] = new List<IDimension>
                 {
-                    var diff = point1.Coordinates[i] - point2.Coordinates[i];
-                    sum += diff * diff;
+                    new NoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry.RealDimension(),
+                    new NoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry.RealDimension(),
                 }
-                return (float)Math.Sqrt(sum);
-            }
-
-            public float[] TransformationOfDistance(float distance, IMBR mbr)
-            {
-                return new float[] { distance, distance };
-            }
+            };
         }
 
         private static void CleanupSavegames(String saveGameDirectory, String saveGameFilePrefix)
@@ -590,6 +740,11 @@ namespace NoSQL.GraphDB.Tests
             public Type PluginCategory => typeof(IIndex);
             public string Description => "A test index whose Save throws.";
             public string Manufacturer => "fallen-8 tests";
+
+            // CLAIMS to be persistable (so it is NOT skipped silently by the CanPersist gate) but then
+            // its Save throws - exactly the "genuine, unexpected serialization failure" path that must
+            // be caught, logged at Error level and skipped without aborting the checkpoint.
+            public bool CanPersist => true;
 
             public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) { }
 
@@ -616,6 +771,39 @@ namespace NoSQL.GraphDB.Tests
                 result = ImmutableList<AGraphElementModel>.Empty;
                 return false;
             }
+
+            public void Dispose() { }
+        }
+
+        /// <summary>
+        /// A minimal, deliberately-broken service whose Save always throws. Used to prove that
+        /// PersistencyFactory.SaveService skips a failing service instead of aborting the whole
+        /// checkpoint (fix 2). Everything else is an inert no-op - it never needs to run or hold data,
+        /// and it is a nested private type so it is not enumerated by plugin discovery.
+        /// </summary>
+        private sealed class ThrowingOnSaveService : IService
+        {
+            public string PluginName => "ThrowingTestService";
+            public Type PluginCategory => typeof(IService);
+            public string Description => "A test service whose Save throws.";
+            public string Manufacturer => "fallen-8 tests";
+
+            public DateTime StartTime => DateTime.MinValue;
+            public bool IsRunning => false;
+            public IDictionary<string, string> Metadata => new Dictionary<string, string>();
+
+            public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) { }
+
+            public void Save(SerializationWriter writer)
+            {
+                throw new InvalidOperationException("This service deliberately fails to serialize.");
+            }
+
+            public void Load(SerializationReader reader, IFallen8 fallen8) { }
+
+            public bool TryStop() => true;
+            public bool TryStart() => true;
+            public void OnServiceRestart() { }
 
             public void Dispose() { }
         }
@@ -649,6 +837,10 @@ namespace NoSQL.GraphDB.Tests
         public Type PluginCategory => typeof(IIndex);
         public string Description => "A test index that saves fine but throws on load.";
         public string Manufacturer => "fallen-8 tests";
+
+        // Persistable: it serializes fine and reaches the manifest + its sidecar; the failure is on
+        // the LOAD side, exercising the per-index catch in PersistencyFactory.LoadIndices.
+        public bool CanPersist => true;
 
         public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) { }
 

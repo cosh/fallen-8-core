@@ -141,6 +141,9 @@ namespace NoSQL.GraphDB.Core.Index.Range
         #endregion
 
         #region IFallen8Serializable implementation
+
+        public Boolean CanPersist => true;
+
         public void Save(SerializationWriter writer)
         {
             if (ReadResource())

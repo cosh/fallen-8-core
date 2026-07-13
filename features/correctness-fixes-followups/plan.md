@@ -17,6 +17,13 @@ where the behaviour is observable.
   returns success; the fire-and-forget path still returns `Accepted()`.
 
 ## Phase 2 — B7: a spatial index must not crash the checkpoint
+> **Superseded by persistence-hardening Stage B (C9):** `RTree.Save`/`Load` are now fully
+> implemented — the R-Tree is serialized (build config + entries) and reloads as a functional,
+> queryable index, and the `NotSupportedException` "not persistable" signal is replaced by an
+> explicit `IIndex.CanPersist` flag. The B7 design below (skip-and-recreate) was the interim state;
+> the per-index guards for a genuinely failing index still stand. See
+> [../persistence-hardening/](../persistence-hardening/).
+
 - `RTree.Save`/`Load`: throw a clear `NotSupportedException` ("the spatial (R-Tree) index is not
   yet persistable; recreate it after load"). The R-Tree is **not** persisted — coming up as an
   "empty" index is not viable because `Load` lacks the config to build a valid tree (a container

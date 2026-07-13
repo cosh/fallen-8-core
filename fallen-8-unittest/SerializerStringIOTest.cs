@@ -37,10 +37,11 @@ namespace NoSQL.GraphDB.Tests
     /// <see cref="SerializationReader"/> string codec.
     /// </summary>
     /// <remarks>
-    /// The N4 modernization replaced the per-byte string write/read loops with a single bulk
-    /// <c>Write(byte[])</c> / <c>ReadBytes</c>. These tests pin the on-disk string layout so the
-    /// change cannot silently alter the serialized format: the encoding is an Int32 little-endian
-    /// UTF-32 byte count followed by the UTF-32 (little-endian, no BOM) bytes.
+    /// The untokenized <c>Write(string)</c> / <c>ReadString()</c> path uses a single bulk
+    /// <c>Write(byte[])</c> / <c>ReadBytes</c> (N4). These tests pin its on-disk layout so a change
+    /// cannot silently alter the serialized format: an Int32 little-endian byte count followed by the
+    /// UTF-8 bytes (no BOM). The encoding was UTF-32 through Stage A; Stage B (finding P2) switched it
+    /// to UTF-8 - 1 byte per ASCII char instead of 4 - behind the format version gate.
     /// </remarks>
     [TestClass]
     public class SerializerStringIOTest
@@ -58,16 +59,16 @@ namespace NoSQL.GraphDB.Tests
 
         /// <summary>
         /// Hard-coded golden bytes: the writer must emit "AB" as an Int32 little-endian length
-        /// prefix (8 bytes of payload) followed by 'A' and 'B' each as UTF-32 little-endian.
+        /// prefix (2 bytes of payload) followed by 'A' and 'B' each as a single UTF-8 byte.
         /// </summary>
         [TestMethod]
         public void WriteString_AB_ProducesGoldenByteLayout()
         {
             var expected = new byte[]
             {
-                0x08, 0x00, 0x00, 0x00, // length prefix = 8 payload bytes
-                0x41, 0x00, 0x00, 0x00, // 'A' in UTF-32 LE
-                0x42, 0x00, 0x00, 0x00, // 'B' in UTF-32 LE
+                0x02, 0x00, 0x00, 0x00, // length prefix = 2 payload bytes (UTF-8)
+                0x41,                   // 'A' in UTF-8
+                0x42,                   // 'B' in UTF-8
             };
 
             CollectionAssert.AreEqual(expected, WriteStringRegion("AB"));
@@ -86,13 +87,13 @@ namespace NoSQL.GraphDB.Tests
 
         /// <summary>
         /// For every representative string the writer's on-disk region must equal an
-        /// independently computed [Int32 LE length][UTF-32 LE bytes] layout. This guards
-        /// against any drift introduced by the bulk-write change.
+        /// independently computed [Int32 LE length][UTF-8 bytes] layout. This guards
+        /// against any drift in the string codec.
         /// </summary>
         [TestMethod]
-        public void WriteString_ByteLayout_MatchesIndependentUtf32Encoding()
+        public void WriteString_ByteLayout_MatchesIndependentUtf8Encoding()
         {
-            var enc = new UTF32Encoding();
+            var enc = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
             foreach (var s in RepresentativeStrings)
             {
@@ -161,14 +162,14 @@ namespace NoSQL.GraphDB.Tests
         /// </summary>
         /// <remarks>
         /// <c>BinaryReader.ReadBytes</c> returns a SHORT array at end-of-stream instead of throwing,
-        /// so the bulk-read introduced by N4 needs an explicit length guard to preserve the
-        /// loud-failure-on-truncation behaviour of the old per-byte <c>ReadByte</c> loop. Fail-before
-        /// (no guard): this returned a ~875-character string and did not throw.
+        /// so the bulk read needs an explicit length guard to preserve the loud-failure-on-truncation
+        /// behaviour of the old per-byte <c>ReadByte</c> loop. Fail-before (no guard): this returned a
+        /// short, garbled string and did not throw.
         /// </remarks>
         [TestMethod]
         public void ReadString_WhenPayloadTruncated_ThrowsEndOfStreamException()
         {
-            // A valid serialized stream whose single string has a 4000-byte UTF-32 payload.
+            // A valid serialized stream whose single string has a 1000-byte UTF-8 payload.
             var ms = new MemoryStream();
             var writer = new SerializationWriter(ms);
             writer.Write(new string('z', 1000));

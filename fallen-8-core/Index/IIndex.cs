@@ -39,6 +39,19 @@ namespace NoSQL.GraphDB.Core.Index
     public interface IIndex : IPlugin, IFallen8Serializable
     {
         /// <summary>
+        ///   Whether this index can persist itself to (and reload itself from) a checkpoint via
+        ///   <see cref="IFallen8Serializable.Save" /> / <see cref="IFallen8Serializable.Load" />
+        ///   (finding C9). An index that returns <c>false</c> is skipped silently on save (it is
+        ///   dropped from the checkpoint manifest and must be recreated after load); an index that
+        ///   returns <c>true</c> is expected to serialize and rehydrate to a functional, queryable
+        ///   state. This is an explicit capability flag, replacing the former practice of throwing
+        ///   <see cref="NotSupportedException" /> from <c>Save</c> to signal non-persistability, so the
+        ///   persistency layer can tell an intentional opt-out apart from a genuine failure without
+        ///   inspecting exception types. Every built-in index is persistable and returns <c>true</c>.
+        /// </summary>
+        Boolean CanPersist { get; }
+
+        /// <summary>
         ///   Count of the keys.
         /// </summary>
         /// <returns> The key count. </returns>

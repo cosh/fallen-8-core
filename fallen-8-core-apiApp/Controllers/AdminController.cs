@@ -351,19 +351,34 @@ namespace NoSQL.GraphDB.App.Controllers
                     .Where(_ => !_.Last().Contains(Constants.GraphElementsSaveString))
                     .Where(_ => !_.Last().Contains(Constants.IndexSaveString))
                     .Where(_ => !_.Last().Contains(Constants.ServiceSaveString))
+                    .Where(_ => !_.Last().Contains(Constants.SubGraphSaveString))
+                    .Where(_ => !_.Last().Contains(Constants.SubGraphManifestString))
+                    .Where(_ => !_.Last().Contains(Constants.TempSaveSuffix))
                     .ToDictionary(key => key.Last(), value => value.Aggregate((a, b) => a + System.IO.Path.DirectorySeparatorChar + b));
 
-                var latestRevision = fileToPathMapper
-                    .Select(file => file.Key.Split(Constants.VersionSeparator)[1])
-                    .Select(revisionString => DateTime.FromBinary(Convert.ToInt64(revisionString)))
-                    .OrderByDescending(revision => revision)
-                    .First()
-                    .ToBinary()
-                    .ToString(CultureInfo.InvariantCulture);
+                // Only a main header carries a parseable Int64 version stamp after the separator. Any
+                // other file the glob caught (a subgraph manifest, an in-progress temp file, ...) is
+                // skipped rather than crashing the scan on Convert.ToInt64. The stamp is now a
+                // UTC-based, monotonic Int64 in ToBinary() form (finding C8), which still orders and
+                // parses exactly as before, so ordering by DateTime.FromBinary keeps picking the newest.
+                var latestByStamp = fileToPathMapper
+                    .Select(entry =>
+                    {
+                        var parts = entry.Key.Split(Constants.VersionSeparator);
+                        long stamp = 0;
+                        var parsed = parts.Length > 1 &&
+                            long.TryParse(parts[parts.Length - 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out stamp);
+                        return new { entry.Value, Stamp = parsed ? (long?)stamp : null };
+                    })
+                    .Where(_ => _.Stamp.HasValue)
+                    .OrderByDescending(_ => DateTime.FromBinary(_.Stamp.Value))
+                    .FirstOrDefault();
 
-                _logger.LogInformation(String.Format("The latest revivision is from {0}", DateTime.FromBinary(Convert.ToInt64(latestRevision))));
-
-                return fileToPathMapper.First(_ => _.Key.Contains(latestRevision)).Value;
+                if (latestByStamp != null)
+                {
+                    _logger.LogInformation(String.Format("The latest revision is from {0}", DateTime.FromBinary(latestByStamp.Stamp.Value)));
+                    return latestByStamp.Value;
+                }
             }
 
             var lookupPath = System.IO.Path.Combine(currentAssemblyDirectoryName, _saveFile);

@@ -24,12 +24,14 @@
 // SOFTWARE.
 
 using System;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
@@ -86,76 +88,176 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             _logger.LogInformation(String.Format("Now loading file \"{0}\" from path \"{1}\"", fileName, pathName));
 
-            using (var file = File.Open(pathToSavePoint, FileMode.Open, FileAccess.Read))
+            // 1) Magic + version gate FIRST, reading only the 12-byte preamble: a pre-existing/
+            //    unversioned, foreign, or unknown-version file (of ANY size) is cleanly REJECTED here,
+            //    before the file is ever read into memory - so a large garbage file cannot drive a
+            //    huge allocation (findings C4/C5). A file that carries our magic + a known version is
+            //    our own header and is small (id-space size + the sidecar completion manifest), so it
+            //    is then read whole to validate the trailing self-CRC and parse the manifest, which
+            //    also avoids the per-read FileStream.Position cost the SerializationReader warns about.
+            byte[] headerBytes;
+            using (var file = new FileStream(pathToSavePoint, FileMode.Open, FileAccess.Read, FileShare.Read,
+                       Constants.BufferSize, FileOptions.SequentialScan))
             {
-                var reader = new SerializationReader(file);
-                var currentGuId = reader.ReadGuid();
-                fallen8.SetId(currentGuId);
+                PersistenceFormat.ReadAndValidatePreamble(file, fileName);
 
-                currentId = reader.ReadInt32();
-
-                AGraphElementModel[] graphElementArray = new AGraphElementModel[currentId];
-
-                #region graph elements
-
-                //initialize the list of graph elements
-                var graphElementStreams = new List<String>();
-                var numberOfGraphElemementStreams = reader.ReadInt32();
-                for (var i = 0; i < numberOfGraphElemementStreams; i++)
+                if (file.Length < PersistenceFormat.PreambleLength + PersistenceFormat.TrailerLength ||
+                    file.Length > Int32.MaxValue)
                 {
-                    var graphElementBunchFilename = Path.Combine(pathName, reader.ReadString());
-                    _logger.LogInformation(String.Format("Found graph element bunch {0} here: \"{1}\"", i, graphElementBunchFilename));
-
-                    graphElementStreams.Add(graphElementBunchFilename);
+                    throw new InvalidDataException(String.Format(
+                        "The save file \"{0}\" has an implausible header length ({1} bytes); it is corrupt.", fileName, file.Length));
                 }
 
-                LoadGraphElements(graphElementArray, graphElementStreams);
-
-                // Publish the loaded elements into the master store BEFORE indices/services are
-                // rehydrated below: their deserialization resolves element ids through
-                // fallen8.TryGetGraphElement against the published store.
-                fallen8.PublishLoadedGraphElements(graphElementArray);
-
-                #endregion
-
-                #region indexe
-
-                var indexStreams = new List<String>();
-                var numberOfIndexStreams = reader.ReadInt32();
-                for (var i = 0; i < numberOfIndexStreams; i++)
-                {
-                    var indexFilename = Path.Combine(pathName, reader.ReadString());
-                    _logger.LogInformation(String.Format("Found index number {0} here: \"{1}\"", i, indexFilename));
-
-                    indexStreams.Add(indexFilename);
-                }
-                var indexLogger = ((Fallen8)fallen8).CreateLogger<IndexFactory>();
-                var newIndexFactory = new IndexFactory(fallen8, indexLogger);
-                LoadIndices(fallen8, newIndexFactory, indexStreams);
-                fallen8.IndexFactory = newIndexFactory;
-
-                #endregion
-
-                #region services
-
-                var serviceStreams = new List<String>();
-                var numberOfServiceStreams = reader.ReadInt32();
-                for (var i = 0; i < numberOfServiceStreams; i++)
-                {
-                    var serviceFilename = Path.Combine(pathName, reader.ReadString());
-                    _logger.LogInformation(String.Format("Found service number {0} here: \"{1}\"", i, serviceFilename));
-
-                    serviceStreams.Add(serviceFilename);
-                }
-                var serviceLogger = ((Fallen8)fallen8).CreateLogger<ServiceFactory>();
-                var newServiceFactory = new ServiceFactory(fallen8, serviceLogger);
-                fallen8.ServiceFactory = newServiceFactory;
-                LoadServices(fallen8, newServiceFactory, serviceStreams, startServices);
-
-                #endregion
-
-                return true;
+                file.Position = 0;
+                headerBytes = new byte[file.Length];
+                file.ReadExactly(headerBytes, 0, headerBytes.Length);
             }
+
+            // 2) Whole-file integrity: the trailing CRC-32 covers the preamble + header region.
+            var contentLength = headerBytes.Length - PersistenceFormat.TrailerLength;
+            var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(headerBytes.AsSpan(contentLength));
+            var actualCrc = Crc32.Compute(headerBytes, 0, contentLength);
+            if (actualCrc != expectedCrc)
+            {
+                throw new InvalidDataException(String.Format(
+                    "The save file \"{0}\" failed its integrity check (header CRC mismatch); it is corrupt.", fileName));
+            }
+
+            // 3) Parse the header region (the slice between the preamble and the trailing CRC).
+            Guid currentGuId;
+            int idSpaceSize;
+            List<SidecarManifestEntry> bunchManifest;
+            List<SidecarManifestEntry> indexManifest;
+            List<SidecarManifestEntry> serviceManifest;
+            using (var region = new MemoryStream(headerBytes, PersistenceFormat.PreambleLength,
+                       contentLength - PersistenceFormat.PreambleLength, false))
+            {
+                var reader = new SerializationReader(region);
+                currentGuId = reader.ReadGuid();
+                idSpaceSize = reader.ReadInt32();
+                bunchManifest = ReadManifestList(reader);
+                indexManifest = ReadManifestList(reader);
+                serviceManifest = ReadManifestList(reader);
+            }
+
+            if (idSpaceSize < 0)
+            {
+                throw new InvalidDataException(String.Format(
+                    "The save file \"{0}\" declares a negative id-space size ({1}); it is corrupt.", fileName, idSpaceSize));
+            }
+
+            // 4) Validate the completion manifest before trusting the save (finding C2). Graph-element
+            //    bunches are MANDATORY: a missing/truncated/corrupt bunch, or one referencing a sidecar
+            //    that a crash mid-save never finished, is fatal. Index and service sidecars are
+            //    best-effort (an unreadable one is skipped, matching the existing per-sidecar
+            //    resilience for a throwing index/service) so one bad index cannot brick the load.
+            foreach (var entry in bunchManifest)
+            {
+                PersistenceFormat.ValidateSidecar(Path.Combine(pathName, entry.FileName), entry);
+            }
+            var indexStreams = ValidateOptionalSidecars(pathName, indexManifest, "index");
+            var serviceStreams = ValidateOptionalSidecars(pathName, serviceManifest, "service");
+
+            // 5) Rehydrate. The ordering is preserved from before: build the dense, id-ordered element
+            //    array, publish it into the segmented master store, THEN rehydrate indices and services
+            //    (which resolve element ids through fallen8.TryGetGraphElement against that store).
+            fallen8.SetId(currentGuId);
+            currentId = idSpaceSize;
+
+            #region graph elements
+
+            // Build the dense, id-ordered element array and publish it into the segmented master
+            // store. This is scoped to its own method so the dense source array (idSpaceSize element
+            // references) is released as soon as it has been copied into the store (finding P5) -
+            // i.e. BEFORE the indices and services rehydrate below - rather than being pinned alive
+            // alongside the new store for the whole load.
+            LoadAndPublishGraphElements(fallen8, bunchManifest, pathName, idSpaceSize);
+
+            #endregion
+
+            #region indexe
+
+            var indexLogger = ((Fallen8)fallen8).CreateLogger<IndexFactory>();
+            var newIndexFactory = new IndexFactory(fallen8, indexLogger);
+            LoadIndices(fallen8, newIndexFactory, indexStreams);
+            fallen8.IndexFactory = newIndexFactory;
+
+            #endregion
+
+            #region services
+
+            var serviceLogger = ((Fallen8)fallen8).CreateLogger<ServiceFactory>();
+            var newServiceFactory = new ServiceFactory(fallen8, serviceLogger);
+            fallen8.ServiceFactory = newServiceFactory;
+            LoadServices(fallen8, newServiceFactory, serviceStreams, startServices);
+
+            #endregion
+
+            return true;
+        }
+
+        /// <summary>
+        /// Reads one length-prefixed list of <see cref="SidecarManifestEntry"/> (file name, byte
+        /// size and CRC-32) from the header. The count and each name are already bounded by the
+        /// header's own validated length and the reader's per-prefix guards (finding C5).
+        /// </summary>
+        private static List<SidecarManifestEntry> ReadManifestList(SerializationReader reader)
+        {
+            var count = reader.ReadInt32();
+            if (count < 0)
+            {
+                throw new InvalidDataException(String.Format("A checkpoint manifest declared a negative entry count ({0}); the header is corrupt.", count));
+            }
+
+            var list = new List<SidecarManifestEntry>(count);
+            for (var i = 0; i < count; i++)
+            {
+                var name = reader.ReadString();
+                var size = reader.ReadInt64();
+                var crc = reader.ReadUInt32();
+                list.Add(new SidecarManifestEntry(name, size, crc));
+            }
+
+            return list;
+        }
+
+        /// <summary>
+        /// Writes one length-prefixed list of <see cref="SidecarManifestEntry"/> to the header.
+        /// </summary>
+        private static void WriteManifestList(SerializationWriter writer, List<SidecarManifestEntry> entries)
+        {
+            writer.Write(entries.Count);
+            foreach (var entry in entries)
+            {
+                writer.Write(entry.FileName);
+                writer.Write(entry.Size);
+                writer.Write(entry.Crc);
+            }
+        }
+
+        /// <summary>
+        /// Validates best-effort sidecars (indices, services). Each entry is checked for presence,
+        /// size, preamble and CRC; a failing one is logged and SKIPPED (dropped from the returned
+        /// load list) rather than aborting the whole load - the same resilience the load path already
+        /// gives a throwing index/service. Returns the full paths of the sidecars that passed.
+        /// </summary>
+        private List<String> ValidateOptionalSidecars(string pathName, List<SidecarManifestEntry> manifest, string kind)
+        {
+            var valid = new List<String>(manifest.Count);
+            foreach (var entry in manifest)
+            {
+                var fullPath = Path.Combine(pathName, entry.FileName);
+                try
+                {
+                    PersistenceFormat.ValidateSidecar(fullPath, entry);
+                    valid.Add(fullPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, String.Format("The {0} sidecar \"{1}\" failed its integrity check and will be skipped.", kind, entry.FileName));
+                }
+            }
+            return valid;
         }
 
         /// <summary>
@@ -167,127 +269,230 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <returns>The path of the savegame</returns>
         internal string Save(IFallen8 fallen8, String path, int savePartitions)
         {
-            // Create the new, empty data file.
+            // A new save never overwrites an existing one: it gets a unique, monotonically increasing,
+            // UTC-based version suffix (finding C8 - replacing DateTime.Now, which is local,
+            // DST-sensitive and collides within a tick). The loop additionally guards the
+            // astronomically unlikely case of the versioned name already existing on disk.
             if (File.Exists(path))
             {
-                //the newer save gets an timestamp
-                path = path + Constants.VersionSeparator + DateTime.Now.ToBinary().ToString(CultureInfo.InvariantCulture);
+                string candidate;
+                do
+                {
+                    candidate = path + Constants.VersionSeparator + NextVersionStamp();
+                }
+                while (File.Exists(candidate));
+                path = candidate;
             }
 
-            using (var file = File.Create(path, Constants.BufferSize, FileOptions.SequentialScan))
+            var graphElements = fallen8.GetAllGraphElements();
+
+            // C1: size the loaded id-space to cover the HIGHEST surviving id, not the live COUNT.
+            // Removal without a Trim leaves id gaps, so an element can survive with Id >= liveCount;
+            // sizing the loaded array by the count then made Load's `graphElements[id] = ...` throw.
+            // max(Id)+1 (0 when empty) always covers every surviving id.
+            var idSpaceSize = graphElements.Count == 0 ? 0 : graphElements.Max(ge => ge.Id) + 1;
+
+            // Fan the save out across POOLED tasks (finding P6). The previous design used
+            // LongRunning tasks, which dedicate a brand-new thread to each - wasteful for what are
+            // short, CPU-bound serialization jobs; Task.Run queues onto the thread pool instead.
+            // This thread (the single transaction writer, inside the save transaction) blocks on the
+            // results below, so the whole save still completes - all bytes durably committed - before
+            // the transaction returns. Single-writer and the blocking-but-correct save semantics are
+            // therefore preserved (the file writing is NOT moved off the worker; see the P3 deferral
+            // note in features/persistence-hardening/plan.md).
+
+            #region graph elements
+
+            Task<SidecarManifestEntry>[] graphElementSaver;
+
+            if (graphElements.Count > 0)
             {
-                var writer = new SerializationWriter(file, true);
+                // Right-size the partition count to the work AND the hardware (finding P6):
+                // min(cores, ceil(count / targetChunk)), never above the caller's request. This
+                // removes both degeneracies of the old fixed count - a tiny graph is no longer split
+                // one-file-per-element, and a large graph is no longer pinned to a small fixed count.
+                var partitionCount = ComputePartitionCount(graphElements.Count, savePartitions);
+                var graphElementPartitions = CreatePartitions(graphElements.Count, partitionCount);
+                graphElementSaver = new Task<SidecarManifestEntry>[graphElementPartitions.Count];
+
+                for (var i = 0; i < graphElementPartitions.Count; i++)
+                {
+                    var partition = graphElementPartitions[i];
+                    graphElementSaver[i] = Task.Run(() => SaveBunch(partition, graphElements, path));
+                }
+            }
+            else
+            {
+                graphElementSaver = Array.Empty<Task<SidecarManifestEntry>>();
+            }
+
+            #endregion
+
+            #region indices
+
+            var indexSaver = new Task<SidecarManifestEntry?>[fallen8.IndexFactory.Indices.Count];
+
+            var counter = 0;
+            foreach (var aIndex in fallen8.IndexFactory.Indices)
+            {
+                var indexName = aIndex.Key;
+                var index = aIndex.Value;
+
+                indexSaver[counter] = Task.Run(() => SaveIndex(indexName, index, path));
+                counter++;
+            }
+
+            #endregion
+
+            #region services
+
+            var serviceSaver = new Task<SidecarManifestEntry?>[fallen8.ServiceFactory.Services.Count];
+
+            counter = 0;
+            foreach (var aService in fallen8.ServiceFactory.Services)
+            {
+                var serviceName = aService.Key;
+                var service = aService.Value;
+
+                serviceSaver[counter] = Task.Run(() => SaveService(serviceName, service, path));
+                counter++;
+            }
+
+            #endregion
+
+            // Collect the sidecar results. Reading .Result rethrows a graph-element BUNCH failure here,
+            // BEFORE any header is committed, so a failed bunch save never leaves a loadable header:
+            // graph-element bunches stay MANDATORY. Index and service sidecars are best-effort -
+            // SaveIndex/SaveService catch, log and return null on failure, and the null entries are
+            // dropped from the manifest below - so one bad index or service can't block checkpointing.
+            var bunchEntries = new List<SidecarManifestEntry>(graphElementSaver.Length);
+            foreach (var saver in graphElementSaver)
+            {
+                bunchEntries.Add(saver.Result);
+            }
+
+            // Only reference the indices that persisted successfully: SaveIndex returns null for any
+            // index that failed to serialize, so one bad index does not abort the whole checkpoint
+            // (nor leave a dangling manifest entry pointing at a broken file).
+            var indexEntries = new List<SidecarManifestEntry>();
+            foreach (var saver in indexSaver)
+            {
+                var entry = saver.Result;
+                if (entry.HasValue)
+                {
+                    indexEntries.Add(entry.Value);
+                }
+            }
+
+            // Only reference the services that persisted successfully: SaveService returns null for any
+            // service that failed to serialize, so one bad service does not abort the whole checkpoint
+            // (nor leave a dangling manifest entry pointing at a broken file).
+            var serviceEntries = new List<SidecarManifestEntry>(serviceSaver.Length);
+            foreach (var saver in serviceSaver)
+            {
+                var entry = saver.Result;
+                if (entry.HasValue)
+                {
+                    serviceEntries.Add(entry.Value);
+                }
+            }
+
+            // Build the header + completion manifest in memory, protect the whole thing with a
+            // trailing CRC-32, and publish it LAST via a temp file + fsync + atomic rename (findings
+            // C2/C4). The renamed header is the single commit point: a crash before the rename leaves
+            // only throwaway temp files (and possibly orphan sidecars under a fresh, never-referenced
+            // version suffix), never a header that Load would accept; and the manifest lets Load
+            // verify every mandatory sidecar is present and intact before it trusts the save.
+            byte[] headerBytes;
+            using (var mem = new MemoryStream())
+            {
+                PersistenceFormat.WritePreamble(mem);
+
+                var writer = new SerializationWriter(mem, true);
                 writer.Write(fallen8.Id);
-
-                var graphElements = fallen8.GetAllGraphElements();
-
-                writer.Write(graphElements.Count);
-
-                //create some futures to save as much as possible in parallel
-                const TaskCreationOptions options = TaskCreationOptions.LongRunning;
-                var f = new TaskFactory(CancellationToken.None, options, TaskContinuationOptions.None,
-                                        TaskScheduler.Default);
-                #region graph elements
-
-                Task<string>[] graphElementSaver;
-
-                if (graphElements.Count > 0)
-                {
-                    var graphElementPartitions = CreatePartitions(graphElements.Count, savePartitions);
-                    graphElementSaver = new Task<string>[graphElementPartitions.Count];
-
-                    for (var i = 0; i < graphElementPartitions.Count; i++)
-                    {
-                        var partition = graphElementPartitions[i];
-                        graphElementSaver[i] = f.StartNew(() => SaveBunch(partition, graphElements, path));
-                    }
-                }
-                else
-                {
-                    graphElementSaver = new Task<string>[0];
-                }
-
-                #endregion
-
-                #region indices
-
-                var indexSaver = new Task<string>[fallen8.IndexFactory.Indices.Count];
-
-                var counter = 0;
-                foreach (var aIndex in fallen8.IndexFactory.Indices)
-                {
-                    var indexName = aIndex.Key;
-                    var index = aIndex.Value;
-
-                    indexSaver[counter] = f.StartNew(() => SaveIndex(indexName, index, path));
-                    counter++;
-                }
-
-                #endregion
-
-                #region services
-
-                var serviceSaver = new Task<string>[fallen8.ServiceFactory.Services.Count];
-
-                counter = 0;
-                foreach (var aService in fallen8.ServiceFactory.Services)
-                {
-                    var serviceName = aService.Key;
-                    var service = aService.Value;
-
-                    serviceSaver[counter] = f.StartNew(() => SaveService(serviceName, service, path));
-                    counter++;
-                }
-
-                #endregion
-
-                writer.Write(graphElementSaver.Length);
-                foreach (var aFileStreamName in graphElementSaver)
-                {
-                    writer.Write(aFileStreamName.Result);
-                }
-
-                // Only reference the indices that persisted successfully: SaveIndex returns null
-                // for any index that failed to serialize, so one bad index does not abort the
-                // whole checkpoint (nor leave a dangling manifest entry pointing at a broken file).
-                var savedIndexFileNames = new List<String>();
-                foreach (var aIndexFileName in indexSaver)
-                {
-                    var savedIndexFileName = aIndexFileName.Result;
-                    if (savedIndexFileName != null)
-                    {
-                        savedIndexFileNames.Add(savedIndexFileName);
-                    }
-                }
-
-                writer.Write(savedIndexFileNames.Count);
-                foreach (var aIndexFileName in savedIndexFileNames)
-                {
-                    writer.Write(aIndexFileName);
-                }
-
-                writer.Write(serviceSaver.Length);
-                foreach (var aServiceFileName in serviceSaver)
-                {
-                    writer.Write(aServiceFileName.Result);
-                }
-
+                writer.Write(idSpaceSize);
+                WriteManifestList(writer, bunchEntries);
+                WriteManifestList(writer, indexEntries);
+                WriteManifestList(writer, serviceEntries);
                 writer.UpdateHeader();
                 writer.Flush();
-                file.Flush();
+
+                var contentLength = (int)mem.Length;
+                var crc = Crc32.Compute(mem.GetBuffer(), 0, contentLength);
+                var trailer = new byte[PersistenceFormat.TrailerLength];
+                BinaryPrimitives.WriteUInt32LittleEndian(trailer, crc);
+                mem.Write(trailer, 0, trailer.Length);
+
+                headerBytes = mem.ToArray();
             }
 
-            // Subgraph recipes are written as discoverable JSON sidecar files rather than
-            // being referenced from the header stream, so the binary save format is
-            // unchanged and older save points remain readable.
+            var tempMain = TempNameFor(path);
+            WriteAllBytesDurably(tempMain, headerBytes);
+            File.Move(tempMain, path, true); // atomic commit point
+
+            // Subgraph recipes are persisted as ONE manifest next to the save point (finding C6),
+            // written atomically and read as a whole (no directory scan), so a later, smaller save
+            // can no longer leave stale recipe files behind for the loader to rehydrate.
             SaveSubGraphRecipes(fallen8, path);
 
             return path;
         }
 
         /// <summary>
-        /// Writes the recipe of every persistable subgraph to its own JSON sidecar file next
-        /// to the save point.
+        /// Produces a unique, monotonically increasing, UTC-based version stamp (finding C8). The
+        /// previous stamp was <c>DateTime.Now.ToBinary()</c>, which is local (DST-sensitive) and
+        /// collides for two saves within the same tick. The value is still a single
+        /// <see cref="Int64"/> in <c>ToBinary()</c> form so it stays orderable and parseable by the
+        /// admin "find latest savegame" logic; the interlocked bump guarantees strict monotonicity
+        /// and uniqueness even for rapid back-to-back saves.
+        /// </summary>
+        private static string NextVersionStamp()
+        {
+            var stamp = DateTime.UtcNow.ToBinary();
+            long previous, next;
+            do
+            {
+                previous = Interlocked.Read(ref _lastVersionStamp);
+                next = Math.Max(stamp, previous + 1);
+            }
+            while (Interlocked.CompareExchange(ref _lastVersionStamp, next, previous) != previous);
+
+            return next.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Monotonic guard for <see cref="NextVersionStamp"/>.</summary>
+        private static long _lastVersionStamp;
+
+        /// <summary>
+        /// The temporary name a checkpoint file is written under before it is fsync'd and atomically
+        /// renamed into place (finding C2). The GUID makes it unique per attempt, so a crashed prior
+        /// save's leftover temp can never be confused with this one's.
+        /// </summary>
+        private static string TempNameFor(string finalPath)
+        {
+            return finalPath + Constants.TempSaveSuffix + "." + Guid.NewGuid().ToString("N");
+        }
+
+        /// <summary>
+        /// Writes bytes to a file and fsyncs them to disk before returning, so a subsequent atomic
+        /// rename cannot expose a file whose contents are still only in the OS write cache.
+        /// </summary>
+        private static void WriteAllBytesDurably(string path, byte[] bytes)
+        {
+            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None,
+                       Constants.BufferSize, FileOptions.SequentialScan))
+            {
+                fs.Write(bytes, 0, bytes.Length);
+                fs.Flush(true);
+            }
+        }
+
+        /// <summary>
+        /// Persists every persistable subgraph recipe into ONE versioned manifest next to the save
+        /// point (finding C6), written atomically (temp + fsync + rename). This replaces the former
+        /// per-recipe <c>_subgraph_N</c> files whose 0-based counter, combined with a directory-scan
+        /// load, let a later save with fewer recipes leave stale, higher-numbered files behind for
+        /// the loader to rehydrate. Rewriting the single manifest wholesale makes that impossible.
         /// </summary>
         private void SaveSubGraphRecipes(IFallen8 fallen8, string path)
         {
@@ -296,54 +501,100 @@ namespace NoSQL.GraphDB.Core.Persistency
                 return;
             }
 
-            var counter = 0;
-            foreach (var recipe in fallen8.SubGraphFactory.GetPersistableRecipes())
+            var recipes = fallen8.SubGraphFactory.GetPersistableRecipes()?.Where(r => r != null).ToList()
+                          ?? new List<SubGraphRecipe>();
+            var manifestPath = path + Constants.SubGraphManifestString;
+
+            if (recipes.Count == 0)
             {
-                var recipeFileName = path + Constants.SubGraphSaveString + counter;
-                try
-                {
-                    File.WriteAllText(recipeFileName, JsonSerializer.Serialize(recipe, CoreJsonContext.Default.SubGraphRecipe));
-                    counter++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, String.Format("Could not persist recipe for subgraph \"{0}\": {1}", recipe.Name, ex.Message));
-                }
+                // Nothing to persist: make sure no stale manifest lingers at this path.
+                TryDeleteFile(manifestPath);
+                return;
+            }
+
+            var manifest = new SubGraphRecipeManifest
+            {
+                FormatVersion = PersistenceFormat.FormatVersion,
+                Recipes = recipes
+            };
+
+            var temp = TempNameFor(manifestPath);
+            try
+            {
+                var json = JsonSerializer.Serialize(manifest, CoreJsonContext.Default.SubGraphRecipeManifest);
+                WriteAllBytesDurably(temp, Encoding.UTF8.GetBytes(json));
+                File.Move(temp, manifestPath, true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, String.Format("Could not persist the subgraph recipe manifest \"{0}\": {1}", manifestPath, ex.Message));
+                TryDeleteFile(temp);
             }
         }
 
         /// <summary>
-        /// Reads all subgraph recipe sidecar files that sit next to the given save point.
+        /// Reads the single subgraph recipe manifest that sits next to the given save point (finding
+        /// C6). No directory scan is performed, so stale recipe files from an earlier save can never
+        /// be rehydrated. A missing manifest means "no subgraphs"; an unknown manifest version or a
+        /// read error is logged and treated as no subgraphs (recipes are auxiliary - as when no
+        /// recipe compiler is registered - and must never fail the whole load).
         /// </summary>
         internal List<SubGraphRecipe> LoadSubGraphRecipes(string pathToSavePoint)
         {
             var result = new List<SubGraphRecipe>();
+            var manifestPath = pathToSavePoint + Constants.SubGraphManifestString;
 
-            var directory = Path.GetDirectoryName(pathToSavePoint);
-            var prefix = Path.GetFileName(pathToSavePoint) + Constants.SubGraphSaveString;
-
-            if (String.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+            if (!File.Exists(manifestPath))
             {
                 return result;
             }
 
-            foreach (var recipeFile in Directory.EnumerateFiles(directory, prefix + "*"))
+            try
             {
-                try
+                var json = File.ReadAllText(manifestPath, Encoding.UTF8);
+                var manifest = JsonSerializer.Deserialize(json, CoreJsonContext.Default.SubGraphRecipeManifest);
+                if (manifest == null)
                 {
-                    var recipe = JsonSerializer.Deserialize(File.ReadAllText(recipeFile), CoreJsonContext.Default.SubGraphRecipe);
-                    if (recipe != null)
-                    {
-                        result.Add(recipe);
-                    }
+                    return result;
                 }
-                catch (Exception ex)
+
+                if (manifest.FormatVersion != PersistenceFormat.FormatVersion)
                 {
-                    _logger.LogError(ex, String.Format("Could not read subgraph recipe file \"{0}\": {1}", recipeFile, ex.Message));
+                    _logger.LogError(String.Format("The subgraph recipe manifest \"{0}\" has unsupported version {1} (expected {2}); its subgraphs will not be rehydrated.",
+                        manifestPath, manifest.FormatVersion, PersistenceFormat.FormatVersion));
+                    return result;
                 }
+
+                if (manifest.Recipes != null)
+                {
+                    result.AddRange(manifest.Recipes.Where(r => r != null));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, String.Format("Could not read the subgraph recipe manifest \"{0}\": {1}", manifestPath, ex.Message));
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Best-effort delete of a temporary or stale file. A cleanup failure must never mask or
+        /// escalate the operation that triggered it.
+        /// </summary>
+        private void TryDeleteFile(string file)
+        {
+            try
+            {
+                if (File.Exists(file))
+                {
+                    File.Delete(file);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, String.Format("Could not delete the file \"{0}\".", file));
+            }
         }
 
         #endregion
@@ -372,68 +623,78 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='indexName'> Index name. </param>
         /// <param name='index'> Index. </param>
         /// <param name='path'> Path. </param>
-        private String SaveIndex(string indexName, IIndex index, string path)
+        private SidecarManifestEntry? SaveIndex(string indexName, IIndex index, string path)
         {
+            // C9: an index that declares itself non-persistable (CanPersist == false) is skipped
+            // SILENTLY, before any file is created. This replaces the former implicit signal - catching
+            // a NotSupportedException thrown from Save - used to tell "not yet persistable" apart from a
+            // real failure. The capability is now explicit, so Error-level logging (and partial-file
+            // cleanup, which WriteSidecar already handles) is reserved for a GENUINE, unexpected
+            // serialization failure of an index that claims it CAN persist. With the R-Tree now fully
+            // serializable, every built-in index returns CanPersist == true.
+            if (!index.CanPersist)
+            {
+                _logger.LogInformation(String.Format("Index \"{0}\" ({1}) does not support persistence; it is skipped in this checkpoint.", indexName, index.PluginName));
+
+                return null;
+            }
+
             var indexFileName = path + Constants.IndexSaveString + indexName;
 
             try
             {
-                using (var indexFile = File.Create(indexFileName, Constants.BufferSize, FileOptions.SequentialScan))
+                return WriteSidecar(indexFileName, writer =>
                 {
-                    var indexWriter = new SerializationWriter(indexFile);
-
-                    indexWriter.Write(indexName);
-                    indexWriter.Write(index.PluginName);
-                    index.Save(indexWriter);
-
-                    indexWriter.UpdateHeader();
-                    indexWriter.Flush();
-                    indexFile.Flush();
-                }
-
-                return Path.GetFileName(indexFileName);
-            }
-            catch (NotSupportedException nse)
-            {
-                // Expected, not an error: some indices (e.g. the spatial R-Tree) deliberately declare
-                // themselves not-yet-persistable by throwing NotSupportedException from Save. Log it
-                // quietly and drop the index from the manifest so the checkpoint proceeds - a scary
-                // Error-level "could not persist" line on every checkpoint that holds a spatial index
-                // would be misleading.
-                _logger.LogInformation(String.Format("Index \"{0}\" is not persistable ({1}); it is skipped in this checkpoint.", indexName, nse.Message));
-
-                DeletePartialIndexFile(indexFileName);
-                return null;
+                    writer.Write(indexName);
+                    writer.Write(index.PluginName);
+                    index.Save(writer);
+                });
             }
             catch (Exception ex)
             {
-                // Defense in depth: a single index that fails to serialize for a genuine, unexpected
-                // reason must not abort the whole checkpoint. Log it loudly and skip it (the caller
-                // drops null entries from the index manifest).
+                // Defense in depth: a persistable index that nonetheless fails to serialize for a
+                // genuine, unexpected reason must not abort the whole checkpoint. Log it loudly and
+                // skip it (the caller drops null entries from the index manifest). WriteSidecar has
+                // already removed any partial temp file; the final name is only created on success.
                 _logger.LogError(ex, String.Format("Could not persist index \"{0}\"; it will be skipped in this checkpoint.", indexName));
 
-                DeletePartialIndexFile(indexFileName);
                 return null;
             }
         }
 
         /// <summary>
-        /// Removes the (now partial) index sidecar that <see cref="File.Create(string,int,FileOptions)"/>
-        /// had already created before <c>Save</c> threw, so the save directory is not littered with
-        /// orphaned, unreferenced sidecars. Best-effort only - never let cleanup mask the original failure.
+        /// Writes one checkpoint sidecar atomically (findings C2/C4): magic + version preamble, then
+        /// the caller's content, all to a unique temp file that is fsync'd and only then renamed onto
+        /// its final name; the final file therefore appears in one atomic step with fully durable
+        /// content. Returns the sidecar's manifest entry (final name + byte size + CRC-32). On any
+        /// failure the partial temp file is removed and the exception is rethrown - the final name is
+        /// never created, so a failed/skipped sidecar leaves nothing behind.
         /// </summary>
-        private void DeletePartialIndexFile(string indexFileName)
+        private SidecarManifestEntry WriteSidecar(string finalFileName, Action<SerializationWriter> writeContent)
         {
+            var temp = TempNameFor(finalFileName);
             try
             {
-                if (File.Exists(indexFileName))
+                using (var file = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None,
+                           Constants.BufferSize, FileOptions.SequentialScan))
                 {
-                    File.Delete(indexFileName);
+                    PersistenceFormat.WritePreamble(file);
+
+                    var writer = new SerializationWriter(file);
+                    writeContent(writer);
+                    writer.UpdateHeader();
+                    writer.Flush();
+                    file.Flush(true);
                 }
+
+                var crc = PersistenceFormat.ComputeFileCrc(temp, out var size);
+                File.Move(temp, finalFileName, true);
+                return new SidecarManifestEntry(Path.GetFileName(finalFileName), size, crc);
             }
-            catch (Exception cleanupEx)
+            catch
             {
-                _logger.LogWarning(cleanupEx, String.Format("Could not delete the partial index file \"{0}\" after a failed save.", indexFileName));
+                TryDeleteFile(temp);
+                throw;
             }
         }
 
@@ -444,24 +705,30 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name="service">Service.</param>
         /// <param name="path">Path.</param>
         /// <returns>The filename of the persisted service.</returns>
-        private String SaveService(string serviceName, IService service, string path)
+        private SidecarManifestEntry? SaveService(string serviceName, IService service, string path)
         {
             var serviceFileName = path + Constants.ServiceSaveString + serviceName;
 
-            using (var serviceFile = File.Create(serviceFileName, Constants.BufferSize, FileOptions.SequentialScan))
+            try
             {
-                var serviceWriter = new SerializationWriter(serviceFile);
-
-                serviceWriter.Write(serviceName);
-                serviceWriter.Write(service.PluginName);
-                service.Save(serviceWriter);
-
-                serviceWriter.UpdateHeader();
-                serviceWriter.Flush();
-                serviceFile.Flush();
+                return WriteSidecar(serviceFileName, writer =>
+                {
+                    writer.Write(serviceName);
+                    writer.Write(service.PluginName);
+                    service.Save(writer);
+                });
             }
+            catch (Exception ex)
+            {
+                // Symmetric with SaveIndex and with the LOAD side (ValidateOptionalSidecars already
+                // treats service sidecars as best-effort): a service whose Save throws must not abort
+                // the whole checkpoint. Log it loudly and skip it (the caller drops null entries from
+                // the manifest). WriteSidecar has already removed any partial temp file; the final
+                // name is only created on success, so nothing partial is left behind.
+                _logger.LogError(ex, String.Format("Could not persist service \"{0}\"; it will be skipped in this checkpoint.", serviceName));
 
-            return Path.GetFileName(serviceFileName);
+                return null;
+            }
         }
 
         /// <summary>
@@ -486,9 +753,13 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             using (var file = File.Open(graphElementBunchPath, FileMode.Open, FileAccess.Read))
             {
+                // Reject a foreign/old/wrong-version bunch and advance past the preamble bytes so the
+                // reader starts on the payload (finding C4).
+                PersistenceFormat.ReadAndValidatePreamble(file, Path.GetFileName(graphElementBunchPath));
+
                 var reader = new SerializationReader(file);
-                var minimumId = reader.ReadInt32();
-                var maximumId = reader.ReadInt32();
+                var minimumId = reader.ReadOptimizedInt32();   // P7: var-int partition boundaries
+                var maximumId = reader.ReadOptimizedInt32();
                 var countOfElements = maximumId - minimumId;
 
                 for (var i = 0; i < countOfElements; i++)
@@ -536,10 +807,19 @@ namespace NoSQL.GraphDB.Core.Persistency
 
         private void LoadServices(Fallen8 fallen8, ServiceFactory newServiceFactory, List<string> serviceStreams, Boolean startServices)
         {
-            //load the indices
+            //load the services
             for (var i = 0; i < serviceStreams.Count; i++)
             {
-                LoadAService(serviceStreams[i], fallen8, newServiceFactory, startServices);
+                try
+                {
+                    LoadAService(serviceStreams[i], fallen8, newServiceFactory, startServices);
+                }
+                catch (Exception ex)
+                {
+                    // Defense in depth (finding C5), mirroring LoadIndices: one service that fails to
+                    // deserialize must not abort loading the rest of the checkpoint.
+                    _logger.LogError(ex, String.Format("Could not load service from \"{0}\"; it will be skipped.", serviceStreams[i]));
+                }
             }
         }
 
@@ -553,6 +833,8 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             using (var file = File.Open(serviceLocaion, FileMode.Open, FileAccess.Read))
             {
+                PersistenceFormat.ReadAndValidatePreamble(file, Path.GetFileName(serviceLocaion));
+
                 var reader = new SerializationReader(file);
 
                 var indexName = reader.ReadString();
@@ -572,6 +854,8 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             using (var file = File.Open(indexLocaion, FileMode.Open, FileAccess.Read))
             {
+                PersistenceFormat.ReadAndValidatePreamble(file, Path.GetFileName(indexLocaion));
+
                 var reader = new SerializationReader(file);
 
                 var indexName = reader.ReadString();
@@ -588,17 +872,15 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='range'> Range. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='pathToSavePoint'> Path to save point basis. </param>
-        private String SaveBunch(Tuple<Int32, Int32> range, ImmutableList<AGraphElementModel> graphElements,
+        private SidecarManifestEntry SaveBunch(Tuple<Int32, Int32> range, ImmutableList<AGraphElementModel> graphElements,
                                         String pathToSavePoint)
         {
             var partitionFileName = pathToSavePoint + Constants.GraphElementsSaveString + range.Item1 + "_to_" + range.Item2;
 
-            using (var partitionFile = File.Create(partitionFileName, Constants.BufferSize, FileOptions.SequentialScan))
+            return WriteSidecar(partitionFileName, partitionWriter =>
             {
-                var partitionWriter = new SerializationWriter(partitionFile);
-
-                partitionWriter.Write(range.Item1);
-                partitionWriter.Write(range.Item2);
+                partitionWriter.WriteVarInt32(range.Item1);   // P7: partition boundaries as var-int
+                partitionWriter.WriteVarInt32(range.Item2);
 
                 for (var i = range.Item1; i < range.Item2; i++)
                 {
@@ -620,13 +902,27 @@ namespace NoSQL.GraphDB.Core.Persistency
                         WriteEdge((EdgeModel)aGraphElement, partitionWriter);
                     }
                 }
+            });
+        }
 
-                partitionWriter.UpdateHeader();
-                partitionWriter.Flush();
-                partitionFile.Flush();
-            }
-
-            return Path.GetFileName(partitionFileName);
+        /// <summary>
+        ///   Builds the dense, id-ordered graph-element array from the bunch sidecars and publishes
+        ///   it into the master store. Kept as its own method so the dense source array is out of
+        ///   scope - and therefore eligible for collection - the instant it has been copied into the
+        ///   segmented store, instead of being held alive alongside the new store while the indices
+        ///   and services rehydrate afterwards (finding P5). The publish happens BEFORE indices and
+        ///   services load because their deserialization resolves element ids through
+        ///   <see cref="Fallen8.TryGetGraphElement" /> against the published store; the load-publish
+        ///   ordering (dense array -> PublishLoadedGraphElements -> index/service rehydration) is
+        ///   therefore unchanged.
+        /// </summary>
+        private void LoadAndPublishGraphElements(Fallen8 fallen8, List<SidecarManifestEntry> bunchManifest,
+                                                 string pathName, int idSpaceSize)
+        {
+            var graphElementArray = new AGraphElementModel[idSpaceSize];
+            var graphElementStreams = bunchManifest.Select(e => Path.Combine(pathName, e.FileName)).ToList();
+            LoadGraphElements(graphElementArray, graphElementStreams);
+            fallen8.PublishLoadedGraphElements(graphElementArray);
         }
 
         /// <summary>
@@ -635,6 +931,24 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='graphElements'> Graph elements of Fallen-8. </param>
         /// <param name='graphElementStreams'> Graph element streams. </param>
         private void LoadGraphElements(AGraphElementModel[] graphElements, List<String> graphElementStreams)
+        {
+            try
+            {
+                LoadGraphElementsCore(graphElements, graphElementStreams);
+            }
+            catch (AggregateException aggregate)
+            {
+                // The parallel bunch load surfaces failures as an AggregateException (finding C5). Flatten
+                // it to a single, clear "the savegame is corrupt" error rather than letting the opaque
+                // aggregate propagate; the worker's transaction guard (C3/B6) then rolls the load back.
+                var flat = aggregate.Flatten();
+                var inner = flat.InnerException ?? flat;
+                throw new InvalidDataException(
+                    "The savegame is corrupt: a graph-element bunch could not be loaded. " + inner.Message, inner);
+            }
+        }
+
+        private void LoadGraphElementsCore(AGraphElementModel[] graphElements, List<String> graphElementStreams)
         {
             var edgeTodo = new ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>>();
             var result = new List<EdgeSneakPeak>[graphElementStreams.Count];
@@ -648,6 +962,12 @@ namespace NoSQL.GraphDB.Core.Persistency
             //Create the edges
             Parallel.ForEach(result, aEdgeSneakPeakList =>
             {
+                // A bunch whose file was absent yields a null list; never dereference it (finding C5).
+                if (aEdgeSneakPeakList == null)
+                {
+                    return;
+                }
+
                 foreach (var aSneakPeak in aEdgeSneakPeakList)
                 {
                     VertexModel sourceVertex = graphElements[aSneakPeak.SourceVertexId] as VertexModel;
@@ -706,6 +1026,38 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
+        ///   Computes how many partitions to split a graph of <paramref name="elementCount"/>
+        ///   elements into for the save (finding P6): <c>min(cores, ceil(count / targetChunk))</c>,
+        ///   clamped to at least one and never above an explicit positive <paramref name="requestedMax"/>.
+        ///   Sizing to the work removes the old fixed-count degeneracies - a tiny graph collapses to a
+        ///   single bunch (no one-file-per-element), while a large graph is split only up to the core
+        ///   count (each bunch is a CPU-bound serialization job, so more files than cores add I/O and
+        ///   manifest overhead without adding parallelism). A positive <paramref name="requestedMax"/>
+        ///   (the public <c>SaveTransaction.SavePartitions</c>) still caps the result, so an explicit
+        ///   "use N partitions" is honoured and every single-partition caller keeps exactly one bunch
+        ///   file. Returns 0 for an empty graph (no bunches are written at all).
+        /// </summary>
+        private static int ComputePartitionCount(int elementCount, int requestedMax)
+        {
+            if (elementCount <= 0)
+            {
+                return 0;
+            }
+
+            // ceil(elementCount / SaveTargetPartitionSize), computed overflow-safe (elementCount can
+            // be up to Int32.MaxValue, so elementCount + chunk - 1 could overflow).
+            var byWork = 1 + (elementCount - 1) / Constants.SaveTargetPartitionSize;
+            var count = Math.Min(byWork, Environment.ProcessorCount);
+
+            if (requestedMax > 0)
+            {
+                count = Math.Min(count, requestedMax);
+            }
+
+            return Math.Max(1, count);
+        }
+
+        /// <summary>
         ///   Creates the partitions.
         /// </summary>
         /// <returns> The partitions. </returns>
@@ -749,17 +1101,22 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='writer'> Writer. </param>
         private void WriteAGraphElement(AGraphElementModel graphElement, SerializationWriter writer)
         {
-            writer.Write(graphElement.Id);
-            writer.Write(graphElement.CreationDate);
+            writer.WriteVarInt32(graphElement.Id);          // P7: var-int over a fixed 4-byte int
+            writer.Write(graphElement.CreationDate);         // date stays fixed 4 bytes (often > var-int window)
             writer.Write(graphElement.ModificationDate);
-            writer.WriteOptimized(graphElement.Label);
+            writer.WriteOptimized(graphElement.Label);       // tokenized
 
-            var properties = graphElement.GetAllProperties();
-            writer.WriteOptimized(properties.Count);
-            foreach (var aProperty in properties)
+            // N1: emit the raw, key-sorted compact property store directly instead of materialising a
+            // throwaway ImmutableDictionary per element via GetAllProperties(). This changes the stored
+            // property byte order to ordinal key order; the loader rebuilds and re-sorts the store, so
+            // it round-trips regardless of order. String VALUES are tokenized inside WriteObject (P2/M5).
+            var store = graphElement.GetPropertyStoreForSerialization();
+            var propertyCount = store == null ? 0 : store.Length;
+            writer.WriteVarInt32(propertyCount);
+            for (var i = 0; i < propertyCount; i++)
             {
-                writer.WriteOptimized(aProperty.Key);
-                writer.WriteObject(aProperty.Value);
+                writer.WriteOptimized(store[i].Key);         // tokenized
+                writer.WriteObject(store[i].Value);
             }
         }
 
@@ -772,14 +1129,14 @@ namespace NoSQL.GraphDB.Core.Persistency
         private void LoadVertex(SerializationReader reader, AGraphElementModel[] graphElements,
                                        ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>> edgeTodo)
         {
-            var id = reader.ReadInt32();
+            var id = reader.ReadOptimizedInt32();              // P7: var-int id
             var creationDate = reader.ReadUInt32();
             var modificationDate = reader.ReadUInt32();
             var label = reader.ReadOptimizedString();
 
             #region properties
 
-            var propertyCount = reader.ReadOptimizedInt32();
+            var propertyCount = reader.ReadOptimizedInt32Checked("vertex properties");   // P7/C5: guarded var-int count
             Dictionary<String, Object> properties = null;
 
             if (propertyCount > 0)
@@ -801,7 +1158,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             #region outgoing edges
 
             Dictionary<String, List<EdgeModel>> outEdgeProperties = null;
-            var outEdgeCount = reader.ReadInt32();
+            var outEdgeCount = reader.ReadOptimizedInt32Checked("vertex outgoing-edge groups");
 
             if (outEdgeCount > 0)
             {
@@ -809,11 +1166,11 @@ namespace NoSQL.GraphDB.Core.Persistency
                 for (var i = 0; i < outEdgeCount; i++)
                 {
                     var outEdgePropertyId = reader.ReadOptimizedString();
-                    var outEdgePropertyCount = reader.ReadInt32();
+                    var outEdgePropertyCount = reader.ReadOptimizedInt32Checked("vertex outgoing edges");
                     var outEdges = new List<EdgeModel>(outEdgePropertyCount);
                     for (var j = 0; j < outEdgePropertyCount; j++)
                     {
-                        var edgeId = reader.ReadInt32();
+                        var edgeId = reader.ReadOptimizedInt32();
 
 
                         EdgeModel edge = graphElements[edgeId] as EdgeModel;
@@ -848,7 +1205,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             #region incoming edges
 
             Dictionary<String, List<EdgeModel>> incEdgeProperties = null;
-            var incEdgeCount = reader.ReadInt32();
+            var incEdgeCount = reader.ReadOptimizedInt32Checked("vertex incoming-edge groups");
 
             if (incEdgeCount > 0)
             {
@@ -856,11 +1213,11 @@ namespace NoSQL.GraphDB.Core.Persistency
                 for (var i = 0; i < incEdgeCount; i++)
                 {
                     var incEdgePropertyId = reader.ReadOptimizedString();
-                    var incEdgePropertyCount = reader.ReadInt32();
+                    var incEdgePropertyCount = reader.ReadOptimizedInt32Checked("vertex incoming edges");
                     var incEdges = new List<EdgeModel>(incEdgePropertyCount);
                     for (var j = 0; j < incEdgePropertyCount; j++)
                     {
-                        var edgeId = reader.ReadInt32();
+                        var edgeId = reader.ReadOptimizedInt32();
 
 
                         EdgeModel edge = graphElements[edgeId] as EdgeModel;
@@ -910,21 +1267,24 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #region edges
 
+            // P7: edge-group counts, per-group counts and edge ids as var-int (was fixed 4-byte int);
+            // edge-property keys stay tokenized. WriteVarInt32 handles the full Int32 range, so a
+            // legitimately huge count/id never faults (unlike the guarded WriteOptimized(int)).
             var outgoingEdges = vertex.OutEdges;
             if (outgoingEdges == null)
             {
-                writer.Write(0);
+                writer.WriteVarInt32(0);
             }
             else
             {
-                writer.Write(outgoingEdges.Count);
+                writer.WriteVarInt32(outgoingEdges.Count);
                 foreach (var aOutEdgeProperty in outgoingEdges)
                 {
                     writer.WriteOptimized(aOutEdgeProperty.Key);
-                    writer.Write(aOutEdgeProperty.Value.Count);
+                    writer.WriteVarInt32(aOutEdgeProperty.Value.Count);
                     foreach (var aOutEdge in aOutEdgeProperty.Value)
                     {
-                        writer.Write(aOutEdge.Id);
+                        writer.WriteVarInt32(aOutEdge.Id);
                     }
                 }
             }
@@ -932,18 +1292,18 @@ namespace NoSQL.GraphDB.Core.Persistency
             var incomingEdges = vertex.InEdges;
             if (incomingEdges == null)
             {
-                writer.Write(0);
+                writer.WriteVarInt32(0);
             }
             else
             {
-                writer.Write(incomingEdges.Count);
+                writer.WriteVarInt32(incomingEdges.Count);
                 foreach (var aIncEdgeProperty in incomingEdges)
                 {
                     writer.WriteOptimized(aIncEdgeProperty.Key);
-                    writer.Write(aIncEdgeProperty.Value.Count);
+                    writer.WriteVarInt32(aIncEdgeProperty.Value.Count);
                     foreach (var aIncEdge in aIncEdgeProperty.Value)
                     {
-                        writer.Write(aIncEdge.Id);
+                        writer.WriteVarInt32(aIncEdge.Id);
                     }
                 }
             }
@@ -960,7 +1320,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         private void LoadEdge(SerializationReader reader, AGraphElementModel[] graphElements,
                                      ref List<EdgeSneakPeak> sneakPeaks)
         {
-            var id = reader.ReadInt32();
+            var id = reader.ReadOptimizedInt32();              // P7: var-int id
             var creationDate = reader.ReadUInt32();
             var modificationDate = reader.ReadUInt32();
             var label = reader.ReadOptimizedString();
@@ -968,7 +1328,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             #region properties
 
             Dictionary<String, Object> properties = null;
-            var propertyCount = reader.ReadOptimizedInt32();
+            var propertyCount = reader.ReadOptimizedInt32Checked("edge properties");   // P7/C5: guarded var-int count
 
             if (propertyCount > 0)
             {
@@ -984,10 +1344,10 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #endregion
 
-            var edgePropertyId = reader.ReadString();
+            var edgePropertyId = reader.ReadOptimizedString();   // P2/M5: tokenized (was untokenized UTF-32)
 
-            var sourceVertexId = reader.ReadInt32();
-            var targetVertexId = reader.ReadInt32();
+            var sourceVertexId = reader.ReadOptimizedInt32();    // P7: var-int ids
+            var targetVertexId = reader.ReadOptimizedInt32();
 
             VertexModel sourceVertex = graphElements[sourceVertexId] as VertexModel;
             VertexModel targetVertex = graphElements[targetVertexId] as VertexModel;
@@ -1021,9 +1381,12 @@ namespace NoSQL.GraphDB.Core.Persistency
         {
             writer.Write(SerializedEdge);
             WriteAGraphElement(edge, writer);
-            writer.Write(edge.EdgePropertyId);
-            writer.Write(edge.SourceVertex.Id);
-            writer.Write(edge.TargetVertex.Id);
+            // P2/M5: EdgePropertyId is tokenized (was an untokenized UTF-32 copy per edge), so N edges
+            // that share a property id - or share it with the vertices' edge-property keys already
+            // tokenized in this bunch - store it once and reference a 1-4 byte token thereafter.
+            writer.WriteOptimized(edge.EdgePropertyId);
+            writer.WriteVarInt32(edge.SourceVertex.Id);      // P7
+            writer.WriteVarInt32(edge.TargetVertex.Id);
         }
 
         #endregion

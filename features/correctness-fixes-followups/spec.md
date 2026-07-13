@@ -36,6 +36,12 @@ behaviour untouched, and one rollback branch remained untested.
   The same per-index guards make any single throwing index skipped, not fatal (defense in depth for
   any future index), and `SaveIndex` now deletes the partial sidecar it had already created before
   the failure.
+  > **Superseded (persistence-hardening Stage B / C9):** the R-Tree is now **fully serialized** and
+  > **survives** a checkpoint (it reloads as a functional, queryable index — no recreation needed),
+  > and the `NotSupportedException` signal is replaced by an explicit `IIndex.CanPersist` flag. The
+  > per-index guards still apply to a genuinely failing index. See
+  > [../persistence-hardening/](../persistence-hardening/) (C9). The "absent after load" behaviour
+  > below describes only the interim B7 state.
 
 ## 3. Acceptance criteria
 
@@ -46,6 +52,9 @@ behaviour untouched, and one rollback branch remained untested.
   load (not persisted) and can be recreated, after which a spatial add/query works (documented in
   the test). A separate deliberately-throwing index is likewise skipped, not fatal, and leaves no
   orphaned sidecar.
+  > **Superseded (persistence-hardening Stage B / C9):** the spatial index now **survives** the load
+  > and is queryable on reload; the regression test was updated accordingly. A genuinely-throwing
+  > index is still skipped and leaves no orphaned sidecar.
 - The edge-removal rollback path has a regression test asserting the edge and its endpoint
   adjacency are restored.
 - Full suite stays green.
