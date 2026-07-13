@@ -50,8 +50,13 @@ doc still generates with content.
 
 ## Observed output (10.0.9 + Microsoft.OpenApi 2.10.0, SDK 10.0.201)
 - OpenAPI version **3.1.1** (was 3.0.1 under the 9.x transformer).
-- `"description"` occurrences **324** (transformer-era baseline: 118); `"example"` **111**
-  (baseline: 0); `"$ref"` **122** (baseline ~119 — API surface unchanged, documentation richer).
+- `"description"` occurrences **324** (current-`main` baseline: 119); `"example"` **111**
+  (baseline: 0); `"$ref"` **122** (baseline 122 — API surface identical: same 44 paths /
+  49 operations; documentation richer). Baselines re-measured against current `main`.
+- The upgrade also fixes an **invalid-JSON bug on non-invariant locales**: the 9.x/older
+  Microsoft.OpenApi path serialized the edge-weight `default` culture-sensitively (e.g. `1,5` on a
+  German-locale host — invalid JSON); the 10.x native path emits `1.5`. So "generates validly" is a
+  real correctness fix on non-invariant-culture hosts, not merely cosmetic.
 
 ## Notes
 - No API surface / route / version change. Scalar stays.

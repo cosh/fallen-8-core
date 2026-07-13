@@ -51,9 +51,10 @@
     fails: the 9.x custom `XmlDocumentationOperationTransformer` does not compile against the
     reshaped `Microsoft.OpenApi` 2.x object model, so completing the bump requires deleting it and
     relying on 10.x native XML-doc reading. That native path materially changes the emitted
-    document (OpenAPI version `3.0.1` → `3.1.1`; `"description"` occurrences 118 → ~324;
-    `"example"` occurrences 0 → 111; ~119–122 `$ref`s, i.e. the API surface is unchanged but the
-    documentation is richer). Under the original "OpenAPI output unchanged" contract this blocked
+    document (OpenAPI version `3.0.1` → `3.1.1`; `"description"` occurrences 119 → 324;
+    `"example"` occurrences 0 → 111; `$ref`s unchanged at 122, i.e. the API surface is identical
+    (same 44 paths / 49 operations) but the documentation is richer). Under the original "OpenAPI
+    output unchanged" contract this blocked
     N3b, so it was **deferred** here. The user then **accepted** the richer 3.1.1 document as an
     improvement, and N3b **landed** under the dedicated **`openapi-10`** feature:
     `Microsoft.AspNetCore.OpenApi` is on **10.0.9** with `Microsoft.OpenApi` **2.10.0** pinned, the

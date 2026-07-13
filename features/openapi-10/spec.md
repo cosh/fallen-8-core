@@ -10,8 +10,11 @@
 > (NU1903 not reintroduced), no NU1605 downgrade, build 0/0. The
 > `XmlDocumentationOperationTransformer` and its `Program.cs` wiring are gone; controller XML docs
 > now flow in through .NET 10's native reader. The emitted document is **OpenAPI 3.1.1** (was 3.0.1),
-> with `"description"` up 118 → **324** and `"example"` 0 → **111** while the `$ref` count is
-> effectively unchanged (~119 → 122): same API surface, richer documentation. Verified at runtime by
+> with `"description"` up 119 → **324** and `"example"` 0 → **111** while the `$ref` count is
+> unchanged (122 → 122): same API surface (identical 44 paths / 49 operations), richer documentation.
+> The 10.x path also fixes an invalid-JSON bug on non-invariant locales (older Microsoft.OpenApi
+> serialized the edge-weight `default` culture-sensitively — e.g. `1,5` on a German-locale host; 10.x
+> emits `1.5`). Verified at runtime by
 > `OpenApiDocumentTest` (boots the app via `WebApplicationFactory<Program>` and GETs
 > `/openapi/v0.1.json`). Full suite green (344 passed / 10 skipped).
 
