@@ -24,6 +24,8 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -44,6 +46,38 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <returns>True = OK otherwise not</returns>
         public delegate bool TypeEvaluator(Type type);
 
+        #region discovery memoization (finding P5)
+
+        /// <summary>
+        ///   Guards the one-time discovery of <see cref="_candidateTypes" /> and its invalidation.
+        /// </summary>
+        private static readonly object _discoveryLock = new object();
+
+        /// <summary>
+        ///   The memoized set of structurally-eligible plugin candidate types across every loadable
+        ///   assembly in the base directory: public, non-abstract classes with a parameterless
+        ///   constructor (finding P5). The expensive part - enumerating the DLLs, <c>Assembly.Load</c>
+        ///   on each and <c>GetExportedTypes</c> - was previously repeated on EVERY index/service/
+        ///   save/load/path op; it now runs once and is reused. It is <c>null</c> until first
+        ///   discovered and is reset to <c>null</c> by <see cref="Assimilate" /> when a new plugin
+        ///   assembly is dropped in, so a freshly assimilated plugin is picked up. The interface/
+        ///   category filters stay per-query in <see cref="GetAllTypes{T}" /> (they are cheap
+        ///   reflection over the cached list, no I/O).
+        /// </summary>
+        private static volatile IReadOnlyList<Type> _candidateTypes;
+
+        /// <summary>
+        ///   Per-category (keyed by the requested plugin interface type) memoized
+        ///   <see cref="FrozenDictionary{TKey,TValue}" /> mapping a plugin's <c>PluginName</c> to its
+        ///   CLR type, so <see cref="TryFindPlugin{T}" /> resolves a plugin by name in O(1) instead of
+        ///   activating candidates one by one until a name matches (finding P5). Cleared alongside
+        ///   <see cref="_candidateTypes" /> on <see cref="Assimilate" />.
+        /// </summary>
+        private static readonly ConcurrentDictionary<Type, FrozenDictionary<String, Type>> _nameMaps
+            = new ConcurrentDictionary<Type, FrozenDictionary<String, Type>>();
+
+        #endregion
+
         /// <summary>
         ///   Tries to find a plugin.
         /// </summary>
@@ -54,17 +88,19 @@ namespace NoSQL.GraphDB.Core.Plugin
         public static Boolean TryFindPlugin<T>(out T result, String name)
             where T : class, IPlugin
         {
-            foreach (var aPluginTypeOfT in GetAllTypes<T>())
-            {
-                var aPluginInstance = Activate<T>(aPluginTypeOfT);
+            // Resolve by name through the memoized per-category name->type map (finding P5) instead of
+            // activating every candidate one by one until a PluginName matches. The map stores the
+            // TYPE, so a fresh instance is still activated per call, exactly as before.
+            var nameMap = GetNameMap<T>();
 
+            Type pluginType;
+            if (name != null && nameMap.TryGetValue(name, out pluginType))
+            {
+                var aPluginInstance = Activate<T>(pluginType);
                 if (aPluginInstance != null)
                 {
-                    if (aPluginInstance.PluginName == name)
-                    {
-                        result = aPluginInstance;
-                        return true;
-                    }
+                    result = aPluginInstance;
+                    return true;
                 }
             }
 
@@ -145,6 +181,10 @@ namespace NoSQL.GraphDB.Core.Plugin
                 dllStream.CopyTo(dllFileStream);
             }
 
+            // A new plugin assembly is now on disk, so the memoized discovery (and every derived
+            // name->type map) is stale and must be rebuilt on the next lookup (finding P5).
+            InvalidateDiscoveryCache();
+
             return assimilationPath;
         }
 
@@ -169,11 +209,57 @@ namespace NoSQL.GraphDB.Core.Plugin
         }
 
         /// <summary>
-        ///   Gets all types.
+        ///   Gets all plugin types of the requested category. The expensive assembly discovery is
+        ///   memoized once (see <see cref="GetCandidateTypes" />); this only applies the cheap,
+        ///   I/O-free interface/category filters over the cached candidate list, preserving both the
+        ///   exact set and the discovery order the old per-call scan produced.
         /// </summary>
         /// <returns> The all types. </returns>
         /// <typeparam name='T'> The type of the plugin. </typeparam>
         private static IEnumerable<Type> GetAllTypes<T>(Boolean checkForIPlugin = true)
+        {
+            foreach (var candidate in GetCandidateTypes())
+            {
+                if (checkForIPlugin && !IsInterfaceOf<IPlugin>(candidate))
+                {
+                    continue;
+                }
+
+                if (!IsInterfaceOf<T>(candidate))
+                {
+                    continue;
+                }
+
+                yield return candidate;
+            }
+        }
+
+        /// <summary>
+        ///   Returns the memoized candidate types, discovering them once under a lock on first use
+        ///   (finding P5). On a discovery failure the cache stays <c>null</c> so the next call retries,
+        ///   matching the old per-call behaviour.
+        /// </summary>
+        private static IReadOnlyList<Type> GetCandidateTypes()
+        {
+            var cached = _candidateTypes;
+            if (cached != null)
+            {
+                return cached;
+            }
+
+            lock (_discoveryLock)
+            {
+                return _candidateTypes ??= DiscoverCandidateTypes();
+            }
+        }
+
+        /// <summary>
+        ///   The one-time, expensive discovery: enumerate every DLL in the base directory,
+        ///   <c>Assembly.Load</c> each and collect its exported, structurally-eligible types (public,
+        ///   non-abstract classes with a parameterless constructor). The interface/category filters
+        ///   are applied later, per query, in <see cref="GetAllTypes{T}" />.
+        /// </summary>
+        private static IReadOnlyList<Type> DiscoverCandidateTypes()
         {
             var result = new List<Type>();
 
@@ -183,10 +269,66 @@ namespace NoSQL.GraphDB.Core.Plugin
 
             foreach (var file in files)
             {
-                result.AddRange(ProcessAFile<T>(file, checkForIPlugin));
+                result.AddRange(ProcessAFile(file));
             }
 
             return result;
+        }
+
+        /// <summary>
+        ///   Builds (and memoizes) the <c>PluginName</c> -> CLR type map for a plugin category, by
+        ///   activating each candidate once to read its name. First type wins for a duplicated name,
+        ///   matching the old first-match linear scan. An activation that throws is skipped so a
+        ///   single malformed plugin cannot break name resolution for the whole category.
+        /// </summary>
+        private static FrozenDictionary<String, Type> GetNameMap<T>()
+            where T : class, IPlugin
+        {
+            return _nameMaps.GetOrAdd(typeof(T), _ => BuildNameMap<T>());
+        }
+
+        private static FrozenDictionary<String, Type> BuildNameMap<T>()
+            where T : class, IPlugin
+        {
+            var map = new Dictionary<String, Type>(StringComparer.Ordinal);
+
+            foreach (var aPluginTypeOfT in GetAllTypes<T>())
+            {
+                T instance;
+                try
+                {
+                    instance = Activate<T>(aPluginTypeOfT);
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+
+                if (instance == null)
+                {
+                    continue;
+                }
+
+                var pluginName = instance.PluginName;
+                if (pluginName != null && !map.ContainsKey(pluginName))
+                {
+                    map[pluginName] = aPluginTypeOfT;
+                }
+            }
+
+            return map.ToFrozenDictionary(StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        ///   Drops the memoized discovery and all derived name maps, forcing a re-scan on next use.
+        /// </summary>
+        private static void InvalidateDiscoveryCache()
+        {
+            lock (_discoveryLock)
+            {
+                _candidateTypes = null;
+                _nameMaps.Clear();
+            }
         }
 
         /// <summary>
@@ -237,13 +379,13 @@ namespace NoSQL.GraphDB.Core.Plugin
         }
 
         /// <summary>
-        /// Processes a file
+        /// Loads one assembly and yields its exported, structurally-eligible candidate types
+        /// (public, non-abstract classes with a parameterless constructor). The category/interface
+        /// filters are applied later in <see cref="GetAllTypes{T}" />.
         /// </summary>
-        /// <typeparam name="T">The interface type</typeparam>
         /// <param name="file">The interesting file</param>
-        /// <param name="checkForIPlugin">Should there be a check for IPlugin</param>
-        /// <returns>Enumerable of matching types</returns>
-        private static IEnumerable<Type> ProcessAFile<T>(string file, bool checkForIPlugin)
+        /// <returns>Enumerable of candidate types</returns>
+        private static IEnumerable<Type> ProcessAFile(string file)
         {
             Assembly assembly;
 
@@ -261,24 +403,12 @@ namespace NoSQL.GraphDB.Core.Plugin
 
             foreach (var aType in types)
             {
-                var NameOfType = aType.Name;
-
                 if (!aType.IsClass || aType.IsAbstract)
                 {
                     continue;
                 }
 
                 if (!aType.IsPublic)
-                {
-                    continue;
-                }
-
-                if (checkForIPlugin && !IsInterfaceOf<IPlugin>(aType))
-                {
-                    continue;
-                }
-
-                if (!IsInterfaceOf<T>(aType))
                 {
                     continue;
                 }

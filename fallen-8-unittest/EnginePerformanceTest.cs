@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -32,7 +33,10 @@ using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.App.Controllers.Cache;
+using NoSQL.GraphDB.Core.Index;
+using NoSQL.GraphDB.Core.Index.Range;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
@@ -240,6 +244,107 @@ namespace NoSQL.GraphDB.Tests
                 "A faulting removal must be reported as rolled back.");
             Assert.AreEqual(2, fallen8.VertexCount, "Vertex count must be intact after a rolled-back removal.");
             Assert.AreEqual(1, fallen8.EdgeCount, "Edge count must be intact after a rolled-back removal.");
+        }
+
+        #endregion
+
+        #region P5 - memoized plugin discovery still resolves every plugin by name
+
+        [TestMethod]
+        public void PluginFactory_MemoizedDiscovery_StillResolvesBothPathAlgorithmsByName()
+        {
+            // The name->type map (built once and reused) must still resolve both shipped path
+            // algorithms by their exact plugin names.
+            IShortestPathAlgorithm bls;
+            Assert.IsTrue(PluginFactory.TryFindPlugin(out bls, "BLS"),
+                "The BLS path algorithm must be discoverable by name.");
+            Assert.AreEqual("BLS", bls.PluginName);
+
+            IShortestPathAlgorithm dijkstra;
+            Assert.IsTrue(PluginFactory.TryFindPlugin(out dijkstra, "DIJKSTRA"),
+                "The DIJKSTRA path algorithm must be discoverable by name.");
+            Assert.AreEqual("DIJKSTRA", dijkstra.PluginName);
+
+            // A second call (map cached) must resolve to the same TYPE and still return a fresh
+            // instance each time (the map stores types, not shared instances).
+            IShortestPathAlgorithm blsAgain;
+            Assert.IsTrue(PluginFactory.TryFindPlugin(out blsAgain, "BLS"));
+            Assert.AreEqual(bls.GetType(), blsAgain.GetType(), "Same resolved type on a cached lookup.");
+            Assert.AreNotSame(bls, blsAgain, "Each resolution still activates a fresh instance.");
+
+            // A name that does not exist must not resolve.
+            IShortestPathAlgorithm missing;
+            Assert.IsFalse(PluginFactory.TryFindPlugin(out missing, "NO_SUCH_ALGORITHM"));
+        }
+
+        [TestMethod]
+        public void PluginFactory_MemoizedDiscovery_EnumeratesEveryIndexPluginIncludingTestOnly()
+        {
+            // The available-index enumeration (used by IndexFactory / the admin endpoint) must still
+            // find the production indices AND the test-only, globally-discoverable ThrowingOnLoad index.
+            IEnumerable<string> indexPlugins;
+            Assert.IsTrue(PluginFactory.TryGetAvailablePlugins<IIndex>(out indexPlugins),
+                "At least the production index plugins must be discoverable.");
+
+            var names = indexPlugins.ToList();
+            CollectionAssert.Contains(names, "DictionaryIndex", "DictionaryIndex must be discovered.");
+            CollectionAssert.Contains(names, "RangeIndex", "RangeIndex must be discovered.");
+            CollectionAssert.Contains(names, "RegExIndex", "RegExIndex must be discovered.");
+            CollectionAssert.Contains(names, ThrowingOnLoadIndex.TestPluginName,
+                "The test-only ThrowingOnLoad index (a top-level public IIndex) must be discovered.");
+
+            // And the index category resolves by name through the same memoized path.
+            IIndex range;
+            Assert.IsTrue(PluginFactory.TryFindPlugin(out range, "RangeIndex"));
+            Assert.AreEqual("RangeIndex", range.PluginName);
+        }
+
+        #endregion
+
+        #region P4 - ordered range index: sorted-key cache stays correct across mutations
+
+        [TestMethod]
+        public void RangeIndex_OrderedQueries_StayCorrectAcrossValueAndKeyMutations()
+        {
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 5);
+            var index = new RangeIndex();
+            index.Initialize(fallen8, null);
+
+            index.AddOrUpdate(10, vertices[0]);
+            index.AddOrUpdate(20, vertices[1]);
+            index.AddOrUpdate(30, vertices[2]);
+
+            // First range query builds the sorted-key cache; GreaterThan/LowerThan bracket correctly.
+            ImmutableList<AGraphElementModel> r;
+            Assert.IsTrue(index.GreaterThan(out r, 15, true));
+            CollectionAssert.AreEquivalent(new AGraphElementModel[] { vertices[1], vertices[2] }, r.ToList(),
+                "GreaterThan(15) must return keys 20 and 30.");
+
+            Assert.IsTrue(index.LowerThan(out r, 20, false));
+            CollectionAssert.AreEquivalent(new AGraphElementModel[] { vertices[0] }, r.ToList(),
+                "LowerThan(20, exclusive) must return only key 10.");
+
+            // Add another value under an EXISTING key (20): the key set is unchanged (cache NOT
+            // invalidated), yet the range query must still surface the freshly added value.
+            index.AddOrUpdate(20, vertices[3]);
+            Assert.IsTrue(index.Between(out r, 20, 20, true, true));
+            CollectionAssert.AreEquivalent(new AGraphElementModel[] { vertices[1], vertices[3] }, r.ToList(),
+                "A value added under an existing key must appear in a later range query.");
+
+            // Add a brand-new lower key (5): invalidates and rebuilds the cache on the next query.
+            index.AddOrUpdate(5, vertices[4]);
+            Assert.IsTrue(index.LowerThan(out r, 10, false));
+            CollectionAssert.AreEquivalent(new AGraphElementModel[] { vertices[4] }, r.ToList(),
+                "A newly added lower key must be found after the cache rebuild.");
+
+            // Remove a key entirely: it must disappear from subsequent range queries.
+            Assert.IsTrue(index.TryRemoveKey(30));
+            Assert.IsTrue(index.GreaterThan(out r, 15, true));
+            CollectionAssert.AreEquivalent(new AGraphElementModel[] { vertices[1], vertices[3] }, r.ToList(),
+                "After removing key 30, GreaterThan(15) must return only the key-20 bucket.");
+
+            index.Dispose();
         }
 
         #endregion

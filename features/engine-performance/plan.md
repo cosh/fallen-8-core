@@ -26,7 +26,7 @@ Companion to [spec.md](./spec.md). Findings P1–P10 defined there. Ordered by v
 
 ## Status
 - [x] Phase 1 — quick wins (P1, P2, P3, P9, P10) — done
-- [ ] Phase 2 — index/query complexity (P4, P5)
+- [x] Phase 2 — index/query complexity (P4, P5) — done
 - [ ] Phase 3 — algorithms (P6, P8)
 - [ ] Phase 4 — scan strategy (P7)
 
@@ -59,3 +59,28 @@ Companion to [spec.md](./spec.md). Findings P1–P10 defined there. Ordered by v
   `TransactionInformation` reference is unaffected.
 - **P10** done. `Interlocked.Increment(ref _currentId)` replaced with a plain `_currentId++`
   (single-writer field; no non-writer thread reads it, so no `volatile` needed).
+
+### Phase 2 notes
+- **P4** done. `RangeIndex` keeps its `Dictionary` for point ops (so multi-value buckets, key
+  identity by `Equals`, and the merged B3 fixes are preserved byte-for-byte) and gains a lazily
+  built, cached ascending-sorted key array (`_sortedKeys`, `volatile`). `LowerThan`/`GreaterThan`/
+  `Between` now binary-search that array (`LowerBound`/`UpperBound`) and gather the k matched
+  buckets -> O(log n + k) instead of the old O(n) parallel scan. The cache is invalidated only on
+  KEY-SET changes (new key, removed key, emptied key, wipe, load); adding a value under an
+  existing key does not invalidate it and range queries always read current values from the
+  dictionary. Built under the read lock / invalidated under the write lock (mutually exclusive),
+  so it never sees a torn dictionary. Result order becomes sorted (previously nondeterministic
+  parallel order); no caller/test depends on order. New test exercises value-only updates, new/
+  removed keys, and Greater/Lower bracketing. `RangeIndexScan` already routes to `Between`.
+  Deliberately did NOT reroute `Fallen8.IndexScan`'s ordered operators (Greater/Lower/etc.) onto
+  the range structure: that path (`FindElementsIndex`) applies `.Distinct()` across buckets and
+  serves ALL index kinds, so rerouting risked a semantic change for little gain; the range-scan
+  endpoint (the primary range surface) is fully covered.
+- **P5** done. `PluginFactory` memoizes the expensive discovery (enumerate DLLs + `Assembly.Load`
+  + `GetExportedTypes` + structural filter) ONCE into `_candidateTypes` (was repeated on every
+  op); `GetAllTypes<T>` now applies only the cheap interface/category filters over the cached list,
+  preserving the exact set and order. `TryFindPlugin` resolves via a per-category memoized
+  `FrozenDictionary<string,Type>` name->type map (built by activating each candidate once; first
+  wins on a duplicate name; activation failures skipped defensively). Both caches are invalidated
+  on `Assimilate`. New tests prove BLS + DIJKSTRA resolve by name and that the index enumeration
+  still finds DictionaryIndex/RangeIndex/RegExIndex and the test-only ThrowingOnLoadTestIndex.
