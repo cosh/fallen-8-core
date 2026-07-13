@@ -26,7 +26,7 @@ Companion to [spec.md](./spec.md). Findings P1–P10 defined there. Ordered by v
 
 ## Status
 - [x] Phase 1 — quick wins (P1, P2, P3, P9, P10) — done
-- [x] Phase 2 — index/query complexity (P4, P5) — done
+- [x] Phase 2 — index/query complexity (P4 done, ordered IndexScan reroute deferred; P5 done)
 - [x] Phase 3 — algorithms (P6 done; P8 delivered via P7 + review)
 - [x] Phase 4 — scan strategy (P7) — done
 
@@ -84,6 +84,26 @@ Companion to [spec.md](./spec.md). Findings P1–P10 defined there. Ordered by v
   wins on a duplicate name; activation failures skipped defensively). Both caches are invalidated
   on `Assimilate`. New tests prove BLS + DIJKSTRA resolve by name and that the index enumeration
   still finds DictionaryIndex/RangeIndex/RegExIndex and the test-only ThrowingOnLoadTestIndex.
+
+  Memoization trade-off (intended): plugins are discovered ONCE and cached until `Assimilate`
+  invalidates the caches, so a DLL that lands in the base directory by a path OTHER than
+  `Assimilate` (e.g. copied in out-of-band) is not picked up until the next assimilation — unlike
+  the old rescan-on-every-call. `Assimilate` is the supported way to introduce a plugin at runtime,
+  so this is an accepted staleness window, not a correctness regression.
+
+  Concurrency (M1 review fix): `GetNameMap<T>` now BUILDS AND STORES each per-category name map
+  under the same `_discoveryLock` that guards candidate discovery and `InvalidateDiscoveryCache`,
+  capturing the candidate set once and passing it into the build (so the build never re-enters the
+  lock). This closes a race where a name map built from the pre-`Assimilate` candidate set could be
+  stored AFTER a concurrent invalidation, leaving a just-assimilated plugin unresolvable-by-name for
+  that category until the next invalidation. The fast path stays a lock-free `ConcurrentDictionary`
+  read. New test `PluginFactory_AfterDiscoveryInvalidation_RebuildsFreshNameMapAndStillResolves`
+  pins that an invalidation clears the map and the next lookup rebuilds a fresh, full set.
+
+  Degenerate/unsupported cases (note only): `TryFindPlugin(name: null)` returns `false` (the
+  name-map lookup is guarded by a non-null name); and a `RangeIndex` populated with
+  heterogeneous-typed keys throws at sort time when the sorted-key cache is (re)built — both are
+  out-of-contract inputs, called out here so the behaviour is documented rather than surprising.
 
 ### Phase 3 notes
 - **P6** done (bounded reconstruction); parent-pointer rewrite deferred. BLS
