@@ -197,7 +197,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
                     for (var i = range.Item1; i < range.Item2; i++)
                     {
-                        ImmutableList<EdgeModel> outEdge;
+                        IReadOnlyList<EdgeModel> outEdge;
                         if (vertices[i].TryGetOutEdge(out outEdge, edgeProperty))
                         {
                             for (int j = 0; j < outEdge.Count; j++)

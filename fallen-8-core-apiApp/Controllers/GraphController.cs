@@ -424,7 +424,7 @@ namespace NoSQL.GraphDB.App.Controllers
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
-                ImmutableList<EdgeModel> edges;
+                IReadOnlyList<EdgeModel> edges;
                 if (vertex.TryGetOutEdge(out edges, edgePropertyIdentifier))
                 {
                     return edges.Select(_ => _.Id).ToList();
@@ -450,7 +450,7 @@ namespace NoSQL.GraphDB.App.Controllers
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
-                ImmutableList<EdgeModel> edges;
+                IReadOnlyList<EdgeModel> edges;
                 if (vertex.TryGetInEdge(out edges, edgePropertyIdentifier))
                 {
                     return edges.Select(_ => _.Id).ToList();
@@ -906,7 +906,7 @@ namespace NoSQL.GraphDB.App.Controllers
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
             {
-                ImmutableList<EdgeModel> edges;
+                IReadOnlyList<EdgeModel> edges;
                 if (vertex.TryGetInEdge(out edges, edgePropertyIdentifier))
                 {
                     return Convert.ToUInt32(edges.Count);
@@ -930,7 +930,7 @@ namespace NoSQL.GraphDB.App.Controllers
             VertexModel vertex;
             if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
             {
-                ImmutableList<EdgeModel> edges;
+                IReadOnlyList<EdgeModel> edges;
                 if (vertex.TryGetOutEdge(out edges, edgePropertyIdentifier))
                 {
                     return Convert.ToUInt32(edges.Count);

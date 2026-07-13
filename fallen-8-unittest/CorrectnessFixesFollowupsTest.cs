@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -73,6 +74,19 @@ namespace NoSQL.GraphDB.Tests
             }
             fallen8.EnqueueTransaction(tx).WaitUntilFinished();
             return tx.GetCreatedVertices().ToArray();
+        }
+
+        /// <summary>
+        /// Appends a raw (possibly null) out-edge to a vertex through the internal fault-injection
+        /// hook, bypassing the read-only public adjacency surface. Reflection is used because the
+        /// engine declares no InternalsVisibleTo (same convention as ConcurrentStorageTest). This
+        /// replaces the old immutable-API poison injection now that the field is read-only.
+        /// </summary>
+        private static void InjectRawOutEdge(VertexModel vertex, string edgePropertyId, EdgeModel poison)
+        {
+            typeof(VertexModel)
+                .GetMethod("InjectRawOutEdgeForTesting", BindingFlags.NonPublic | BindingFlags.Instance)
+                .Invoke(vertex, new object[] { edgePropertyId, poison });
         }
 
         private static int StatusCodeOf(IActionResult result)
@@ -646,8 +660,11 @@ namespace NoSQL.GraphDB.Tests
             // the edge (else) branch of TryRemoveGraphElement_private: the target-side detach
             // (RemoveIncomingEdge) succeeds and populates inEdgeRemovals, then the source-side detach
             // (RemoveOutGoingEdge) throws an NRE on the null while iterating - before it mutates
-            // OutEdges - driving the internal rollback.
-            source.OutEdges = source.OutEdges.SetItem("knows", source.OutEdges["knows"].Add(null));
+            // OutEdges - driving the internal rollback. The adjacency is now a read-only public
+            // surface, so the null is injected through the internal fault-injection hook (invoked by
+            // reflection, mirroring the former
+            // source.OutEdges = source.OutEdges.SetItem("knows", source.OutEdges["knows"].Add(null))).
+            InjectRawOutEdge(source, "knows", null);
 
             // Act - the removal faults and the transaction manager rolls it back.
             var removeTx = new RemoveGraphElementTransaction { GraphElementId = edgeId };
@@ -664,7 +681,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1, fallen8.EdgeCount, "Edge count must be restored.");
 
             // ...the TARGET vertex's incoming adjacency is restored via the inEdgeRemovals replay...
-            ImmutableList<EdgeModel> targetInEdges;
+            IReadOnlyList<EdgeModel> targetInEdges;
             Assert.IsTrue(target.TryGetInEdge(out targetInEdges, "knows"),
                 "The target vertex must still expose its incoming-edge bucket for \"knows\".");
             Assert.IsTrue(targetInEdges.Any(e => e != null && e.Id == edgeId),
@@ -672,7 +689,7 @@ namespace NoSQL.GraphDB.Tests
 
             // ...and the SOURCE vertex's outgoing adjacency still contains the edge (the source
             // detach threw before mutating OutEdges, so the edge was never removed there).
-            ImmutableList<EdgeModel> sourceOutEdges;
+            IReadOnlyList<EdgeModel> sourceOutEdges;
             Assert.IsTrue(source.TryGetOutEdge(out sourceOutEdges, "knows"),
                 "The source vertex must still expose its outgoing-edge bucket for \"knows\".");
             Assert.IsTrue(sourceOutEdges.Any(e => e != null && e.Id == edgeId),

@@ -54,7 +54,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Delegates.EdgeFilter edgeFilter,
             Delegates.VertexFilter vertexFilter)
         {
-            var edgeProperties = direction == Direction.IncomingEdge ? vertex.InEdges : vertex.OutEdges;
+            var edgeProperties = direction == Direction.IncomingEdge ? vertex.GetRawInEdges() : vertex.GetRawOutEdges();
             var result = new List<Tuple<String, IEnumerable<EdgeModel>>>();
 
             if (edgeProperties != null)
@@ -70,7 +70,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     {
                         var validEdges = new List<EdgeModel>();
 
-                        for (var i = 0; i < edgeContainer.Value.Count; i++)
+                        for (var i = 0; i < edgeContainer.Value.Length; i++)
                         {
                             var aEdge = edgeContainer.Value[i];
                             if (edgeFilter(aEdge))
@@ -99,7 +99,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         {
                             var validEdges = new List<EdgeModel>();
 
-                            for (var i = 0; i < edgeContainer.Value.Count; i++)
+                            for (var i = 0; i < edgeContainer.Value.Length; i++)
                             {
                                 var aEdge = edgeContainer.Value[i];
                                 if (

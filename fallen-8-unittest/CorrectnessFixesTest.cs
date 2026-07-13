@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -64,6 +65,19 @@ namespace NoSQL.GraphDB.Tests
             }
             fallen8.EnqueueTransaction(tx).WaitUntilFinished();
             return tx.GetCreatedVertices().ToArray();
+        }
+
+        /// <summary>
+        /// Appends a raw (possibly poisoned/null) in-edge to a vertex through the internal
+        /// fault-injection hook, bypassing the read-only public adjacency surface. Reflection is used
+        /// because the engine declares no InternalsVisibleTo (same convention as ConcurrentStorageTest).
+        /// This replaces the old immutable-API poison injection now that the field is read-only.
+        /// </summary>
+        private static void InjectRawInEdge(VertexModel vertex, string edgePropertyId, EdgeModel poison)
+        {
+            typeof(VertexModel)
+                .GetMethod("InjectRawInEdgeForTesting", BindingFlags.NonPublic | BindingFlags.Instance)
+                .Invoke(vertex, new object[] { edgePropertyId, poison });
         }
 
         #region B1 - DictionaryIndex discards the ImmutableList return
@@ -363,9 +377,12 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1, fallen8.EdgeCount, "One edge before the faulting removal.");
 
             // Poison: an in-edge whose SourceVertex is null. It is appended after the real in-edge so
-            // the real one is detached first, then the poison throws.
+            // the real one is detached first, then the poison throws. The adjacency is now a read-only
+            // public surface, so the poison is injected through the internal fault-injection hook
+            // (invoked by reflection, mirroring the former
+            // v.InEdges = v.InEdges.SetItem("in", v.InEdges["in"].Add(poison)) injection exactly).
             var poison = new EdgeModel(int.MaxValue, 1, v, null, "poison", "in");
-            v.InEdges = v.InEdges.SetItem("in", v.InEdges["in"].Add(poison));
+            InjectRawInEdge(v, "in", poison);
 
             // Act - the removal faults and the transaction manager rolls it back.
             var removeTx = new RemoveGraphElementTransaction { GraphElementId = vId };
@@ -397,13 +414,13 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(fallen8.TryGetVertex(out restoredSource, sourceId),
                 "The source vertex must still be present.");
 
-            ImmutableList<EdgeModel> sourceOutEdges;
+            IReadOnlyList<EdgeModel> sourceOutEdges;
             Assert.IsTrue(restoredSource.TryGetOutEdge(out sourceOutEdges, "in"),
                 "The source vertex must still expose its outgoing-edge bucket for property \"in\".");
             Assert.IsTrue(sourceOutEdges.Any(e => e.Id == inEdgeId),
                 "The restored in-edge must be back in the SOURCE vertex's OutEdges (restore must call AddOutEdge, not AddIncomingEdge).");
 
-            ImmutableList<EdgeModel> sourceInEdges;
+            IReadOnlyList<EdgeModel> sourceInEdges;
             bool sourceHasInBucket = restoredSource.TryGetInEdge(out sourceInEdges, "in");
             Assert.IsFalse(sourceHasInBucket && sourceInEdges.Any(e => e.Id == inEdgeId),
                 "The restored in-edge must NOT be mis-filed into the source vertex's InEdges.");

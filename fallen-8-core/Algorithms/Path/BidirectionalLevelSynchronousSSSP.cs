@@ -626,7 +626,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Delegates.VertexFilter vertexFilter,
             HashSet<VertexModel> alreadyVisited)
         {
-            var edgeProperties = vertex.InEdges;
+            var edgeProperties = vertex.GetRawInEdges();
             var result = new List<FrontierElement>();
 
             if (edgeProperties != null)
@@ -640,7 +640,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     if (edgeFilter != null)
                     {
-                        for (var i = 0; i < edgeContainer.Value.Count; i++)
+                        for (var i = 0; i < edgeContainer.Value.Length; i++)
                         {
                             var aEdge = edgeContainer.Value[i];
                             if (edgeFilter(aEdge))
@@ -686,7 +686,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     {
                         if (vertexFilter != null)
                         {
-                            for (var i = 0; i < edgeContainer.Value.Count; i++)
+                            for (var i = 0; i < edgeContainer.Value.Length; i++)
                             {
                                 var aEdge = edgeContainer.Value[i];
 
@@ -711,7 +711,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         }
                         else
                         {
-                            for (var i = 0; i < edgeContainer.Value.Count; i++)
+                            for (var i = 0; i < edgeContainer.Value.Length; i++)
                             {
                                 var aEdge = edgeContainer.Value[i];
                                 if (alreadyVisited.Add(aEdge.SourceVertex))
@@ -753,7 +753,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Delegates.VertexFilter vertexFilter,
             HashSet<VertexModel> alreadyVisited)
         {
-            var edgeProperties = vertex.OutEdges;
+            var edgeProperties = vertex.GetRawOutEdges();
             var result = new List<FrontierElement>();
 
             if (edgeProperties != null)
@@ -767,7 +767,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     if (edgeFilter != null)
                     {
-                        for (var i = 0; i < edgeContainer.Value.Count; i++)
+                        for (var i = 0; i < edgeContainer.Value.Length; i++)
                         {
                             var aEdge = edgeContainer.Value[i];
                             if (edgeFilter(aEdge))
@@ -813,7 +813,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     {
                         if (vertexFilter != null)
                         {
-                            for (var i = 0; i < edgeContainer.Value.Count; i++)
+                            for (var i = 0; i < edgeContainer.Value.Length; i++)
                             {
                                 var aEdge = edgeContainer.Value[i];
 
@@ -838,7 +838,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         }
                         else
                         {
-                            for (var i = 0; i < edgeContainer.Value.Count; i++)
+                            for (var i = 0; i < edgeContainer.Value.Length; i++)
                             {
                                 var aEdge = edgeContainer.Value[i];
                                 if (alreadyVisited.Add(aEdge.TargetVertex))
