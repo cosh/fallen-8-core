@@ -528,6 +528,8 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 
         #region IFallen8Serializable Members
 
+        public Boolean CanPersist => true;
+
         public void Save(SerializationWriter writer)
         {
             if (ReadResource())

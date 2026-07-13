@@ -239,6 +239,8 @@ namespace NoSQL.GraphDB.Core.Index
 
         #region IFallen8Serializable
 
+        public Boolean CanPersist => true;
+
         public void Save(SerializationWriter writer)
         {
             if (ReadResource())

@@ -32,6 +32,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
@@ -1877,33 +1878,197 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
 
         #region IFallen8Serializable
 
+        /// <summary>The R-Tree checkpoint payload layout version, inside the C4 file envelope.</summary>
+        private const byte RTreePayloadVersion = 1;
+
+        public Boolean CanPersist => true;
 
         public void Save(SerializationWriter writer)
         {
-            // Full R-Tree serialization is deferred to the persistence-hardening theme. Until it
-            // lands, a spatial index cannot be persisted, and it must NOT be written to the
-            // checkpoint as an empty/degenerate index either: a reloaded R-Tree with only its
-            // container map initialised has a null _root/Metric/Space and would throw a
-            // NullReferenceException on the first spatial query or add.
-            //
-            // Signalling non-persistability here is safe: PersistencyFactory.SaveIndex catches
-            // this, logs it, and returns null so the index is dropped from the checkpoint manifest
-            // (the per-index guard means one non-persistable index does not abort the whole
-            // checkpoint). The spatial index therefore simply has to be recreated after a load.
-            throw new NotSupportedException(
-                "The spatial (R-Tree) index is not yet persistable; recreate it after load.");
+            // C9: the R-Tree persists a FUNCTIONAL-EQUIVALENT snapshot - its build CONFIG (metric,
+            // min/max node counts, dimensional space) plus its ENTRIES ((point | MBR, elementId)
+            // pairs from the container map) - rather than the exact node/leaf structure. On load an
+            // empty tree is re-Initialized from the config and every entry re-inserted, producing an
+            // equivalent, queryable R*-tree. This replaces the former throw-NotSupportedException stub
+            // (finding B7): a reloaded spatial index is now present and usable, not absent.
+            if (ReadResource())
+            {
+                try
+                {
+                    writer.Write(RTreePayloadVersion);
+
+                    // --- build config ---
+                    writer.Write(Metric.GetType().AssemblyQualifiedName);
+                    writer.WriteVarInt32(MinCountOfNode);
+                    writer.WriteVarInt32(MaxCountOfNode);
+                    writer.WriteVarInt32(Space.Count);
+                    foreach (var dimension in Space)
+                    {
+                        writer.Write(dimension.GetType().AssemblyQualifiedName);
+                    }
+
+                    // --- entries: (elementId, point | mbr). Each geometry is exactly _countOfR floats
+                    //     (a point) or 2*_countOfR (an MBR's lower+upper), so no per-array length is
+                    //     stored; load reads _countOfR floats, which also bounds the allocation. ---
+                    writer.WriteVarInt32(_mapOfContainers.Count);
+                    foreach (var keyValue in _mapOfContainers)
+                    {
+                        writer.WriteVarInt32(keyValue.Key);
+                        var container = keyValue.Value;
+                        if (container is APointContainer pointContainer)
+                        {
+                            writer.Write((byte)TypeOfContainer.PointContainer);
+                            WriteFloats(writer, pointContainer.Coordinates);
+                        }
+                        else
+                        {
+                            var spatialContainer = (ASpatialContainer)container;
+                            writer.Write((byte)TypeOfContainer.MBRContainer);
+                            WriteFloats(writer, spatialContainer.Lower);
+                            WriteFloats(writer, spatialContainer.Upper);
+                        }
+                    }
+                }
+                finally
+                {
+                    FinishReadResource();
+                }
+
+                return;
+            }
+
+            throw new CollisionException();
         }
 
         public void Load(SerializationReader reader, IFallen8 fallen8)
         {
-            // Counterpart to Save: an R-Tree cannot be rehydrated yet, and must not come up as a
-            // half-initialised (and therefore NPE-prone) index. Older save points written before
-            // Save began skipping the index still carry a manifest entry that reaches this path, so
-            // throw a clear signal that IndexFactory.OpenIndex propagates and
-            // PersistencyFactory.LoadIndices catches: the index is then simply NOT registered
-            // (absent after load, to be recreated) rather than present-but-broken.
-            throw new NotSupportedException(
-                "The spatial (R-Tree) index is not yet persistable; recreate it after load.");
+            if (WriteResource())
+            {
+                try
+                {
+                    var payloadVersion = reader.ReadByte();
+                    if (payloadVersion != RTreePayloadVersion)
+                    {
+                        throw new InvalidDataException(String.Format(
+                            "Unsupported R-Tree payload version {0} (expected {1}).", payloadVersion, RTreePayloadVersion));
+                    }
+
+                    // --- rebuild the build config ---
+                    var metric = CreateConfiguredInstance<IMetric>(reader.ReadString(), "R-Tree metric");
+                    var minCount = reader.ReadOptimizedInt32();
+                    var maxCount = reader.ReadOptimizedInt32();
+                    var dimensionCount = reader.ReadOptimizedInt32Checked("R-Tree dimensions");
+                    var space = new List<IDimension>(dimensionCount);
+                    for (var i = 0; i < dimensionCount; i++)
+                    {
+                        space.Add(CreateConfiguredInstance<IDimension>(reader.ReadString(), "R-Tree dimension"));
+                    }
+
+                    // Re-Initialize an empty tree from the config: this establishes Metric, MinCount,
+                    // MaxCount, Space, _countOfR, _mapOfContainers, _root and _levelForOverflowStrategy,
+                    // exactly as a freshly created index would have them - so the re-inserts below
+                    // rebuild an equivalent, queryable tree.
+                    Initialize(fallen8, new Dictionary<string, object>
+                    {
+                        ["IMetric"] = metric,
+                        ["MinCount"] = minCount,
+                        ["MaxCount"] = maxCount,
+                        ["Space"] = space,
+                    });
+
+                    // --- re-insert the entries ---
+                    var entryCount = reader.ReadOptimizedInt32Checked("R-Tree entries");
+                    for (var i = 0; i < entryCount; i++)
+                    {
+                        var elementId = reader.ReadOptimizedInt32();
+                        var kind = (TypeOfContainer)reader.ReadByte();
+
+                        IRTreeDataContainer container;
+                        if (kind == TypeOfContainer.PointContainer)
+                        {
+                            container = new PointDataContainer(ReadFloats(reader, _countOfR));
+                        }
+                        else
+                        {
+                            var lower = ReadFloats(reader, _countOfR);
+                            var upper = ReadFloats(reader, _countOfR);
+                            container = new SpatialDataContainer(lower, upper);
+                        }
+
+                        AGraphElementModel graphElement;
+                        if (!fallen8.TryGetGraphElement(out graphElement, elementId))
+                        {
+                            // The referenced element is not in the (already published) store: skip this
+                            // entry rather than fail the whole index, mirroring the other indices' loaders.
+                            _logger.LogError(String.Format(
+                                "[RTree] Could not find the graph element \"{0}\" while deserializing the spatial index; the entry is skipped.", elementId));
+                            continue;
+                        }
+
+                        container.GraphElement = graphElement;
+                        InsertData(container);
+                        _mapOfContainers.Add(elementId, container);
+                    }
+                }
+                finally
+                {
+                    FinishWriteResource();
+                }
+
+                return;
+            }
+
+            throw new CollisionException();
+        }
+
+        /// <summary>Writes a coordinate array as raw little-endian floats (no length prefix).</summary>
+        private static void WriteFloats(SerializationWriter writer, float[] values)
+        {
+            for (var i = 0; i < values.Length; i++)
+            {
+                writer.Write(values[i]);
+            }
+        }
+
+        /// <summary>Reads exactly <paramref name="count"/> little-endian floats (a bounded allocation).</summary>
+        private static float[] ReadFloats(SerializationReader reader, int count)
+        {
+            var values = new float[count];
+            for (var i = 0; i < count; i++)
+            {
+                values[i] = reader.ReadSingle();
+            }
+            return values;
+        }
+
+        /// <summary>
+        /// Reconstructs a configured helper (the metric or a dimension) from its stored
+        /// assembly-qualified type name via its public parameterless constructor. A type that cannot
+        /// be resolved or instantiated throws <see cref="InvalidDataException"/>, which
+        /// <c>PersistencyFactory.LoadIndices</c> catches to skip just this index.
+        /// </summary>
+        private static T CreateConfiguredInstance<T>(string assemblyQualifiedTypeName, string what) where T : class
+        {
+            if (String.IsNullOrEmpty(assemblyQualifiedTypeName))
+            {
+                throw new InvalidDataException(String.Format("The checkpoint recorded no type for the {0}.", what));
+            }
+
+            var type = Type.GetType(assemblyQualifiedTypeName, throwOnError: false);
+            if (type == null)
+            {
+                throw new InvalidDataException(String.Format(
+                    "The {0} type \"{1}\" could not be resolved on load.", what, assemblyQualifiedTypeName));
+            }
+
+            var instance = Activator.CreateInstance(type) as T;
+            if (instance == null)
+            {
+                throw new InvalidDataException(String.Format(
+                    "The {0} type \"{1}\" is not a {2}.", what, assemblyQualifiedTypeName, typeof(T).Name));
+            }
+
+            return instance;
         }
         #endregion
 
