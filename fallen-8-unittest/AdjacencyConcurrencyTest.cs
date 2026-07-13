@@ -63,6 +63,7 @@ namespace NoSQL.GraphDB.Tests
         private const string VertexLabel = "person";
         private const string EdgeLabel = "knows";
         private const string EdgePropertyId = "friend";
+        private const string EdgePropertyIdB = "colleague";
 
         private static int ReaderCount => Math.Max(4, Environment.ProcessorCount);
 
@@ -75,15 +76,40 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        /// Many readers hammer the adjacency of a small hot-set of vertices while the single writer
-        /// adds and removes edges on that same hot-set one small transaction at a time (maximising
-        /// the number of publish boundaries, i.e. race windows). Every edge a reader resolves must
-        /// be fully published: non-null, with non-null endpoints, filed under the correct vertex
-        /// and direction; every degree/neighbour/id query must agree with a captured view and never
-        /// throw.
+        /// Single-group churn: every edge the writer adds shares ONE edge-property-id, so every
+        /// hot-set vertex stays in <c>EdgeAdjacency</c>'s inline shape (no backing dictionary). This
+        /// pins the common-case read path under concurrency.
         /// </summary>
         [TestMethod]
         public void ConcurrentReaders_DuringSingleWriterEdgeChurn_NeverSeeTornAdjacencyOrThrow()
+        {
+            RunEdgeChurnStress(new[] { EdgePropertyId });
+        }
+
+        /// <summary>
+        /// Multi-group churn: the single writer churns edges across TWO distinct edge-property-ids on
+        /// the same hot-set, so each hot vertex's adjacency is PROMOTED from the inline single-group
+        /// shape to the <c>Dictionary</c>-backed multi-group shape, and multi-group append/remove keeps
+        /// rebuilding that map, while the readers hammer the identical read surface. This exercises the
+        /// inline-&gt;map promotion and the map's copy-on-write publication under real concurrency - a
+        /// path the single-group test above never reaches and the single-threaded tests never race.
+        /// </summary>
+        [TestMethod]
+        public void ConcurrentReaders_DuringMultiGroupEdgeChurn_NeverSeeTornAdjacencyOrThrow()
+        {
+            RunEdgeChurnStress(new[] { EdgePropertyId, EdgePropertyIdB });
+        }
+
+        /// <summary>
+        /// Shared stress body for both churn variants. Many readers hammer the adjacency of a small
+        /// hot-set of vertices while the single writer adds and removes edges on that same hot-set one
+        /// small transaction at a time (maximising the number of publish boundaries, i.e. race
+        /// windows), cycling the edge-property-id through <paramref name="churnEdgePropertyIds" />.
+        /// Every edge a reader resolves must be fully published: non-null, with non-null endpoints,
+        /// filed under the correct vertex and direction; every degree/neighbour/id query must agree
+        /// with a captured view and never throw.
+        /// </summary>
+        private void RunEdgeChurnStress(string[] churnEdgePropertyIds)
         {
             var fallen8 = new Fallen8(_loggerFactory);
 
@@ -254,8 +280,12 @@ namespace NoSQL.GraphDB.Tests
                 {
                     int source = rng.Next(0, hotSet);
                     int target = rng.Next(0, hotSet);
+                    // Cycle the churn ids so the multi-group variant drives each hot vertex past the
+                    // inline->map promotion boundary (edges under >1 edge-property-id); the
+                    // single-group variant always resolves to its one id and stays inline.
+                    var edgePropertyId = churnEdgePropertyIds[round % churnEdgePropertyIds.Length];
                     var addTx = new CreateEdgesTransaction();
-                    addTx.AddEdge(source, EdgePropertyId, target, 1u, EdgeLabel);
+                    addTx.AddEdge(source, edgePropertyId, target, 1u, EdgeLabel);
                     fallen8.EnqueueTransaction(addTx).WaitUntilFinished();
 
                     var created = addTx.GetCreatedEdges();
