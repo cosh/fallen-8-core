@@ -346,7 +346,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #region services
 
-            var serviceSaver = new Task<SidecarManifestEntry>[fallen8.ServiceFactory.Services.Count];
+            var serviceSaver = new Task<SidecarManifestEntry?>[fallen8.ServiceFactory.Services.Count];
 
             counter = 0;
             foreach (var aService in fallen8.ServiceFactory.Services)
@@ -360,8 +360,11 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #endregion
 
-            // Collect the sidecar results. Reading .Result rethrows a bunch/service failure here,
-            // BEFORE any header is committed, so a failed save never leaves a loadable header.
+            // Collect the sidecar results. Reading .Result rethrows a graph-element BUNCH failure here,
+            // BEFORE any header is committed, so a failed bunch save never leaves a loadable header:
+            // graph-element bunches stay MANDATORY. Index and service sidecars are best-effort -
+            // SaveIndex/SaveService catch, log and return null on failure, and the null entries are
+            // dropped from the manifest below - so one bad index or service can't block checkpointing.
             var bunchEntries = new List<SidecarManifestEntry>(graphElementSaver.Length);
             foreach (var saver in graphElementSaver)
             {
@@ -381,10 +384,17 @@ namespace NoSQL.GraphDB.Core.Persistency
                 }
             }
 
+            // Only reference the services that persisted successfully: SaveService returns null for any
+            // service that failed to serialize, so one bad service does not abort the whole checkpoint
+            // (nor leave a dangling manifest entry pointing at a broken file).
             var serviceEntries = new List<SidecarManifestEntry>(serviceSaver.Length);
             foreach (var saver in serviceSaver)
             {
-                serviceEntries.Add(saver.Result);
+                var entry = saver.Result;
+                if (entry.HasValue)
+                {
+                    serviceEntries.Add(entry.Value);
+                }
             }
 
             // Build the header + completion manifest in memory, protect the whole thing with a
@@ -695,16 +705,30 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name="service">Service.</param>
         /// <param name="path">Path.</param>
         /// <returns>The filename of the persisted service.</returns>
-        private SidecarManifestEntry SaveService(string serviceName, IService service, string path)
+        private SidecarManifestEntry? SaveService(string serviceName, IService service, string path)
         {
             var serviceFileName = path + Constants.ServiceSaveString + serviceName;
 
-            return WriteSidecar(serviceFileName, writer =>
+            try
             {
-                writer.Write(serviceName);
-                writer.Write(service.PluginName);
-                service.Save(writer);
-            });
+                return WriteSidecar(serviceFileName, writer =>
+                {
+                    writer.Write(serviceName);
+                    writer.Write(service.PluginName);
+                    service.Save(writer);
+                });
+            }
+            catch (Exception ex)
+            {
+                // Symmetric with SaveIndex and with the LOAD side (ValidateOptionalSidecars already
+                // treats service sidecars as best-effort): a service whose Save throws must not abort
+                // the whole checkpoint. Log it loudly and skip it (the caller drops null entries from
+                // the manifest). WriteSidecar has already removed any partial temp file; the final
+                // name is only created on success, so nothing partial is left behind.
+                _logger.LogError(ex, String.Format("Could not persist service \"{0}\"; it will be skipped in this checkpoint.", serviceName));
+
+                return null;
+            }
         }
 
         /// <summary>

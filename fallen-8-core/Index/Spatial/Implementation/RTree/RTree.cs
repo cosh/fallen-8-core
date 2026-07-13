@@ -1885,12 +1885,14 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
 
         public void Save(SerializationWriter writer)
         {
-            // C9: the R-Tree persists a FUNCTIONAL-EQUIVALENT snapshot - its build CONFIG (metric,
-            // min/max node counts, dimensional space) plus its ENTRIES ((point | MBR, elementId)
-            // pairs from the container map) - rather than the exact node/leaf structure. On load an
-            // empty tree is re-Initialized from the config and every entry re-inserted, producing an
-            // equivalent, queryable R*-tree. This replaces the former throw-NotSupportedException stub
-            // (finding B7): a reloaded spatial index is now present and usable, not absent.
+            // C9: the R-Tree persists a FUNCTIONAL-EQUIVALENT snapshot - its build CONFIG (metric type
+            // + metric STATE, min/max node counts, dimensional space) plus its ENTRIES ((point | MBR,
+            // elementId) pairs from the container map) - rather than the exact node/leaf structure. On
+            // load an empty tree is re-Initialized from the config and every entry re-inserted,
+            // producing an equivalent, queryable R*-tree. This replaces the former
+            // throw-NotSupportedException stub (finding B7): a reloaded spatial index is now present
+            // and usable, not absent. Persisting the metric STATE (not just its type name) means a
+            // stateful built-in metric such as GeoMetric round-trips too, not only stateless ones.
             if (ReadResource())
             {
                 try
@@ -1898,7 +1900,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     writer.Write(RTreePayloadVersion);
 
                     // --- build config ---
+                    // The metric is recorded by TYPE NAME and then by its own STATE, so a STATEFUL
+                    // metric (e.g. GeoMetric's earth radius) reconstructs identically on load, not just
+                    // as a default instance. SaveState is a no-op for a stateless metric (EuclidianMetric).
                     writer.Write(Metric.GetType().AssemblyQualifiedName);
+                    Metric.SaveState(writer);
                     writer.WriteVarInt32(MinCountOfNode);
                     writer.WriteVarInt32(MaxCountOfNode);
                     writer.WriteVarInt32(Space.Count);
@@ -1954,7 +1960,10 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     }
 
                     // --- rebuild the build config ---
+                    // Reconstruct the metric by type name, then restore its state (symmetric with
+                    // Save): a stateful metric reads back its fields; a stateless one reads nothing.
                     var metric = CreateConfiguredInstance<IMetric>(reader.ReadString(), "R-Tree metric");
+                    metric.RestoreState(reader);
                     var minCount = reader.ReadOptimizedInt32();
                     var maxCount = reader.ReadOptimizedInt32();
                     var dimensionCount = reader.ReadOptimizedInt32Checked("R-Tree dimensions");
@@ -2043,8 +2052,11 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
 
         /// <summary>
         /// Reconstructs a configured helper (the metric or a dimension) from its stored
-        /// assembly-qualified type name via its public parameterless constructor. A type that cannot
-        /// be resolved or instantiated throws <see cref="InvalidDataException"/>, which
+        /// assembly-qualified type name via its parameterless constructor (public OR non-public - a
+        /// stateful metric like <c>GeoMetric</c> keeps its parameterless ctor non-public so it does not
+        /// widen the public surface, and the caller restores its state via
+        /// <see cref="IMetric.RestoreState"/> right after). A type that cannot be resolved or
+        /// instantiated throws <see cref="InvalidDataException"/>, which
         /// <c>PersistencyFactory.LoadIndices</c> catches to skip just this index.
         /// </summary>
         private static T CreateConfiguredInstance<T>(string assemblyQualifiedTypeName, string what) where T : class
@@ -2061,7 +2073,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                     "The {0} type \"{1}\" could not be resolved on load.", what, assemblyQualifiedTypeName));
             }
 
-            var instance = Activator.CreateInstance(type) as T;
+            var instance = Activator.CreateInstance(type, nonPublic: true) as T;
             if (instance == null)
             {
                 throw new InvalidDataException(String.Format(

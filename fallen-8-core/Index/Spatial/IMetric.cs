@@ -26,6 +26,8 @@
 // Author:
 //       Andriy Kupershmidt <kuper133@googlemail.com>
 
+using NoSQL.GraphDB.Core.Serializer;
+
 namespace NoSQL.GraphDB.Core.Index.Spatial
 {
     /// <summary>
@@ -59,5 +61,29 @@ namespace NoSQL.GraphDB.Core.Index.Spatial
         /// distance for all axis
         /// </returns>
         float[] TransformationOfDistance(float distance, IMBR mbr);
+
+        /// <summary>
+        /// Persists this metric's configuration STATE so a serialized index (e.g. the R-Tree, which
+        /// records the metric by type name) can reconstruct a functionally identical metric on load -
+        /// not merely a default-constructed one. The default is a no-op: a STATELESS metric (such as
+        /// <see cref="Implementation.Metric.EuclidianMetric"/>) has nothing to persist and reconstructs
+        /// fully from its type alone. A STATEFUL metric (such as
+        /// <see cref="Implementation.Metric.GeoMetric"/>, which carries an earth radius) overrides this
+        /// to write its fields, and <see cref="RestoreState"/> to read them back symmetrically.
+        /// </summary>
+        /// <param name="writer">The serialization writer to append the metric state to.</param>
+        void SaveState(SerializationWriter writer)
+        {
+        }
+
+        /// <summary>
+        /// Restores the configuration state written by <see cref="SaveState"/>, in the same order and
+        /// byte layout. The default is a no-op (a stateless metric writes and reads nothing). An
+        /// implementation MUST read exactly what its <see cref="SaveState"/> wrote.
+        /// </summary>
+        /// <param name="reader">The serialization reader positioned at this metric's state.</param>
+        void RestoreState(SerializationReader reader)
+        {
+        }
     }
 }

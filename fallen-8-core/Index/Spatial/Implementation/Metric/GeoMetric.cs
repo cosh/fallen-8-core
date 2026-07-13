@@ -30,6 +30,7 @@
 
 using System;
 using NoSQL.GraphDB.Core.Index.Spatial;
+using NoSQL.GraphDB.Core.Serializer;
 
 #endregion
 
@@ -57,6 +58,18 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric
         {
             RadiusOfEarth = radiusOfEarth;
         }
+
+        /// <summary>
+        /// Parameterless constructor reserved for deserialization only (a serialized R-Tree
+        /// reconstructs its metric by type name, then calls <see cref="RestoreState"/> to fill in the
+        /// state). It is non-public so it does not widen the public surface with a degenerate,
+        /// zero-radius metric: <see cref="RTree.RTree"/>'s loader creates the instance via reflection
+        /// and immediately restores the real <see cref="RadiusOfEarth"/>.
+        /// </summary>
+        private GeoMetric()
+        {
+        }
+
         public float Distance(IMBP point1, IMBP point2)
         {
             if (point1.Coordinates.Length != 2 && point2.Coordinates.Length != 2)
@@ -112,6 +125,25 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric
                 }
                 return result;
             }
+        }
+
+        /// <summary>
+        /// Persists the earth radius so a serialized R-Tree using this metric reconstructs an
+        /// identical <see cref="GeoMetric"/> on load (the R-Tree records only the metric TYPE by name;
+        /// this carries the state).
+        /// </summary>
+        public void SaveState(SerializationWriter writer)
+        {
+            writer.Write(RadiusOfEarth);
+        }
+
+        /// <summary>
+        /// Restores the earth radius written by <see cref="SaveState"/> (reads exactly the one Single
+        /// it wrote, in the same order).
+        /// </summary>
+        public void RestoreState(SerializationReader reader)
+        {
+            RadiusOfEarth = reader.ReadSingle();
         }
     }
 
