@@ -30,12 +30,31 @@ doc still generates with content.
   spec/plan N3b to "landed (OpenAPI output change accepted; transformer removed)".
 
 ## Status
-- [ ] Phase 1 — vuln-safe 10.x bump (+ pinned Microsoft.OpenApi)
-- [ ] Phase 2 — native XML + delete transformer/wiring
-- [ ] Phase 3 — verify the document generates with XML content
-- [ ] Phase 4 — document the accepted change
+- [x] Phase 1 — vuln-safe 10.x bump. `Microsoft.AspNetCore.OpenApi` 9.0.4 → **10.0.9**; explicit
+  `Microsoft.OpenApi` **2.10.0** pin. `dotnet list package --vulnerable --include-transitive`
+  reports **no vulnerable packages** for all three projects (queried against
+  `https://api.nuget.org/v3/index.json`); no NU1605 downgrade; build 0 warnings / 0 errors.
+- [x] Phase 2 — native XML + delete transformer/wiring. `AddOpenApi("v0.1")` now has no operation
+  transformer; `Helper/XmlDocumentationOperationTransformer.cs` deleted. Native XML reading needs no
+  extra opt-in beyond the package reference + `GenerateDocumentationFile` (already `true`): the
+  package's `Microsoft.AspNetCore.OpenApi.targets` auto-registers the interceptor namespace and
+  feeds project-reference `.xml` files to its source generator. The rest of `AddOpenApi` + the
+  Scalar UI wiring is untouched.
+- [x] Phase 3 — verify the document generates with XML content. `OpenApiDocumentTest` boots the real
+  app via `WebApplicationFactory<Program>` (Development env, so the endpoint is mapped), GETs
+  `/openapi/v0.1.json`, and asserts **200 OK**, `openapi` starts with **`3.1`**, a known operation
+  **summary** ("Creates a new vertex in the graph") and a **description** ("Sample request") sourced
+  from controller `<summary>`/`<remarks>`. This runs the genuine runtime doc-generation +
+  serialization path, not a build-time proxy. Full suite: **344 passed / 10 skipped / 0 failed**.
+- [x] Phase 4 — document the accepted change (this file + spec.md; dotnet10 N3b flipped to landed).
+
+## Observed output (10.0.9 + Microsoft.OpenApi 2.10.0, SDK 10.0.201)
+- OpenAPI version **3.1.1** (was 3.0.1 under the 9.x transformer).
+- `"description"` occurrences **324** (transformer-era baseline: 118); `"example"` **111**
+  (baseline: 0); `"$ref"` **122** (baseline ~119 — API surface unchanged, documentation richer).
 
 ## Notes
 - No API surface / route / version change. Scalar stays.
 - If the pinned `Microsoft.OpenApi` cannot clear the vuln, STOP and report (do not ship a
-  high-severity advisory) — that would flip the decision back to keeping the transformer.
+  high-severity advisory) — that would flip the decision back to keeping the transformer. It cleared
+  cleanly, so this did not apply.

@@ -29,11 +29,13 @@ Companion to [spec.md](./spec.md). Items N1–N5 defined there. Ordered small-hi
 ## Status
 - [x] Phase 1 — remove PerformanceCounter (N3a), serializer bulk I/O (N4), Dockerfile → net10
   (N5 build; `docker build` not executed in-environment)
-- [~] Phase 2 — `Microsoft.Extensions.*` aligned to 10.0.9 (N3c, done). OpenAPI 10.x (N3b)
-  **deferred**: the `Microsoft.OpenApi` NU1903 advisory is resolvable (pin `Microsoft.OpenApi`
-  2.10.0), but 10.x native XML-doc reading changes the OpenAPI document (3.0.1 → 3.1.1, added
-  descriptions/examples), which breaks the "output unchanged" contract. Transformer + `Program.cs`
-  wiring kept; vulnerability not reintroduced. See spec.md §3.
+- [x] Phase 2 — `Microsoft.Extensions.*` aligned to 10.0.9 (N3c, done). OpenAPI 10.x (N3b)
+  **landed** (OpenAPI output change accepted; transformer removed): bumped
+  `Microsoft.AspNetCore.OpenApi` to 10.0.9 with `Microsoft.OpenApi` 2.10.0 pinned (NU1903 cleared,
+  no NU1605), deleted `XmlDocumentationOperationTransformer` + its `Program.cs` wiring, and enabled
+  .NET 10 native XML-doc reading. The document moves 3.0.1 → 3.1.1 (richer descriptions/examples);
+  the change was accepted rather than kept under the "output unchanged" constraint. Delivered under
+  the dedicated `openapi-10` feature (see `features/openapi-10/` and spec.md §3).
 - [x] Phase 3 — JSON source generation (N1): `AppJsonContext` (app DTOs + `SubGraphSpecification`)
   wired into MVC + the explicit call sites; `CoreJsonContext` (library) for `SubGraphRecipe` +
   `DelegateDescriptor`. JSON and OpenAPI output proven byte-identical; JSON-specific IL2026

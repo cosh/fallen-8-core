@@ -1,9 +1,19 @@
 # OpenAPI 10.x — Specification
 
-> **Status:** Planned. The `dotnet10-modernization` **N3b** item, deferred there because the 10.x
+> **Status:** Landed. The `dotnet10-modernization` **N3b** item, deferred there because the 10.x
 > native XML-doc path *changes the emitted OpenAPI document* (3.0.1 → 3.1.1, richer descriptions +
 > examples) and that theme's contract was "output unchanged". **User decision (this feature): do the
 > bump and ACCEPT the richer 3.1 document as an improvement.**
+>
+> **Outcome — landed.** `Microsoft.AspNetCore.OpenApi` 9.0.4 → **10.0.9** with an explicit
+> `Microsoft.OpenApi` **2.10.0** pin; the vulnerable-package scan reports **no vulnerable packages**
+> (NU1903 not reintroduced), no NU1605 downgrade, build 0/0. The
+> `XmlDocumentationOperationTransformer` and its `Program.cs` wiring are gone; controller XML docs
+> now flow in through .NET 10's native reader. The emitted document is **OpenAPI 3.1.1** (was 3.0.1),
+> with `"description"` up 118 → **324** and `"example"` 0 → **111** while the `$ref` count is
+> effectively unchanged (~119 → 122): same API surface, richer documentation. Verified at runtime by
+> `OpenApiDocumentTest` (boots the app via `WebApplicationFactory<Program>` and GETs
+> `/openapi/v0.1.json`). Full suite green (344 passed / 10 skipped).
 
 ## 1. Problem / current state
 
