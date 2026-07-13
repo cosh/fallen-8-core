@@ -50,8 +50,8 @@ subgraphs (see `features/wal-subgraph-support/`) — snapshots can be infrequent
 rarely paid. Weighed against that:
 
 - The bounded **copy-on-save** alternative (spec §2) would move only the **disk-I/O** portion of the
-  save off the writer; the serialization (a substantial share of the 170–907 ms) would still run on
-  the writer. So even implementing it would leave a large fraction of the stall in place — a partial
+  save off the writer; the serialization (an unquantified share of the 170–907 ms) would still run on
+  the writer. So even implementing it would leave a fraction of the stall in place — a partial
   win for a real increase in complexity and a transient ~2× memory copy. (We did not instrument the
   exact serialize-vs-I/O split; that it is only a *partial* win is enough to decide against starting.)
 - The **full immutable/copy-on-write element model** would remove the stall entirely but is a large,
