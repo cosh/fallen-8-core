@@ -42,12 +42,41 @@ Every phase: failing/observable test → change → green.
   `core-storage-representation` Phase 4 status and the `memory-footprint` §1 note (adjacency overhead
   now removed). Note any residual (e.g. the `Dictionary` wrapper cost vs a future CSR layout).
 
+### Measurements (`AdjacencyMemoryBenchmark`, this machine, .NET 10, Server GC)
+
+`bytes_per_edge_incl_adjacency` is the retained-memory delta of adding the edges divided by the
+edge count; the `EdgeModel` body is identical before/after, so the before→after delta is purely the
+adjacency representation. The win is **degree-dependent**: the per-group array-vs-AVL-tree saving
+scales with the group size, while the per-vertex `Dictionary<string, EdgeModel[]>` container has a
+fixed cost (its buckets + entries arrays), so a low-degree vertex with a single tiny group does not
+recover that fixed cost.
+
+| avg group degree | before (B/edge) | after (B/edge) | Δ B/edge | total retained before→after |
+|------------------|-----------------|----------------|----------|-----------------------------|
+| 2  (200k V / 400k E)  | 298.1 | 314.9 | **+16.8 (≈ +6%)** | 129.5 → 135.9 MB |
+| 10 (200k V / 2.0M E)  | 210.2 | 152.6 | **−57.6 (≈ −27%)** | 416.6 → 306.8 MB (−110 MB) |
+| 20 (50k V / 1.0M E)   | 197.6 | 128.8 | **−68.8 (≈ −35%)** | 192.4 → 126.8 MB (−66 MB) |
+
+Reading: at **degree ≈ 2** (one edge-property group of ~2 edges per direction) the change is a
+small **regression** — a `Dictionary<K,V>` instance's fixed buckets+entries overhead exceeds a
+1-entry `ImmutableDictionary`, and the 2-node `ImmutableList` saves too little to cover it. The
+**crossover is ≈ degree 3–4**; from there the tree-node overhead the old representation carried
+(~48 B/AVL-node × 2 lists per edge) is shed for ~8 B array slots, so per-edge adjacency drops
+~27–35% and the old cost's floor (~48 B/edge of AVL nodes that never goes away) is what the new
+array representation removes. `bytes_per_vertex_no_edges` is unchanged (82.6 B) — an edge-free
+vertex holds no adjacency container in either representation (empty → `null`).
+
+Honest residual: the `Dictionary` container is itself heavier than a compact map for the
+single-group common case; a future CSR / small-map-inline layout (a non-goal here) would remove that
+fixed cost and make the win monotonic across all degrees. The benchmark is degree-tunable via
+`F8_ADJ_VERTICES` / `F8_ADJ_EDGES` so the crossover is reproducible.
+
 ## Status
-- [ ] Phase 0 — concurrency test + adjacency-memory benchmark (baseline)
-- [ ] Phase 1 — copy-on-write `Dictionary<string, EdgeModel[]>` storage + rewritten add/remove
-- [ ] Phase 2 — read-only public surface + consumer updates + version bump
-- [ ] Phase 3 — migrate the two poison-injection rollback tests
-- [ ] Phase 4 — measure & document
+- [x] Phase 0 — concurrency test + adjacency-memory benchmark (baseline)
+- [x] Phase 1 — copy-on-write `Dictionary<string, EdgeModel[]>` storage + rewritten add/remove
+- [x] Phase 2 — read-only public surface + consumer updates + version bump (0.0.14 → 0.1.0)
+- [x] Phase 3 — migrate the poison-injection rollback tests (internal fault-injection hook)
+- [x] Phase 4 — measure & document
 
 ## Notes
 - Lock-free reads are the crux: build-then-`volatile`-swap, never mutate a published structure;

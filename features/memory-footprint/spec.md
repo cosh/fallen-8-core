@@ -17,12 +17,19 @@ string interning** of labels/keys/edge-property-ids (M2), **transaction lifecycl
 (M3), **removed-element reclamation** under churn (M4), and a bounded default **subgraph quota**
 (M6). None of M1–M6 touch adjacency.
 
-What this theme does **not** address: the remaining **adjacency** overhead — the two per-vertex
-adjacency `ImmutableList`s (~96 B/edge) and the per-vertex adjacency `ImmutableDictionary`s
-(~200–400 B/vertex). Flattening those is `core-storage-representation` **Phase 4**, which stays
-**deferred** there because `VertexModel.OutEdges`/`InEdges` are part of the **public surface**, so
-changing their representation requires a public-API-version bump. It is therefore explicitly **out
-of scope** here (this theme changes only private-behind-accessor state).
+What this theme does **not** address (it was **out of scope** here — this theme changes only
+private-behind-accessor state): the **adjacency** overhead — the two per-vertex adjacency
+`ImmutableList`s (~96 B/edge) and the per-vertex adjacency `ImmutableDictionary`s. That was
+`core-storage-representation` **Phase 4**, deferred there because `VertexModel.OutEdges`/`InEdges`
+are part of the **public surface** (changing them needs a public-API-version bump).
+
+> **Update:** adjacency flattening has since **landed** as `features/adjacency-flattening/` (with the
+> version bump 0.0.14 → 0.1.0). The two per-vertex `ImmutableList` AVL trees are gone — each
+> edge-property group is now a contiguous `EdgeModel[]` behind a copy-on-write, `volatile`-published
+> `Dictionary<string, EdgeModel[]>`, and the public surface is a read-only view. The ~48 B/AVL-node ×
+> 2-lists per-edge overhead this section flagged is removed; the net win is degree-dependent (the
+> `Dictionary` container's fixed cost means a small regression at degree ≈ 2 but ~27–35% less
+> per-edge adjacency at degree ≥ 10 — see that feature's `plan.md` Measurements).
 
 ## 2. Findings & targets
 

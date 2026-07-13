@@ -77,6 +77,18 @@ namespace NoSQL.GraphDB.Tests
 
         private static string Label => Environment.GetEnvironmentVariable("F8_ADJ_LABEL") ?? "unlabeled";
 
+        // Optional absolute overrides so the per-group degree (= edges / vertices, per direction) can
+        // be tuned: the array-vs-tree win scales with group size, while the per-vertex Dictionary
+        // container overhead is fixed, so the net win is degree-dependent (see plan.md). Unset => the
+        // scale-based defaults below.
+        private static int? Override(string name)
+        {
+            var raw = Environment.GetEnvironmentVariable(name);
+            return !string.IsNullOrWhiteSpace(raw) && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
+                ? parsed
+                : (int?)null;
+        }
+
         private static string ResultsPath => Path.Combine(Path.GetTempPath(), "fallen8-adjacency-memory.txt");
 
         private static long LiveBytes()
@@ -95,8 +107,8 @@ namespace NoSQL.GraphDB.Tests
         public void Adjacency_RetainedFootprint_Benchmark()
         {
             double scale = Scale;
-            int vertexCount = (int)(200_000 * scale);
-            int edgeCount = (int)(400_000 * scale);
+            int vertexCount = Override("F8_ADJ_VERTICES") ?? (int)(200_000 * scale);
+            int edgeCount = Override("F8_ADJ_EDGES") ?? (int)(400_000 * scale);
 
             var report = new StringBuilder();
             void Emit(string metric, double value, string unit)
@@ -125,6 +137,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(vertexCount, graph.VertexCount);
 
             double vertexRetained = afterVertices - baseline;
+            Emit("avg_group_degree_per_direction", (double)edgeCount / vertexCount, "edges/vertex");
             Emit("bytes_per_vertex_no_edges", vertexRetained / vertexCount, "B");
 
             // ---- Add edges on top of the fixed vertex set. The retained delta / edge is the
