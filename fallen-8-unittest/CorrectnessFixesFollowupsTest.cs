@@ -118,7 +118,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task AddEdge_WhenWaitingAndReferencingNonExistentVertex_ReturnsError()
+        public async Task AddEdge_WhenWaitingAndReferencingNonExistentVertex_Returns404()
         {
             // Arrange - one real vertex so the source resolves but the target does not.
             var fallen8 = new Fallen8(_loggerFactory);
@@ -138,9 +138,12 @@ namespace NoSQL.GraphDB.Tests
             // Act
             var result = await controller.AddEdge(edgeSpec, waitForCompletion: true);
 
-            // Assert
-            Assert.AreEqual(StatusCodes.Status500InternalServerError, StatusCodeOf(result),
-                "Creating an edge to a non-existent vertex rolls back and must be reported as an error.");
+            // Assert - MIGRATED (transaction-failure-reasons): a referenced vertex that does not
+            // exist is a client-caused NotFound. The engine no longer lets the master-store bounds
+            // check throw; the edge transaction rolls back cleanly with NotFound, so the waited-on
+            // create returns 404, not the misleading 500 it produced before.
+            Assert.AreEqual(StatusCodes.Status404NotFound, StatusCodeOf(result),
+                "Creating an edge to a non-existent vertex must be reported as 404 (NotFound), not 500.");
         }
 
         [TestMethod]

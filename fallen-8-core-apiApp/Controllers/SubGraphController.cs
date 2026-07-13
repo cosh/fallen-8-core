@@ -90,10 +90,10 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <param name="fromSubGraph">Optional name of an existing subgraph to source this one from (creates a nested subgraph). When omitted, the subgraph is sourced from the whole graph.</param>
-        /// <response code="201">The subgraph was created and registered</response>
-        /// <response code="400">No valid subgraph was produced (the pattern matched nothing, was structurally invalid, or a resource quota was exceeded), the specification was invalid, or a filter failed to compile</response>
+        /// <response code="201">The subgraph was created and registered. A syntactically-valid pattern that matches nothing yields a registered EMPTY subgraph (201), identically whether the source graph is empty or populated.</response>
+        /// <response code="400">The specification was invalid, the pattern was structurally invalid, or a filter failed to compile</response>
         /// <response code="404">The source subgraph named by fromSubGraph does not exist</response>
-        /// <response code="409">A subgraph with the same name already exists</response>
+        /// <response code="409">A subgraph with the same name already exists, or a resource quota (subgraph count or materialized-element ceiling) was exceeded</response>
         /// <response code="500">The create transaction faulted with an internal error</response>
         [HttpPut("/subgraph")]
         [Consumes("application/json")]
@@ -145,28 +145,15 @@ namespace NoSQL.GraphDB.App.Controllers
                 var txInfo = _fallen8.EnqueueTransaction(tx);
                 txInfo.WaitUntilFinished();
 
-                // The worker maps BOTH a thrown exception AND a clean TryExecute()==false to
-                // TransactionState.RolledBack, so the state alone cannot tell them apart. txInfo.Error
-                // is non-null only for an exception that ESCAPES the worker's TryExecute. A fault that
-                // SubGraphFactory.CreateAndRegisterSubGraph catches internally is turned into a clean
-                // false, so it surfaces below as a 400 (clean rollback), not a 500. See
-                // features/correctness-fixes-followups/spec.md section 5 (CreateSubGraph fault-vs-clean
-                // split) for that known gap.
-                if (txInfo.Error != null)
-                {
-                    _logger?.LogError(txInfo.Error, "Creation of subgraph '{0}' faulted and was rolled back.", specification.Name);
-                    return StatusCode(StatusCodes.Status500InternalServerError,
-                        String.Format("Creation of subgraph '{0}' failed due to an internal error.", specification.Name));
-                }
-
                 if (tx.SubGraphCreated == null)
                 {
-                    // Clean rollback / no result: the create ran without faulting but produced no
-                    // subgraph - the pattern matched nothing, was structurally invalid, or a resource
-                    // quota was exceeded. Those are client-correctable, so 400 rather than 500.
-                    return BadRequest(String.Format(
-                        "No valid subgraph was produced for '{0}' - the pattern matched nothing, was structurally invalid, or a resource quota was exceeded.",
-                        specification.Name));
+                    // The create produced no subgraph. The worker maps BOTH a thrown exception AND a
+                    // clean TryExecute()==false to RolledBack; the recorded TransactionFailureReason
+                    // classifies WHY, so a client-caused rollback (structurally-invalid pattern,
+                    // quota breach, missing source, name conflict) maps to the right 4xx and only a
+                    // genuine internal fault maps to 500. A syntactically-valid pattern that matches
+                    // nothing is NOT a failure here - it yields a registered EMPTY subgraph (201).
+                    return MapFailedSubGraphCreate(txInfo, specification.Name);
                 }
 
                 // Attach a recipe so the subgraph can be persisted and rebuilt on load. The
@@ -321,15 +308,56 @@ namespace NoSQL.GraphDB.App.Controllers
 
             // RemoveSubGraphTransaction.TryExecute returns false (→ terminal RolledBack) on its
             // failure paths. A rolled-back removal must not be reported to the client as a
-            // successful 204 (correctness-fixes B6); surface it as 500, as the graph/admin
-            // controllers do for their waited-on mutations.
+            // successful 204 (correctness-fixes B6). The recorded reason classifies it: a subgraph
+            // that no longer exists (removed concurrently after the up-front check) is a 404, any
+            // other rollback an internal 500.
             if (txInfo.TransactionState == TransactionState.RolledBack)
             {
+                if (txInfo.FailureReason == TransactionFailureReason.NotFound)
+                {
+                    return NotFound(String.Format("No subgraph named '{0}'.", name));
+                }
+
                 return StatusCode(StatusCodes.Status500InternalServerError,
                     String.Format("The removal of subgraph '{0}' was rolled back; the operation did not complete.", name));
             }
 
             return NoContent();
+        }
+
+        /// <summary>
+        ///   Maps a failed (no-result) subgraph create to the correct HTTP status from the
+        ///   transaction's structured <see cref="TransactionFailureReason"/>: a structurally-invalid
+        ///   specification/pattern to 400, a missing source to 404, a resource-quota breach or a
+        ///   name conflict to 409, and any genuine internal fault to 500.
+        /// </summary>
+        private IActionResult MapFailedSubGraphCreate(TransactionInformation txInfo, String name)
+        {
+            switch (txInfo.FailureReason)
+            {
+                case TransactionFailureReason.InvalidInput:
+                    return BadRequest(String.Format(
+                        "No valid subgraph was produced for '{0}': the pattern or specification was structurally invalid.", name));
+
+                case TransactionFailureReason.NotFound:
+                    return NotFound(String.Format(
+                        "A source graph or subgraph required to create '{0}' does not exist.", name));
+
+                case TransactionFailureReason.QuotaExceeded:
+                    return Conflict(String.Format(
+                        "Creation of subgraph '{0}' was rejected because a resource quota was exceeded.", name));
+
+                case TransactionFailureReason.Conflict:
+                    return Conflict(String.Format("A subgraph named '{0}' already exists.", name));
+
+                default:
+                    if (txInfo.Error != null)
+                    {
+                        _logger?.LogError(txInfo.Error, "Creation of subgraph '{0}' faulted and was rolled back.", name);
+                    }
+                    return StatusCode(StatusCodes.Status500InternalServerError,
+                        String.Format("Creation of subgraph '{0}' failed due to an internal error.", name));
+            }
         }
     }
 }

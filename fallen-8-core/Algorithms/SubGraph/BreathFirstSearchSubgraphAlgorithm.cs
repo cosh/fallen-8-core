@@ -81,6 +81,18 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                 return false;
             }
 
+            // Validate the pattern STRUCTURE up front, before touching the source graph, so a
+            // structurally-invalid pattern is rejected (a clean false -> InvalidInput -> 400)
+            // CONSISTENTLY, whether the source graph is empty or populated. A syntactically-valid
+            // pattern that simply matches nothing is NOT a failure: it yields an empty subgraph
+            // (below), identically for an empty source graph and a populated one.
+            if (definition.Pattern != null && definition.Pattern.Count > 0 && !ValidatePattern(definition.Pattern))
+            {
+                _logger?.LogWarning("Invalid pattern definition");
+                result = null;
+                return false;
+            }
+
             var subgraph = new Fallen8(_fallen8.LoggerFactory);
 
             result = new SubGraphResult
@@ -99,15 +111,11 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
             if (vertexIdMapping.Count == 0)
             {
-                _logger?.LogInformation("No vertices matched the vertex filter");
-
-                // If patterns are defined, return false (no match)
-                // Otherwise return an empty subgraph
-                if (definition.Pattern != null && definition.Pattern.Count > 0)
-                {
-                    result = null;
-                    return false;
-                }
+                // No vertices to match against - because the source graph is empty OR because the
+                // top-level vertex filter matched nothing. Either way, a valid pattern that matches
+                // nothing is a valid EMPTY result: return the (empty) subgraph rather than false, so
+                // the empty-graph and populated-no-match cases behave identically (both -> 201).
+                _logger?.LogInformation("No vertices matched the vertex filter; producing an empty subgraph.");
                 return true;
             }
 

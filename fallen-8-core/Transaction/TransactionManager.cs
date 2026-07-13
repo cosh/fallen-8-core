@@ -158,6 +158,12 @@ namespace NoSQL.GraphDB.Core.Transaction
                 var faultedInfo = SetTransactionState(tx, TransactionState.RolledBack);
                 faultedInfo.Error = ex;
 
+                // An exception that escaped execution is, by definition, an unexpected internal
+                // fault: classify it as InternalError on the same instance, under the same
+                // happens-before as Error/TransactionState, so a waited-on caller maps it to a 500
+                // rather than a client-facing 4xx.
+                faultedInfo.FailureReason = TransactionFailureReason.InternalError;
+
                 // The rollback above has already run and the terminal state (with Error) is set, so
                 // the heavy input payload can be dropped now instead of lingering until Trim (M3).
                 // This releases ONLY the input; the TransactionInformation entry, its state and its
@@ -199,7 +205,14 @@ namespace NoSQL.GraphDB.Core.Transaction
                 _logger.LogWarning("Transaction {TransactionId} ({TransactionType}) failed and will be rolled back (execution time: {ElapsedMilliseconds}ms)",
                     tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
                 RollbackSafely(tx, transactionType);
-                SetTransactionState(tx, TransactionState.RolledBack);
+                var rolledBackInfo = SetTransactionState(tx, TransactionState.RolledBack);
+
+                // Publish WHY the transaction rolled back cleanly (default None) on the same
+                // instance the caller holds, set before the task completes so a WaitUntilFinished
+                // caller observes it under the same happens-before as the terminal state. A clean
+                // false with no recorded reason stays None (mapped as a generic internal failure).
+                rolledBackInfo.FailureReason = tx.FailureReason;
+
                 ReleaseInputsSafely(tx, transactionType);
             }
         }

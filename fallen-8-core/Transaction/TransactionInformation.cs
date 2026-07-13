@@ -55,6 +55,23 @@ namespace NoSQL.GraphDB.Core.Transaction
             get; set;
         }
 
+        /// <summary>
+        /// The structured reason a transaction rolled back, if any. It is
+        /// <see cref="TransactionFailureReason.None"/> when the transaction finished successfully
+        /// or rolled back without a recorded reason. Whereas <see cref="Error"/> distinguishes a
+        /// genuine thrown fault from a clean rollback, this classifies WHY a clean rollback
+        /// happened (a missing referenced element, a quota breach, a name conflict, an invalid
+        /// request, ...), so a caller that waited on the outcome can map it to the correct
+        /// response instead of collapsing everything to a single status. An escaped exception
+        /// implies <see cref="TransactionFailureReason.InternalError"/>. Set in place by the
+        /// transaction manager before the transaction task completes, so it is visible under the
+        /// same happens-before edge as <see cref="TransactionState"/> and <see cref="Error"/>.
+        /// </summary>
+        public TransactionFailureReason FailureReason
+        {
+            get; set;
+        } = TransactionFailureReason.None;
+
         private readonly Task _txTask;
 
         public TransactionInformation(Task txTask)

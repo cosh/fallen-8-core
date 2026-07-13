@@ -417,6 +417,33 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Resolves a vertex by id for WIRING AN EDGE, returning <c>null</c> - rather than
+        ///   throwing - when the id is out of range, the slot is empty (left by a load), the element
+        ///   is not a vertex, or the vertex has been removed. Unlike
+        ///   <see cref="GetGraphElementForMutation" /> (whose historical out-of-range throw is relied
+        ///   on by the removal/property paths), this lets <c>CreateEdge(s)</c> fail a client-caused
+        ///   missing/removed endpoint CLEANLY (NotFound) instead of letting the master-store bounds
+        ///   check throw - which used to surface as a misleading 500. Single-writer, so a vertex
+        ///   resolved here cannot be concurrently removed before the edge is wired.
+        /// </summary>
+        private VertexModel TryResolveLiveVertexForEdge(Int32 vertexId)
+        {
+            var snap = _snapshot;
+            if (vertexId < 0 || vertexId >= snap.Count)
+            {
+                return null;
+            }
+
+            var vertex = snap.Segments[vertexId >> SegmentShift][vertexId & SegmentMask] as VertexModel;
+            if (vertex == null || vertex._removed)
+            {
+                return null;
+            }
+
+            return vertex;
+        }
+
+        /// <summary>
         ///   Builds a segmented <see cref="Snapshot" /> from a dense, id-ordered source array
         ///   (index == id). Used by Load (from the on-disk flat array) and Trim (from the freshly
         ///   compacted array). The final segment keeps its full <see cref="SegmentSize" /> spare
@@ -890,8 +917,11 @@ namespace NoSQL.GraphDB.Core
         {
             EdgeModel outgoingEdge = null;
 
-            var sourceVertex = GetGraphElementForMutation(sourceVertexId) as VertexModel;
-            var targetVertex = GetGraphElementForMutation(targetVertexId) as VertexModel;
+            // Verify both endpoints exist and are live BEFORE wiring. A missing/removed/out-of-range
+            // endpoint resolves to null here (no throw), so the edge is simply not created and the
+            // caller rolls back cleanly with NotFound - instead of the old bounds-check throw -> 500.
+            var sourceVertex = TryResolveLiveVertexForEdge(sourceVertexId);
+            var targetVertex = TryResolveLiveVertexForEdge(targetVertexId);
 
             //get the related vertices
             if (sourceVertex != null && targetVertex != null)
@@ -919,39 +949,52 @@ namespace NoSQL.GraphDB.Core
             return outgoingEdge;
         }
 
-        internal List<EdgeModel> CreateEdges_internal(List<EdgeDefinition> definitions)
+        internal List<EdgeModel> CreateEdges_internal(List<EdgeDefinition> definitions, out Boolean allEndpointsResolved)
         {
+            allEndpointsResolved = true;
             var newEdges = new List<EdgeModel>();
 
             if (definitions != null && definitions.Count > 0)
             {
+                // Verify EVERY referenced vertex exists and is live BEFORE wiring anything, so a
+                // batch that references a missing/removed vertex rolls back cleanly (NotFound) and
+                // ATOMICALLY - instead of committing a partial result or letting the master-store
+                // bounds check throw. Single-writer, so no endpoint can be removed between this pass
+                // and the wiring pass below.
                 foreach (var aEdgeDefinition in definitions)
                 {
-                    var sourceVertex = GetGraphElementForMutation(aEdgeDefinition.SourceVertexId) as VertexModel;
-                    var targetVertex = GetGraphElementForMutation(aEdgeDefinition.TargetVertexId) as VertexModel;
-
-                    //get the related vertices
-                    if (sourceVertex != null && targetVertex != null)
+                    if (TryResolveLiveVertexForEdge(aEdgeDefinition.SourceVertexId) == null
+                        || TryResolveLiveVertexForEdge(aEdgeDefinition.TargetVertexId) == null)
                     {
-                        //intern the label, edge-property-id and property keys (finding M2)
-                        var edgePropertyId = Intern(aEdgeDefinition.EdgePropertyId);
-                        var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex,
-                            Intern(aEdgeDefinition.Label), edgePropertyId, InternPropertyKeys(aEdgeDefinition.Properties));
-
-                        newEdges.Add(newEdge);
-
-                        //increment the ids (single-writer field, plain increment - finding P10)
-                        _currentId++;
-
-                        //add the edge to the source vertex
-                        sourceVertex.AddOutEdge(edgePropertyId, newEdge);
-
-                        //link the vertices
-                        targetVertex.AddIncomingEdge(edgePropertyId, newEdge);
-
-                        //increase the edgeCount
-                        EdgeCount++;
+                        allEndpointsResolved = false;
+                        return newEdges; // nothing wired
                     }
+                }
+
+                foreach (var aEdgeDefinition in definitions)
+                {
+                    // Guaranteed non-null by the pre-validation pass above.
+                    var sourceVertex = TryResolveLiveVertexForEdge(aEdgeDefinition.SourceVertexId);
+                    var targetVertex = TryResolveLiveVertexForEdge(aEdgeDefinition.TargetVertexId);
+
+                    //intern the label, edge-property-id and property keys (finding M2)
+                    var edgePropertyId = Intern(aEdgeDefinition.EdgePropertyId);
+                    var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex,
+                        Intern(aEdgeDefinition.Label), edgePropertyId, InternPropertyKeys(aEdgeDefinition.Properties));
+
+                    newEdges.Add(newEdge);
+
+                    //increment the ids (single-writer field, plain increment - finding P10)
+                    _currentId++;
+
+                    //add the edge to the source vertex
+                    sourceVertex.AddOutEdge(edgePropertyId, newEdge);
+
+                    //link the vertices
+                    targetVertex.AddIncomingEdge(edgePropertyId, newEdge);
+
+                    //increase the edgeCount
+                    EdgeCount++;
                 }
 
                 //add the edges to the graph elements in batch

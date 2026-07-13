@@ -49,12 +49,15 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            try
+            _edgesAdded = f8.CreateEdges_internal(Edges, out var allEndpointsResolved);
+
+            if (!allEndpointsResolved)
             {
-                _edgesAdded = f8.CreateEdges_internal(Edges);
-            }
-            catch (Exception)
-            {
+                // A referenced vertex was missing/removed: the whole batch rolled back cleanly and
+                // atomically (nothing was wired) - a client-caused NotFound, not an internal fault.
+                // A genuine unexpected exception is no longer swallowed here; it escapes to the
+                // worker, which records it as Error/InternalError (B6).
+                FailureReason = TransactionFailureReason.NotFound;
                 return false;
             }
 

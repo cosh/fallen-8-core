@@ -34,6 +34,21 @@ namespace NoSQL.GraphDB.Core.Transaction
         public readonly string TransactionId = Guid.NewGuid().ToString();
 
         /// <summary>
+        ///   The structured reason this transaction rolled back cleanly, recorded by
+        ///   <see cref="TryExecute"/> (or the engine operation it drives) right before it returns
+        ///   <c>false</c> for a known, client-attributable cause. The transaction manager copies it
+        ///   onto the caller's <see cref="TransactionInformation.FailureReason"/> under the same
+        ///   happens-before as the terminal state. Defaults to
+        ///   <see cref="TransactionFailureReason.None"/>; an escaped exception is classified as
+        ///   <see cref="TransactionFailureReason.InternalError"/> by the manager regardless of this
+        ///   value.
+        /// </summary>
+        internal TransactionFailureReason FailureReason
+        {
+            get; set;
+        } = TransactionFailureReason.None;
+
+        /// <summary>
         ///   Fully releases every reference the transaction still holds (both its input
         ///   definition and any captured created-model list). Called by the transaction manager
         ///   at <c>Trim</c>, once the transaction is no longer observable.
