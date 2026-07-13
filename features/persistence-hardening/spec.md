@@ -1,8 +1,8 @@
 # Persistence / Checkpointing Hardening — Specification
 
-> **Status:** Planned. Durability, robustness, and efficiency improvements to the checkpoint
-> layer, from the persistence review. Correctness/durability items take priority over the
-> performance items.
+> **Status:** Implemented (P3 non-blocking save deferred; see plan). Durability, robustness, and
+> efficiency improvements to the checkpoint layer, from the persistence review.
+> Correctness/durability items take priority over the performance items.
 
 ## 1. How it works today (verified)
 
@@ -63,8 +63,9 @@ write-ahead log for durability between snapshots.
   loudly on mismatch (C2, C4). A truncated/garbage file is rejected without a huge allocation or
   worker death (C3, C5). Recipe sidecars can't rehydrate stale entries (C6). Complex property
   values round-trip (C7).
-- Save peak memory drops (P1); save no longer stalls concurrent reads/writes (P3); large-graph
-  save/load throughput improves (P2, P6) — measured.
+- Save peak memory drops (P1); save no longer stalls concurrent reads/writes (P3 — deferred; see
+  plan Stage C; blocking-but-correct save retained); large-graph save/load throughput improves
+  (P2, P6) — measured.
 - WAL: after a crash between snapshots, load replays the log and recovers committed transactions.
 - On-disk format changes are gated behind the new version field; existing tests + new
   crash/corruption tests pass.

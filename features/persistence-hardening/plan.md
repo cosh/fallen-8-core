@@ -124,11 +124,16 @@ strings, every property value type, and property byte order all reconstruct fait
   throws; a new guarded `ReadOptimizedInt32Checked` extends the C5 length-prefix guard to the var-int
   counts that size collections. Dates stay fixed-width; the header stays fixed-width.
 - **C9** — the spatial **R-Tree** index is now **fully persistable and reloads functional**,
-  replacing the B7 skip-and-recreate. `Save` writes the build **config** (metric + dimension types,
-  min/max node counts) and the **entries** ((point | MBR, elementId) pairs from the container map);
-  `Load` re-`Initialize`s an empty tree from the config and re-inserts every entry, rebuilding an
-  equivalent, **queryable** tree (region/point/distance/kNN queries run on the reloaded index — the
-  exact thing B7 could not do). An explicit **`IIndex.CanPersist`** capability flag replaces the
+  replacing the B7 skip-and-recreate. `Save` writes the build **config** (metric type **plus the
+  metric's own state**, dimension types, min/max node counts) and the **entries** ((point | MBR,
+  elementId) pairs from the container map); `Load` re-`Initialize`s an empty tree from the config and
+  re-inserts every entry, rebuilding an equivalent, **queryable** tree (region/point/distance/kNN
+  queries run on the reloaded index — the exact thing B7 could not do). Serializing the metric STATE
+  (via an `IMetric.SaveState`/`RestoreState` hook, default no-op for a stateless metric) means a
+  **stateful** built-in metric — `GeoMetric`, which carries an earth radius and has no public
+  parameterless ctor — round-trips faithfully too, not only the stateless `EuclidianMetric`; the
+  metric is reconstructed via its (public or non-public) parameterless ctor and then has its state
+  restored. An explicit **`IIndex.CanPersist`** capability flag replaces the
   implicit `NotSupportedException`-from-`Save` signal: `PersistencyFactory.SaveIndex` skips a
   `CanPersist == false` index silently (Information) and reserves Error-level logging + partial-file
   cleanup for a genuine serialization failure of an index that claims it can persist. Every built-in
@@ -245,10 +250,13 @@ WAL is a separate file with its own envelope), so `formatVersion` is not bumped.
 
 - **Opt-in, off by default.** The WAL is enabled only by constructing `Fallen8` with a
   `WriteAheadLogOptions(path)` (new public type + constructor overload). Every existing constructor
-  path carries **no** WAL: no per-commit fsync, no log file, and behaviour + the whole existing
-  suite are unchanged (304 → still 304 passing on the WAL-off path; the 11 new WAL tests are all on
-  the opt-in path). With the WAL on, each committed data-mutating transaction is appended and
-  fsync'd, which is why it is a deliberate, cost-aware choice.
+  path carries **no** WAL: no per-commit fsync, no log file, and behaviour + the whole pre-WAL suite
+  are unchanged (the WAL-off default path is exercised exactly as before). The WAL's own coverage
+  lives in `WriteAheadLogTest.cs` (**15 tests**): the off-by-default path, crash recovery between
+  snapshots, unanchored-log replay, torn/corrupt-tail safety, snapshot-truncate composition, and the
+  WAL↔snapshot path-pairing (canonicalized-token match + the loud warning when a non-pairing log
+  that still holds entries is discarded). With the WAL on, each committed data-mutating transaction
+  is appended and fsync'd, which is why it is a deliberate, cost-aware choice.
 - **What is logged.** Only committed **data-mutating** transactions — vertex/edge creation (single
   + batch), property add (single + batch), property removal, element removal (single + batch) — plus
   the two **id-space lifecycle markers** Trim and TabulaRasa. Save/Load are not logged (Save writes a
@@ -288,8 +296,13 @@ WAL is a separate file with its own envelope), so `formatVersion` is not bumped.
 - **Snapshot-truncate ordering (compose with Save).** A full Save writes the hardened snapshot and
   THEN, only once it is durably committed (temp + fsync + atomic rename), resets the WAL (rewritten
   atomically via temp + rename) to record the new baseline and a pairing token = the snapshot's
-  actual path, discarding the now-superseded pre-snapshot entries. Load replays the WAL only if its
-  pairing token matches the loaded snapshot. This makes "snapshot-then-truncate" crash-safe: a crash
+  **canonicalized** path, discarding the now-superseded pre-snapshot entries. Load replays the WAL
+  only if its pairing token matches the loaded snapshot — the match canonicalizes both sides
+  (`Path.GetFullPath`, case-insensitive on Windows/macOS) so a non-verbatim reload of the SAME
+  snapshot (case variant, relative-vs-absolute, `./` segment, trailing separator) still pairs and
+  replays rather than being misread as non-pairing; and when a NON-pairing log that still holds
+  committed entries is discarded, that is logged as a loud **warning** (never a silent drop of
+  committed work). This makes "snapshot-then-truncate" crash-safe: a crash
   between "snapshot durable" and "log reset" leaves the log still paired with the PREVIOUS snapshot,
   so loading the NEW snapshot does not replay it (no double-apply — the new snapshot already contains
   everything up to the save) while loading the previous snapshot still replays it (no loss). A
