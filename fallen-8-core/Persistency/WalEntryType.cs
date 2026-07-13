@@ -56,6 +56,18 @@ namespace NoSQL.GraphDB.Core.Persistency
         Trim = 10,
 
         /// <summary>A full in-memory reset (clears the graph, resets the id space). No payload.</summary>
-        TabulaRasa = 11
+        TabulaRasa = 11,
+
+        /// <summary>
+        ///   A subgraph created from a persistable recipe. Payload: the serialized
+        ///   <see cref="SubGraph.SubGraphRecipe"/> (JSON) + the source subgraph name (empty for a
+        ///   root subgraph). Replayed by recompiling the recipe and re-executing the equivalent
+        ///   create against the replayed graph, in commit order. Delegate-only subgraphs (no recipe)
+        ///   are not logged, matching snapshot persistence.
+        /// </summary>
+        CreateSubGraph = 12,
+
+        /// <summary>A subgraph removal. Payload: the subgraph name.</summary>
+        RemoveSubGraph = 13
     }
 }

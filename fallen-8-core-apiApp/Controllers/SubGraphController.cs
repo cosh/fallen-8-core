@@ -141,7 +141,18 @@ namespace NoSQL.GraphDB.App.Controllers
                     return BadRequest(compileError);
                 }
 
-                var tx = new CreateSubGraphTransaction { Definition = definition, SourceSubGraphName = fromSubGraph };
+                // Pass the opaque specification text on the transaction so it attaches a persistable
+                // recipe on success (built from the created result). Doing it in the transaction -
+                // rather than here, after WaitUntilFinished - means the recipe is present when the
+                // write-ahead log serializes the committed transaction on the writer thread, so
+                // subgraphs are durable across a WAL replay, not just a Save/Load. The recipe fields
+                // are identical to what this controller built before.
+                var tx = new CreateSubGraphTransaction
+                {
+                    Definition = definition,
+                    SourceSubGraphName = fromSubGraph,
+                    SpecificationJson = JsonSerializer.Serialize(specification, AppJsonContext.Default.SubGraphSpecification)
+                };
                 var txInfo = _fallen8.EnqueueTransaction(tx);
                 txInfo.WaitUntilFinished();
 
@@ -155,18 +166,6 @@ namespace NoSQL.GraphDB.App.Controllers
                     // nothing is NOT a failure here - it yields a registered EMPTY subgraph (201).
                     return MapFailedSubGraphCreate(txInfo, specification.Name);
                 }
-
-                // Attach a recipe so the subgraph can be persisted and rebuilt on load. The
-                // source id and own id come from the result so nested subgraphs persist with
-                // the correct dependency.
-                tx.SubGraphCreated.Recipe = new SubGraphRecipe
-                {
-                    Name = specification.Name,
-                    SubGraphId = tx.SubGraphCreated.SubGraph.Id,
-                    AlgorithmPluginName = tx.SubGraphCreated.AlgorithmPluginName,
-                    SourceFallen8Id = tx.SubGraphCreated.SourceFallen8Id,
-                    SpecificationJson = JsonSerializer.Serialize(specification, AppJsonContext.Default.SubGraphSpecification)
-                };
 
                 var summary = SubGraphSummary.FromResult(tx.SubGraphCreated,
                     _fallen8.SubGraphFactory.CanRecalculateSubGraph(specification.Name));

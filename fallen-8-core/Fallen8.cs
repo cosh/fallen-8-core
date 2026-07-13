@@ -283,10 +283,23 @@ namespace NoSQL.GraphDB.Core
         ///   an existing log at that path is adopted: a log that predates any snapshot is replayed
         ///   immediately onto the (empty) graph, while a log anchored to a snapshot is replayed later
         ///   by <c>Load</c> of that snapshot.
+        ///
+        ///   <para>An optional <paramref name="subGraphRecipeCompiler" /> is registered BEFORE the log
+        ///   is opened, so that an UNANCHORED log's subgraph entries - which replay during construction,
+        ///   before any property could be set - can be recompiled and recovered. For the
+        ///   snapshot-paired path the compiler may instead be assigned to
+        ///   <see cref="SubGraphRecipeCompiler" /> before <c>Load</c> (replay happens during Load); a
+        ///   subgraph entry encountered with no compiler registered is skipped with a warning.</para>
         /// </summary>
-        public Fallen8(ILoggerFactory loggerfactory, WriteAheadLogOptions writeAheadLogOptions)
+        public Fallen8(ILoggerFactory loggerfactory, WriteAheadLogOptions writeAheadLogOptions,
+            ISubGraphRecipeCompiler subGraphRecipeCompiler = null)
             : this(loggerfactory)
         {
+            if (subGraphRecipeCompiler != null)
+            {
+                SubGraphRecipeCompiler = subGraphRecipeCompiler;
+            }
+
             if (writeAheadLogOptions != null && !String.IsNullOrWhiteSpace(writeAheadLogOptions.Path))
             {
                 EnableWriteAheadLog(writeAheadLogOptions.Path);
@@ -1381,6 +1394,10 @@ namespace NoSQL.GraphDB.Core
                     {
                         TabulaRasa_internal();
                     }
+                    else if (type == Persistency.WalEntryType.CreateSubGraph)
+                    {
+                        ReplaySubGraphCreate(payload);
+                    }
 
                     replayed++;
                 }
@@ -1390,6 +1407,71 @@ namespace NoSQL.GraphDB.Core
             finally
             {
                 _walSuspended = false;
+            }
+        }
+
+        /// <summary>
+        ///   Replays one logged <see cref="Persistency.WalEntryType.CreateSubGraph" /> entry:
+        ///   recompiles the persisted recipe (via the registered <see cref="SubGraphRecipeCompiler" />)
+        ///   and re-executes the equivalent create against the graph as replayed so far. Because
+        ///   entries replay in commit order, every vertex/edge the subgraph matched already exists and
+        ///   a nested subgraph's source is already registered (resolved by its stable name), so the
+        ///   recomputed subgraph matches the identical elements without any id remapping. Any problem -
+        ///   an undecodable entry, no compiler registered, a compile failure, or a create that returns
+        ///   false - is logged and SKIPPED so recovery continues with later entries (subgraphs are
+        ///   rebuildable derived state). Subgraph creation allocates no ids in this graph, so it does
+        ///   not perturb the vertex/edge id-determinism the surrounding replay relies on.
+        /// </summary>
+        private void ReplaySubGraphCreate(byte[] payload)
+        {
+            if (!WalTransactionCodec.TryDecodeSubGraphCreate(payload, out var recipe, out var sourceSubGraphName))
+            {
+                _logger.LogWarning("A logged CreateSubGraph entry could not be decoded during recovery and was skipped.");
+                return;
+            }
+
+            var compiler = SubGraphRecipeCompiler;
+            if (compiler == null)
+            {
+                _logger.LogWarning(
+                    "The write-ahead log holds a subgraph \"{Name}\" but no recipe compiler is registered; it is skipped on replay. Register IFallen8.SubGraphRecipeCompiler before load to recover logged subgraphs.",
+                    recipe.Name);
+                return;
+            }
+
+            // The create transaction always uses the default subgraph algorithm, so a recipe naming a
+            // different algorithm cannot be reproduced faithfully via this path. In the current engine
+            // the transaction/REST create is BFS-only, so this never fires; the guard makes the
+            // assumption visible if a future multi-algorithm create regresses it.
+            if (!string.IsNullOrEmpty(recipe.AlgorithmPluginName) &&
+                !string.Equals(recipe.AlgorithmPluginName,
+                    Algorithms.SubGraph.BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName, StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    "Logged subgraph \"{Name}\" was created with algorithm \"{Algorithm}\", but replay recreates it with the default algorithm.",
+                    recipe.Name, recipe.AlgorithmPluginName);
+            }
+
+            if (!compiler.TryCompile(recipe, out var definition, out var error))
+            {
+                _logger.LogWarning(
+                    "Could not compile the recipe for logged subgraph \"{Name}\" during recovery: {Error}; it is skipped.",
+                    recipe.Name, error);
+                return;
+            }
+
+            var tx = new CreateSubGraphTransaction
+            {
+                Definition = definition,
+                SourceSubGraphName = string.IsNullOrEmpty(sourceSubGraphName) ? null : sourceSubGraphName,
+                SpecificationJson = recipe.SpecificationJson
+            };
+
+            if (!tx.TryExecute(this))
+            {
+                _logger.LogWarning(
+                    "Re-executing a logged CreateSubGraph transaction for subgraph \"{Name}\" during recovery returned false (reason {Reason}); it is skipped.",
+                    recipe.Name, tx.FailureReason);
             }
         }
 

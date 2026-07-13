@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
+using NoSQL.GraphDB.Core.SubGraph;
 using System;
 
 namespace NoSQL.GraphDB.Core.Transaction
@@ -58,12 +59,29 @@ namespace NoSQL.GraphDB.Core.Transaction
         }
 
         /// <summary>
+        /// Optional opaque specification text this subgraph is built from, set by the producer
+        /// (for example the REST API's serialized subgraph specification) before the transaction is
+        /// enqueued. When non-empty, a <see cref="SubGraphRecipe"/> is attached to
+        /// <see cref="SubGraphCreated"/> on success so the subgraph is persistable — by a snapshot
+        /// AND, unlike before, by the write-ahead log, which logs on the writer thread during commit
+        /// and so needs the recipe present by the end of <see cref="TryExecute"/> rather than
+        /// attached by a caller afterwards. Left null/empty for a delegate-only subgraph, which has
+        /// no recipe and is not persisted (matching snapshot save).
+        /// </summary>
+        public String SpecificationJson
+        {
+            get;
+            set;
+        }
+
+        /// <summary>
         /// Cleans up the transaction resources.
         /// </summary>
         internal override void Cleanup()
         {
             Definition = null;
             SubGraphCreated = null;
+            SpecificationJson = null;
         }
 
         /// <summary>
@@ -118,6 +136,7 @@ namespace NoSQL.GraphDB.Core.Transaction
                     return false;
                 }
 
+                AttachRecipe();
                 return true;
             }
 
@@ -132,7 +151,33 @@ namespace NoSQL.GraphDB.Core.Transaction
                 return false;
             }
 
+            AttachRecipe();
             return true;
+        }
+
+        /// <summary>
+        /// Attaches a persistable <see cref="SubGraphRecipe"/> to the created result when an opaque
+        /// <see cref="SpecificationJson"/> was supplied. Built from the just-created result so the
+        /// ids match what a caller would have set, and built here (rather than by a caller after
+        /// <c>WaitUntilFinished</c>) so it is present when the write-ahead log serializes this
+        /// committed transaction on the writer thread. A no-op for a delegate-only create (no
+        /// specification) - that subgraph has no recipe and is not persisted, matching snapshot save.
+        /// </summary>
+        private void AttachRecipe()
+        {
+            if (SubGraphCreated == null || String.IsNullOrEmpty(SpecificationJson))
+            {
+                return;
+            }
+
+            SubGraphCreated.Recipe = new SubGraphRecipe
+            {
+                Name = Definition.Name,
+                SubGraphId = SubGraphCreated.SubGraph.Id,
+                AlgorithmPluginName = SubGraphCreated.AlgorithmPluginName,
+                SourceFallen8Id = SubGraphCreated.SourceFallen8Id,
+                SpecificationJson = SpecificationJson
+            };
         }
     }
 }
