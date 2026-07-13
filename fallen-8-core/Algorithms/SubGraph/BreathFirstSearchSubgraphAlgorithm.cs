@@ -513,7 +513,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
         private void ProcessUndirectedEdge(EdgePattern ep, PathInfo currentPath, VertexModel currentPathLastElement, List<PathInfo> result)
         {
-            ImmutableList<EdgeModel> edges;
+            IReadOnlyList<EdgeModel> edges;
             foreach (var aOutEdgePropertyId in currentPathLastElement.GetOutgoingEdgeIds())
             {
                 if (ep.EdgeProperty != null && !ep.EdgeProperty(aOutEdgePropertyId))
@@ -563,7 +563,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
         private void ProcessOutgoingEdges(EdgePattern ep, PathInfo currentPath, VertexModel currentPathLastElement, List<PathInfo> result)
         {
-            ImmutableList<EdgeModel> edges;
+            IReadOnlyList<EdgeModel> edges;
             foreach (var aOutEdgePropertyId in currentPathLastElement.GetOutgoingEdgeIds())
             {
                 if (ep.EdgeProperty != null && !ep.EdgeProperty(aOutEdgePropertyId))
@@ -590,7 +590,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 
         private void ProcessIncomingEdges(EdgePattern ep, PathInfo currentPath, VertexModel currentPathLastElement, List<PathInfo> result)
         {
-            ImmutableList<EdgeModel> edges;
+            IReadOnlyList<EdgeModel> edges;
             foreach (var aInEdgePropertyId in currentPathLastElement.GetIncomingEdgeIds())
             {
                 if (ep.EdgeProperty != null && !ep.EdgeProperty(aInEdgePropertyId))

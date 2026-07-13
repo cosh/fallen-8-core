@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // VertexModel.cs
 //
@@ -24,11 +24,9 @@
 // SOFTWARE.
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Globalization;
-using System.Linq;
-using NoSQL.GraphDB.Core.Error;
 
 namespace NoSQL.GraphDB.Core.Model
 {
@@ -40,14 +38,32 @@ namespace NoSQL.GraphDB.Core.Model
         #region Data
 
         /// <summary>
-        ///   The out edges.
+        ///   The outgoing edges as an <see cref="EdgeAdjacency" /> (grouped by edge-property-id, each
+        ///   group a contiguous <see cref="EdgeModel" /> array), or <c>null</c> when the vertex has no
+        ///   outgoing edges (finding: adjacency-flattening). This replaces the former
+        ///   <see cref="System.Collections.Immutable.ImmutableDictionary{TKey,TValue}" /> of
+        ///   <see cref="System.Collections.Immutable.ImmutableList{T}" />, whose HAMT container and
+        ///   per-edge AVL tree nodes carried ~96 B/edge of tree overhead plus ~200-400 B/vertex of
+        ///   dictionary overhead. <see cref="EdgeAdjacency" /> stores the common single-group vertex
+        ///   INLINE (no dictionary at all), so even a degree-2 vertex is now a memory win, and falls
+        ///   back to a <c>Dictionary&lt;string, EdgeModel[]&gt;</c> only for a genuinely multi-group
+        ///   vertex.
+        ///
+        ///   Concurrency: mutation is copy-on-write and runs only on the single transaction-writer
+        ///   thread - a brand-new, immutable <see cref="EdgeAdjacency" /> is built and published by ONE
+        ///   <c>volatile</c> reference assignment; the live instance is never mutated in place. Lock-free
+        ///   readers capture the field into a local once, so a reader always sees a fully built,
+        ///   self-consistent adjacency (correct on weak-memory hardware too, via <c>volatile</c>) -
+        ///   exactly the discipline the immutable dictionary provided and the property store
+        ///   (memory-footprint M1) uses.
         /// </summary>
-        public ImmutableDictionary<String, ImmutableList<EdgeModel>> OutEdges;
+        private volatile EdgeAdjacency _outEdges;
 
         /// <summary>
-        ///   The in edges.
+        ///   The incoming edges. Same representation and concurrency discipline as
+        ///   <see cref="_outEdges" />; <c>null</c> when the vertex has no incoming edges.
         /// </summary>
-        public ImmutableDictionary<String, ImmutableList<EdgeModel>> InEdges;
+        private volatile EdgeAdjacency _inEdges;
 
         #endregion
 
@@ -79,15 +95,10 @@ namespace NoSQL.GraphDB.Core.Model
                              Dictionary<String, Object> properties = null, Dictionary<String, List<EdgeModel>> outEdges = null, Dictionary<String, List<EdgeModel>> incEdges = null)
             : base(id, creationDate, label, properties)
         {
-            if (outEdges != null)
-            {
-                OutEdges = outEdges.ToImmutableDictionary(_ => _.Key, __ => __.Value.ToImmutableList());
-            }
-
-            if (incEdges != null)
-            {
-                InEdges = incEdges.ToImmutableDictionary(_ => _.Key, __ => __.Value.ToImmutableList());
-            }
+            // FromListGroups maps null/empty -> null (empty adjacency holds no container), a single
+            // group -> the inline shape, and >1 group -> the dictionary fallback.
+            _outEdges = EdgeAdjacency.FromListGroups(outEdges);
+            _inEdges = EdgeAdjacency.FromListGroups(incEdges);
 
             ModificationDate = modificationDate;
         }
@@ -101,38 +112,12 @@ namespace NoSQL.GraphDB.Core.Model
         /// </summary>
         /// <param name='edgePropertyId'> Edge property identifier. </param>
         /// <param name='outEdge'> Out edge. </param>
-        /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void AddOutEdge(String edgePropertyId, EdgeModel outEdge)
         {
-            if (OutEdges == null)
-            {
-                OutEdges = new Dictionary<String, ImmutableList<EdgeModel>>() { { edgePropertyId, ImmutableList.Create<EdgeModel>(outEdge) } }.ToImmutableDictionary();
-
-                return;
-            }
-
-            ImmutableList<EdgeModel> edgePropertyFound;
-            if (OutEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
-            {
-                edgePropertyFound = edgePropertyFound.Add(outEdge);
-            }
-            else
-            {
-                //not yet found
-                edgePropertyFound = new List<EdgeModel>() { outEdge }.ToImmutableList();
-            }
-
-            OutEdges = OutEdges.SetItem(edgePropertyId, edgePropertyFound);
-        }
-
-        /// <summary>
-        ///   Adds the out edges.
-        /// </summary>
-        /// <param name='outEdges'> Out edges. </param>
-        /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
-        internal void SetOutEdges(Dictionary<String, List<EdgeModel>> outEdges)
-        {
-            OutEdges = outEdges.ToImmutableDictionary(_ => _.Key, __ => __.Value.ToImmutableList());
+            var current = _outEdges;
+            _outEdges = current == null
+                ? EdgeAdjacency.SingleEdge(edgePropertyId, outEdge)
+                : current.WithEdgeAppended(edgePropertyId, outEdge);
         }
 
         /// <summary>
@@ -140,28 +125,12 @@ namespace NoSQL.GraphDB.Core.Model
         /// </summary>
         /// <param name='edgePropertyId'> Edge property identifier. </param>
         /// <param name='incomingEdge'> Incoming edge. </param>
-        /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
         internal void AddIncomingEdge(String edgePropertyId, EdgeModel incomingEdge)
         {
-            if (InEdges == null)
-            {
-                InEdges = new Dictionary<String, ImmutableList<EdgeModel>>() { { edgePropertyId, ImmutableList.Create<EdgeModel>(incomingEdge) } }.ToImmutableDictionary();
-
-                return;
-            }
-
-            ImmutableList<EdgeModel> edgePropertyFound;
-            if (InEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
-            {
-                edgePropertyFound = edgePropertyFound.Add(incomingEdge);
-            }
-            else
-            {
-                //not yet found
-                edgePropertyFound = new List<EdgeModel>() { incomingEdge }.ToImmutableList();
-            }
-
-            InEdges = InEdges.SetItem(edgePropertyId, edgePropertyFound);
+            var current = _inEdges;
+            _inEdges = current == null
+                ? EdgeAdjacency.SingleEdge(edgePropertyId, incomingEdge)
+                : current.WithEdgeAppended(edgePropertyId, incomingEdge);
         }
 
         /// <summary>
@@ -171,16 +140,16 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name="toBeRemovedEdge"> The to be removed edge </param>
         internal void RemoveIncomingEdge(String edgePropertyId, EdgeModel toBeRemovedEdge)
         {
-            if (InEdges == null)
+            var current = _inEdges;
+            if (current == null)
             {
                 return;
             }
 
-            ImmutableList<EdgeModel> edgePropertyFound;
-            if (InEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
+            var updated = current.WithEdgeRemovedFromGroup(edgePropertyId, toBeRemovedEdge.Id);
+            if (!ReferenceEquals(updated, current))
             {
-                edgePropertyFound = edgePropertyFound.RemoveAll(_ => _.Id == toBeRemovedEdge.Id);
-                InEdges = InEdges.SetItem(edgePropertyId, edgePropertyFound);
+                _inEdges = updated;
             }
         }
 
@@ -188,29 +157,28 @@ namespace NoSQL.GraphDB.Core.Model
         ///   Removes an incoming edge
         /// </summary>
         /// <param name="toBeRemovedEdge"> The to be removed edge </param>
-        /// <returns> The edge property identifier where the edge was deleted </returns>
+        /// <returns> The edge property identifiers where the edge was deleted </returns>
         internal List<String> RemoveIncomingEdge(EdgeModel toBeRemovedEdge)
         {
             var result = new List<String>();
 
-            if (InEdges == null)
+            var current = _inEdges;
+            if (current == null)
             {
                 return result;
             }
 
-            var tempDict = new Dictionary<string, ImmutableList<EdgeModel>>();
-
-            foreach (var aEdgeProperty in InEdges)
+            // WithEdgeRemovedEverywhere builds the replacement instance and, if RemoveById faults on a
+            // poisoned entry, that throw escapes BEFORE the volatile publish below - so the live
+            // adjacency is left untouched, which is what the edge-removal rollback test asserts. It
+            // returns the SAME reference (skipping the publish) when nothing matched.
+            var updated = current.WithEdgeRemovedEverywhere(toBeRemovedEdge, result);
+            if (!ReferenceEquals(updated, current))
             {
-                if (aEdgeProperty.Value.Contains(toBeRemovedEdge))
-                {
-                    tempDict.Add(aEdgeProperty.Key, aEdgeProperty.Value.RemoveAll(_ => _.Id == toBeRemovedEdge.Id));
-                }
+                _inEdges = updated;
             }
 
-            InEdges = InEdges.SetItems(tempDict);
-
-            return tempDict.Select(_ => _.Key).ToList();
+            return result;
         }
 
         /// <summary>
@@ -220,16 +188,16 @@ namespace NoSQL.GraphDB.Core.Model
         /// <param name="toBeRemovedEdge"> The to be removed edge </param>
         internal void RemoveOutGoingEdge(String edgePropertyId, EdgeModel toBeRemovedEdge)
         {
-            if (OutEdges == null)
+            var current = _outEdges;
+            if (current == null)
             {
                 return;
             }
 
-            ImmutableList<EdgeModel> edgePropertyFound;
-            if (OutEdges.TryGetValue(edgePropertyId, out edgePropertyFound))
+            var updated = current.WithEdgeRemovedFromGroup(edgePropertyId, toBeRemovedEdge.Id);
+            if (!ReferenceEquals(updated, current))
             {
-                edgePropertyFound = edgePropertyFound.RemoveAll(_ => _.Id == toBeRemovedEdge.Id);
-                OutEdges = OutEdges.SetItem(edgePropertyId, edgePropertyFound);
+                _outEdges = updated;
             }
         }
 
@@ -237,29 +205,78 @@ namespace NoSQL.GraphDB.Core.Model
         ///   Removes an outgoing edge
         /// </summary>
         /// <param name="toBeRemovedEdge"> The to be removed edge </param>
-        /// <returns> The edge property identifier where the edge was deleted </returns>
+        /// <returns> The edge property identifiers where the edge was deleted </returns>
         internal List<String> RemoveOutGoingEdge(EdgeModel toBeRemovedEdge)
         {
             var result = new List<String>();
 
-            if (OutEdges == null)
+            var current = _outEdges;
+            if (current == null)
             {
                 return result;
             }
 
-            var tempDict = new Dictionary<string, ImmutableList<EdgeModel>>();
-
-            foreach (var aEdgeProperty in OutEdges)
+            var updated = current.WithEdgeRemovedEverywhere(toBeRemovedEdge, result);
+            if (!ReferenceEquals(updated, current))
             {
-                if (aEdgeProperty.Value.Contains(toBeRemovedEdge))
-                {
-                    tempDict.Add(aEdgeProperty.Key, aEdgeProperty.Value.RemoveAll(_ => _.Id == toBeRemovedEdge.Id));
-                }
+                _outEdges = updated;
             }
 
-            OutEdges = OutEdges.SetItems(tempDict);
+            return result;
+        }
 
-            return tempDict.Select(_ => _.Key).ToList();
+        /// <summary>
+        ///   Serialization/algorithm-only accessor to the raw outgoing <see cref="EdgeAdjacency" />, or
+        ///   <c>null</c> when the vertex has no outgoing edges. Returns the live copy-on-write snapshot
+        ///   (a single volatile read); it is safe to iterate because the instance is immutable after
+        ///   construction, but callers MUST NOT mutate the arrays it hands out. Kept internal so the
+        ///   public surface never exposes the mutable <c>EdgeModel[]</c>; the in-engine hot paths
+        ///   (path/subgraph algorithms, removal cascade, persistence) use it to <c>foreach</c> the
+        ///   groups allocation-free (via <see cref="EdgeAdjacency.GetEnumerator" />) and avoid the
+        ///   per-read wrapper the public read-only view incurs.
+        /// </summary>
+        internal EdgeAdjacency GetRawOutEdges()
+        {
+            return _outEdges;
+        }
+
+        /// <summary>
+        ///   Raw incoming-edge counterpart of <see cref="GetRawOutEdges" />; <c>null</c> when empty.
+        ///   Same "safe to read, must not mutate" contract.
+        /// </summary>
+        internal EdgeAdjacency GetRawInEdges()
+        {
+            return _inEdges;
+        }
+
+        /// <summary>
+        ///   TEST-ONLY fault-injection hook. Appends a raw, unvalidated (possibly <c>null</c> /
+        ///   poisoned) edge to the outgoing group <paramref name="edgePropertyId" /> using the same
+        ///   copy-on-write append as the production path, bypassing the read-only public surface. It
+        ///   replaces the former <c>source.OutEdges = source.OutEdges.SetItem(id,
+        ///   source.OutEdges[id].Add(poison))</c> injection the removal-rollback regression tests use
+        ///   to force a mid-removal fault. NOT a supported API; invoked by tests via reflection (the
+        ///   engine declares no InternalsVisibleTo).
+        /// </summary>
+        internal void InjectRawOutEdgeForTesting(String edgePropertyId, EdgeModel poison)
+        {
+            var current = _outEdges;
+            _outEdges = current == null
+                ? EdgeAdjacency.SingleEdge(edgePropertyId, poison)
+                : current.WithEdgeAppended(edgePropertyId, poison);
+        }
+
+        /// <summary>
+        ///   TEST-ONLY fault-injection hook; incoming-edge counterpart of
+        ///   <see cref="InjectRawOutEdgeForTesting" />. Replaces the former
+        ///   <c>v.InEdges = v.InEdges.SetItem(id, v.InEdges[id].Add(poison))</c> injection.
+        /// </summary>
+        internal void InjectRawInEdgeForTesting(String edgePropertyId, EdgeModel poison)
+        {
+            var current = _inEdges;
+            _inEdges = current == null
+                ? EdgeAdjacency.SingleEdge(edgePropertyId, poison)
+                : current.WithEdgeAppended(edgePropertyId, poison);
         }
 
         #endregion
@@ -268,24 +285,14 @@ namespace NoSQL.GraphDB.Core.Model
 
         public uint GetInDegree()
         {
-            UInt32 degree = 0;
-
-            if (InEdges != null)
-            {
-                degree = Convert.ToUInt32(InEdges.Sum(_ => _.Value.Count));
-            }
-            return degree;
+            var snapshot = _inEdges;
+            return snapshot == null ? 0u : snapshot.TotalDegree();
         }
 
         public uint GetOutDegree()
         {
-            UInt32 degree = 0;
-
-            if (OutEdges != null)
-            {
-                degree = Convert.ToUInt32(OutEdges.Sum(_ => _.Value.Count));
-            }
-            return degree;
+            var snapshot = _outEdges;
+            return snapshot == null ? 0u : snapshot.TotalDegree();
         }
 
         /// <summary>
@@ -296,14 +303,34 @@ namespace NoSQL.GraphDB.Core.Model
         {
             var neighbors = new List<VertexModel>();
 
-            if (OutEdges != null)
+            // Behaviour preserved verbatim from the prior representation: BOTH directions are projected
+            // through the edge's target vertex (the former code applied the same target extractor to the
+            // out- and in-edge lists). Kept identical so neighbour semantics do not change under the
+            // storage swap.
+            var outSnapshot = _outEdges;
+            if (outSnapshot != null)
             {
-                neighbors.AddRange(OutEdges.SelectMany(_ => _.Value).Select(TargetVertexExtractor));
+                foreach (var group in outSnapshot)
+                {
+                    var edges = group.Value;
+                    for (var i = 0; i < edges.Length; i++)
+                    {
+                        neighbors.Add(edges[i].TargetVertex);
+                    }
+                }
             }
 
-            if (InEdges != null)
+            var inSnapshot = _inEdges;
+            if (inSnapshot != null)
             {
-                neighbors.AddRange(InEdges.SelectMany(_ => _.Value).Select(TargetVertexExtractor));
+                foreach (var group in inSnapshot)
+                {
+                    var edges = group.Value;
+                    for (var i = 0; i < edges.Length; i++)
+                    {
+                        neighbors.Add(edges[i].TargetVertex);
+                    }
+                }
             }
 
             return neighbors;
@@ -317,10 +344,8 @@ namespace NoSQL.GraphDB.Core.Model
         {
             var inEdges = new List<String>();
 
-            if (InEdges != null)
-            {
-                inEdges.AddRange(InEdges.Select(_ => _.Key));
-            }
+            var snapshot = _inEdges;
+            snapshot?.CollectKeys(inEdges);
             return inEdges;
         }
 
@@ -330,49 +355,78 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> The outgoing edge identifiers. </returns>
         public List<String> GetOutgoingEdgeIds()
         {
-
             var outEdges = new List<String>();
 
-            if (OutEdges != null)
-            {
-                outEdges.AddRange(OutEdges.Select(_ => _.Key));
-            }
+            var snapshot = _outEdges;
+            snapshot?.CollectKeys(outEdges);
             return outEdges;
         }
 
         /// <summary>
-        ///   Tries to get an out edge.
+        ///   A read-only, snapshot-stable view of the outgoing edges grouped by edge-property-id, or
+        ///   <c>null</c> when the vertex has no outgoing edges. The view captures the current
+        ///   copy-on-write <see cref="EdgeAdjacency" /> once, so iterating it is consistent even if the
+        ///   writer publishes a new adjacency afterwards, and it transparently presents the single-group
+        ///   (inline) case as a 1-entry dictionary. It exposes <see cref="IReadOnlyList{T}" /> groups
+        ///   and never the underlying mutable <c>EdgeModel[]</c>.
+        /// </summary>
+        public IReadOnlyDictionary<String, IReadOnlyList<EdgeModel>> OutEdges
+        {
+            get
+            {
+                var snapshot = _outEdges;
+                return snapshot == null ? null : new ReadOnlyEdgeContainer(snapshot);
+            }
+        }
+
+        /// <summary>
+        ///   A read-only, snapshot-stable view of the incoming edges; counterpart of
+        ///   <see cref="OutEdges" />. <c>null</c> when the vertex has no incoming edges.
+        /// </summary>
+        public IReadOnlyDictionary<String, IReadOnlyList<EdgeModel>> InEdges
+        {
+            get
+            {
+                var snapshot = _inEdges;
+                return snapshot == null ? null : new ReadOnlyEdgeContainer(snapshot);
+            }
+        }
+
+        /// <summary>
+        ///   Tries to get an out edge group.
         /// </summary>
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
-        /// <param name='result'> Result. </param>
+        /// <param name='result'> Result: a read-only list of the edges in the group (never the mutable array). </param>
         /// <param name='edgePropertyId'> Edge property identifier. </param>
-        public Boolean TryGetOutEdge(out ImmutableList<EdgeModel> result, String edgePropertyId)
+        public Boolean TryGetOutEdge(out IReadOnlyList<EdgeModel> result, String edgePropertyId)
         {
-            result = null;
-
-            if (OutEdges != null)
+            var snapshot = _outEdges;
+            if (snapshot != null && snapshot.TryGetGroup(edgePropertyId, out var group))
             {
-                return OutEdges.TryGetValue(edgePropertyId, out result);
+                result = Array.AsReadOnly(group);
+                return true;
             }
 
+            result = null;
             return false;
         }
 
         /// <summary>
-        ///   Tries to get in edges.
+        ///   Tries to get an in edge group.
         /// </summary>
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
-        /// <param name='result'> Result. </param>
+        /// <param name='result'> Result: a read-only list of the edges in the group (never the mutable array). </param>
         /// <param name='edgePropertyId'> Edge property identifier. </param>
-        public Boolean TryGetInEdge(out ImmutableList<EdgeModel> result, String edgePropertyId)
+        public Boolean TryGetInEdge(out IReadOnlyList<EdgeModel> result, String edgePropertyId)
         {
-            result = null;
-
-            if (InEdges != null)
+            var snapshot = _inEdges;
+            if (snapshot != null && snapshot.TryGetGroup(edgePropertyId, out var group))
             {
-                return InEdges.TryGetValue(edgePropertyId, out result);
+                result = Array.AsReadOnly(group);
+                return true;
             }
 
+            result = null;
             return false;
         }
 
@@ -451,34 +505,87 @@ namespace NoSQL.GraphDB.Core.Model
 
         #endregion
 
-        #region private helper
+        #region read-only adjacency view
 
         /// <summary>
-        /// Target vertex extractor.
+        ///   A read-only projection of a captured <see cref="EdgeAdjacency" /> onto
+        ///   <c>IReadOnlyDictionary&lt;string, IReadOnlyList&lt;EdgeModel&gt;&gt;</c>. Holds the captured
+        ///   snapshot, so the view is stable and self-consistent for its lifetime; each group is
+        ///   surfaced as a read-only list so the backing array is never exposed for mutation. Both the
+        ///   inline single-group and the dictionary-backed multi-group shapes are presented uniformly as
+        ///   a keyed dictionary.
         /// </summary>
-        /// <returns>
-        /// The target vertex.
-        /// </returns>
-        /// <param name='edge'>
-        /// Edge.
-        /// </param>
-        private static VertexModel TargetVertexExtractor(EdgeModel edge)
+        private sealed class ReadOnlyEdgeContainer : IReadOnlyDictionary<String, IReadOnlyList<EdgeModel>>
         {
-            return edge.TargetVertex;
-        }
+            private readonly EdgeAdjacency _adjacency;
 
-        /// <summary>
-        /// Source vertex extractor.
-        /// </summary>
-        /// <returns>
-        /// The source vertex.
-        /// </returns>
-        /// <param name='edge'>
-        /// Edge.
-        /// </param>
-        private static VertexModel SourceVertexExtractor(EdgeModel edge)
-        {
-            return edge.SourceVertex;
+            internal ReadOnlyEdgeContainer(EdgeAdjacency adjacency)
+            {
+                _adjacency = adjacency;
+            }
+
+            public IReadOnlyList<EdgeModel> this[String key]
+            {
+                get
+                {
+                    if (_adjacency.TryGetGroup(key, out var group))
+                    {
+                        return Array.AsReadOnly(group);
+                    }
+                    throw new KeyNotFoundException();
+                }
+            }
+
+            public IEnumerable<String> Keys
+            {
+                get
+                {
+                    foreach (var group in _adjacency)
+                    {
+                        yield return group.Key;
+                    }
+                }
+            }
+
+            public IEnumerable<IReadOnlyList<EdgeModel>> Values
+            {
+                get
+                {
+                    foreach (var group in _adjacency)
+                    {
+                        yield return Array.AsReadOnly(group.Value);
+                    }
+                }
+            }
+
+            public int Count => _adjacency.Count;
+
+            public Boolean ContainsKey(String key) => _adjacency.TryGetGroup(key, out _);
+
+            public Boolean TryGetValue(String key, out IReadOnlyList<EdgeModel> value)
+            {
+                if (_adjacency.TryGetGroup(key, out var group))
+                {
+                    value = Array.AsReadOnly(group);
+                    return true;
+                }
+
+                value = null;
+                return false;
+            }
+
+            public IEnumerator<KeyValuePair<String, IReadOnlyList<EdgeModel>>> GetEnumerator()
+            {
+                foreach (var group in _adjacency)
+                {
+                    yield return new KeyValuePair<String, IReadOnlyList<EdgeModel>>(group.Key, Array.AsReadOnly(group.Value));
+                }
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return GetEnumerator();
+            }
         }
 
         #endregion

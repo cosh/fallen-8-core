@@ -1019,7 +1019,7 @@ namespace NoSQL.GraphDB.Core
 
                     #region out edges
 
-                    var outgoingEdgeContainer = vertex.OutEdges;
+                    var outgoingEdgeContainer = vertex.GetRawOutEdges();
                     if (outgoingEdgeContainer != null)
                     {
                         foreach (var aOutEdgeProperty in outgoingEdgeContainer)
@@ -1043,7 +1043,7 @@ namespace NoSQL.GraphDB.Core
 
                     #region in edges
 
-                    var incomingEdgeContainer = vertex.InEdges;
+                    var incomingEdgeContainer = vertex.GetRawInEdges();
                     if (incomingEdgeContainer != null)
                     {
                         foreach (var aInEdgeProperty in incomingEdgeContainer)
@@ -1118,7 +1118,7 @@ namespace NoSQL.GraphDB.Core
 
                         #region out edges
 
-                        var outgoingEdgeContainer = vertex.OutEdges;
+                        var outgoingEdgeContainer = vertex.GetRawOutEdges();
                         if (outgoingEdgeContainer != null)
                         {
                             foreach (var aOutEdgeProperty in outgoingEdgeContainer)
@@ -1138,7 +1138,7 @@ namespace NoSQL.GraphDB.Core
 
                         #region in edges
 
-                        var incomingEdgeContainer = vertex.InEdges;
+                        var incomingEdgeContainer = vertex.GetRawInEdges();
                         if (incomingEdgeContainer != null)
                         {
                             foreach (var aInEdgeProperty in incomingEdgeContainer)

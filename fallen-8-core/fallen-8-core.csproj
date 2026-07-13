@@ -4,7 +4,14 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>NoSQL.GraphDB.Core</RootNamespace>
     <PackageId>Fallen-8</PackageId>
-    <Version>0.0.14</Version>
+    <!-- 0.0.x -> 0.1.0: breaking change to the public engine model surface. VertexModel.OutEdges/
+         InEdges are now read-only views (IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>>) and
+         TryGetOutEdge/TryGetInEdge return IReadOnlyList<EdgeModel> instead of the mutable
+         ImmutableDictionary/ImmutableList (adjacency-flattening). The REST api/v{version} contract is
+         unchanged. -->
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
     <Authors>Henning Rauch</Authors>
     <Company>RauchEntwicklung</Company>
     <Copyright>Copyright (c) 2025 Henning Rauch</Copyright>

@@ -1270,7 +1270,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             // P7: edge-group counts, per-group counts and edge ids as var-int (was fixed 4-byte int);
             // edge-property keys stay tokenized. WriteVarInt32 handles the full Int32 range, so a
             // legitimately huge count/id never faults (unlike the guarded WriteOptimized(int)).
-            var outgoingEdges = vertex.OutEdges;
+            var outgoingEdges = vertex.GetRawOutEdges();
             if (outgoingEdges == null)
             {
                 writer.WriteVarInt32(0);
@@ -1281,7 +1281,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 foreach (var aOutEdgeProperty in outgoingEdges)
                 {
                     writer.WriteOptimized(aOutEdgeProperty.Key);
-                    writer.WriteVarInt32(aOutEdgeProperty.Value.Count);
+                    writer.WriteVarInt32(aOutEdgeProperty.Value.Length);
                     foreach (var aOutEdge in aOutEdgeProperty.Value)
                     {
                         writer.WriteVarInt32(aOutEdge.Id);
@@ -1289,7 +1289,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 }
             }
 
-            var incomingEdges = vertex.InEdges;
+            var incomingEdges = vertex.GetRawInEdges();
             if (incomingEdges == null)
             {
                 writer.WriteVarInt32(0);
@@ -1300,7 +1300,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 foreach (var aIncEdgeProperty in incomingEdges)
                 {
                     writer.WriteOptimized(aIncEdgeProperty.Key);
-                    writer.WriteVarInt32(aIncEdgeProperty.Value.Count);
+                    writer.WriteVarInt32(aIncEdgeProperty.Value.Length);
                     foreach (var aIncEdge in aIncEdgeProperty.Value)
                     {
                         writer.WriteVarInt32(aIncEdge.Id);

@@ -80,6 +80,19 @@ namespace NoSQL.GraphDB.Tests
             return tx.GetCreatedVertices().ToArray();
         }
 
+        /// <summary>
+        /// Appends a raw (possibly poisoned/null) in-edge to a vertex through the internal
+        /// fault-injection hook, bypassing the read-only public adjacency surface. Reflection is used
+        /// because the engine declares no InternalsVisibleTo (same convention as ConcurrentStorageTest).
+        /// This replaces the old immutable-API poison injection now that the field is read-only.
+        /// </summary>
+        private static void InjectRawInEdge(VertexModel vertex, string edgePropertyId, EdgeModel poison)
+        {
+            typeof(VertexModel)
+                .GetMethod("InjectRawInEdgeForTesting", BindingFlags.NonPublic | BindingFlags.Instance)
+                .Invoke(vertex, new object[] { edgePropertyId, poison });
+        }
+
         #region P1 - the path-compile cache is process-wide (reused across controller instances)
 
         [TestMethod]
@@ -240,9 +253,12 @@ namespace NoSQL.GraphDB.Tests
 
             // Poison: a second in-edge whose SourceVertex is null, ordered after the real one so the
             // real edge is detached (and incrementally decremented) first, then the poison throws an
-            // NRE while its source-side adjacency is detached, driving the internal rollback.
+            // NRE while its source-side adjacency is detached, driving the internal rollback. The
+            // adjacency is now a read-only public surface, so the poison is injected through the
+            // internal fault-injection hook (invoked by reflection, mirroring the former
+            // v.InEdges = v.InEdges.SetItem("in", v.InEdges["in"].Add(poison)) injection exactly).
             var poison = new EdgeModel(int.MaxValue, 1, v, null, "poison", "in");
-            v.InEdges = v.InEdges.SetItem("in", v.InEdges["in"].Add(poison));
+            InjectRawInEdge(v, "in", poison);
 
             // Act - the removal faults; the worker rolls it back.
             var removeTx = new RemoveGraphElementTransaction { GraphElementId = vId };

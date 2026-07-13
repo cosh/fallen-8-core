@@ -561,7 +561,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 var steps = new List<NeighbourStep>();
 
-                var outEdges = vertex.OutEdges;
+                var outEdges = vertex.GetRawOutEdges();
                 if (outEdges != null)
                 {
                     foreach (var container in outEdges)
@@ -589,7 +589,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     }
                 }
 
-                var inEdges = vertex.InEdges;
+                var inEdges = vertex.GetRawInEdges();
                 if (inEdges != null)
                 {
                     foreach (var container in inEdges)

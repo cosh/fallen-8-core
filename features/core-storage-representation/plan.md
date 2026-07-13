@@ -37,7 +37,9 @@ Do the `correctness-fixes` theme first (the immutable-return-value bugs share th
 - [x] Phase 1 — snapshot capture + volatile
 - [x] Phase 2 — array-backed interim (copy-on-write `AGraphElementModel[]`, see note below)
 - [x] Phase 3 — segmented array master store
-- [ ] Phase 4 — adjacency flattening — **deferred** (see "Phase 4 — deferred" below)
+- [x] Phase 4 — adjacency flattening — **landed as its own feature** `features/adjacency-flattening/`
+  (it broke the public `VertexModel` surface, so it needed the public-API version bump this theme
+  could not make; see "Phase 4 — deferred" below for the original rationale)
 - [~] Phase 5 — measure & document — **partial**: benchmarks captured (below) and the
   `memory-footprint` sibling-doc baseline reconciled to the master-store-only win (it no longer
   inherits the full adjacency+master tree overhead as realised). Still outstanding: the
@@ -82,7 +84,19 @@ Takeaways:
   `ImmutableDictionary`/`ImmutableList` and the `ImmutableList` result building, so they move little
   — exactly what Phase 4 would address.
 
-## Phase 4 — deferred (adjacency flattening)
+## Phase 4 — deferred (adjacency flattening) → since LANDED
+
+> **Update (LANDED):** this was carried out as the standalone `features/adjacency-flattening/`
+> feature (with the public-API version bump 0.0.14 → 0.1.0 this theme could not make).
+> `VertexModel.OutEdges`/`InEdges` are now read-only views and the two per-vertex `ImmutableList`
+> AVL trees are gone. A single-edge-group vertex (the common case) is stored **inline with no
+> `Dictionary` at all**; only a genuinely multi-group vertex falls back to a
+> `Dictionary<string, EdgeModel[]>` (plus a small wrapper). The poison-injection rollback tests were
+> migrated (not weakened) to an internal fault-injection hook. Because the common vertex sheds the
+> per-vertex dictionary entirely, the memory win is now **monotonic** — ≈ **−44%/edge across degrees**
+> (2/10/20), and the former degree-2 regression is **gone**; a genuinely multi-group vertex is
+> marginally heavier than a plain dict but still far below the old `ImmutableDictionary`. See that
+> feature's `plan.md` Measurements (Phase 5). The original deferral rationale is kept below for context.
 
 Phase 4 would replace the two per-vertex `ImmutableDictionary<string, ImmutableList<EdgeModel>>`
 (`VertexModel.OutEdges`/`InEdges`) with a flatter per-direction representation to shed the

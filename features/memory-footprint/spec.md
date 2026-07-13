@@ -17,12 +17,22 @@ string interning** of labels/keys/edge-property-ids (M2), **transaction lifecycl
 (M3), **removed-element reclamation** under churn (M4), and a bounded default **subgraph quota**
 (M6). None of M1–M6 touch adjacency.
 
-What this theme does **not** address: the remaining **adjacency** overhead — the two per-vertex
-adjacency `ImmutableList`s (~96 B/edge) and the per-vertex adjacency `ImmutableDictionary`s
-(~200–400 B/vertex). Flattening those is `core-storage-representation` **Phase 4**, which stays
-**deferred** there because `VertexModel.OutEdges`/`InEdges` are part of the **public surface**, so
-changing their representation requires a public-API-version bump. It is therefore explicitly **out
-of scope** here (this theme changes only private-behind-accessor state).
+What this theme does **not** address (it was **out of scope** here — this theme changes only
+private-behind-accessor state): the **adjacency** overhead — the two per-vertex adjacency
+`ImmutableList`s (~96 B/edge) and the per-vertex adjacency `ImmutableDictionary`s. That was
+`core-storage-representation` **Phase 4**, deferred there because `VertexModel.OutEdges`/`InEdges`
+are part of the **public surface** (changing them needs a public-API-version bump).
+
+> **Update (LANDED):** adjacency flattening has since **landed** as `features/adjacency-flattening/`
+> (with the version bump 0.0.14 → 0.1.0). The two per-vertex `ImmutableList` AVL trees are gone — each
+> edge-property group is now a contiguous `EdgeModel[]`, and the common single-group vertex is stored
+> **inline with no `Dictionary` at all** (a genuinely multi-group vertex falls back to a copy-on-write,
+> `volatile`-published `Dictionary<string, EdgeModel[]>` plus a small wrapper); the public surface is a
+> read-only view. The ~48 B/AVL-node × 2-lists per-edge overhead this section flagged is removed, and
+> because the common vertex also sheds the per-vertex dictionary the win is now **monotonic** —
+> ≈ **−44%/edge across degrees** (2/10/20), with the former degree-2 regression **gone** (a multi-group
+> vertex is marginally heavier than a plain dict, still far below the old `ImmutableDictionary`). See
+> that feature's `plan.md` Measurements (Phase 5).
 
 ## 2. Findings & targets
 
