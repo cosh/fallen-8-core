@@ -67,11 +67,16 @@ namespace NoSQL.GraphDB.Core.Persistency
         };
 
         /// <summary>
-        /// The current on-disk format version. v2 is the Stage-A baseline: it adds the magic +
-        /// version envelope, per-file CRC integrity, the completion manifest, atomic writes, the
-        /// single subgraph-recipe manifest and symmetric OtherType framing, WITHOUT changing the
-        /// payload byte encoding (still UTF-32 strings, same property layout). Later stages increment
-        /// this behind the same gate when they change the payload encoding.
+        /// The current on-disk format version. v2 is the single "hardened + efficient" format this
+        /// whole theme ships. It carries the Stage-A envelope (magic + version, per-file CRC integrity,
+        /// the completion manifest, atomic writes, the single subgraph-recipe manifest and symmetric
+        /// OtherType framing) AND the Stage-B payload encoding: UTF-8 strings (was UTF-32), string
+        /// VALUES and EdgePropertyId routed through the string token table, the ordinal-key-sorted
+        /// compact property store emitted directly, var-int ids/counts, and a fully serialized,
+        /// reloadable spatial (R-Tree) index. Stage A's v2 was never released, so the encoding change
+        /// folds into the SAME version rather than introducing a separate one; clean-reject means only
+        /// this version loads, so an old (v1/unversioned) or partially-migrated file is refused, never
+        /// misparsed. Later stages increment this behind the same gate if they change the payload again.
         /// </summary>
         internal const int FormatVersion = 2;
 

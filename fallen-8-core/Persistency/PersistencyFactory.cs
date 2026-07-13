@@ -609,6 +609,20 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='path'> Path. </param>
         private SidecarManifestEntry? SaveIndex(string indexName, IIndex index, string path)
         {
+            // C9: an index that declares itself non-persistable (CanPersist == false) is skipped
+            // SILENTLY, before any file is created. This replaces the former implicit signal - catching
+            // a NotSupportedException thrown from Save - used to tell "not yet persistable" apart from a
+            // real failure. The capability is now explicit, so Error-level logging (and partial-file
+            // cleanup, which WriteSidecar already handles) is reserved for a GENUINE, unexpected
+            // serialization failure of an index that claims it CAN persist. With the R-Tree now fully
+            // serializable, every built-in index returns CanPersist == true.
+            if (!index.CanPersist)
+            {
+                _logger.LogInformation(String.Format("Index \"{0}\" ({1}) does not support persistence; it is skipped in this checkpoint.", indexName, index.PluginName));
+
+                return null;
+            }
+
             var indexFileName = path + Constants.IndexSaveString + indexName;
 
             try
@@ -620,23 +634,12 @@ namespace NoSQL.GraphDB.Core.Persistency
                     index.Save(writer);
                 });
             }
-            catch (NotSupportedException nse)
-            {
-                // Expected, not an error: some indices (e.g. the spatial R-Tree) deliberately declare
-                // themselves not-yet-persistable by throwing NotSupportedException from Save. Log it
-                // quietly and drop the index from the manifest so the checkpoint proceeds - a scary
-                // Error-level "could not persist" line on every checkpoint that holds a spatial index
-                // would be misleading. WriteSidecar has already removed the partial temp file, and no
-                // file was ever created under the final name (rename only happens on success).
-                _logger.LogInformation(String.Format("Index \"{0}\" is not persistable ({1}); it is skipped in this checkpoint.", indexName, nse.Message));
-
-                return null;
-            }
             catch (Exception ex)
             {
-                // Defense in depth: a single index that fails to serialize for a genuine, unexpected
-                // reason must not abort the whole checkpoint. Log it loudly and skip it (the caller
-                // drops null entries from the index manifest).
+                // Defense in depth: a persistable index that nonetheless fails to serialize for a
+                // genuine, unexpected reason must not abort the whole checkpoint. Log it loudly and
+                // skip it (the caller drops null entries from the index manifest). WriteSidecar has
+                // already removed any partial temp file; the final name is only created on success.
                 _logger.LogError(ex, String.Format("Could not persist index \"{0}\"; it will be skipped in this checkpoint.", indexName));
 
                 return null;
@@ -725,8 +728,8 @@ namespace NoSQL.GraphDB.Core.Persistency
                 PersistenceFormat.ReadAndValidatePreamble(file, Path.GetFileName(graphElementBunchPath));
 
                 var reader = new SerializationReader(file);
-                var minimumId = reader.ReadInt32();
-                var maximumId = reader.ReadInt32();
+                var minimumId = reader.ReadOptimizedInt32();   // P7: var-int partition boundaries
+                var maximumId = reader.ReadOptimizedInt32();
                 var countOfElements = maximumId - minimumId;
 
                 for (var i = 0; i < countOfElements; i++)
@@ -846,8 +849,8 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             return WriteSidecar(partitionFileName, partitionWriter =>
             {
-                partitionWriter.Write(range.Item1);
-                partitionWriter.Write(range.Item2);
+                partitionWriter.WriteVarInt32(range.Item1);   // P7: partition boundaries as var-int
+                partitionWriter.WriteVarInt32(range.Item2);
 
                 for (var i = range.Item1; i < range.Item2; i++)
                 {
@@ -1016,17 +1019,22 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='writer'> Writer. </param>
         private void WriteAGraphElement(AGraphElementModel graphElement, SerializationWriter writer)
         {
-            writer.Write(graphElement.Id);
-            writer.Write(graphElement.CreationDate);
+            writer.WriteVarInt32(graphElement.Id);          // P7: var-int over a fixed 4-byte int
+            writer.Write(graphElement.CreationDate);         // date stays fixed 4 bytes (often > var-int window)
             writer.Write(graphElement.ModificationDate);
-            writer.WriteOptimized(graphElement.Label);
+            writer.WriteOptimized(graphElement.Label);       // tokenized
 
-            var properties = graphElement.GetAllProperties();
-            writer.WriteOptimized(properties.Count);
-            foreach (var aProperty in properties)
+            // N1: emit the raw, key-sorted compact property store directly instead of materialising a
+            // throwaway ImmutableDictionary per element via GetAllProperties(). This changes the stored
+            // property byte order to ordinal key order; the loader rebuilds and re-sorts the store, so
+            // it round-trips regardless of order. String VALUES are tokenized inside WriteObject (P2/M5).
+            var store = graphElement.GetPropertyStoreForSerialization();
+            var propertyCount = store == null ? 0 : store.Length;
+            writer.WriteVarInt32(propertyCount);
+            for (var i = 0; i < propertyCount; i++)
             {
-                writer.WriteOptimized(aProperty.Key);
-                writer.WriteObject(aProperty.Value);
+                writer.WriteOptimized(store[i].Key);         // tokenized
+                writer.WriteObject(store[i].Value);
             }
         }
 
@@ -1039,14 +1047,14 @@ namespace NoSQL.GraphDB.Core.Persistency
         private void LoadVertex(SerializationReader reader, AGraphElementModel[] graphElements,
                                        ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>> edgeTodo)
         {
-            var id = reader.ReadInt32();
+            var id = reader.ReadOptimizedInt32();              // P7: var-int id
             var creationDate = reader.ReadUInt32();
             var modificationDate = reader.ReadUInt32();
             var label = reader.ReadOptimizedString();
 
             #region properties
 
-            var propertyCount = reader.ReadOptimizedInt32();
+            var propertyCount = reader.ReadOptimizedInt32Checked("vertex properties");   // P7/C5: guarded var-int count
             Dictionary<String, Object> properties = null;
 
             if (propertyCount > 0)
@@ -1068,7 +1076,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             #region outgoing edges
 
             Dictionary<String, List<EdgeModel>> outEdgeProperties = null;
-            var outEdgeCount = reader.ReadInt32();
+            var outEdgeCount = reader.ReadOptimizedInt32Checked("vertex outgoing-edge groups");
 
             if (outEdgeCount > 0)
             {
@@ -1076,11 +1084,11 @@ namespace NoSQL.GraphDB.Core.Persistency
                 for (var i = 0; i < outEdgeCount; i++)
                 {
                     var outEdgePropertyId = reader.ReadOptimizedString();
-                    var outEdgePropertyCount = reader.ReadInt32();
+                    var outEdgePropertyCount = reader.ReadOptimizedInt32Checked("vertex outgoing edges");
                     var outEdges = new List<EdgeModel>(outEdgePropertyCount);
                     for (var j = 0; j < outEdgePropertyCount; j++)
                     {
-                        var edgeId = reader.ReadInt32();
+                        var edgeId = reader.ReadOptimizedInt32();
 
 
                         EdgeModel edge = graphElements[edgeId] as EdgeModel;
@@ -1115,7 +1123,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             #region incoming edges
 
             Dictionary<String, List<EdgeModel>> incEdgeProperties = null;
-            var incEdgeCount = reader.ReadInt32();
+            var incEdgeCount = reader.ReadOptimizedInt32Checked("vertex incoming-edge groups");
 
             if (incEdgeCount > 0)
             {
@@ -1123,11 +1131,11 @@ namespace NoSQL.GraphDB.Core.Persistency
                 for (var i = 0; i < incEdgeCount; i++)
                 {
                     var incEdgePropertyId = reader.ReadOptimizedString();
-                    var incEdgePropertyCount = reader.ReadInt32();
+                    var incEdgePropertyCount = reader.ReadOptimizedInt32Checked("vertex incoming edges");
                     var incEdges = new List<EdgeModel>(incEdgePropertyCount);
                     for (var j = 0; j < incEdgePropertyCount; j++)
                     {
-                        var edgeId = reader.ReadInt32();
+                        var edgeId = reader.ReadOptimizedInt32();
 
 
                         EdgeModel edge = graphElements[edgeId] as EdgeModel;
@@ -1177,21 +1185,24 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #region edges
 
+            // P7: edge-group counts, per-group counts and edge ids as var-int (was fixed 4-byte int);
+            // edge-property keys stay tokenized. WriteVarInt32 handles the full Int32 range, so a
+            // legitimately huge count/id never faults (unlike the guarded WriteOptimized(int)).
             var outgoingEdges = vertex.OutEdges;
             if (outgoingEdges == null)
             {
-                writer.Write(0);
+                writer.WriteVarInt32(0);
             }
             else
             {
-                writer.Write(outgoingEdges.Count);
+                writer.WriteVarInt32(outgoingEdges.Count);
                 foreach (var aOutEdgeProperty in outgoingEdges)
                 {
                     writer.WriteOptimized(aOutEdgeProperty.Key);
-                    writer.Write(aOutEdgeProperty.Value.Count);
+                    writer.WriteVarInt32(aOutEdgeProperty.Value.Count);
                     foreach (var aOutEdge in aOutEdgeProperty.Value)
                     {
-                        writer.Write(aOutEdge.Id);
+                        writer.WriteVarInt32(aOutEdge.Id);
                     }
                 }
             }
@@ -1199,18 +1210,18 @@ namespace NoSQL.GraphDB.Core.Persistency
             var incomingEdges = vertex.InEdges;
             if (incomingEdges == null)
             {
-                writer.Write(0);
+                writer.WriteVarInt32(0);
             }
             else
             {
-                writer.Write(incomingEdges.Count);
+                writer.WriteVarInt32(incomingEdges.Count);
                 foreach (var aIncEdgeProperty in incomingEdges)
                 {
                     writer.WriteOptimized(aIncEdgeProperty.Key);
-                    writer.Write(aIncEdgeProperty.Value.Count);
+                    writer.WriteVarInt32(aIncEdgeProperty.Value.Count);
                     foreach (var aIncEdge in aIncEdgeProperty.Value)
                     {
-                        writer.Write(aIncEdge.Id);
+                        writer.WriteVarInt32(aIncEdge.Id);
                     }
                 }
             }
@@ -1227,7 +1238,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         private void LoadEdge(SerializationReader reader, AGraphElementModel[] graphElements,
                                      ref List<EdgeSneakPeak> sneakPeaks)
         {
-            var id = reader.ReadInt32();
+            var id = reader.ReadOptimizedInt32();              // P7: var-int id
             var creationDate = reader.ReadUInt32();
             var modificationDate = reader.ReadUInt32();
             var label = reader.ReadOptimizedString();
@@ -1235,7 +1246,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             #region properties
 
             Dictionary<String, Object> properties = null;
-            var propertyCount = reader.ReadOptimizedInt32();
+            var propertyCount = reader.ReadOptimizedInt32Checked("edge properties");   // P7/C5: guarded var-int count
 
             if (propertyCount > 0)
             {
@@ -1251,10 +1262,10 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             #endregion
 
-            var edgePropertyId = reader.ReadString();
+            var edgePropertyId = reader.ReadOptimizedString();   // P2/M5: tokenized (was untokenized UTF-32)
 
-            var sourceVertexId = reader.ReadInt32();
-            var targetVertexId = reader.ReadInt32();
+            var sourceVertexId = reader.ReadOptimizedInt32();    // P7: var-int ids
+            var targetVertexId = reader.ReadOptimizedInt32();
 
             VertexModel sourceVertex = graphElements[sourceVertexId] as VertexModel;
             VertexModel targetVertex = graphElements[targetVertexId] as VertexModel;
@@ -1288,9 +1299,12 @@ namespace NoSQL.GraphDB.Core.Persistency
         {
             writer.Write(SerializedEdge);
             WriteAGraphElement(edge, writer);
-            writer.Write(edge.EdgePropertyId);
-            writer.Write(edge.SourceVertex.Id);
-            writer.Write(edge.TargetVertex.Id);
+            // P2/M5: EdgePropertyId is tokenized (was an untokenized UTF-32 copy per edge), so N edges
+            // that share a property id - or share it with the vertices' edge-property keys already
+            // tokenized in this bunch - store it once and reference a 1-4 byte token thereafter.
+            writer.WriteOptimized(edge.EdgePropertyId);
+            writer.WriteVarInt32(edge.SourceVertex.Id);      // P7
+            writer.WriteVarInt32(edge.TargetVertex.Id);
         }
 
         #endregion

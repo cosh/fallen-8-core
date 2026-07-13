@@ -304,6 +304,26 @@ namespace NoSQL.GraphDB.Core.Model
         #region internal methods
 
         /// <summary>
+        ///   Serialization-only accessor to the raw, key-sorted compact property store (finding N1).
+        ///   Returns the live backing array (its entries sorted ordinally by key) or <c>null</c> when
+        ///   the element has no properties. The persistency layer emits this directly instead of
+        ///   building a throwaway <see cref="ImmutableDictionary{TKey,TValue}" /> per element via
+        ///   <see cref="GetAllProperties" /> on every save, saving that per-element allocation.
+        ///
+        ///   The returned reference is safe to read: the store is published copy-on-write and never
+        ///   mutated in place (the same single-writer / lock-free-reader discipline
+        ///   <see cref="TryGetProperty{TProperty}" /> relies on), and save runs over an O(1) element
+        ///   snapshot. Emitting this array changes the on-disk property BYTE ORDER to ordinal key
+        ///   order (the former dictionary emitted hash order); this is load-compatible because the
+        ///   constructor rebuilds - and re-sorts - the store from whatever order it reads, so any
+        ///   stored order round-trips. Callers must NOT mutate the returned array.
+        /// </summary>
+        internal KeyValuePair<String, Object>[] GetPropertyStoreForSerialization()
+        {
+            return _properties;
+        }
+
+        /// <summary>
         ///   Trims the graph element
         /// </summary>
         internal virtual void Trim()
