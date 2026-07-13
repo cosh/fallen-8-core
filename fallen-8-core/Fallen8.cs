@@ -1383,6 +1383,7 @@ namespace NoSQL.GraphDB.Core
             oldServiceFactory.ShutdownAllServices();
             var oldSnapshot = _snapshot;
             var oldCurrentId = _currentId;
+            var oldId = Id;
 
             _snapshot = EmptySnapshot;
 
@@ -1411,6 +1412,11 @@ namespace NoSQL.GraphDB.Core
                 IndexFactory = oldIndexFactory;
                 ServiceFactory = oldServiceFactory;
                 SubGraphFactory = oldSubGraphFactory;
+                // Restore the engine identity too: PersistencyFactory.Load sets it via SetId(...) once
+                // it trusts the file, so a load that then failed must not leave the DB carrying the
+                // rejected save's Guid. (In practice SetId runs only after clean-reject validation, so
+                // this is rarely reachable - but a rolled-back load must leave EVERYTHING unchanged.)
+                SetId(oldId);
                 ServiceFactory.StartAllServices();
                 throw;
             }
@@ -1460,10 +1466,23 @@ namespace NoSQL.GraphDB.Core
                     else
                     {
                         // The log does not pair with this snapshot (a different/older snapshot, or a
-                        // pre-snapshot log). Discard its stale entries and re-anchor it to THIS
-                        // snapshot, baselined at the snapshot's own id-space size (the current
-                        // _currentId, before any compaction), so future commits are logged against the
-                        // correct baseline and a later reload of this snapshot stays id-consistent.
+                        // pre-snapshot log). If it STILL HOLDS committed entries, re-anchoring drops
+                        // them - work committed since the log's own snapshot that is NOT present in the
+                        // snapshot now being loaded. That is legitimate (e.g. loading an older snapshot,
+                        // or bootstrapping onto a foreign one), but it must never be silent: warn
+                        // loudly so a mispaired reload - a snapshot loaded via a path the log was not
+                        // anchored to - surfaces as a signal rather than as silent data loss.
+                        if (_wal.HasEntries())
+                        {
+                            _logger.LogWarning(
+                                "The write-ahead log holds committed entries but does not pair with the snapshot being loaded from \"{Path}\"; those entries will be DISCARDED (not replayed). If this snapshot was meant to pair with the log, reload it via the exact path the log was anchored to.",
+                                path);
+                        }
+
+                        // Discard the stale entries and re-anchor the log to THIS snapshot, baselined at
+                        // the snapshot's own id-space size (the current _currentId, before any
+                        // compaction), so future commits are logged against the correct baseline and a
+                        // later reload of this snapshot stays id-consistent.
                         _wal.ResetToSnapshot(path, _currentId);
                     }
 

@@ -42,7 +42,8 @@ namespace NoSQL.GraphDB.Core.Persistency
     ///   format: an 8-byte magic + little-endian version, then a CRC-protected header recording the
     ///   <em>baseline</em> id-space size (<see cref="BaselineCurrentId" /> - the writer's
     ///   <c>_currentId</c> as of the snapshot this log builds upon) and a <em>pairing token</em>
-    ///   (the path of that snapshot, or empty for a log that predates any snapshot). After the
+    ///   (the <em>canonicalized</em> path of that snapshot - see <see cref="NormalizePathToken" /> -
+    ///   or empty for a log that predates any snapshot). After the
     ///   header come the entries, each framed as <c>[Int32 length][payload][UInt32 CRC-32]</c>.</para>
     ///
     ///   <para><b>Single-writer.</b> Every <see cref="Append" />, <see cref="ResetToSnapshot" /> and
@@ -75,6 +76,20 @@ namespace NoSQL.GraphDB.Core.Persistency
 
         /// <summary>The pairing token of a log that does not yet build upon any snapshot.</summary>
         private const string UnanchoredToken = "";
+
+        /// <summary>
+        ///   How pairing tokens (snapshot paths) are compared. A pairing token is a file-system path,
+        ///   so it is matched the way the host file system resolves paths: case-insensitively on
+        ///   Windows and macOS (whose default volumes are case-insensitive), case-sensitively
+        ///   elsewhere. Together with <see cref="NormalizePathToken" /> this makes the SAME snapshot
+        ///   pair with its log across a Windows case variant, relative-vs-absolute, <c>"./"</c>
+        ///   segments and trailing separators - so a non-verbatim reload of the same snapshot replays
+        ///   its log rather than silently discarding committed entries.
+        /// </summary>
+        private static readonly StringComparison PathComparison =
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
 
         private readonly string _path;
         private readonly ILogger _logger;
@@ -124,12 +139,63 @@ namespace NoSQL.GraphDB.Core.Persistency
             get { return _baselineCurrentId; }
         }
 
-        /// <summary>Whether the log pairs with the snapshot at <paramref name="snapshotPath" />.</summary>
+        /// <summary>
+        ///   Whether the log pairs with the snapshot at <paramref name="snapshotPath" />. Both the
+        ///   stored token and the compared path are canonicalized (<see cref="NormalizePathToken" />)
+        ///   and matched with <see cref="PathComparison" /> so that any file-system-equivalent form of
+        ///   the same snapshot path pairs - a raw ordinal match would fail on a Windows case variant, a
+        ///   relative-vs-absolute form, a <c>"./"</c> segment or a trailing separator, and the
+        ///   non-pairing branch would then DISCARD the log's committed-since-snapshot entries.
+        /// </summary>
         internal bool PairsWith(string snapshotPath)
         {
             return _valid
                    && !string.IsNullOrEmpty(_pairingToken)
-                   && string.Equals(_pairingToken, snapshotPath, StringComparison.Ordinal);
+                   && string.Equals(
+                          NormalizePathToken(_pairingToken),
+                          NormalizePathToken(snapshotPath),
+                          PathComparison);
+        }
+
+        /// <summary>
+        ///   Canonicalizes a snapshot path into the form stored and compared as the pairing token: an
+        ///   absolute, normalized path via <see cref="Path.GetFullPath(string)" /> (which collapses
+        ///   <c>"./"</c> and redundant separators and resolves a relative path against the current
+        ///   directory). A null/empty path is the unanchored token; a path that cannot be canonicalized
+        ///   falls back to its raw form, so pairing degrades to the previous exact-match behaviour
+        ///   rather than throwing. Idempotent: normalizing an already-normalized token is a no-op.
+        /// </summary>
+        private static string NormalizePathToken(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return UnanchoredToken;
+            }
+
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch
+            {
+                return path;
+            }
+        }
+
+        /// <summary>
+        ///   Whether the log currently holds at least one complete, replayable entry (a full,
+        ///   CRC-valid frame past the header). Cheap: it stops at the first such entry rather than
+        ///   scanning the whole file. Used to decide whether discarding a non-pairing log would drop
+        ///   committed work (and therefore must be signalled loudly).
+        /// </summary>
+        internal bool HasEntries()
+        {
+            foreach (var _ in ReadEntries())
+            {
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>Whether the log has entries but does not yet build upon any snapshot.</summary>
@@ -170,7 +236,9 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         internal void ResetToSnapshot(string snapshotPath, long baselineCurrentId)
         {
-            var token = snapshotPath ?? UnanchoredToken;
+            // Store the CANONICAL path (not the raw save/load path as-passed) so the on-disk pairing
+            // token is stable across file-system-equivalent forms of the same snapshot path.
+            var token = NormalizePathToken(snapshotPath);
             WriteHeader(baselineCurrentId, token, useTempAndRename: true);
             _baselineCurrentId = baselineCurrentId;
             _pairingToken = token;

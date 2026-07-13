@@ -132,6 +132,71 @@ namespace NoSQL.GraphDB.Tests
             return name;
         }
 
+        private static ILoggerFactory CapturingFactory(CapturingLoggerProvider provider)
+        {
+            return LoggerFactory.Create(builder =>
+            {
+                builder.SetMinimumLevel(LogLevel.Trace);
+                builder.AddProvider(provider);
+            });
+        }
+
+        /// <summary>
+        /// A minimal in-memory logger provider that records every emitted entry so a test can assert
+        /// that a specific message (e.g. the non-pairing-log discard warning) was logged.
+        /// </summary>
+        private sealed class CapturingLoggerProvider : ILoggerProvider
+        {
+            private readonly object _gate = new object();
+            private readonly List<(LogLevel Level, string Message)> _entries = new List<(LogLevel, string)>();
+
+            public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
+
+            public void Dispose()
+            {
+            }
+
+            public bool HasWarningContaining(string fragment)
+            {
+                lock (_gate)
+                {
+                    return _entries.Any(e => e.Level == LogLevel.Warning
+                                             && e.Message.IndexOf(fragment, StringComparison.Ordinal) >= 0);
+                }
+            }
+
+            private void Record(LogLevel level, string message)
+            {
+                lock (_gate)
+                {
+                    _entries.Add((level, message));
+                }
+            }
+
+            private sealed class CapturingLogger : ILogger
+            {
+                private readonly CapturingLoggerProvider _owner;
+
+                public CapturingLogger(CapturingLoggerProvider owner) => _owner = owner;
+
+                public IDisposable BeginScope<TState>(TState state) => NullScope.Instance;
+
+                public bool IsEnabled(LogLevel logLevel) => true;
+
+                public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception,
+                    Func<TState, Exception, string> formatter)
+                {
+                    _owner.Record(logLevel, formatter(state, exception));
+                }
+            }
+
+            private sealed class NullScope : IDisposable
+            {
+                public static readonly NullScope Instance = new NullScope();
+                public void Dispose() { }
+            }
+        }
+
         #endregion
 
         #region WAL off by default
@@ -480,6 +545,109 @@ namespace NoSQL.GraphDB.Tests
 
             var recovered = NewEngineWithWal();
             Assert.AreEqual(2, recovered.VertexCount, "The two complete entries recover; the bogus prefix is ignored.");
+            recovered.Dispose();
+        }
+
+        #endregion
+
+        #region WAL <-> snapshot pairing: path normalization + non-pairing discard warning
+
+        [TestMethod]
+        public void LoadSameSnapshotViaRelativePathSegmentVariant_StillReplaysPostSnapshotEntries()
+        {
+            // The WAL pairs with its snapshot by a CANONICALIZED path token, not a raw ordinal match.
+            // A non-verbatim reload of the SAME snapshot (here: an inserted "./" segment) must still
+            // pair, so the post-snapshot entries REPLAY - a raw match would treat it as "non-pairing"
+            // and silently discard committed-since-snapshot work.
+            var source = NewEngineWithWal();
+            AddVertices(source, ("person", "Alice"), ("person", "Bob")); // 0,1
+            var actualPath = Save(source, SavePath);
+            Assert.AreEqual(SavePath, actualPath, "The first save uses the base path.");
+
+            var carol = AddVertices(source, ("person", "Carol"))[0]; // id 2, in the WAL only
+            Assert.AreEqual(2, carol.Id);
+            source.Dispose();
+
+            // Same snapshot, addressed via a file-system-equivalent variant: an extra "." segment.
+            // Path.GetFullPath canonicalizes this back to SavePath regardless of the current directory
+            // (the path is absolute), so the test is deterministic and cross-platform.
+            var variantPath = Path.Combine(_tempDir, ".", "savegame.f8s");
+            Assert.AreNotEqual(SavePath, variantPath, "Sanity: the variant is not byte-identical to the save path.");
+
+            var recovered = NewEngineWithWal();
+            var (state, error) = Load(recovered, variantPath);
+
+            Assert.AreEqual(TransactionState.Finished, state, "Recovery via a path variant should succeed; instead: " + error);
+            Assert.AreEqual(3, recovered.VertexCount,
+                "Alice, Bob (snapshot) and the replayed Carol - the post-snapshot entry is NOT lost to a path-variant mismatch.");
+            Assert.AreEqual("Carol", NameOf(recovered, 2), "Carol recovers at her original id.");
+            recovered.Dispose();
+        }
+
+        [TestMethod]
+        public void LoadSameSnapshotViaCaseVariant_OnWindows_StillReplaysPostSnapshotEntries()
+        {
+            // Windows/macOS resolve paths case-insensitively, so the pairing comparison is
+            // OrdinalIgnoreCase there. This pins that a case variant of the same snapshot path still
+            // pairs (and replays) rather than being discarded as non-pairing. Skipped where the file
+            // system is case-sensitive (the variant would not even resolve to the same file).
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Inconclusive("Case-insensitive path pairing is only exercised on a case-insensitive file system (Windows).");
+                return;
+            }
+
+            var source = NewEngineWithWal();
+            AddVertices(source, ("person", "Alice"), ("person", "Bob"));
+            var actualPath = Save(source, SavePath);
+            var carol = AddVertices(source, ("person", "Carol"))[0]; // id 2, in the WAL only
+            Assert.AreEqual(2, carol.Id);
+            source.Dispose();
+
+            var caseVariant = actualPath.ToUpperInvariant();
+            Assert.AreNotEqual(actualPath, caseVariant, "Sanity: the case variant differs from the save path.");
+
+            var recovered = NewEngineWithWal();
+            var (state, error) = Load(recovered, caseVariant);
+
+            Assert.AreEqual(TransactionState.Finished, state, "Recovery via a case variant should succeed; instead: " + error);
+            Assert.AreEqual(3, recovered.VertexCount, "The post-snapshot entry is not lost to a case-variant mismatch.");
+            Assert.AreEqual("Carol", NameOf(recovered, 2));
+            recovered.Dispose();
+        }
+
+        [TestMethod]
+        public void LoadGenuinelyDifferentSnapshot_DiscardsUnpairedLogEntries_WithWarning()
+        {
+            // A log paired with snapshot A and STILL HOLDING committed entries, loaded against a
+            // genuinely DIFFERENT snapshot B: those entries belong to A's id space and legitimately
+            // cannot replay onto B, so they are discarded - but never silently. A warning must fire.
+            var source = NewEngineWithWal();
+            AddVertices(source, ("person", "Alice"), ("person", "Bob")); // 0,1
+            Save(source, SavePath);                                       // snapshot A; log paired with A
+            AddVertices(source, ("person", "Carol"));                     // id 2, in the WAL (paired with A)
+            source.Dispose();
+
+            // A different snapshot B, produced independently (different content + engine id).
+            var otherPath = Path.Combine(_tempDir, "other.f8s");
+            var producer = new Fallen8(_loggerFactory);
+            AddVertices(producer, ("robot", "Zed"));                      // id 0 in B
+            var actualOther = Save(producer, otherPath);
+            producer.Dispose();
+
+            // Recover with a capturing logger so we can assert the warning fires.
+            var capture = new CapturingLoggerProvider();
+            var recovered = new Fallen8(CapturingFactory(capture), new WriteAheadLogOptions(WalPath));
+            var (state, error) = Load(recovered, actualOther);
+
+            Assert.AreEqual(TransactionState.Finished, state, "Loading a different snapshot should still succeed; instead: " + error);
+            Assert.AreEqual(1, recovered.VertexCount,
+                "Only snapshot B's content - the A-paired log entries are discarded, not replayed.");
+            Assert.AreEqual(0, CountWithName(recovered, "Carol"), "Carol (an A-paired log entry) must NOT be applied onto snapshot B.");
+            Assert.AreEqual(1, CountWithName(recovered, "Zed"), "Snapshot B's own content loads.");
+
+            Assert.IsTrue(capture.HasWarningContaining("does not pair"),
+                "Discarding a non-pairing log that still holds committed entries must be signalled with a warning, never silent.");
             recovered.Dispose();
         }
 
