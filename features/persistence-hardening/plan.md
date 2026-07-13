@@ -61,7 +61,7 @@ Companion to [spec.md](./spec.md). Correctness/durability first, then performanc
 ## Status
 - [x] Phase 1 — worker try/catch (C3, already landed in correctness-fixes B6), id-space sizing (C1), buffer size (P1)
 - [x] Phase 2 — atomic + versioned + integrity-checked format (C2/C4/C5), recipe manifest (C6), OtherType framing (C7), UTC/monotonic version suffix (C8)
-- [ ] Phase 3 — UTF-8 + tokenized values + var-int; full spatial (R-Tree) index serialization (C9)
+- [x] Phase 3 — UTF-8 + tokenized values (P2, subsumes memory-footprint **M5**) + var-int (P7) + serialization-path property accessor (N1); full spatial (R-Tree) index serialization + `IIndex.CanPersist` (C9)
 - [ ] Phase 4 — non-blocking save + partitioning + load memory
 - [ ] Phase 5 — WAL / incremental checkpoints
 
@@ -95,3 +95,48 @@ intentionally not loadable.
 
 Payload byte encoding (UTF-32 strings, property layout) is unchanged — Stage B (Phase 3) increments
 `formatVersion` behind this gate when it changes the encoding.
+
+### Stage B outcome (Phase 3)
+
+The efficient payload encoding, folded into the **same** `formatVersion = 2` (Stage A's v2 never
+shipped, so the whole theme ships as one "hardened + efficient" format; clean-reject means only the
+current version loads). Save→load round-trips a graph **exactly** — Unicode/BMP/surrogate + empty
+strings, every property value type, and property byte order all reconstruct faithfully.
+
+- **P2** — string encoding is **UTF-8** (was UTF-32: 1 byte/ASCII char instead of 4), written and
+  read in bulk. String property **VALUES** and the edge **`EdgePropertyId`** now travel the string
+  **token table** (`WriteOptimized`/`ReadOptimizedString`) instead of an untokenized per-occurrence
+  copy: `WriteObject` routes strings through the token path and `ProcessObject` decodes the token
+  buckets symmetrically. A value/label/id that repeats within a bunch is stored once and referenced
+  by a 1–4 byte token — verified to dedupe (e.g. a shared 106-char value across 300 elements: an
+  ~8 KB bunch vs a ~32 KB untokenized lower bound) and to reload verbatim.
+- **M5** (from memory-footprint) — **subsumed** by P2: `EdgePropertyId` is now tokenized, so N edges
+  sharing an id (or sharing it with the vertices' edge-property keys already tokenized in the bunch)
+  store it once and dedupe on load.
+- **N1** (from memory-footprint) — `Save` reads the raw, ordinal-key-sorted compact property store
+  directly via the new internal `AGraphElementModel.GetPropertyStoreForSerialization()` instead of
+  materialising a throwaway `ImmutableDictionary` per element. This changes the on-disk property byte
+  order to ordinal key order; the loader rebuilds and re-sorts the store, so any order round-trips
+  (the memory-footprint fidelity suite stays green).
+- **P7** — element ids, partition boundaries and per-element counts are **var-int** (`WriteVarInt32`
+  / `ReadOptimizedInt32`) instead of fixed 4-byte ints. A new full-range `WriteVarInt32` is used (not
+  the guarded `WriteOptimized(int)`, which faults above ~268 M) so a legitimately large id never
+  throws; a new guarded `ReadOptimizedInt32Checked` extends the C5 length-prefix guard to the var-int
+  counts that size collections. Dates stay fixed-width; the header stays fixed-width.
+- **C9** — the spatial **R-Tree** index is now **fully persistable and reloads functional**,
+  replacing the B7 skip-and-recreate. `Save` writes the build **config** (metric + dimension types,
+  min/max node counts) and the **entries** ((point | MBR, elementId) pairs from the container map);
+  `Load` re-`Initialize`s an empty tree from the config and re-inserts every entry, rebuilding an
+  equivalent, **queryable** tree (region/point/distance/kNN queries run on the reloaded index — the
+  exact thing B7 could not do). An explicit **`IIndex.CanPersist`** capability flag replaces the
+  implicit `NotSupportedException`-from-`Save` signal: `PersistencyFactory.SaveIndex` skips a
+  `CanPersist == false` index silently (Information) and reserves Error-level logging + partial-file
+  cleanup for a genuine serialization failure of an index that claims it can persist. Every built-in
+  index returns `CanPersist == true`.
+
+Hard guardrails preserved: single-writer and the load-publish ordering (dense array →
+`PublishLoadedGraphElements` → index/service rehydration) are unchanged; the encoding change stays
+inside the versioned/CRC'd envelope, so clean-reject + integrity still hold and a truncated/garbage
+file is still rejected without a large allocation (the guards now cover the new var-int counts too).
+Deferred to later stages: non-blocking save + right-sized partitioning (Phase 4) and the WAL
+(Phase 5).
