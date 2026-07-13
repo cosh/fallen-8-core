@@ -33,6 +33,7 @@ using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Plugin;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Core.SubGraph
 {
@@ -158,7 +159,21 @@ namespace NoSQL.GraphDB.Core.SubGraph
                                       string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
                                       IDictionary<string, object> parameter = null)
         {
-            return TryCreateSubGraphFromSource(out subGraph, subGraphName, definition, _fallen8, algorithmTypeName, parameter);
+            return TryCreateSubGraph(out subGraph, subGraphName, definition, out _, algorithmTypeName, parameter);
+        }
+
+        /// <summary>
+        /// Reason-reporting overload used by the transaction layer: on a failed create it reports a
+        /// structured <see cref="TransactionFailureReason"/> (QuotaExceeded / InvalidInput /
+        /// Conflict / InternalError) so a waited-on caller can map it to the correct status. The
+        /// public overload delegates here and discards the reason.
+        /// </summary>
+        internal bool TryCreateSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
+                                      out TransactionFailureReason reason,
+                                      string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
+                                      IDictionary<string, object> parameter = null)
+        {
+            return TryCreateSubGraphFromSource(out subGraph, subGraphName, definition, _fallen8, out reason, algorithmTypeName, parameter);
         }
 
         /// <summary>
@@ -172,20 +187,38 @@ namespace NoSQL.GraphDB.Core.SubGraph
                                       string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
                                       IDictionary<string, object> parameter = null)
         {
+            return TryCreateSubGraphFromSource(out subGraph, subGraphName, definition, source, out _, algorithmTypeName, parameter);
+        }
+
+        /// <summary>
+        /// Reason-reporting overload of <see cref="TryCreateSubGraphFromSource(out SubGraphResult, string, SubGraphDefinition, IFallen8, string, IDictionary{string, object})"/>
+        /// used by the transaction layer.
+        /// </summary>
+        internal bool TryCreateSubGraphFromSource(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
+                                      IFallen8 source,
+                                      out TransactionFailureReason reason,
+                                      string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
+                                      IDictionary<string, object> parameter = null)
+        {
+            reason = TransactionFailureReason.None;
             subGraph = null;
 
             if (source == null)
             {
                 _logger.LogError(String.Format("Cannot create subgraph \"{0}\": source graph is null.", subGraphName));
+                reason = TransactionFailureReason.InternalError;
                 return false;
             }
 
             if (!TryGetOrLoadAlgorithm(out var algo, source, algorithmTypeName, parameter))
             {
+                // A missing/failed algorithm plugin is a server-side infrastructure fault, not a
+                // client-correctable request.
+                reason = TransactionFailureReason.InternalError;
                 return false;
             }
 
-            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algorithmTypeName, parameter, source);
+            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algorithmTypeName, parameter, source, out reason);
         }
 
         /// <summary>
@@ -292,7 +325,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 return false;
             }
 
-            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algo.PluginName, parameter, source);
+            return CreateAndRegisterSubGraph(out subGraph, subGraphName, definition, algo, algo.PluginName, parameter, source, out _);
         }
 
         /// <summary>
@@ -329,25 +362,33 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns><c>true</c> if creation and registration succeeded; otherwise, <c>false</c>.</returns>
         private bool CreateAndRegisterSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                               ISubGraphAlgorithm algo, string algorithmPluginName, IDictionary<string, object> algorithmParameters,
-                                              IFallen8 source)
+                                              IFallen8 source, out TransactionFailureReason reason)
         {
             subGraph = null;
+            reason = TransactionFailureReason.None;
 
             try
             {
                 // Quota: reject before doing any work if the subgraph count is at its ceiling.
+                // Routed through QuotaExceeded so ALL quota breaches (this count ceiling and the
+                // element ceilings below) share one status.
                 if (_subGraphsByName.Count >= _quota.MaxSubGraphCount)
                 {
                     _logger.LogWarning(String.Format(
                         "Cannot create subgraph \"{0}\": the maximum number of subgraphs ({1}) has been reached.",
                         subGraphName, _quota.MaxSubGraphCount));
+                    reason = TransactionFailureReason.QuotaExceeded;
                     return false;
                 }
 
-                // Create the subgraph using the algorithm
+                // Create the subgraph using the algorithm. A clean false here is a structurally
+                // invalid pattern (or a null definition) - a client-correctable InvalidInput. A
+                // valid pattern that simply matches nothing yields a registered empty subgraph
+                // (true), not false.
                 if (!algo.TryCreateSubgraph(out subGraph, definition))
                 {
                     _logger.LogError(String.Format("Failed to create subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, algo.PluginName));
+                    reason = TransactionFailureReason.InvalidInput;
                     return false;
                 }
 
@@ -361,6 +402,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                         "Cannot create subgraph \"{0}\": its {1} elements exceed the per-subgraph limit of {2}.",
                         subGraphName, elementCount, _quota.MaxElementsPerSubGraph));
                     subGraph = null;
+                    reason = TransactionFailureReason.QuotaExceeded;
                     return false;
                 }
 
@@ -370,6 +412,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                         "Cannot create subgraph \"{0}\": it would exceed the total materialized element limit of {1}.",
                         subGraphName, _quota.MaxTotalElements));
                     subGraph = null;
+                    reason = TransactionFailureReason.QuotaExceeded;
                     return false;
                 }
 
@@ -390,6 +433,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                     // non-null would make a losing racer report success and its rollback delete
                     // the winner's subgraph.
                     subGraph = null;
+                    reason = TransactionFailureReason.Conflict;
                     return false;
                 }
 
@@ -400,6 +444,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
             {
                 _logger.LogError(ex, String.Format("Exception occurred while creating subgraph \"{0}\": {1}", subGraphName, ex.Message));
                 subGraph = null;
+                reason = TransactionFailureReason.InternalError;
                 return false;
             }
         }

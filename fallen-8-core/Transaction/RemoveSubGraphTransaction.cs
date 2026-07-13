@@ -78,18 +78,27 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             if (String.IsNullOrWhiteSpace(SubGraphName))
             {
+                FailureReason = TransactionFailureReason.InvalidInput;
                 return false;
             }
 
             // Try to get the subgraph before removing it for potential rollback
             if (!f8.SubGraphFactory.TryGetSubGraph(out _removedSubGraph, SubGraphName))
             {
-                // Subgraph doesn't exist
+                // Subgraph doesn't exist - a client-caused NotFound, not an internal fault.
+                FailureReason = TransactionFailureReason.NotFound;
                 return false;
             }
 
-            // Remove the subgraph
-            return f8.SubGraphFactory.TryDeregisterSubGraph(SubGraphName);
+            // Remove the subgraph. A false here (deregistration lost a race after the existence
+            // check) is an unexpected internal condition, not a client error.
+            if (!f8.SubGraphFactory.TryDeregisterSubGraph(SubGraphName))
+            {
+                FailureReason = TransactionFailureReason.InternalError;
+                return false;
+            }
+
+            return true;
         }
     }
 }

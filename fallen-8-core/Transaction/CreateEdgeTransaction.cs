@@ -55,7 +55,17 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            return f8.CreateEdge_internal(Definition.SourceVertexId, Definition.EdgePropertyId, Definition.TargetVertexId, Definition.CreationDate, Definition.Label, Definition.Properties) != null;
+            var edge = f8.CreateEdge_internal(Definition.SourceVertexId, Definition.EdgePropertyId, Definition.TargetVertexId, Definition.CreationDate, Definition.Label, Definition.Properties);
+
+            if (edge == null)
+            {
+                // The only clean reason CreateEdge_internal returns null is a missing/removed
+                // referenced vertex - a client-caused NotFound, not an internal fault.
+                FailureReason = TransactionFailureReason.NotFound;
+                return false;
+            }
+
+            return true;
         }
     }
 }

@@ -88,11 +88,13 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             if (Definition == null)
             {
+                FailureReason = TransactionFailureReason.InvalidInput;
                 return false;
             }
 
             if (String.IsNullOrWhiteSpace(Definition.Name))
             {
+                FailureReason = TransactionFailureReason.InvalidInput;
                 return false;
             }
 
@@ -101,22 +103,36 @@ namespace NoSQL.GraphDB.Core.Transaction
             {
                 if (!f8.SubGraphFactory.TryGetSubGraph(out var sourceResult, SourceSubGraphName))
                 {
+                    FailureReason = TransactionFailureReason.NotFound;
                     return false;
                 }
 
-                return f8.SubGraphFactory.TryCreateSubGraphFromSource(
-                    out SubGraphCreated,
-                    Definition.Name,
-                    Definition,
-                    sourceResult.SubGraph);
+                if (!f8.SubGraphFactory.TryCreateSubGraphFromSource(
+                        out SubGraphCreated,
+                        Definition.Name,
+                        Definition,
+                        sourceResult.SubGraph,
+                        out var nestedReason))
+                {
+                    FailureReason = nestedReason;
+                    return false;
+                }
+
+                return true;
             }
 
             // Root subgraph: source is the graph itself.
-            return f8.SubGraphFactory.TryCreateSubGraph(
-                out SubGraphCreated,
-                Definition.Name,
-                Definition
-            );
+            if (!f8.SubGraphFactory.TryCreateSubGraph(
+                    out SubGraphCreated,
+                    Definition.Name,
+                    Definition,
+                    out var rootReason))
+            {
+                FailureReason = rootReason;
+                return false;
+            }
+
+            return true;
         }
     }
 }
