@@ -49,6 +49,24 @@ namespace NoSQL.GraphDB.Core.Index.Range
         private Dictionary<IComparable, ImmutableList<AGraphElementModel>> _idx;
 
         /// <summary>
+        ///   A lazily-built, cached ascending-sorted snapshot of <see cref="_idx" />'s KEYS, used to
+        ///   answer range queries in O(log n + k) via binary search instead of the former O(n)
+        ///   parallel scan over every key (finding P4). This sorted array is the "ordered structure"
+        ///   backing the range operations; the point operations keep using the dictionary unchanged,
+        ///   so their semantics - multi-value buckets, key identity by Equals, and the B3 correctness
+        ///   fixes (Between bounds, keeping the returned immutable list, dropping emptied keys) - are
+        ///   preserved exactly. It is invalidated (set to <c>null</c>) whenever the KEY SET changes -
+        ///   a new key, a removed key, an emptied key, a wipe or a load - and rebuilt on the next
+        ///   range query. Adding another value under an EXISTING key does not change the key set and
+        ///   therefore does not invalidate it; range queries always gather the current values from
+        ///   <see cref="_idx" /> at query time. It is built/read only under the read lock and
+        ///   invalidated only under the write lock (mutually exclusive via <c>AThreadSafeElement</c>),
+        ///   so it never observes a torn <see cref="_idx" />; <c>volatile</c> gives readers a
+        ///   consistent view of the published array.
+        /// </summary>
+        private volatile IComparable[] _sortedKeys;
+
+        /// <summary>
         /// The description of the plugin
         /// </summary>
         private String _description = "A very very simple range index";
@@ -76,6 +94,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
         {
             _idx.Clear();
             _idx = null;
+            _sortedKeys = null;
         }
         #endregion
 
@@ -83,6 +102,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
         public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
         {
             _idx = new Dictionary<IComparable, ImmutableList<AGraphElementModel>>();
+            _sortedKeys = null;
             _logger = fallen8.LoggerFactory.CreateLogger<RangeIndex>();
         }
 
@@ -177,6 +197,9 @@ namespace NoSQL.GraphDB.Core.Index.Range
                     _idx.Add((IComparable)key, ImmutableList.CreateRange<AGraphElementModel>(value));
                 }
 
+                // The key set was rebuilt from disk; rebuild the sorted-key snapshot lazily (P4).
+                _sortedKeys = null;
+
                 FinishWriteResource();
 
                 return;
@@ -229,11 +252,15 @@ namespace NoSQL.GraphDB.Core.Index.Range
                 ImmutableList<AGraphElementModel> values;
                 if (_idx.TryGetValue(key, out values))
                 {
+                    // Existing key: only the value bucket grows, the key set is unchanged, so the
+                    // sorted-key snapshot stays valid (range queries read the current values).
                     _idx[key] = values.Add(graphElement);
                 }
                 else
                 {
                     _idx.Add(key, ImmutableList.Create<AGraphElementModel>(graphElement));
+                    // New key -> the sorted-key snapshot is stale (finding P4).
+                    _sortedKeys = null;
                 }
 
                 FinishWriteResource();
@@ -255,6 +282,11 @@ namespace NoSQL.GraphDB.Core.Index.Range
             if (WriteResource())
             {
                 var foundSth = _idx.Remove(key);
+                if (foundSth)
+                {
+                    // A key left the index -> the sorted-key snapshot is stale (finding P4).
+                    _sortedKeys = null;
+                }
 
                 FinishWriteResource();
 
@@ -281,6 +313,11 @@ namespace NoSQL.GraphDB.Core.Index.Range
                 }
 
                 toBeRemovedKeys.ForEach(_ => _idx.Remove(_));
+                if (toBeRemovedKeys.Count > 0)
+                {
+                    // One or more keys were emptied and dropped -> the sorted-key snapshot is stale.
+                    _sortedKeys = null;
+                }
 
                 FinishWriteResource();
 
@@ -295,6 +332,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
             if (WriteResource())
             {
                 _idx.Clear();
+                _sortedKeys = null;
 
                 FinishWriteResource();
 
@@ -369,15 +407,11 @@ namespace NoSQL.GraphDB.Core.Index.Range
         {
             if (ReadResource())
             {
-                var listOfMatchingGraphElements = _idx
-                    .AsParallel()
-                        .Where(aKV => includeKey
-                               ? aKV.Key.CompareTo(key) <= 0
-                               : aKV.Key.CompareTo(key) < 0)
-                        .Select(aRelevantKV => aRelevantKV.Value)
-                        .SelectMany(_ => _);
-
-                result = ImmutableList.CreateRange<AGraphElementModel>(listOfMatchingGraphElements);
+                var keys = EnsureSortedKeys();
+                // Keys lower than the given key: inclusive -> [0, UpperBound(key)) (all keys <= key);
+                // exclusive -> [0, LowerBound(key)) (all keys < key). O(log n) to locate the end.
+                int end = includeKey ? UpperBound(keys, key) : LowerBound(keys, key);
+                result = GatherRange(keys, 0, end);
 
                 FinishReadResource();
 
@@ -391,16 +425,11 @@ namespace NoSQL.GraphDB.Core.Index.Range
         {
             if (ReadResource())
             {
-                var listOfMatchingGraphElements = _idx
-                    .AsParallel()
-                        .Where(aKV => includeKey
-                               ? aKV.Key.CompareTo(key) >= 0
-                               : aKV.Key.CompareTo(key) > 0)
-                        .Select(aRelevantKV => aRelevantKV.Value)
-                        .SelectMany(_ => _)
-                        .ToList();
-
-                result = ImmutableList.CreateRange<AGraphElementModel>(listOfMatchingGraphElements);
+                var keys = EnsureSortedKeys();
+                // Keys greater than the given key: inclusive -> [LowerBound(key), n) (all keys >= key);
+                // exclusive -> [UpperBound(key), n) (all keys > key). O(log n) to locate the start.
+                int start = includeKey ? LowerBound(keys, key) : UpperBound(keys, key);
+                result = GatherRange(keys, start, keys.Length);
 
                 FinishReadResource();
 
@@ -414,21 +443,13 @@ namespace NoSQL.GraphDB.Core.Index.Range
         {
             if (ReadResource())
             {
-                var listOfMatchingGraphElements = _idx
-                    .AsParallel()
-                        .Where(aKV =>
-                               (includeLowerLimit
-                               ? aKV.Key.CompareTo(lowerLimit) >= 0
-                               : aKV.Key.CompareTo(lowerLimit) > 0)
-                               &&
-                               (includeUpperLimit
-                               ? aKV.Key.CompareTo(upperLimit) <= 0
-                               : aKV.Key.CompareTo(upperLimit) < 0))
-                        .Select(aRelevantKV => aRelevantKV.Value)
-                        .SelectMany(_ => _)
-                        .ToList();
-
-                result = ImmutableList.CreateRange<AGraphElementModel>(listOfMatchingGraphElements);
+                var keys = EnsureSortedKeys();
+                // Two binary searches bracket the range: start honours the lower bound's inclusivity,
+                // end honours the upper bound's. An inverted range (lower > upper) yields start >= end,
+                // which GatherRange returns as empty - matching the old "no key satisfies both" result.
+                int start = includeLowerLimit ? LowerBound(keys, lowerLimit) : UpperBound(keys, lowerLimit);
+                int end = includeUpperLimit ? UpperBound(keys, upperLimit) : LowerBound(keys, upperLimit);
+                result = GatherRange(keys, start, end);
 
                 FinishReadResource();
 
@@ -437,6 +458,101 @@ namespace NoSQL.GraphDB.Core.Index.Range
 
             throw new CollisionException();
         }
+        #endregion
+
+        #region range helpers (finding P4)
+
+        /// <summary>
+        ///   Returns the ascending-sorted key snapshot, building it once (lazily) when stale. Called
+        ///   only while holding the read lock, so <see cref="_idx" /> is stable (writes are exclusive
+        ///   of reads); concurrent readers may each build an equal array - benign - and the last
+        ///   volatile publish wins.
+        /// </summary>
+        private IComparable[] EnsureSortedKeys()
+        {
+            var keys = _sortedKeys;
+            if (keys != null)
+            {
+                return keys;
+            }
+
+            keys = new IComparable[_idx.Count];
+            _idx.Keys.CopyTo(keys, 0);
+            Array.Sort(keys); // default comparer == IComparable.CompareTo, matching the old range predicates
+            _sortedKeys = keys;
+            return keys;
+        }
+
+        /// <summary>
+        ///   Collects the value buckets for the sorted keys in <c>[startInclusive, endExclusive)</c>
+        ///   into one immutable list (O(k) over the matched keys). Keeps the multi-value-per-key
+        ///   semantics: every element in each bucket is included.
+        /// </summary>
+        private ImmutableList<AGraphElementModel> GatherRange(IComparable[] keys, int startInclusive, int endExclusive)
+        {
+            if (startInclusive >= endExclusive)
+            {
+                return ImmutableList<AGraphElementModel>.Empty;
+            }
+
+            var builder = ImmutableList.CreateBuilder<AGraphElementModel>();
+            for (int i = startInclusive; i < endExclusive; i++)
+            {
+                ImmutableList<AGraphElementModel> bucket;
+                if (_idx.TryGetValue(keys[i], out bucket))
+                {
+                    builder.AddRange(bucket);
+                }
+            }
+            return builder.ToImmutable();
+        }
+
+        /// <summary>
+        ///   Smallest index <c>i</c> in <c>[0, n]</c> with <c>keys[i].CompareTo(key) &gt;= 0</c> (the
+        ///   first key not less than <paramref name="key" />); <c>n</c> if every key is less.
+        /// </summary>
+        private static int LowerBound(IComparable[] keys, IComparable key)
+        {
+            int lo = 0;
+            int hi = keys.Length;
+            while (lo < hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (keys[mid].CompareTo(key) < 0)
+                {
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+            return lo;
+        }
+
+        /// <summary>
+        ///   Smallest index <c>i</c> in <c>[0, n]</c> with <c>keys[i].CompareTo(key) &gt; 0</c> (the
+        ///   first key strictly greater than <paramref name="key" />); <c>n</c> if none is greater.
+        /// </summary>
+        private static int UpperBound(IComparable[] keys, IComparable key)
+        {
+            int lo = 0;
+            int hi = keys.Length;
+            while (lo < hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (keys[mid].CompareTo(key) <= 0)
+                {
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+            return lo;
+        }
+
         #endregion
     }
 }

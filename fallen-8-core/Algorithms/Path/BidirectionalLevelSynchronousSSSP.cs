@@ -324,12 +324,21 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                                 edgeLocation =>
                                 new Path(new PathElement(edgeLocation.Edge, edgeLocation.EdgePropertyId,
                                                          Direction.OutgoingEdge))));
+
+                        // Early termination (finding P6): each middle->source path yields at least one
+                        // full path once extended toward the target, so once we hold maxResults of them
+                        // we already have enough to satisfy the final cap in order; stop building more.
+                        if (middleToSourcePaths.Count >= maxResults)
+                        {
+                            break;
+                        }
                     }
+                    CapPaths(middleToSourcePaths, maxResults);
                 }
                 else
                 {
                     //recursion
-                    middleToSourcePaths = CreateToSourcePaths(middleVertices, sourceFrontiers, previousSourceLevel);
+                    middleToSourcePaths = CreateToSourcePaths(middleVertices, sourceFrontiers, previousSourceLevel, maxResults);
                 }
 
 
@@ -366,13 +375,19 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                                     edgeLocation =>
                                     new Path(middlePath, new PathElement(edgeLocation.Edge, edgeLocation.EdgePropertyId,
                                                              Direction.IncomingEdge))));
+
+                            //early termination once we have enough (finding P6)
+                            if (result.Count >= maxResults)
+                            {
+                                break;
+                            }
                         }
 
                         break;
 
                     default:
                         //recursion
-                        result = CreatePathsRecusive(middleToSourcePaths, targetFrontiers, previousTargetLevel, Direction.OutgoingEdge, Direction.IncomingEdge, false);
+                        result = CreatePathsRecusive(middleToSourcePaths, targetFrontiers, previousTargetLevel, Direction.OutgoingEdge, Direction.IncomingEdge, false, maxResults);
 
                         break;
 
@@ -387,13 +402,29 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         }
 
         /// <summary>
+        ///   Caps a path list to the first <paramref name="maxResults" /> entries in place (finding
+        ///   P6). Truncating an intermediate reconstruction list to maxResults is result-preserving:
+        ///   the final result is <c>Take(maxResults)</c> of paths built in a fixed order, each
+        ///   intermediate path yields at least one final path when extended, so the first maxResults
+        ///   intermediates already cover the first maxResults finals; dropping the tail never changes
+        ///   the first maxResults paths or their order.
+        /// </summary>
+        private static void CapPaths(List<Path> paths, int maxResults)
+        {
+            if (maxResults >= 0 && paths.Count > maxResults)
+            {
+                paths.RemoveRange(maxResults, paths.Count - maxResults);
+            }
+        }
+
+        /// <summary>
         /// Creates the paths from the middle vertices to the source
         /// </summary>
         /// <param name="middleVertices">The middle vertices</param>
         /// <param name="sourceFrontiers">The source frontier</param>
         /// <param name="sourceLevel">The source level</param>
         /// <returns>The list of paths from the source to the middle vertices in reverse order</returns>
-        private static List<Path> CreateToSourcePaths(List<VertexModel> middleVertices, List<Dictionary<VertexModel, VertexPredecessor>> sourceFrontiers, int sourceLevel)
+        private static List<Path> CreateToSourcePaths(List<VertexModel> middleVertices, List<Dictionary<VertexModel, VertexPredecessor>> sourceFrontiers, int sourceLevel, int maxResults)
         {
             var firstPaths = new List<Path>();
             //source must be pred now
@@ -412,7 +443,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         edgeLocation =>
                         new Path(new PathElement(edgeLocation.Edge, edgeLocation.EdgePropertyId,
                                                  Direction.OutgoingEdge))));
+
+                //early termination once we have enough (finding P6)
+                if (firstPaths.Count >= maxResults)
+                {
+                    break;
+                }
             }
+            CapPaths(firstPaths, maxResults);
 
             if (sourceLevel == 0)
             {
@@ -421,7 +459,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
             var newSourceLevel = sourceLevel - 1;
 
-            return CreatePathsRecusive(firstPaths, sourceFrontiers, newSourceLevel, Direction.IncomingEdge, Direction.OutgoingEdge, true);
+            return CreatePathsRecusive(firstPaths, sourceFrontiers, newSourceLevel, Direction.IncomingEdge, Direction.OutgoingEdge, true, maxResults);
         }
 
         /// <summary>
@@ -433,13 +471,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="incomingPredDirection">The direction of the incoming predecessors (depends on the frontier)</param>
         /// <param name="outgoingPredDirection">The direction of the outgoing predecessors (depends on the frontier)</param>
         /// <returns>List of paths</returns>
-        private static List<Path> CreatePathsRecusive(List<Path> currentPaths, List<Dictionary<VertexModel, VertexPredecessor>> frontier, int level, Direction incomingPredDirection, Direction outgoingPredDirection, bool toSource)
+        private static List<Path> CreatePathsRecusive(List<Path> currentPaths, List<Dictionary<VertexModel, VertexPredecessor>> frontier, int level, Direction incomingPredDirection, Direction outgoingPredDirection, bool toSource, int maxResults)
         {
             var result = new List<Path>();
 
             switch (level)
             {
                 case -1:
+                    // currentPaths is already capped to maxResults by the caller.
                     return currentPaths;
 
                 case 0:
@@ -459,7 +498,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                                 edgeLocation =>
                                 new Path(middlePath, new PathElement(edgeLocation.Edge, edgeLocation.EdgePropertyId,
                                                          outgoingPredDirection))));
+
+                        //early termination once we have enough (finding P6)
+                        if (result.Count >= maxResults)
+                        {
+                            break;
+                        }
                     }
+                    CapPaths(result, maxResults);
                     break;
 
                 default:
@@ -481,11 +527,20 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                                 edgeLocation =>
                                 new Path(middlePath, new PathElement(edgeLocation.Edge, edgeLocation.EdgePropertyId,
                                                          outgoingPredDirection))));
+
+                        // Each of these intermediate paths yields at least one final path deeper in
+                        // the recursion, so once we hold maxResults of them we can stop expanding this
+                        // level (finding P6); the deeper levels and the final Take(maxResults) trim.
+                        if (newMiddlePaths.Count >= maxResults)
+                        {
+                            break;
+                        }
                     }
+                    CapPaths(newMiddlePaths, maxResults);
 
                     var newPredLevel = level - 1;
 
-                    result = CreatePathsRecusive(newMiddlePaths, frontier, newPredLevel, incomingPredDirection, outgoingPredDirection, toSource);
+                    result = CreatePathsRecusive(newMiddlePaths, frontier, newPredLevel, incomingPredDirection, outgoingPredDirection, toSource, maxResults);
 
                     break;
             }

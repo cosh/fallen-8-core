@@ -28,11 +28,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using System.Threading;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Expression;
+using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Range;
@@ -389,16 +389,38 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   A parallel query over the live elements (ids <c>[0, Count)</c>) of the given
-        ///   snapshot. Uses a range partitioner (no source-array allocation); consecutive ids map
-        ///   to consecutive slots within a segment, so partitions stay cache-friendly. Elements
-        ///   may be null (load-left gaps); callers filter.
+        ///   A PARALLEL query over the live elements (ids <c>[0, Count)</c>) of the given snapshot.
+        ///   Reserved for the genuinely heavy full-graph scan with a user predicate
+        ///   (<see cref="FindElements(ElementSeeker, String)" />); the light-predicate enumerations
+        ///   (counts, GetAll*) use the sequential <see cref="LiveElementsSequential" /> instead, where
+        ///   PLINQ's partition/merge overhead would exceed the per-element work (finding P7). Uses a
+        ///   range partitioner (no source-array allocation), bounded by
+        ///   <see cref="ParallelHelper.GetOptimalNumberOfTasks" /> (clamped to at least 1, since it can
+        ///   compute 0 on a single-core host). Elements may be null (load-left gaps); callers filter.
         /// </summary>
         private static ParallelQuery<AGraphElementModel> LiveElements(Snapshot snap)
         {
             var segments = snap.Segments;
             return ParallelEnumerable.Range(0, snap.Count)
+                .WithDegreeOfParallelism(Math.Max(1, ParallelHelper.GetOptimalNumberOfTasks()))
                 .Select(i => segments[i >> SegmentShift][i & SegmentMask]);
+        }
+
+        /// <summary>
+        ///   A SEQUENTIAL enumeration over the live elements (ids <c>[0, Count)</c>) of the given
+        ///   snapshot, in id order. Used for the light-predicate scans (counts, GetAll*) where the
+        ///   per-element work is a cheap null/removed/type/label check and PLINQ overhead is not worth
+        ///   paying (finding P7). Consecutive ids map to consecutive slots within a segment, so the
+        ///   walk is cache-friendly. Elements may be null (load-left gaps); callers filter.
+        /// </summary>
+        private static IEnumerable<AGraphElementModel> LiveElementsSequential(Snapshot snap)
+        {
+            var segments = snap.Segments;
+            int count = snap.Count;
+            for (int i = 0; i < count; i++)
+            {
+                yield return segments[i >> SegmentShift][i & SegmentMask];
+            }
         }
 
         #endregion
@@ -458,8 +480,9 @@ namespace NoSQL.GraphDB.Core
             //insert it
             AppendGraphElement(newVertex);
 
-            //increment the id
-            Interlocked.Increment(ref _currentId);
+            //increment the id (single-writer field: a plain increment, consistent with the
+            //VertexCount/EdgeCount counters beside it - finding P10)
+            _currentId++;
 
             //Increase the vertex count
             VertexCount++;
@@ -480,8 +503,8 @@ namespace NoSQL.GraphDB.Core
 
                     newVertices.Add(newVertex);
 
-                    //increment the id
-                    Interlocked.Increment(ref _currentId);
+                    //increment the id (single-writer field, plain increment - finding P10)
+                    _currentId++;
 
                     //Increase the vertex count
                     VertexCount++;
@@ -814,8 +837,8 @@ namespace NoSQL.GraphDB.Core
                 //add the edge to the graph elements
                 AppendGraphElement(outgoingEdge);
 
-                //increment the ids
-                Interlocked.Increment(ref _currentId);
+                //increment the ids (single-writer field, plain increment - finding P10)
+                _currentId++;
 
                 //add the edge to the source vertex
                 sourceVertex.AddOutEdge(edgePropertyId, outgoingEdge);
@@ -851,8 +874,8 @@ namespace NoSQL.GraphDB.Core
 
                         newEdges.Add(newEdge);
 
-                        //increment the ids
-                        Interlocked.Increment(ref _currentId);
+                        //increment the ids (single-writer field, plain increment - finding P10)
+                        _currentId++;
 
                         //add the edge to the source vertex
                         sourceVertex.AddOutEdge(edgePropertyId, newEdge);
@@ -920,6 +943,14 @@ namespace NoSQL.GraphDB.Core
 
                     var vertex = (VertexModel)graphElement;
 
+                    // Count the DISTINCT cascaded edges that actually transition from live to removed,
+                    // so the counters can be maintained incrementally instead of via an O(n) recount
+                    // (finding P3). Guarding each MarkAsRemoved on !_removed makes the count exact even
+                    // for a self-loop (present in both OutEdges and InEdges): the out-edge pass marks
+                    // and counts it, and the target-side detach removes it from InEdges before the
+                    // in-edge pass is captured, so it is never double-counted.
+                    int removedEdgeCount = 0;
+
                     #region out edges
 
                     var outgoingEdgeContainer = vertex.OutEdges;
@@ -932,8 +963,12 @@ namespace NoSQL.GraphDB.Core
                                 //remove from incoming edges of target vertex
                                 aOutEdge.TargetVertex.RemoveIncomingEdge(aOutEdgeProperty.Key, aOutEdge);
 
-                                //remove the edge itself
-                                aOutEdge.MarkAsRemoved();
+                                //remove the edge itself (counting only a genuine live->removed transition)
+                                if (!aOutEdge._removed)
+                                {
+                                    aOutEdge.MarkAsRemoved();
+                                    removedEdgeCount++;
+                                }
                             }
                         }
                     }
@@ -952,16 +987,25 @@ namespace NoSQL.GraphDB.Core
                                 //remove from outgoing edges of source vertex
                                 aInEdge.SourceVertex.RemoveOutGoingEdge(aInEdgeProperty.Key, aInEdge);
 
-                                //remove the edge itself
-                                aInEdge.MarkAsRemoved();
+                                //remove the edge itself (counting only a genuine live->removed transition)
+                                if (!aInEdge._removed)
+                                {
+                                    aInEdge.MarkAsRemoved();
+                                    removedEdgeCount++;
+                                }
                             }
                         }
                     }
 
                     #endregion
 
-                    //update the EdgeCount --> hard way
-                    RecalculateGraphElementCounter();
+                    // Maintain the counts incrementally (finding P3): the vertex itself and its distinct
+                    // cascaded edges leave the live set. This runs only on the commit path; if any step
+                    // above threw, control is in the catch/finally below, which restores adjacency and
+                    // does a full RecalculateGraphElementCounter, so a rolled-back removal is unaffected
+                    // and the counts stay exactly correct.
+                    VertexCount--;
+                    EdgeCount -= removedEdgeCount;
 
                     #endregion
                 }
@@ -1187,6 +1231,12 @@ namespace NoSQL.GraphDB.Core
 
         public override void Dispose()
         {
+            // Stop the single transaction-writer thread FIRST (finding P2), so no in-flight or queued
+            // transaction can run concurrently with - or after - the state teardown below. This both
+            // gives the worker a clean shutdown and removes any race between a late transaction and
+            // the factory/snapshot reset that follows.
+            _txManager.Dispose();
+
             TabulaRasa_internal();
 
             // Publish the empty snapshot rather than null on teardown: a reader racing Dispose then
@@ -1422,15 +1472,31 @@ namespace NoSQL.GraphDB.Core
 
         public int GetCountOf<TInteresting>()
         {
-            return LiveElements(_snapshot)
-                .Where(_ => _ != null && !_._removed && _ is TInteresting)
-                .Count();
+            // Sequential count over the captured snapshot (finding P7): counting is a light
+            // per-element predicate, so a direct walk avoids PLINQ's partition/merge overhead. A
+            // single volatile capture keeps the Count consistent with the segments it indexes.
+            var snap = _snapshot;
+            var segments = snap.Segments;
+            int count = snap.Count;
+            int result = 0;
+            for (int i = 0; i < count; i++)
+            {
+                var ge = segments[i >> SegmentShift][i & SegmentMask];
+                if (ge != null && !ge._removed && ge is TInteresting)
+                {
+                    result++;
+                }
+            }
+            return result;
         }
 
         public override ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null)
         {
+            // Sequential, id-ordered scan (finding P7): the predicate is a light null/removed/type/
+            // label check, so PLINQ overhead is not worth paying. The old parallel scan was unordered;
+            // callers never relied on a particular order.
             return ImmutableList.CreateRange<VertexModel>(
-                 LiveElements(_snapshot)
+                 LiveElementsSequential(_snapshot)
                  .Where(_ => _ != null && !_._removed && _ is VertexModel)
                  .Where(CheckLabel(interestingLabel))
                  .Select(_ => (VertexModel)_));
@@ -1439,7 +1505,7 @@ namespace NoSQL.GraphDB.Core
         public override ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null)
         {
             return ImmutableList.CreateRange<EdgeModel>(
-                        LiveElements(_snapshot)
+                        LiveElementsSequential(_snapshot)
                         .Where(_ => _ != null && !_._removed && _ is EdgeModel)
                         .Where(CheckLabel(interestingLabel))
                         .Select(_ => (EdgeModel)_));
@@ -1448,7 +1514,7 @@ namespace NoSQL.GraphDB.Core
         public override ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
         {
             return ImmutableList.CreateRange<AGraphElementModel>(
-                        LiveElements(_snapshot)
+                        LiveElementsSequential(_snapshot)
                         .Where(_ => _ != null && !_._removed)
                         .Where(CheckLabel(interestingLabel)));
         }
