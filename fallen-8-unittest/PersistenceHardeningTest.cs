@@ -303,7 +303,7 @@ namespace NoSQL.GraphDB.Tests
             writer.Write("hello");
             var data = writer.ToArray();
 
-            // Layout: [12-byte writer header][Int32 payload-length][UTF-32 payload]. Offset 12 is the
+            // Layout: [12-byte writer header][Int32 payload-length][UTF-8 payload]. Offset 12 is the
             // string length prefix.
             BitConverter.GetBytes(Int32.MaxValue).CopyTo(data, 12);
 

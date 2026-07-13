@@ -143,7 +143,14 @@ namespace NoSQL.GraphDB.Core.Serializer
         bool optimizeForSize;
         bool preserveDecimalScale;
 
-        UTF32Encoding _enc;
+        // Encoding for the untokenized Write(string)/ReadString() path. UTF-8 (finding P2): the
+        // former UTF-32 encoded every character as a fixed 4 bytes, so an all-ASCII label/value cost
+        // 4x its length; UTF-8 is 1 byte per ASCII char and still round-trips every BMP and
+        // surrogate-pair string. No BOM - GetBytes never emits one anyway, and the length prefix
+        // frames the payload. Property VALUES and EdgePropertyId no longer travel this path at all
+        // (they are tokenized via WriteOptimized); it now carries only the few untokenized strings
+        // (manifest/sidecar names, the OtherType JSON fallback).
+        Encoding _enc;
 
         #region Type Usage related code (Debug mode only)
 #if DEBUG
@@ -247,7 +254,7 @@ namespace NoSQL.GraphDB.Core.Serializer
             optimizeForSize = DefaultOptimizeForSize;
             preserveDecimalScale = DefaultPreserveDecimalScale;
 
-            _enc = new UTF32Encoding();
+            _enc = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
         }
 
@@ -341,12 +348,12 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         public override void Write(string value)
         {
+            // Untokenized string: an Int32 little-endian byte-count prefix followed by the UTF-8
+            // bytes, written in one bulk call (findings P2/N4). base.Write(byte[]) emits the raw
+            // bytes with no length prefix or type code of its own, and is required to bypass this
+            // class's Write(byte[]) override. ReadString mirrors this exactly.
             var bytes = _enc.GetBytes(value);
             Write(bytes.Length);
-            // Write the encoded bytes in a single bulk call. BinaryWriter.Write(byte[])
-            // emits the raw bytes with no length prefix or type code, so the produced
-            // stream is byte-for-byte identical to the previous per-byte loop. base.Write
-            // is required to bypass this class's Write(byte[]) override.
             base.Write(bytes);
         }
 
@@ -401,8 +408,14 @@ namespace NoSQL.GraphDB.Core.Serializer
             }
             else if (value is string)
             {
-                WriteTypeCode(SerializedType.String);
-                Write((string)value);
+                // Route string VALUES through the tokenized string-table path (findings P2/M5): a
+                // value that repeats across elements - or equals a label / property key / EdgePropertyId
+                // already tokenized in this writer - is emitted once and referenced by a 1-4 byte token
+                // thereafter. WriteOptimized writes its own leading type code (a token bucket < NullType,
+                // or one of the Empty/Y/N/Space/SingleChar codes), which ProcessObject decodes
+                // symmetrically on read. (Previously this wrote SerializedType.String + an untokenized,
+                // UTF-32, un-deduplicated copy of every value.)
+                WriteOptimized((string)value);
             }
             else if (value is Int32)
             {
@@ -2188,6 +2201,21 @@ namespace NoSQL.GraphDB.Core.Serializer
         public void WriteBytesDirect(byte[] value)
         {
             base.Write(value);
+        }
+
+        /// <summary>
+        /// Writes an Int32 as a variable-length 7-bit-encoded value over the FULL Int32 range
+        /// (finding P7). Unlike <see cref="WriteOptimized(int)"/> - which throws for values outside the
+        /// 0..268,435,455 "optimizable" window - this never throws: a value simply takes 1 to 5 bytes
+        /// (negatives always 5). It pairs with <see cref="SerializationReader.ReadOptimizedInt32"/> on
+        /// read. Use it for graph-element ids, partition boundaries and counts, which are non-negative
+        /// but grow unbounded as a graph grows, so a fixed 4-byte int wastes space on the common small
+        /// values yet the guarded WriteOptimized would fault on a legitimately large id.
+        /// </summary>
+        /// <param name="value">The Int32 to store.</param>
+        public void WriteVarInt32(int value)
+        {
+            Write7BitEncodedSigned32BitValue(value);
         }
 
         /// <summary>

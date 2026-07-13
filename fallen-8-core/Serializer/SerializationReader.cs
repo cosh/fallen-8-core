@@ -55,7 +55,9 @@ namespace NoSQL.GraphDB.Core.Serializer
         List<string> stringTokenList;
         List<object> objectTokenList;
 
-        UTF32Encoding _enc;
+        // Encoding for the untokenized ReadString() path - UTF-8, mirroring the writer (finding P2).
+        // Must match SerializationWriter._enc exactly for the byte-count-prefixed payload to round-trip.
+        Encoding _enc;
 
         #region Debug Related
         /// <summary>
@@ -103,7 +105,7 @@ namespace NoSQL.GraphDB.Core.Serializer
                 InitializeTokenTables(ReadInt32(), ReadInt32());
             }
 
-            _enc = new UTF32Encoding();
+            _enc = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         }
 
         /// <summary>
@@ -134,7 +136,7 @@ namespace NoSQL.GraphDB.Core.Serializer
 
             InitializeTokenTables(stringTokenTablePresize, objectTokenTablePresize);
 
-            _enc = new UTF32Encoding();
+            _enc = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
         }
 
@@ -219,9 +221,8 @@ namespace NoSQL.GraphDB.Core.Serializer
             // check is inert on a well-formed stream, whose prefix never exceeds the bytes that follow.
             EnsureAvailable(counter, "string");
 
-            // Read the encoded bytes in a single bulk call. This mirrors the writer's
-            // bulk Write(byte[]) and is equivalent to the previous per-byte ReadByte loop
-            // because the writer always emits exactly 'counter' bytes for the string.
+            // Read the UTF-8 (finding P2) bytes in a single bulk call. This mirrors the writer's
+            // bulk Write(byte[]): the writer emits exactly 'counter' bytes for the string.
             var byteArray = ReadBytes(counter);
 
             // BinaryReader.ReadBytes returns a SHORT array at end-of-stream instead of
@@ -410,6 +411,27 @@ namespace NoSQL.GraphDB.Core.Serializer
 
                 if ((nextByte & 0x80) == 0) return result;
             }
+        }
+
+        /// <summary>
+        /// Reads a variable-length (7-bit-encoded) Int32 that is a COUNT / length prefix and validates
+        /// it against the bytes physically remaining before it can be used to size a collection or a
+        /// loop (findings P7/C5). This extends the length-prefix guard already applied to the
+        /// fixed-width string and byte[] reads to the var-int counts introduced on the graph-element
+        /// path, so a corrupt count can never drive a huge allocation or an unbounded loop. The check
+        /// is inert on a well-formed stream, whose counts never exceed the bytes that follow.
+        /// </summary>
+        /// <param name="what">A short noun for the element being counted, used in the error message.</param>
+        /// <param name="minBytesPerItem">
+        /// The smallest number of stream bytes a single counted item can occupy (default 1). The count
+        /// times this lower bound must fit in the bytes remaining.
+        /// </param>
+        /// <returns>The validated count.</returns>
+        public int ReadOptimizedInt32Checked(string what, int minBytesPerItem = 1)
+        {
+            var value = ReadOptimizedInt32();
+            EnsureAvailable((long)value * (minBytesPerItem < 1 ? 1 : minBytesPerItem), what);
+            return value;
         }
 
         /// <summary>
@@ -1551,7 +1573,14 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>An object instance.</returns>
         object ProcessObject(SerializedType typeCode)
         {
-            //if (typeCode < SerializedType.NullType) return ReadString();
+            // Codes 0..127 are string-token buckets: WriteObject now routes string VALUES through the
+            // tokenized path (findings P2/M5), so a value read here can lead with a bucket byte rather
+            // than a named SerializedType. Decode it as a tokenized string, symmetric with the writer's
+            // WriteOptimized(string). (Named codes are all >= NullType == 128, so this cannot shadow one.)
+            if (typeCode < SerializedType.NullType)
+            {
+                return ReadTokenizedString((int)typeCode);
+            }
 
             switch (typeCode)
             {
