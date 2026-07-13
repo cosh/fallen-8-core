@@ -171,7 +171,14 @@ namespace NoSQL.GraphDB.Core.Transaction
                 stopwatch.Stop();
                 _logger.LogInformation("Transaction {TransactionId} ({TransactionType}) finished successfully in {ElapsedMilliseconds}ms",
                     tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
-                SetTransactionState(tx, TransactionState.Finished);
+                var finishedInfo = SetTransactionState(tx, TransactionState.Finished);
+
+                // Write-ahead log (opt-in): append this committed transaction to the log and fsync it
+                // BEFORE the input is released (the definition is needed to serialize the entry) and
+                // before the task completes - so a committed transaction's entry is durable by the
+                // time its WaitUntilFinished() returns. A no-op when the WAL is disabled. Contained so
+                // a logging failure never faults the single worker (see below).
+                LogCommittedTransactionSafely(tx, finishedInfo, transactionType);
 
                 // Drop the heavy input payload now that the transaction is committed (M3). The
                 // captured created-models are intentionally kept for a waited-on caller to read.
@@ -194,6 +201,25 @@ namespace NoSQL.GraphDB.Core.Transaction
                 RollbackSafely(tx, transactionType);
                 SetTransactionState(tx, TransactionState.RolledBack);
                 ReleaseInputsSafely(tx, transactionType);
+            }
+        }
+
+        private void LogCommittedTransactionSafely(ATransaction tx, TransactionInformation txInfo, String transactionType)
+        {
+            try
+            {
+                _f8.LogCommittedTransaction(tx);
+            }
+            catch (Exception logEx)
+            {
+                // A write-ahead-log append failure must never fault the single worker thread. The
+                // transaction is already applied in memory and stays committed (Finished); its
+                // durability is degraded (the entry may not have reached disk), which is recorded on
+                // the caller's TransactionInformation and logged loudly. A subsequent full Save
+                // re-establishes a durable baseline.
+                _logger.LogError(logEx, "Appending transaction {TransactionId} ({TransactionType}) to the write-ahead log failed; the transaction stays committed but is not durable in the log.",
+                    tx.TransactionId, transactionType);
+                txInfo.Error = logEx;
             }
         }
 

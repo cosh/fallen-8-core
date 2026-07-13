@@ -206,6 +206,22 @@ namespace NoSQL.GraphDB.Core
         private readonly PersistencyFactory _persistencyFactory;
 
         /// <summary>
+        ///   The write-ahead log, or <c>null</c> when the WAL is disabled (the default). When set,
+        ///   every committed data-mutating transaction is appended (and fsync'd) here on the single
+        ///   writer thread, providing durability between full snapshots (spec P4 / plan Phase 5).
+        ///   See <see cref="WriteAheadLogOptions" />.
+        /// </summary>
+        private WriteAheadLog _wal;
+
+        /// <summary>
+        ///   Set while the engine is re-executing logged transactions during recovery. It suppresses
+        ///   WAL logging (a replayed operation must not be re-appended to the log it came from) and is
+        ///   only ever read/written on the single writer thread (or, for replay-on-open, the
+        ///   constructing thread before the instance is published).
+        /// </summary>
+        private bool _walSuspended;
+
+        /// <summary>
         /// The logger
         /// </summary>
         private readonly ILogger<Fallen8> _logger;
@@ -257,6 +273,44 @@ namespace NoSQL.GraphDB.Core
             : this(loggerfactory)
         {
             Load_internal(path, true);
+        }
+
+        /// <summary>
+        ///   Initializes a new instance of the Fallen-8 class with an OPT-IN write-ahead log for
+        ///   durability between snapshots (spec P4 / plan Phase 5). When
+        ///   <paramref name="writeAheadLogOptions" /> is null or carries no path, the WAL is disabled
+        ///   and the instance behaves exactly like the default constructor. When a log path is given,
+        ///   an existing log at that path is adopted: a log that predates any snapshot is replayed
+        ///   immediately onto the (empty) graph, while a log anchored to a snapshot is replayed later
+        ///   by <c>Load</c> of that snapshot.
+        /// </summary>
+        public Fallen8(ILoggerFactory loggerfactory, WriteAheadLogOptions writeAheadLogOptions)
+            : this(loggerfactory)
+        {
+            if (writeAheadLogOptions != null && !String.IsNullOrWhiteSpace(writeAheadLogOptions.Path))
+            {
+                EnableWriteAheadLog(writeAheadLogOptions.Path);
+            }
+        }
+
+        /// <summary>
+        ///   Opens (or creates) the write-ahead log and, if it holds committed transactions that were
+        ///   never captured in a snapshot (an "unanchored" log), replays them onto the empty initial
+        ///   graph so a crash before the first Save still recovers those transactions. Runs during
+        ///   construction, before the instance is handed out, so the replay is single-threaded.
+        /// </summary>
+        private void EnableWriteAheadLog(string walPath)
+        {
+            _wal = new WriteAheadLog(walPath, CreateLogger<WriteAheadLog>());
+
+            if (_wal.IsUnanchored)
+            {
+                var baseline = (int)_wal.BaselineCurrentId;
+                SetSnapshotCountForReplay(baseline);
+                _currentId = baseline;
+                ReplayWriteAheadLog();
+                RecalculateGraphElementCounter();
+            }
         }
 
         #endregion
@@ -742,7 +796,19 @@ namespace NoSQL.GraphDB.Core
 
         internal string Save(string path, int savePartitions = 5)
         {
-            return _persistencyFactory.Save(this, path, savePartitions);
+            var actualPath = _persistencyFactory.Save(this, path, savePartitions);
+
+            // WAL compose (spec P4/§5): the snapshot is now DURABLY committed (the factory writes it
+            // via temp + fsync + atomic rename). Only now reset the log to build upon this snapshot -
+            // recording the current id-space high-water mark as the new baseline and pairing it with
+            // the snapshot's actual path, discarding the pre-snapshot entries it superseded. Doing the
+            // reset strictly AFTER the snapshot is durable is what makes "snapshot-then-truncate"
+            // crash-safe: a crash in between leaves the log still paired with the PREVIOUS snapshot, so
+            // loading the NEW snapshot will not replay it (no double-apply) while the new snapshot
+            // already contains everything committed up to this save.
+            _wal?.ResetToSnapshot(actualPath, _currentId);
+
+            return actualPath;
         }
 
         public override bool TryCalculateShortestPath(
@@ -1169,6 +1235,138 @@ namespace NoSQL.GraphDB.Core
             _snapshot = BuildSnapshotFromDenseArray(graphElements, graphElements.Length);
         }
 
+        #region write-ahead log (opt-in durability between snapshots)
+
+        /// <summary>
+        ///   Appends a committed transaction to the write-ahead log. Called by the transaction
+        ///   manager on the single writer thread AFTER the transaction has reached its committed
+        ///   (Finished) terminal state and BEFORE its input is released, so the still-present
+        ///   definition can be serialized. A no-op when the WAL is disabled or while replaying (a
+        ///   replayed operation must not be re-logged). Only data-mutating transactions and the
+        ///   id-space lifecycle transactions (Trim/TabulaRasa) are logged; others are ignored.
+        ///
+        ///   The append fsyncs before returning, so a committed transaction's log entry is durable
+        ///   before its <c>WaitUntilFinished()</c> returns (the task completes only after this call).
+        /// </summary>
+        internal void LogCommittedTransaction(ATransaction tx)
+        {
+            var wal = _wal;
+            if (wal == null || _walSuspended)
+            {
+                return;
+            }
+
+            if (!WalTransactionCodec.TryGetEntryType(tx, out var type))
+            {
+                return;
+            }
+
+            wal.Append(WalTransactionCodec.SerializeEntry(type, tx));
+        }
+
+        /// <summary>
+        ///   Appends a payload-less lifecycle marker (used for an automatic Trim, which is not a
+        ///   transaction). A no-op when the WAL is disabled or while replaying.
+        /// </summary>
+        private void LogWriteAheadLogMarker(Persistency.WalEntryType type)
+        {
+            var wal = _wal;
+            if (wal == null || _walSuspended)
+            {
+                return;
+            }
+
+            wal.Append(WalTransactionCodec.SerializeEntry(type, null));
+        }
+
+        /// <summary>
+        ///   Re-executes the write-ahead log's entries, in commit order, against the current graph to
+        ///   reconstruct the committed state. Runs with <see cref="_walSuspended" /> set so the
+        ///   re-executed operations are not themselves re-logged. Correctness rests on id-determinism
+        ///   established by the caller: <see cref="_currentId" /> is restored to the log's baseline and
+        ///   the store is padded so <c>id == index</c> holds, so replayed creates re-assign the SAME
+        ///   ids and replayed edges/removals/property-changes resolve the SAME elements as before the
+        ///   crash. A torn/corrupt tail is handled by <see cref="WriteAheadLog.ReadEntries" /> (it
+        ///   stops at the last complete entry), so this loop only ever sees whole, CRC-valid entries.
+        /// </summary>
+        private void ReplayWriteAheadLog()
+        {
+            _walSuspended = true;
+            try
+            {
+                var replayed = 0;
+                foreach (var payload in _wal.ReadEntries())
+                {
+                    Persistency.WalEntryType type;
+                    ATransaction tx;
+                    try
+                    {
+                        tx = WalTransactionCodec.Deserialize(payload, out type);
+                    }
+                    catch (Exception ex)
+                    {
+                        // A CRC-valid entry that nonetheless fails to decode indicates a genuine
+                        // format problem; stop replay at the last good entry rather than risk
+                        // misapplying it.
+                        _logger.LogError(ex, "A write-ahead-log entry could not be decoded; recovery stops at the last good entry ({Count} replayed).", replayed);
+                        break;
+                    }
+
+                    if (tx != null)
+                    {
+                        if (!tx.TryExecute(this))
+                        {
+                            _logger.LogWarning("Re-executing a logged {Type} transaction during recovery returned false.", type);
+                        }
+                    }
+                    else if (type == Persistency.WalEntryType.Trim)
+                    {
+                        Trim_internal();
+                    }
+                    else if (type == Persistency.WalEntryType.TabulaRasa)
+                    {
+                        TabulaRasa_internal();
+                    }
+
+                    replayed++;
+                }
+
+                _logger.LogInformation("Recovered {Count} transaction(s) from the write-ahead log.", replayed);
+            }
+            finally
+            {
+                _walSuspended = false;
+            }
+        }
+
+        /// <summary>
+        ///   Grows the published snapshot's live slot count to <paramref name="targetCount" /> (padding
+        ///   the tail with null slots), used before a WAL replay so that <c>_currentId == Count</c>
+        ///   holds. This is required when the snapshot's id-space size is smaller than the log's
+        ///   baseline id - which happens when the highest-id element(s) were soft-removed (without a
+        ///   Trim) before the snapshot: the snapshot then omits those top ids, but a replayed create
+        ///   must still be appended at the SAME index as its original id. A no-op when the target does
+        ///   not exceed the current count.
+        /// </summary>
+        private void SetSnapshotCountForReplay(int targetCount)
+        {
+            var snap = _snapshot;
+            if (targetCount <= snap.Count)
+            {
+                return;
+            }
+
+            var dense = new AGraphElementModel[targetCount];
+            var segments = snap.Segments;
+            for (int i = 0; i < snap.Count; i++)
+            {
+                dense[i] = segments[i >> SegmentShift][i & SegmentMask];
+            }
+            _snapshot = BuildSnapshotFromDenseArray(dense, targetCount);
+        }
+
+        #endregion
+
         internal void Load_internal(String path, Boolean startServices = false)
         {
             if (String.IsNullOrWhiteSpace(path))
@@ -1217,6 +1415,8 @@ namespace NoSQL.GraphDB.Core
                 throw;
             }
 
+            var walHandledIdSpace = false;
+
             if (success)
             {
                 oldIndexFactory.DeleteAllIndices();
@@ -1236,6 +1436,41 @@ namespace NoSQL.GraphDB.Core
                 {
                     SubGraphFactory.RehydrateFromRecipes(recipes, SubGraphRecipeCompiler);
                 }
+
+                // WAL (spec P4/§5). When the WAL is enabled it OWNS the loaded snapshot's id-space
+                // handling: it deliberately does NOT run the closing compaction, so the in-memory id
+                // space stays IDENTICAL to the on-disk snapshot - which is what keeps a future reload
+                // + replay id-consistent (the log's baseline id is meaningful only against the exact
+                // snapshot id space). At this point _currentId is the snapshot's id-space size.
+                if (_wal != null)
+                {
+                    if (_wal.PairsWith(path))
+                    {
+                        // The log pairs with THIS snapshot: replay the transactions committed after
+                        // it, in commit order. Restore _currentId to the log's baseline (the
+                        // snapshot-time high-water mark, which may exceed the snapshot's id-space size
+                        // if top ids were soft-removed) and pad the store so id==index holds, so
+                        // replayed creates re-assign the SAME ids and edges/removals resolve the SAME
+                        // elements. The result equals the exact pre-crash committed state.
+                        var baseline = (int)_wal.BaselineCurrentId;
+                        SetSnapshotCountForReplay(baseline);
+                        _currentId = baseline;
+                        ReplayWriteAheadLog();
+                    }
+                    else
+                    {
+                        // The log does not pair with this snapshot (a different/older snapshot, or a
+                        // pre-snapshot log). Discard its stale entries and re-anchor it to THIS
+                        // snapshot, baselined at the snapshot's own id-space size (the current
+                        // _currentId, before any compaction), so future commits are logged against the
+                        // correct baseline and a later reload of this snapshot stays id-consistent.
+                        _wal.ResetToSnapshot(path, _currentId);
+                    }
+
+                    _txManager.Trim();
+                    RecalculateGraphElementCounter();
+                    walHandledIdSpace = true;
+                }
             }
             else
             {
@@ -1246,7 +1481,13 @@ namespace NoSQL.GraphDB.Core
                 ServiceFactory.StartAllServices();
             }
 
-            Trim_internal();
+            // WAL-disabled (and failed-load) path: compact as before - behaviour is unchanged. The
+            // WAL path above deliberately skips this so the loaded id space matches the on-disk
+            // snapshot for replay consistency.
+            if (!walHandledIdSpace)
+            {
+                Trim_internal();
+            }
         }
 
         public override TransactionInformation EnqueueTransaction(ATransaction tx)
@@ -1266,6 +1507,14 @@ namespace NoSQL.GraphDB.Core
             // gives the worker a clean shutdown and removes any race between a late transaction and
             // the factory/snapshot reset that follows.
             _txManager.Dispose();
+
+            // Release the write-ahead log and drop the reference BEFORE the TabulaRasa below, so the
+            // teardown reset is not mistaken for a logged operation. Dispose does NOT reset/truncate
+            // the log: the on-disk entries remain (fsync'd per commit) so that dropping the instance
+            // is a faithful stand-in for a crash - a fresh instance opening the same log recovers
+            // them. (Only a Save resets the log.)
+            _wal?.Dispose();
+            _wal = null;
 
             TabulaRasa_internal();
 
@@ -1444,6 +1693,11 @@ namespace NoSQL.GraphDB.Core
                 _logger.LogInformation("Auto-trim: {Tombstones} reclaimable slots >= threshold {Threshold}; compacting the master store.",
                     tombstones, _autoTrimTombstoneThreshold);
                 Trim_internal();
+
+                // An auto-trim reassigns ids just as an explicit Trim transaction does; log a Trim
+                // marker so a subsequent recovery replays it at the same point in commit order and
+                // reproduces the exact id reassignment (keeping later logged ids resolvable).
+                LogWriteAheadLogMarker(Persistency.WalEntryType.Trim);
             }
         }
 
