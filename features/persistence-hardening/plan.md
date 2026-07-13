@@ -59,8 +59,39 @@ Companion to [spec.md](./spec.md). Correctness/durability first, then performanc
   Phase 2's atomic snapshot + manifest.
 
 ## Status
-- [ ] Phase 1 — worker try/catch, id-space sizing, buffer size
-- [ ] Phase 2 — atomic + versioned + integrity-checked format, recipe manifest, OtherType framing
+- [x] Phase 1 — worker try/catch (C3, already landed in correctness-fixes B6), id-space sizing (C1), buffer size (P1)
+- [x] Phase 2 — atomic + versioned + integrity-checked format (C2/C4/C5), recipe manifest (C6), OtherType framing (C7), UTC/monotonic version suffix (C8)
 - [ ] Phase 3 — UTF-8 + tokenized values + var-int; full spatial (R-Tree) index serialization (C9)
 - [ ] Phase 4 — non-blocking save + partitioning + load memory
 - [ ] Phase 5 — WAL / incremental checkpoints
+
+### Stage A outcome (Phases 1-2)
+
+On-disk format is now **v2** and self-describing. Decision: **clean-reject** — every binary
+checkpoint file starts with an 8-byte magic (`F8SAVE\0\0`) + little-endian `formatVersion`; a file
+without the magic (any pre-existing/unversioned save) or with an unknown version is rejected on load
+with a clear `InvalidDataException`, never dual-read or misparsed. Old (v1) save files are
+intentionally not loadable.
+
+- **C1** — `Save` writes an id-space size of `max(surviving Id)+1` (0 when empty) instead of the
+  live element count, so a save taken after removing a low id (without Trim) round-trips.
+- **P1** — `Constants.BufferSize` 100 MB → **64 KB** (below the ~85 KB LOH threshold, so per-stream
+  buffers leave the LOH entirely).
+- **C2/C4** — each checkpoint file is written to a unique temp name, fsync'd (`Flush(true)`) and
+  atomically renamed; the main header (written **last**, atomic rename = commit point) embeds a
+  completion manifest (every sidecar's name + byte size + CRC-32) and is itself protected by a
+  trailing CRC-32. Load validates the manifest before trusting the save; a mid-save crash leaves no
+  loadable header. Per-file CRC + magic/version validated on load.
+- **C5** — every length prefix on the load path is validated against the bytes remaining before
+  allocating (no `new byte[untrusted]`); a foreign/garbage file is rejected at the 12-byte preamble
+  before the file is read into memory; null bunches are guarded; the parallel load's
+  `AggregateException` is flattened into a clear per-file error. A rejected load rolls back cleanly
+  (state restored) and surfaces as `RolledBack`/500 — the single writer survives.
+- **C6** — the N `_subgraph_N` recipe files + directory-scan load are replaced by ONE versioned
+  `_subgraphs` manifest, written atomically and read as a whole: no stale rehydration.
+- **C7** — `OtherType` read is now symmetric (read the length-prefixed string, then deserialize).
+- **C8** — version suffix is UTC + monotonic (`DateTime.UtcNow.ToBinary()` bumped via interlocked
+  guard), replacing local, tick-colliding `DateTime.Now`.
+
+Payload byte encoding (UTF-32 strings, property layout) is unchanged — Stage B (Phase 3) increments
+`formatVersion` behind this gate when it changes the encoding.
