@@ -227,6 +227,15 @@ runtime change only.
   endpoints) — this pins the invariant we rely on and would fail if the write were later moved
   off-thread without first making the whole checkpoint immutable.
 
+  **Follow-up (measured, `features/non-blocking-save/`):** the P3 deferral was later re-examined by
+  measuring the actual writer-stall a blocking save causes. It is sub-second up to a 2M-element graph
+  (170 ms @ 100k, 433 ms @ 400k, 907 ms @ 2M elements; a concurrent write stalls by exactly the save
+  duration) and is paid only on an explicit save, which the now-subgraph-aware WAL lets you make
+  infrequent. Since the bounded copy-on-save fix would move only the disk-I/O share off-worker and the
+  full fix is a large hot-path rewrite, P3 **stays deferred** — now with numbers, not just a
+  correctness argument. An opt-in `NonBlockingSaveBenchmark` remains so the call can be re-measured for
+  very large, frequently-snapshotted graphs.
+
 All prior-stage guarantees remain intact: **single-writer** (the fan-out tasks are pooled but the
 worker still blocks on them, so the save fully completes on the worker before the transaction
 returns), **atomicity/integrity/clean-reject** (Stage A — the header + manifest + CRC envelope and
