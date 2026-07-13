@@ -63,7 +63,7 @@ Companion to [spec.md](./spec.md). Correctness/durability first, then performanc
 - [x] Phase 2 — atomic + versioned + integrity-checked format (C2/C4/C5), recipe manifest (C6), OtherType framing (C7), UTC/monotonic version suffix (C8)
 - [x] Phase 3 — UTF-8 + tokenized values (P2, subsumes memory-footprint **M5**) + var-int (P7) + serialization-path property accessor (N1); full spatial (R-Tree) index serialization + `IIndex.CanPersist` (C9)
 - [~] Phase 4 — right-sized partitioning + pooled tasks (P6, done), load-memory release (P5, done), `GetAllGraphElements` copy (P8, already satisfied by engine-performance P7); **non-blocking save (P3) DEFERRED** (correctness — see Stage C outcome)
-- [ ] Phase 5 — WAL / incremental checkpoints
+- [~] Phase 5 — WAL / incremental checkpoints (P4): **opt-in WAL DONE** for the core data mutations (creates/removes/property add+remove) plus the id-space lifecycle markers (Trim, TabulaRasa); **subgraph create/remove in the WAL DEFERRED** (see Stage D outcome)
 
 ### Stage A outcome (Phases 1-2)
 
@@ -235,3 +235,77 @@ snapshots recovers committed transactions. This composes with Phase 2's atomic s
 (Genuine off-thread/non-blocking checkpointing would most naturally ride on the WAL — the log gives
 durability while a background snapshot runs — or on a future element-level immutable-snapshot model;
 either is a larger effort than Phase 4 and is explicitly left to a later theme.)
+
+### Stage D outcome (Phase 5): opt-in write-ahead log
+
+A write-ahead log gives durability BETWEEN full snapshots: after a crash, load replays the log
+recorded since the newest snapshot and recovers the committed transactions. It composes with Stage
+A's atomic/versioned/integrity-checked snapshot. The on-disk snapshot format is **unchanged** (the
+WAL is a separate file with its own envelope), so `formatVersion` is not bumped.
+
+- **Opt-in, off by default.** The WAL is enabled only by constructing `Fallen8` with a
+  `WriteAheadLogOptions(path)` (new public type + constructor overload). Every existing constructor
+  path carries **no** WAL: no per-commit fsync, no log file, and behaviour + the whole existing
+  suite are unchanged (304 → still 304 passing on the WAL-off path; the 11 new WAL tests are all on
+  the opt-in path). With the WAL on, each committed data-mutating transaction is appended and
+  fsync'd, which is why it is a deliberate, cost-aware choice.
+- **What is logged.** Only committed **data-mutating** transactions — vertex/edge creation (single
+  + batch), property add (single + batch), property removal, element removal (single + batch) — plus
+  the two **id-space lifecycle markers** Trim and TabulaRasa. Save/Load are not logged (Save writes a
+  snapshot and resets the log; Load replaces state and re-anchors the log). **Trim and TabulaRasa
+  ARE logged as replayable markers** even though they are "lifecycle" ops: a Trim reassigns ids and a
+  TabulaRasa resets the id space, so if either occurred mid-log and were *not* replayed, every later
+  logged id would resolve against the wrong id space. Logging them as deterministic markers keeps
+  replay consistent across mid-log id-space changes. Indices/services are **not** logged (they are
+  not transactions; they rehydrate from the snapshot — "indices as far as they rehydrate"), and
+  **subgraph create/remove is deferred** (see below).
+- **Append point (single-writer preserved).** The append happens on the single transaction-writer
+  thread, in `TransactionManager` immediately AFTER a transaction reaches its `Finished` terminal
+  state and BEFORE its input is released (the definition is still present to serialize), and always
+  fsyncs (`Flush(true)`) before the transaction's task completes — so a committed transaction's entry
+  is durable before its `WaitUntilFinished()` returns. A logging failure is contained (logged; the
+  transaction stays committed with degraded durability recorded on its `TransactionInformation`) so
+  it can never fault the single worker.
+- **Replay approach + id-determinism (the crux).** Replay **re-executes** each logged transaction's
+  reconstructed form against the loaded snapshot, reusing the real transaction logic. Determinism is
+  guaranteed by: (1) the WAL header records the snapshot-time `_currentId` **baseline** (which can
+  exceed the snapshot's `max(live id)+1` when top ids were soft-removed), restored before replay so
+  replayed creates re-assign the SAME ids; (2) the store is **padded** to `Count == baseline` so the
+  `id == index` master-store invariant holds and appends land at the original indices; (3) entries
+  replay strictly in **commit order** (file order = append order on the single writer); (4) the
+  closing load-time `Trim` is **skipped** on the replay path so ids are not reassigned. The result
+  equals the pre-crash committed state — elements, ids, edges/adjacency and properties reconstruct
+  identically (verified, including the top-id-removed padding case); a removed element's tombstone
+  becomes an equivalent null gap, observationally identical.
+- **Entry framing + corrupt-tail handling.** The WAL file carries its own `F8WAL` magic + version +
+  CRC-protected header (baseline + snapshot pairing token), consistent with Stage A. Each entry is
+  `[Int32 length][payload][CRC-32]`. Replay reads entries only while a full, CRC-valid frame remains,
+  sizing every read against the bytes physically left in the file (never against the untrusted length
+  prefix — a bogus huge length is rejected against the remaining bytes, no large allocation), and
+  stops cleanly at the last complete entry. A crash mid-append (torn length, torn payload or torn/
+  wrong CRC) therefore drops only that last, never-acknowledged entry and recovers every fully
+  committed one — never throws.
+- **Snapshot-truncate ordering (compose with Save).** A full Save writes the hardened snapshot and
+  THEN, only once it is durably committed (temp + fsync + atomic rename), resets the WAL (rewritten
+  atomically via temp + rename) to record the new baseline and a pairing token = the snapshot's
+  actual path, discarding the now-superseded pre-snapshot entries. Load replays the WAL only if its
+  pairing token matches the loaded snapshot. This makes "snapshot-then-truncate" crash-safe: a crash
+  between "snapshot durable" and "log reset" leaves the log still paired with the PREVIOUS snapshot,
+  so loading the NEW snapshot does not replay it (no double-apply — the new snapshot already contains
+  everything up to the save) while loading the previous snapshot still replays it (no loss). A
+  pre-snapshot ("unanchored") log is also supported: its entries replay on open, so committed
+  transactions are durable even before the first Save.
+- **Prior-stage guarantees intact.** Single-writer (append only on the writer thread), atomic/
+  versioned/integrity/clean-reject snapshot (Stage A untouched), payload encoding round-trip and
+  R-Tree/partitioning (Stage B/C untouched) all hold; the snapshot format version is unchanged.
+
+**Deferred (with rationale): subgraph create/remove in the WAL.** Subgraphs are derived views
+recomputed from **recipes** by a recipe compiler that may not be registered, and those recipes are
+already persisted in the snapshot (the Stage-A subgraph manifest) and rehydrated on load — the same
+"rehydrate from the snapshot" model as indices. Serializing and safely re-executing a subgraph
+transaction on replay additionally requires the compiler and re-running the subgraph algorithm
+against the replayed base graph, a materially larger and riskier surface than the core data
+mutations. Per the stop-at-safe-boundary guardrail, the WAL covers the base graph data (the heart of
+durability-between-snapshots) correctly and completely; post-snapshot subgraph *registrations* are
+recovered only as far as they rehydrate from the snapshot, exactly like indices. This is the natural
+next increment.
