@@ -32,6 +32,7 @@ using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Expression;
+using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Range;
@@ -388,16 +389,38 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   A parallel query over the live elements (ids <c>[0, Count)</c>) of the given
-        ///   snapshot. Uses a range partitioner (no source-array allocation); consecutive ids map
-        ///   to consecutive slots within a segment, so partitions stay cache-friendly. Elements
-        ///   may be null (load-left gaps); callers filter.
+        ///   A PARALLEL query over the live elements (ids <c>[0, Count)</c>) of the given snapshot.
+        ///   Reserved for the genuinely heavy full-graph scan with a user predicate
+        ///   (<see cref="FindElements(ElementSeeker, String)" />); the light-predicate enumerations
+        ///   (counts, GetAll*) use the sequential <see cref="LiveElementsSequential" /> instead, where
+        ///   PLINQ's partition/merge overhead would exceed the per-element work (finding P7). Uses a
+        ///   range partitioner (no source-array allocation), bounded by
+        ///   <see cref="ParallelHelper.GetOptimalNumberOfTasks" /> (clamped to at least 1, since it can
+        ///   compute 0 on a single-core host). Elements may be null (load-left gaps); callers filter.
         /// </summary>
         private static ParallelQuery<AGraphElementModel> LiveElements(Snapshot snap)
         {
             var segments = snap.Segments;
             return ParallelEnumerable.Range(0, snap.Count)
+                .WithDegreeOfParallelism(Math.Max(1, ParallelHelper.GetOptimalNumberOfTasks()))
                 .Select(i => segments[i >> SegmentShift][i & SegmentMask]);
+        }
+
+        /// <summary>
+        ///   A SEQUENTIAL enumeration over the live elements (ids <c>[0, Count)</c>) of the given
+        ///   snapshot, in id order. Used for the light-predicate scans (counts, GetAll*) where the
+        ///   per-element work is a cheap null/removed/type/label check and PLINQ overhead is not worth
+        ///   paying (finding P7). Consecutive ids map to consecutive slots within a segment, so the
+        ///   walk is cache-friendly. Elements may be null (load-left gaps); callers filter.
+        /// </summary>
+        private static IEnumerable<AGraphElementModel> LiveElementsSequential(Snapshot snap)
+        {
+            var segments = snap.Segments;
+            int count = snap.Count;
+            for (int i = 0; i < count; i++)
+            {
+                yield return segments[i >> SegmentShift][i & SegmentMask];
+            }
         }
 
         #endregion
@@ -1449,15 +1472,31 @@ namespace NoSQL.GraphDB.Core
 
         public int GetCountOf<TInteresting>()
         {
-            return LiveElements(_snapshot)
-                .Where(_ => _ != null && !_._removed && _ is TInteresting)
-                .Count();
+            // Sequential count over the captured snapshot (finding P7): counting is a light
+            // per-element predicate, so a direct walk avoids PLINQ's partition/merge overhead. A
+            // single volatile capture keeps the Count consistent with the segments it indexes.
+            var snap = _snapshot;
+            var segments = snap.Segments;
+            int count = snap.Count;
+            int result = 0;
+            for (int i = 0; i < count; i++)
+            {
+                var ge = segments[i >> SegmentShift][i & SegmentMask];
+                if (ge != null && !ge._removed && ge is TInteresting)
+                {
+                    result++;
+                }
+            }
+            return result;
         }
 
         public override ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null)
         {
+            // Sequential, id-ordered scan (finding P7): the predicate is a light null/removed/type/
+            // label check, so PLINQ overhead is not worth paying. The old parallel scan was unordered;
+            // callers never relied on a particular order.
             return ImmutableList.CreateRange<VertexModel>(
-                 LiveElements(_snapshot)
+                 LiveElementsSequential(_snapshot)
                  .Where(_ => _ != null && !_._removed && _ is VertexModel)
                  .Where(CheckLabel(interestingLabel))
                  .Select(_ => (VertexModel)_));
@@ -1466,7 +1505,7 @@ namespace NoSQL.GraphDB.Core
         public override ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null)
         {
             return ImmutableList.CreateRange<EdgeModel>(
-                        LiveElements(_snapshot)
+                        LiveElementsSequential(_snapshot)
                         .Where(_ => _ != null && !_._removed && _ is EdgeModel)
                         .Where(CheckLabel(interestingLabel))
                         .Select(_ => (EdgeModel)_));
@@ -1475,7 +1514,7 @@ namespace NoSQL.GraphDB.Core
         public override ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
         {
             return ImmutableList.CreateRange<AGraphElementModel>(
-                        LiveElements(_snapshot)
+                        LiveElementsSequential(_snapshot)
                         .Where(_ => _ != null && !_._removed)
                         .Where(CheckLabel(interestingLabel)));
         }

@@ -348,5 +348,55 @@ namespace NoSQL.GraphDB.Tests
         }
 
         #endregion
+
+        #region P6 - bounded BLS reconstruction caps results and preserves the first-k order
+
+        [TestMethod]
+        public void Bls_BoundedReconstruction_CapsToMaxResultsPreservingFirstKPaths()
+        {
+            // Arrange - S and T joined by three DISTINCT equal-length (2-hop) paths S->Mi->T, so BLS
+            // finds three shortest paths.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 5); // 0=S, 1=T, 2=M1, 3=M2, 4=M3
+            int s = vertices[0].Id;
+            int t = vertices[1].Id;
+
+            var edgeTx = new CreateEdgesTransaction();
+            for (int m = 2; m <= 4; m++)
+            {
+                edgeTx.AddEdge(s, "e", vertices[m].Id, 1u);   // S -> Mi
+                edgeTx.AddEdge(vertices[m].Id, "e", t, 1u);   // Mi -> T
+            }
+            fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
+
+            // Unbounded run: all three 2-hop paths, in build order.
+            List<Path> all;
+            Assert.IsTrue(fallen8.TryCalculateShortestPath(out all, "BLS",
+                new ShortestPathDefinition { SourceVertexId = s, DestinationVertexId = t, MaxDepth = 2, MaxResults = 100 }),
+                "BLS must find the shortest paths.");
+            Assert.AreEqual(3, all.Count, "There are three distinct 2-hop S->Mi->T paths.");
+
+            // Bounded run: maxResults=2 must return exactly two paths, and they must be the FIRST two
+            // of the unbounded run in the same order (the bounded reconstruction only stops early, it
+            // never reorders).
+            List<Path> capped;
+            Assert.IsTrue(fallen8.TryCalculateShortestPath(out capped, "BLS",
+                new ShortestPathDefinition { SourceVertexId = s, DestinationVertexId = t, MaxDepth = 2, MaxResults = 2 }));
+            Assert.AreEqual(2, capped.Count, "maxResults=2 must cap the result to two paths.");
+
+            for (int i = 0; i < capped.Count; i++)
+            {
+                var expected = all[i].GetPathElements();
+                var actual = capped[i].GetPathElements();
+                Assert.AreEqual(expected.Count, actual.Count, $"Path {i} length must match the unbounded run.");
+                for (int j = 0; j < expected.Count; j++)
+                {
+                    Assert.AreEqual(expected[j].Edge.Id, actual[j].Edge.Id,
+                        $"Bounded path {i} element {j} must equal the unbounded run's (first-k order preserved).");
+                }
+            }
+        }
+
+        #endregion
     }
 }
