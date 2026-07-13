@@ -86,14 +86,17 @@ Takeaways:
 
 ## Phase 4 — deferred (adjacency flattening) → since LANDED
 
-> **Update:** this was carried out as the standalone `features/adjacency-flattening/` feature (with
-> the public-API version bump 0.0.14 → 0.1.0 this theme could not make). `VertexModel.OutEdges`/
-> `InEdges` are now read-only views over a copy-on-write `Dictionary<string, EdgeModel[]>`, the two
-> per-vertex `ImmutableList` AVL trees are gone, and the poison-injection rollback tests were
-> migrated (not weakened) to an internal fault-injection hook. Measured effect is degree-dependent
-> (a small regression at degree ≈ 2 from the `Dictionary` container's fixed cost, ~27–35% less
-> per-edge adjacency at degree ≥ 10); see that feature's `plan.md` Measurements. The original
-> deferral rationale is kept below for context.
+> **Update (LANDED):** this was carried out as the standalone `features/adjacency-flattening/`
+> feature (with the public-API version bump 0.0.14 → 0.1.0 this theme could not make).
+> `VertexModel.OutEdges`/`InEdges` are now read-only views and the two per-vertex `ImmutableList`
+> AVL trees are gone. A single-edge-group vertex (the common case) is stored **inline with no
+> `Dictionary` at all**; only a genuinely multi-group vertex falls back to a
+> `Dictionary<string, EdgeModel[]>` (plus a small wrapper). The poison-injection rollback tests were
+> migrated (not weakened) to an internal fault-injection hook. Because the common vertex sheds the
+> per-vertex dictionary entirely, the memory win is now **monotonic** — ≈ **−44%/edge across degrees**
+> (2/10/20), and the former degree-2 regression is **gone**; a genuinely multi-group vertex is
+> marginally heavier than a plain dict but still far below the old `ImmutableDictionary`. See that
+> feature's `plan.md` Measurements (Phase 5). The original deferral rationale is kept below for context.
 
 Phase 4 would replace the two per-vertex `ImmutableDictionary<string, ImmutableList<EdgeModel>>`
 (`VertexModel.OutEdges`/`InEdges`) with a flatter per-direction representation to shed the

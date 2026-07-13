@@ -23,13 +23,16 @@ private-behind-accessor state): the **adjacency** overhead — the two per-verte
 `core-storage-representation` **Phase 4**, deferred there because `VertexModel.OutEdges`/`InEdges`
 are part of the **public surface** (changing them needs a public-API-version bump).
 
-> **Update:** adjacency flattening has since **landed** as `features/adjacency-flattening/` (with the
-> version bump 0.0.14 → 0.1.0). The two per-vertex `ImmutableList` AVL trees are gone — each
-> edge-property group is now a contiguous `EdgeModel[]` behind a copy-on-write, `volatile`-published
-> `Dictionary<string, EdgeModel[]>`, and the public surface is a read-only view. The ~48 B/AVL-node ×
-> 2-lists per-edge overhead this section flagged is removed; the net win is degree-dependent (the
-> `Dictionary` container's fixed cost means a small regression at degree ≈ 2 but ~27–35% less
-> per-edge adjacency at degree ≥ 10 — see that feature's `plan.md` Measurements).
+> **Update (LANDED):** adjacency flattening has since **landed** as `features/adjacency-flattening/`
+> (with the version bump 0.0.14 → 0.1.0). The two per-vertex `ImmutableList` AVL trees are gone — each
+> edge-property group is now a contiguous `EdgeModel[]`, and the common single-group vertex is stored
+> **inline with no `Dictionary` at all** (a genuinely multi-group vertex falls back to a copy-on-write,
+> `volatile`-published `Dictionary<string, EdgeModel[]>` plus a small wrapper); the public surface is a
+> read-only view. The ~48 B/AVL-node × 2-lists per-edge overhead this section flagged is removed, and
+> because the common vertex also sheds the per-vertex dictionary the win is now **monotonic** —
+> ≈ **−44%/edge across degrees** (2/10/20), with the former degree-2 regression **gone** (a multi-group
+> vertex is marginally heavier than a plain dict, still far below the old `ImmutableDictionary`). See
+> that feature's `plan.md` Measurements (Phase 5).
 
 ## 2. Findings & targets
 
