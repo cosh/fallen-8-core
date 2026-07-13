@@ -721,7 +721,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <response code="202">Property addition accepted (and committed when waitForCompletion is true)</response>
-        /// <response code="400">Invalid property specification or graph element not found</response>
+        /// <response code="400">Malformed request body / invalid property specification. (A non-existent graph element is NOT a 400: an out-of-range id rolls back with an internal error → 500, and an in-range/absent id is a no-op → 202.)</response>
         /// <response code="500">The transaction was rolled back with an internal error (only when waitForCompletion is true)</response>
         [HttpPut("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
         [Consumes("application/json")]
@@ -777,7 +777,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     DELETE /graphelement/123/age
         /// </remarks>
         /// <response code="202">Property removal accepted (and committed when waitForCompletion is true)</response>
-        /// <response code="400">Graph element or property not found</response>
+        /// <response code="400">Malformed request (e.g. a non-integer element id). (A non-existent element/property is NOT a 400: an out-of-range id → 500, an in-range/absent id is a no-op → 202.)</response>
         /// <response code="500">The transaction was rolled back with an internal error (only when waitForCompletion is true)</response>
         [HttpDelete("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
@@ -823,7 +823,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     DELETE /graphelement/123
         /// </remarks>
         /// <response code="202">Graph element removal accepted (and committed when waitForCompletion is true)</response>
-        /// <response code="400">Graph element not found</response>
+        /// <response code="400">Malformed request (e.g. a non-integer element id). (A non-existent graph element is NOT a 400: an out-of-range id → 500, an in-range/absent id is a no-op → 202.)</response>
         /// <response code="500">The transaction was rolled back with an internal error (only when waitForCompletion is true)</response>
         [HttpDelete("/graphelement/{graphElementIdentifier}")]
         [ProducesResponseType(StatusCodes.Status202Accepted)]

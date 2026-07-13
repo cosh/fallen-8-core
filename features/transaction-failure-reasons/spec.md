@@ -87,3 +87,13 @@ a *known* reason, and have controllers map it to the correct HTTP status.
 - Changing the transaction model or the REST route/versioning.
 - A general problem+json error envelope (the responses keep their current body shape; only the
   status code + a clear message change).
+- **Not-found → 4xx for the remove/property mutations (deliberate boundary).** This feature routes
+  the *edge-create* client-cause (a missing/removed referenced vertex → `NotFound` → 404) and the
+  subgraph reasons through the new channel, but leaves `TryRemoveGraphElement`/`TryRemoveProperty`/
+  `AddProperty` as-is: an **out-of-range** element id still throws `ArgumentOutOfRangeException` →
+  `InternalError` → **500** (a load-bearing B6 test pins this throw), and an **in-range but
+  absent/removed** id is a silent no-op → **202** (idempotent-delete-style; the remove transaction
+  does not distinguish "removed nothing"). Making these return 404 is a genuine API-design choice
+  (404-on-missing vs idempotent-2xx), not a clear bug, and it would require non-throwing not-found
+  detection plus migrating the B6 tests — so it is intentionally deferred. Their `400` responses are
+  binding/validation errors only, never "not found".
