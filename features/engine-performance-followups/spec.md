@@ -1,6 +1,8 @@
 # Engine-Performance Follow-ups — Specification
 
-> **Status:** Planned. The two items the `engine-performance` council deferred (documented in
+> **Status:** Implemented — **P4 LANDED** (ordered `IndexScan` → sorted RangeIndex); **P6 DEFERRED**
+> (parent-pointer reconstruction — high-risk/measured-low-reward; see the plan's P6 section). The two
+> items the `engine-performance` council deferred (documented in
 > `features/engine-performance/plan.md`): **P6** parent-pointer path reconstruction and **P4** routing
 > ordered `IndexScan` operators onto the sorted RangeIndex. Both are refinements with real
 > risk/reward trade-offs — each is attempted here under a hard guardrail, and **deferred-with-rationale
