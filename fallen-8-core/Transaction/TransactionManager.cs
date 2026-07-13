@@ -323,18 +323,29 @@ namespace NoSQL.GraphDB.Core.Transaction
             // Stop accepting new work; the consumer finishes what is queued and then leaves the loop.
             _transactions.CompleteAdding();
 
-            // Join so teardown is deterministic - but never join the writer to itself (no transaction
-            // disposes the engine, so this is only a guard). The thread is a background thread, so a
+            if (Thread.CurrentThread == _worker)
+            {
+                // A transaction body disposed the engine (no such path exists today - this is a
+                // guard). We are ON the worker thread, still inside GetConsumingEnumerable, so we must
+                // neither join ourselves (deadlock) nor dispose the collection we are still
+                // enumerating: the next MoveNext would throw ObjectDisposedException OUTSIDE the
+                // ConsumeLoop try/catch and kill the worker. CompleteAdding above lets the loop exit
+                // cleanly once the queue drains; leave the collection for the GC.
+                return;
+            }
+
+            // Join so teardown is deterministic. The thread is a background thread, so a
             // pathologically slow transaction can never block process exit; the timeout just bounds
             // the synchronous Dispose call.
-            if (Thread.CurrentThread != _worker && !_worker.Join(TimeSpan.FromSeconds(5)))
+            if (_worker.Join(TimeSpan.FromSeconds(5)))
             {
-                _logger.LogWarning("The transaction writer thread did not stop within the shutdown timeout.");
+                // Dispose the collection ONLY now that the consumer has certainly stopped using it
+                // (worker is not this thread AND it has joined), so no MoveNext can race the Dispose.
+                _transactions.Dispose();
             }
             else
             {
-                // Only safe to dispose the collection once the consumer has certainly stopped using it.
-                _transactions.Dispose();
+                _logger.LogWarning("The transaction writer thread did not stop within the shutdown timeout.");
             }
         }
     }
