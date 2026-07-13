@@ -213,6 +213,12 @@ namespace NoSQL.GraphDB.Core.Serializer
         public override string ReadString()
         {
             var counter = ReadInt32();
+            // Validate the length prefix BEFORE allocating (finding C5): a corrupt/foreign file could
+            // claim a huge or negative payload, which would otherwise turn straight into a
+            // multi-gigabyte `new byte[counter]` inside ReadBytes (a trivial denial-of-service). The
+            // check is inert on a well-formed stream, whose prefix never exceeds the bytes that follow.
+            EnsureAvailable(counter, "string");
+
             // Read the encoded bytes in a single bulk call. This mirrors the writer's
             // bulk Write(byte[]) and is equivalent to the previous per-byte ReadByte loop
             // because the writer always emits exactly 'counter' bytes for the string.
@@ -294,7 +300,12 @@ namespace NoSQL.GraphDB.Core.Serializer
             var length = ReadOptimizedInt32();
             if (length == 0) return FullyOptimizableTypedArray;
 
-            return new BitArray(ReadBytes((length + 7) / 8)) { Length = length };
+            // Compute the backing byte count in 64-bit to avoid (length + 7) overflowing to a
+            // negative int, and validate it before allocating (finding C5).
+            var byteCount = ((long)length + 7) / 8;
+            EnsureAvailable(byteCount, "BitArray");
+
+            return new BitArray(ReadBytes((int)byteCount)) { Length = length };
         }
 
         /// <summary>
@@ -1590,7 +1601,7 @@ namespace NoSQL.GraphDB.Core.Serializer
                 case SerializedType.ZeroSingleType: return (Single)0;
                 case SerializedType.ByteType: return ReadByte();
                 case SerializedType.ZeroByteType: return (Byte)0;
-                case SerializedType.OtherType: return JsonSerializer.Deserialize<object>(BaseStream);
+                case SerializedType.OtherType: return ReadOtherTypeObject();
                 case SerializedType.UInt16Type: return ReadUInt16();
                 case SerializedType.ZeroUInt16Type: return (UInt16)0;
                 case SerializedType.UInt32Type: return ReadUInt32();
@@ -1753,6 +1764,26 @@ namespace NoSQL.GraphDB.Core.Serializer
         }
 
         /// <summary>
+        /// Reads a value that the writer could not encode directly and stored through its JSON
+        /// fallback (finding C7). <see cref="SerializationWriter.WriteObject"/>'s
+        /// <c>OtherType</c> branch writes the value as a length-prefixed string
+        /// (<c>Write(JsonSerializer.Serialize(value))</c>); this reads that SAME framed string and
+        /// only then deserializes it. The previous code handed the raw <c>BaseStream</c> straight to
+        /// the JSON deserializer, so it tried to parse the 4-byte length prefix as JSON and read on
+        /// to end-of-stream, misframing (and thereby corrupting) every subsequent value in the file.
+        /// </summary>
+        object ReadOtherTypeObject()
+        {
+            var json = ReadString();
+            if (string.IsNullOrEmpty(json))
+            {
+                return null;
+            }
+
+            return JsonSerializer.Deserialize<object>(json);
+        }
+
+        /// <summary>
         /// Returns the string value associated with the string token read next from the stream.
         /// </summary>
         /// <returns>A DateTime value.</returns>
@@ -1799,7 +1830,9 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Byte[].</returns>
         byte[] ReadByteArrayInternal()
         {
-            return ReadBytes(ReadOptimizedInt32());
+            var count = ReadOptimizedInt32();
+            EnsureAvailable(count, "byte[]");
+            return ReadBytes(count);
         }
 
         /// <summary>
@@ -1808,7 +1841,11 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Char[].</returns>
         char[] ReadCharArrayInternal()
         {
-            return ReadChars(ReadOptimizedInt32());
+            var count = ReadOptimizedInt32();
+            // Every char occupies at least one byte on the wire, so the char count can never exceed
+            // the bytes remaining; validate before ReadChars allocates its char[] (finding C5).
+            EnsureAvailable(count, "char[]");
+            return ReadChars(count);
         }
 
         /// <summary>
@@ -1889,6 +1926,46 @@ namespace NoSQL.GraphDB.Core.Serializer
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Guards a length-prefixed read against a corrupt or truncated stream (finding C5). Throws
+        /// <see cref="InvalidDataException"/> when a decoded byte/element count is negative or exceeds
+        /// the bytes physically remaining, so a bad prefix can never drive a huge <c>new byte[n]</c>
+        /// allocation. When the remaining size is unknown (a non-seekable stream with no length
+        /// header) the check is skipped and the downstream read's own end-of-stream handling applies.
+        /// </summary>
+        /// <param name="requestedCount">The byte count decoded from the stream.</param>
+        /// <param name="what">A short noun for the element being read, used in the error message.</param>
+        void EnsureAvailable(long requestedCount, string what)
+        {
+            if (requestedCount < 0)
+            {
+                throw new InvalidDataException(string.Format(
+                    "A {0} length prefix was negative ({1}); the stream is corrupt.", what, requestedCount));
+            }
+
+            long remaining;
+            if (endPosition != 0)
+            {
+                remaining = endPosition - (BaseStream.CanSeek ? BaseStream.Position : startPosition);
+            }
+            else if (BaseStream.CanSeek)
+            {
+                remaining = BaseStream.Length - BaseStream.Position;
+            }
+            else
+            {
+                // No trustworthy end marker on a non-seekable stream: leave it to the read itself.
+                return;
+            }
+
+            if (requestedCount > remaining)
+            {
+                throw new InvalidDataException(string.Format(
+                    "A {0} length prefix ({1}) exceeds the {2} byte(s) remaining in the stream; the file is truncated or corrupt.",
+                    what, requestedCount, remaining < 0 ? 0 : remaining));
+            }
         }
 
         #region Class Property declarations
