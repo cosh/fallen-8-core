@@ -716,6 +716,17 @@ namespace NoSQL.GraphDB.Core
                 return false;
             }
 
+            // P4 (engine-performance-followups): when the resolved index is a RangeIndex AND the
+            // operator is an ordered one, route through the RangeIndex's O(log n + k) sorted methods
+            // instead of the generic O(n) FindElementsIndex scan. The rerouted set is deduped exactly
+            // like FindElementsIndex's cross-bucket .Distinct(), so the result is identical. Equals /
+            // NotEquals and every non-range index keep the generic path below.
+            var orderedRangeIndex = index as IRangeIndex;
+            if (orderedRangeIndex != null && TryOrderedRangeIndexScan(out result, orderedRangeIndex, literal, binOp))
+            {
+                return result.Count > 0;
+            }
+
             #region binary operation
 
             switch (binOp)
@@ -1654,6 +1665,56 @@ namespace NoSQL.GraphDB.Core
                                                              .Select(_ => _.Value)
                                                              .SelectMany(__ => __)
                                                              .Distinct());
+        }
+
+        /// <summary>
+        ///   P4 (engine-performance-followups): answers an ORDERED IndexScan operator
+        ///   (Greater / GreaterOrEquals / Lower / LowerOrEquals) on a <see cref="IRangeIndex" /> via its
+        ///   O(log n + k) sorted range methods instead of the generic O(n) <see cref="FindElementsIndex" />
+        ///   scan. Returns <c>false</c> for any non-ordered operator (Equals / NotEquals) so the caller
+        ///   falls back to the generic path.
+        ///
+        ///   Result parity with <see cref="FindElementsIndex" />: the RangeIndex's sorted methods select
+        ///   EXACTLY the keys the generic finder's per-key <c>CompareTo</c> predicate would - both order
+        ///   keys by <see cref="IComparable.CompareTo" />, so the suffix/prefix the binary search brackets
+        ///   is the same key set the linear scan keeps (GreaterOrEquals/LowerOrEquals include the boundary
+        ///   key, Greater/Lower exclude it, matching the <c>&gt;=</c>/<c>&gt;</c>/<c>&lt;=</c>/<c>&lt;</c>
+        ///   predicates). Those methods, however, concatenate the matched buckets WITHOUT deduping,
+        ///   whereas <see cref="FindElementsIndex" /> applies a cross-bucket <c>.Distinct()</c>. This
+        ///   method therefore reapplies the SAME <c>.Distinct()</c>, so a graph element indexed under
+        ///   several matching keys appears exactly once - byte-identical to the generic output set.
+        /// </summary>
+        private static bool TryOrderedRangeIndexScan(out ImmutableList<AGraphElementModel> result,
+                                                     IRangeIndex rangeIndex, IComparable literal, BinaryOperator binOp)
+        {
+            ImmutableList<AGraphElementModel> matched;
+            switch (binOp)
+            {
+                case BinaryOperator.Greater:
+                    rangeIndex.GreaterThan(out matched, literal, false);
+                    break;
+
+                case BinaryOperator.GreaterOrEquals:
+                    rangeIndex.GreaterThan(out matched, literal, true);
+                    break;
+
+                case BinaryOperator.Lower:
+                    rangeIndex.LowerThan(out matched, literal, false);
+                    break;
+
+                case BinaryOperator.LowerOrEquals:
+                    rangeIndex.LowerThan(out matched, literal, true);
+                    break;
+
+                default:
+                    // Equals / NotEquals are not ordered range operators - fall back to the generic path.
+                    result = null;
+                    return false;
+            }
+
+            // Reapply FindElementsIndex's cross-bucket .Distinct() so the deduped set is identical.
+            result = ImmutableList.CreateRange<AGraphElementModel>(matched.Distinct());
+            return true;
         }
 
         /// <summary>
