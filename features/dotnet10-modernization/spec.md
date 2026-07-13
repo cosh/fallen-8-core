@@ -42,7 +42,8 @@
   (NU1903)**. Pin a patched `Microsoft.OpenApi` (verify a 2.x patch resolves NU1903) and confirm
   OpenAPI output parity **before** deleting the transformer. If the vuln can't be cleanly resolved,
   keep the transformer and defer N3b.
-  - **Outcome — DEFERRED (parity, not vuln).** Verified on .NET SDK 10.0.201: bumping to
+  - **Outcome — LANDED (delivered under the `openapi-10` feature; output change accepted, transformer
+    removed).** Verified on .NET SDK 10.0.201: bumping to
     `Microsoft.AspNetCore.OpenApi 10.0.9` pulls `Microsoft.OpenApi 2.0.0` and reproduces NU1903
     (`GHSA-v5pm-xwqc-g5wc`). The advisory **is** cleanly resolvable by pinning
     `Microsoft.OpenApi 2.10.0` (`dotnet list package --vulnerable --include-transitive` then reports
@@ -50,12 +51,17 @@
     fails: the 9.x custom `XmlDocumentationOperationTransformer` does not compile against the
     reshaped `Microsoft.OpenApi` 2.x object model, so completing the bump requires deleting it and
     relying on 10.x native XML-doc reading. That native path materially changes the emitted
-    document (OpenAPI version `3.0.1` → `3.1.1`; `"description"` occurrences 118 → 323;
-    `"example"` occurrences 0 → 111; same 119 `$ref`s, i.e. the API surface is unchanged but the
-    documentation is richer). Because the contract is "OpenAPI output unchanged", N3b is **deferred**
-    with `Microsoft.AspNetCore.OpenApi` kept at 9.0.4 and the transformer + `Program.cs` wiring
-    retained. The vulnerability is **not** reintroduced. Revisit N3b as a deliberate
-    OpenAPI-document refresh (accepting the 3.1.1 upgrade), not under a no-output-change constraint.
+    document (OpenAPI version `3.0.1` → `3.1.1`; `"description"` occurrences 119 → 324;
+    `"example"` occurrences 0 → 111; `$ref`s unchanged at 122, i.e. the API surface is identical
+    (same 44 paths / 49 operations) but the documentation is richer). Under the original "OpenAPI
+    output unchanged" contract this blocked
+    N3b, so it was **deferred** here. The user then **accepted** the richer 3.1.1 document as an
+    improvement, and N3b **landed** under the dedicated **`openapi-10`** feature:
+    `Microsoft.AspNetCore.OpenApi` is on **10.0.9** with `Microsoft.OpenApi` **2.10.0** pinned, the
+    transformer + `Program.cs` wiring are **removed**, .NET 10 native XML-doc reading is enabled, and
+    a runtime `OpenApiDocumentTest` (via `WebApplicationFactory<Program>`) confirms the 3.1.1 document
+    still carries the controller XML content. The vulnerability is **not** reintroduced. See
+    `features/openapi-10/`.
 - **N1 scope:** the binary serializer's genuinely-polymorphic `object` fallback
   (`SerializationWriter.cs:606` / `SerializationReader.cs:1582`) must **stay** reflection-based —
   do not fold it into the source-gen context. Treat source-gen as a throughput/safety win and an
@@ -106,8 +112,9 @@
 - N2: plugin discovery runs the disk scan once (cache invalidated on `Assimilate`); benchmarked
   reduction on index/service open paths. *(out of scope for this theme — tracked as
   engine-performance P5; see §2 note)*
-- N3: `PerformanceCounter` gone; either OpenAPI 10.x + transformer deleted (with the vuln resolved)
-  or a documented decision to defer; `Microsoft.Extensions.*` aligned; build clean.
+- N3: `PerformanceCounter` gone; OpenAPI on 10.x with the transformer deleted and the vuln resolved
+  (landed under `openapi-10`; the earlier deferral is superseded); `Microsoft.Extensions.*` aligned;
+  build clean.
 - N4: save/load string throughput improves; no on-disk format change (bytes identical).
 - N5: `docker build` produces a runnable net10 image; GC settings explicit; a DATAS benchmark
   recorded to justify the chosen mode *(deferred — no benchmark run; see §3 and the GC

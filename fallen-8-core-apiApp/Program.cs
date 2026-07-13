@@ -59,11 +59,11 @@ namespace NoSQL.GraphDB.App
             builder.Logging.AddFilter("NoSQL.GraphDB", Microsoft.Extensions.Logging.LogLevel.Information);
 
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-            builder.Services.AddOpenApi("v0.1", options =>
-            {
-                // Surface controller XML doc comments (<summary>/<remarks>) into the document.
-                options.AddOperationTransformer<XmlDocumentationOperationTransformer>();
-            });
+            // .NET 10's Microsoft.AspNetCore.OpenApi reads controller XML doc comments
+            // (<summary>/<remarks>/<response>) into the document natively via its build-time
+            // source generator (GenerateDocumentationFile is enabled), so no custom operation
+            // transformer is required.
+            builder.Services.AddOpenApi("v0.1");
 
             builder.Services.AddApiVersioning(o =>
                        {
