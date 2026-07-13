@@ -81,5 +81,19 @@ namespace NoSQL.GraphDB.Core.Helper
         /// these throwaway files, never a half-written file under its final name.
         /// </summary>
         public const string TempSaveSuffix = ".f8tmp";
+
+        /// <summary>
+        ///   Target number of graph elements per save partition (finding P6). The save fans the
+        ///   master store into parallel "bunch" sidecar files; the partition count is
+        ///   <c>min(cores, ceil(elementCount / SaveTargetPartitionSize))</c>, further capped by any
+        ///   explicit caller request. This value is the minimum useful chunk: a graph smaller than it
+        ///   is written as ONE bunch (removing the old degenerate one-file-per-element for tiny
+        ///   graphs), while a larger graph is split only up to the core count - each bunch is a
+        ///   CPU-bound serialization job, so more files than cores would add I/O and manifest
+        ///   overhead without adding parallelism. The value is a tunable trade-off, not a hard limit
+        ///   (correctness is independent of it: every element is written exactly once and the load
+        ///   reconstructs by id regardless of how the ids were partitioned).
+        /// </summary>
+        public const int SaveTargetPartitionSize = 16384;
     }
 }

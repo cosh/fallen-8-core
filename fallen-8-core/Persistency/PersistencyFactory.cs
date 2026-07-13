@@ -164,17 +164,14 @@ namespace NoSQL.GraphDB.Core.Persistency
             fallen8.SetId(currentGuId);
             currentId = idSpaceSize;
 
-            AGraphElementModel[] graphElementArray = new AGraphElementModel[idSpaceSize];
-
             #region graph elements
 
-            var graphElementStreams = bunchManifest.Select(e => Path.Combine(pathName, e.FileName)).ToList();
-            LoadGraphElements(graphElementArray, graphElementStreams);
-
-            // Publish the loaded elements into the master store BEFORE indices/services are
-            // rehydrated below: their deserialization resolves element ids through
-            // fallen8.TryGetGraphElement against the published store.
-            fallen8.PublishLoadedGraphElements(graphElementArray);
+            // Build the dense, id-ordered element array and publish it into the segmented master
+            // store. This is scoped to its own method so the dense source array (idSpaceSize element
+            // references) is released as soon as it has been copied into the store (finding P5) -
+            // i.e. BEFORE the indices and services rehydrate below - rather than being pinned alive
+            // alongside the new store for the whole load.
+            LoadAndPublishGraphElements(fallen8, bunchManifest, pathName, idSpaceSize);
 
             #endregion
 
@@ -295,10 +292,14 @@ namespace NoSQL.GraphDB.Core.Persistency
             // max(Id)+1 (0 when empty) always covers every surviving id.
             var idSpaceSize = graphElements.Count == 0 ? 0 : graphElements.Max(ge => ge.Id) + 1;
 
-            //create some futures to save as much as possible in parallel
-            const TaskCreationOptions options = TaskCreationOptions.LongRunning;
-            var f = new TaskFactory(CancellationToken.None, options, TaskContinuationOptions.None,
-                                    TaskScheduler.Default);
+            // Fan the save out across POOLED tasks (finding P6). The previous design used
+            // LongRunning tasks, which dedicate a brand-new thread to each - wasteful for what are
+            // short, CPU-bound serialization jobs; Task.Run queues onto the thread pool instead.
+            // This thread (the single transaction writer, inside the save transaction) blocks on the
+            // results below, so the whole save still completes - all bytes durably committed - before
+            // the transaction returns. Single-writer and the blocking-but-correct save semantics are
+            // therefore preserved (the file writing is NOT moved off the worker; see the P3 deferral
+            // note in features/persistence-hardening/plan.md).
 
             #region graph elements
 
@@ -306,13 +307,18 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             if (graphElements.Count > 0)
             {
-                var graphElementPartitions = CreatePartitions(graphElements.Count, savePartitions);
+                // Right-size the partition count to the work AND the hardware (finding P6):
+                // min(cores, ceil(count / targetChunk)), never above the caller's request. This
+                // removes both degeneracies of the old fixed count - a tiny graph is no longer split
+                // one-file-per-element, and a large graph is no longer pinned to a small fixed count.
+                var partitionCount = ComputePartitionCount(graphElements.Count, savePartitions);
+                var graphElementPartitions = CreatePartitions(graphElements.Count, partitionCount);
                 graphElementSaver = new Task<SidecarManifestEntry>[graphElementPartitions.Count];
 
                 for (var i = 0; i < graphElementPartitions.Count; i++)
                 {
                     var partition = graphElementPartitions[i];
-                    graphElementSaver[i] = f.StartNew(() => SaveBunch(partition, graphElements, path));
+                    graphElementSaver[i] = Task.Run(() => SaveBunch(partition, graphElements, path));
                 }
             }
             else
@@ -332,7 +338,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 var indexName = aIndex.Key;
                 var index = aIndex.Value;
 
-                indexSaver[counter] = f.StartNew(() => SaveIndex(indexName, index, path));
+                indexSaver[counter] = Task.Run(() => SaveIndex(indexName, index, path));
                 counter++;
             }
 
@@ -348,7 +354,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 var serviceName = aService.Key;
                 var service = aService.Value;
 
-                serviceSaver[counter] = f.StartNew(() => SaveService(serviceName, service, path));
+                serviceSaver[counter] = Task.Run(() => SaveService(serviceName, service, path));
                 counter++;
             }
 
@@ -876,6 +882,26 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
+        ///   Builds the dense, id-ordered graph-element array from the bunch sidecars and publishes
+        ///   it into the master store. Kept as its own method so the dense source array is out of
+        ///   scope - and therefore eligible for collection - the instant it has been copied into the
+        ///   segmented store, instead of being held alive alongside the new store while the indices
+        ///   and services rehydrate afterwards (finding P5). The publish happens BEFORE indices and
+        ///   services load because their deserialization resolves element ids through
+        ///   <see cref="Fallen8.TryGetGraphElement" /> against the published store; the load-publish
+        ///   ordering (dense array -> PublishLoadedGraphElements -> index/service rehydration) is
+        ///   therefore unchanged.
+        /// </summary>
+        private void LoadAndPublishGraphElements(Fallen8 fallen8, List<SidecarManifestEntry> bunchManifest,
+                                                 string pathName, int idSpaceSize)
+        {
+            var graphElementArray = new AGraphElementModel[idSpaceSize];
+            var graphElementStreams = bunchManifest.Select(e => Path.Combine(pathName, e.FileName)).ToList();
+            LoadGraphElements(graphElementArray, graphElementStreams);
+            fallen8.PublishLoadedGraphElements(graphElementArray);
+        }
+
+        /// <summary>
         ///   Loads the graph elements.
         /// </summary>
         /// <param name='graphElements'> Graph elements of Fallen-8. </param>
@@ -973,6 +999,38 @@ namespace NoSQL.GraphDB.Core.Persistency
                     _logger.LogError(String.Format("Corrupt savegame... could not get the edge {0}", aKV.Key));
                 }
             }
+        }
+
+        /// <summary>
+        ///   Computes how many partitions to split a graph of <paramref name="elementCount"/>
+        ///   elements into for the save (finding P6): <c>min(cores, ceil(count / targetChunk))</c>,
+        ///   clamped to at least one and never above an explicit positive <paramref name="requestedMax"/>.
+        ///   Sizing to the work removes the old fixed-count degeneracies - a tiny graph collapses to a
+        ///   single bunch (no one-file-per-element), while a large graph is split only up to the core
+        ///   count (each bunch is a CPU-bound serialization job, so more files than cores add I/O and
+        ///   manifest overhead without adding parallelism). A positive <paramref name="requestedMax"/>
+        ///   (the public <c>SaveTransaction.SavePartitions</c>) still caps the result, so an explicit
+        ///   "use N partitions" is honoured and every single-partition caller keeps exactly one bunch
+        ///   file. Returns 0 for an empty graph (no bunches are written at all).
+        /// </summary>
+        private static int ComputePartitionCount(int elementCount, int requestedMax)
+        {
+            if (elementCount <= 0)
+            {
+                return 0;
+            }
+
+            // ceil(elementCount / SaveTargetPartitionSize), computed overflow-safe (elementCount can
+            // be up to Int32.MaxValue, so elementCount + chunk - 1 could overflow).
+            var byWork = 1 + (elementCount - 1) / Constants.SaveTargetPartitionSize;
+            var count = Math.Min(byWork, Environment.ProcessorCount);
+
+            if (requestedMax > 0)
+            {
+                count = Math.Min(count, requestedMax);
+            }
+
+            return Math.Max(1, count);
         }
 
         /// <summary>

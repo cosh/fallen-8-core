@@ -1222,6 +1222,13 @@ namespace NoSQL.GraphDB.Core
                 oldIndexFactory.DeleteAllIndices();
                 oldSubGraphFactory.DeleteAllSubGraphs();
 
+                // P5: the load has committed and published its own snapshot; the previous graph is no
+                // longer reachable for rollback (neither the catch nor the else-restore below can run
+                // now), so drop our last reference to it here - BEFORE the closing Trim_internal
+                // rebuilds (and transiently doubles) the store - rather than holding the old graph,
+                // the new store and the trim's temporaries all at once.
+                oldSnapshot = null;
+
                 // Rebuild persisted subgraphs against the freshly loaded graph. Requires a
                 // registered recipe compiler; without one, persisted subgraphs are skipped.
                 var recipes = _persistencyFactory.LoadSubGraphRecipes(path);
