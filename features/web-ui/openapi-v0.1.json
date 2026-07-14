@@ -1,0 +1,4854 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "fallen-8-core-apiApp | v0.1",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:5599/"
+    }
+  ],
+  "paths": {
+    "/status": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Gets the current status of the Fallen-8 database",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the database status information",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusREST"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/trim": {
+      "head": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Trims the database, releasing unused memory",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Trim operation successfully initiated"
+          }
+        }
+      }
+    },
+    "/load": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Loads a Fallen-8 database from a saved file",
+        "description": "Sample request:\r\n\r\n    PUT /load\r\n    {\r\n       \"startServices\": true,\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\"\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Load specification including file path and service start options",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Database loaded successfully"
+          },
+          "400": {
+            "description": "Invalid load specification or file not found",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The load transaction was rolled back and did not complete"
+          }
+        }
+      }
+    },
+    "/save": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Saves the current database state to a file",
+        "description": "Sample request:\r\n\r\n    PUT /save\r\n    {\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\",\r\n       \"savePartitions\": 8\r\n    }\r\n\r\nBoth parameters are optional. If not provided, defaults to the base directory with filename \"Temp.f8s\" and optimal partition count.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Save specification including file path and partition options (both optional)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the path where the database was saved",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid save specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The save transaction was rolled back and did not complete",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/tabularasa": {
+      "head": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Clears all data from the database (resets to empty state)",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Database successfully cleared"
+          }
+        }
+      }
+    },
+    "/vertex/count": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Gets the total number of vertices in the database",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the number of vertices",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/edge/count": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Gets the total number of edges in the database",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the number of edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/service": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Creates a new service based on the specified plugin",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Plugin specification including type, ID and options",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns whether the service was successfully created",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid plugin specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/service/{key}": {
+      "delete": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Deletes a service with the specified key",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "The unique identifier of the service to delete",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns whether the service was successfully deleted",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/plugin": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Uploads and registers a new plugin to the database",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The plugin DLL binary content as a stream",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/Stream"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Plugin successfully uploaded and registered"
+          },
+          "400": {
+            "description": "Invalid plugin data or incompatible plugin",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate": {
+      "get": {
+        "tags": [
+          "Benchmark"
+        ],
+        "parameters": [
+          {
+            "name": "nodeCount",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edgeCount",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/benchmark": {
+      "get": {
+        "tags": [
+          "Benchmark"
+        ],
+        "parameters": [
+          {
+            "name": "iterations",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/vertex": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates a new vertex in the graph",
+        "description": "Sample request:\r\n\r\n    PUT /vertex\r\n    {\r\n       \"label\": \"person\",\r\n       \"creationDate\": \"2025-04-22T00:00:00\",\r\n       \"properties\": {\r\n         \"name\": {\r\n           \"propertyValue\": \"John Doe\",\r\n           \"fullQualifiedTypeName\": \"System.String\"\r\n         }\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The vertex specification containing label and property information",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VertexSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VertexSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Vertex creation accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid vertex specification",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/vertex/{vertexIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Retrieves a vertex from the graph by its identifier",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex to retrieve",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the vertex object",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vertex"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/edge/{edgeIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Retrieves an edge from the graph by its identifier",
+        "parameters": [
+          {
+            "name": "edgeIdentifier",
+            "in": "path",
+            "description": "The ID of the edge to retrieve",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the edge object",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/Edge"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Edge with the specified ID was not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/edge": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates a new edge between two vertices in the graph",
+        "description": "Sample request:\r\n\r\n    PUT /edge\r\n    {\r\n       \"label\": \"knows\",\r\n       \"creationDate\": \"2025-04-22T00:00:00\",\r\n       \"sourceVertex\": 1,\r\n       \"targetVertex\": 2,\r\n       \"edgePropertyId\": \"friendship\",\r\n       \"properties\": {\r\n         \"since\": {\r\n           \"propertyValue\": \"2024-01-01\",\r\n           \"fullQualifiedTypeName\": \"System.DateTime\"\r\n         }\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The edge specification containing source, target and property information",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EdgeSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EdgeSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Edge creation accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid edge specification",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A referenced source or target vertex does not exist (only when waitForCompletion is true)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/graphelement/{graphElementIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Retrieves a graph element (vertex or edge) by its identifier",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element to retrieve",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the graph element object",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/AGraphElement"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Graph element with the specified ID was not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a graph element (vertex or edge) from the graph",
+        "description": "Sample request:\r\n\r\n    DELETE /graphelement/123",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element to remove",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Graph element removal accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Malformed request (e.g. a non-integer element id). (A non-existent graph element is NOT a 400: an out-of-range id → 500, an in-range/absent id is a no-op → 202.)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/graph": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Retrieves the complete graph data including vertices and edges",
+        "parameters": [
+          {
+            "name": "maxElements",
+            "in": "query",
+            "description": "Maximum number of elements to return (default: 1000)",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 1000
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the graph data with vertices and edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/Graph"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/edge/{edgeIdentifier}/source": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the source vertex ID for a specific edge",
+        "parameters": [
+          {
+            "name": "edgeIdentifier",
+            "in": "path",
+            "description": "The ID of the edge",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the source vertex ID",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Edge with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/edge/{edgeIdentifier}/target": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the target vertex ID for a specific edge",
+        "parameters": [
+          {
+            "name": "edgeIdentifier",
+            "in": "path",
+            "description": "The ID of the edge",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the target vertex ID",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Edge with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/vertex/{vertexIdentifier}/edges/out": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets all available outgoing edge property IDs for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of outgoing edge property IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Vertex has no outgoing edges or vertex not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/vertex/{vertexIdentifier}/edges/in": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets all available incoming edge property IDs for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of incoming edge property IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Vertex has no incoming edges or vertex not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets outgoing edges of a specific type from a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "edgePropertyIdentifier",
+            "in": "path",
+            "description": "The edge property identifier/type to filter by",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of matching outgoing edge IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "No matching edges found or vertex not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets incoming edges of a specific type to a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "edgePropertyIdentifier",
+            "in": "path",
+            "description": "The edge property identifier/type to filter by",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of matching incoming edge IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "No matching edges found or vertex not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/scan/graph/property/{propertyId}": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Scans the graph for elements with a specific property value",
+        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "parameters": [
+          {
+            "name": "propertyId",
+            "in": "path",
+            "description": "The property ID to scan for",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Scan specification with comparison operator and value",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanSpecification"
+              }
+            },
+            "text/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the matching element IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid scan specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/scan/index/all": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Performs a scan operation on an index with a specific value and operator",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/all\r\n    {\r\n       \"indexId\": \"userNameIndex\",\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"Jane\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Index scan specification with index ID, operator and value",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the matching element IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid scan specification or index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/scan/index/range": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Performs a range-based scan on an index between two values",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/range\r\n    {\r\n       \"indexId\": \"ageIndex\",\r\n       \"leftLimit\": 18,\r\n       \"rightLimit\": 30,\r\n       \"includeLeft\": true,\r\n       \"includeRight\": false,\r\n       \"fullQualifiedTypeName\": \"System.Int32\",\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Range scan specification with index ID, limits and include/exclude options",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/RangeIndexScanSpecification"
+              }
+            },
+            "text/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/RangeIndexScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/RangeIndexScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the matching element IDs within the range",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid range specification or index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/scan/index/fulltext": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Performs a fulltext search on an indexed property",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/fulltext\r\n    {\r\n       \"indexId\": \"documentIndex\",\r\n       \"requestString\": \"graph database nosql\"\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Fulltext search specification with index ID and search terms",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FulltextIndexScanSpecification"
+              }
+            },
+            "text/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FulltextIndexScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FulltextIndexScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the search results with highlighting",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/FulltextSearchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid search specification or index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Index not found or is not a fulltext index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/scan/index/spatial": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Performs a spatial distance search using a spatial index",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/spatial\r\n    {\r\n       \"indexId\": \"locationIndex\",\r\n       \"graphElementId\": 123,\r\n       \"distance\": 5.0\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Spatial search specification with index ID, reference element and distance",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchDistanceSpecification"
+              }
+            },
+            "text/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchDistanceSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchDistanceSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the element IDs within the specified distance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid search specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Index not found, is not a spatial index, or reference element not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/graphelement/{graphElementIdentifier}/{propertyIdString}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Adds or updates a property on a graph element (vertex or edge)",
+        "description": "Sample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "propertyIdString",
+            "in": "path",
+            "description": "The ID/key of the property",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Property value specification",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Property addition accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Malformed request body / invalid property specification. (A non-existent graph element is NOT a 400: an out-of-range id rolls back with an internal error → 500, and an in-range/absent id is a no-op → 202.)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a property from a graph element (vertex or edge)",
+        "description": "Sample request:\r\n\r\n    DELETE /graphelement/123/age",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "propertyIdString",
+            "in": "path",
+            "description": "The ID/key of the property to remove",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Property removal accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Malformed request (e.g. a non-integer element id). (A non-existent element/property is NOT a 400: an out-of-range id → 500, an in-range/absent id is a no-op → 202.)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/vertex/{vertexIdentifier}/edges/indegree": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the total count of incoming edges for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the count of incoming edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/vertex/{vertexIdentifier}/edges/outdegree": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the total count of outgoing edges for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the count of outgoing edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}/degree": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the count of incoming edges of a specific type for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edgePropertyIdentifier",
+            "in": "path",
+            "description": "The edge property identifier/type to count",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the count of matching incoming edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}/degree": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the count of outgoing edges of a specific type from a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edgePropertyIdentifier",
+            "in": "path",
+            "description": "The edge property identifier/type to count",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the count of matching outgoing edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/path/{from}/to/{to}": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Calculates the shortest path between two vertices in the graph",
+        "description": "The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.\r\n\r\nSelect the algorithm via \"pathAlgorithmName\". \"BLS\" is a hop-count (unweighted) shortest\r\npath that ignores the \"cost\" block (\"totalWeight\" is 0), whereas \"DIJKSTRA\" is a weighted\r\nshortest path that honours the \"cost\" block and \"maxPathWeight\" (and returns the K\r\nleast-weight loop-free paths when \"maxResults\" &gt; 1).\r\n\r\nIMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a \"return\" statement.\r\nThese are compiled at runtime into delegate methods.\r\n\r\nCorrect format for filter expressions:\r\n- \"return (parameter) =&gt; boolean_expression;\"\r\n\r\nCorrect format for cost expressions:\r\n- \"return (parameter) =&gt; numeric_expression;\"\r\n\r\nSample request:\r\n\r\n    POST /path/1/to/5\r\n    {\r\n       \"pathAlgorithmName\": \"BLS\",\r\n       \"maxDepth\": 5,\r\n       \"maxPathWeight\": 100.0,\r\n       \"maxResults\": 10,\r\n       \"filter\": {\r\n         \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"Person\\\";\",\r\n         \"edgeFilter\": \"return (e,d) =&gt; e.Label == \\\"friendship\\\";\",\r\n         \"edgePropertyFilter\": \"return (p,d) =&gt; p == \\\"knows\\\";\"\r\n       },\r\n       \"cost\": {\r\n         \"vertexCost\": \"return (v) =&gt; v.TryGetProperty(out var age, \\\"age\\\") ? (double)age : 1.0;\",\r\n         \"edgeCost\": \"return (e) =&gt; e.TryGetProperty(out var weight, \\\"weight\\\") ? (double)weight : 1.0;\"\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "path",
+            "description": "The ID of the source vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "description": "The ID of the target vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Path specification with algorithm, depth, filters and other constraints",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PathSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PathSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the found paths between the vertices",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PathREST"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid path specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Source or target vertex not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/index": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates a new index for the graph",
+        "description": "Sample request:\r\n\r\n    POST /index\r\n    {\r\n       \"uniqueId\": \"nameIndex\",\r\n       \"pluginType\": \"DictionaryIndex\",\r\n       \"pluginOptions\": {\r\n          \"propertyId\": \"name\",\r\n          \"type\": \"System.String\"\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Plugin specification with index type and configuration options",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns true if the index was created successfully",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid index specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/index/{indexId}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Adds a graph element to an existing index",
+        "description": "Sample request:\r\n\r\n    PUT /index/nameIndex\r\n    {\r\n       \"graphElementId\": 123,\r\n       \"key\": {\r\n         \"propertyValue\": \"John Smith\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Specification containing graph element ID and key information",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexAddToSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexAddToSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns true if the element was successfully added to the index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid specification, index not found, or graph element not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Deletes an index from the system",
+        "description": "Sample request:\r\n\r\n    DELETE /index/nameIndex",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index to delete",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns true if the index was successfully deleted",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/index/{indexId}/propertyValue": {
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a key from an index",
+        "description": "Sample request:\r\n\r\n    DELETE /index/nameIndex/propertyValue\r\n    {\r\n       \"propertyValue\": \"John Smith\",\r\n       \"fullQualifiedTypeName\": \"System.String\"\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The property specification representing the key to remove",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns true if the key was successfully removed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid property specification or index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/index/{indexId}/{graphElementId}": {
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a graph element from an index",
+        "description": "Sample request:\r\n\r\n    DELETE /index/nameIndex/123",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "graphElementId",
+            "in": "path",
+            "description": "The ID of the graph element to remove",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns true if the element was successfully removed from the index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Index not found or graph element not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/unittest": {
+      "put": {
+        "tags": [
+          "SampleGraph"
+        ],
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/subgraph": {
+      "put": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Creates and registers a new subgraph from a specification.",
+        "description": "Filter and pattern predicates are C# code fragments prefixed with \"return\", compiled\r\nat runtime. A null/empty fragment matches everything.\r\n\r\nSample request:\r\n\r\n    PUT /subgraph\r\n    {\r\n       \"name\": \"friends-of-alice\",\r\n       \"vertexFilter\": \"return (ge) =&gt; ge.Label == \\\"person\\\";\",\r\n       \"patterns\": [\r\n         { \"type\": \"Vertex\", \"patternName\": \"start\", \"graphElementFilter\": \"return (ge) =&gt; ge.Label == \\\"person\\\";\" },\r\n         { \"type\": \"Edge\", \"patternName\": \"rel\", \"direction\": \"OutgoingEdge\", \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\" },\r\n         { \"type\": \"Vertex\", \"patternName\": \"end\", \"graphElementFilter\": \"return (ge) =&gt; ge.Label == \\\"person\\\";\" }\r\n       ]\r\n    }",
+        "parameters": [
+          {
+            "name": "fromSubGraph",
+            "in": "query",
+            "description": "Optional name of an existing subgraph to source this one from (creates a nested subgraph). When omitted, the subgraph is sourced from the whole graph.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The subgraph specification (name, filters, patterns)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SubGraphSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SubGraphSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The subgraph was created and registered. A syntactically-valid pattern that matches nothing yields a registered EMPTY subgraph (201), identically whether the source graph is empty or populated.",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubGraphSummary"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The specification was invalid, the pattern was structurally invalid, or a filter failed to compile",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The source subgraph named by fromSubGraph does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A subgraph with the same name already exists, or a resource quota (subgraph count or materialized-element ceiling) was exceeded",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The create transaction faulted with an internal error",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Lists the names of all registered subgraphs.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of subgraph names",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/subgraph/{name}": {
+      "get": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Gets a summary (metadata and element counts) of a registered subgraph.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The subgraph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the subgraph summary",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubGraphSummary"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No subgraph with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Deregisters (deletes) a subgraph.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The subgraph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The subgraph was deleted"
+          },
+          "404": {
+            "description": "No subgraph with the given name exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The removal transaction was rolled back and did not complete"
+          }
+        }
+      }
+    },
+    "/subgraph/{name}/graph": {
+      "get": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Gets the extracted contents (vertices and edges) of a registered subgraph.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The subgraph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "maxElements",
+            "in": "query",
+            "description": "Maximum number of vertices and edges to return (default 1000)",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 1000
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the subgraph contents",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/Graph"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No subgraph with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/subgraph/{name}/recalculate": {
+      "post": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Recalculates a subgraph against the current state of its source graph.",
+        "description": "Only subgraphs created by an algorithm (with a stored source and plugin name)\r\ncan be recalculated; manually registered subgraphs cannot.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The subgraph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the recalculated subgraph summary",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubGraphSummary"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No subgraph with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The subgraph exists but cannot be recalculated",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AGraphElement": {
+        "required": [
+          "id",
+          "creationDate",
+          "modificationDate"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The unique identifier of the graph element",
+            "format": "int32",
+            "default": 123,
+            "example": 123
+          },
+          "creationDate": {
+            "type": "string",
+            "description": "The date and time when the element was created",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "modificationDate": {
+            "type": "string",
+            "description": "The date and time when the element was last modified",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The type label of the graph element used for categorization",
+            "default": "person",
+            "example": "person"
+          },
+          "properties": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PropertySpecification"
+            },
+            "description": "The collection of properties (key-value pairs) associated with the graph element"
+          }
+        },
+        "description": "Abstract base class for all graph elements (vertices and edges)"
+      },
+      "BinaryOperator": {
+        "type": "integer"
+      },
+      "Direction": {
+        "type": "integer"
+      },
+      "Edge": {
+        "required": [
+          "targetVertex",
+          "sourceVertex",
+          "id",
+          "creationDate",
+          "modificationDate"
+        ],
+        "type": "object",
+        "properties": {
+          "targetVertex": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the vertex where this edge ends",
+            "format": "int32",
+            "example": 2
+          },
+          "sourceVertex": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the vertex where this edge starts",
+            "format": "int32",
+            "example": 1
+          },
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The unique identifier of the graph element",
+            "format": "int32",
+            "default": 123,
+            "example": 123
+          },
+          "creationDate": {
+            "type": "string",
+            "description": "The date and time when the element was created",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "modificationDate": {
+            "type": "string",
+            "description": "The date and time when the element was last modified",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The type label of the graph element used for categorization",
+            "default": "person",
+            "example": "person"
+          },
+          "properties": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PropertySpecification"
+            },
+            "description": "The collection of properties (key-value pairs) associated with the graph element"
+          }
+        },
+        "description": "Represents an edge (relationship) between two vertices in the graph",
+        "example": {
+          "id": 10,
+          "creationDate": 1713862800,
+          "modificationDate": 1713862800,
+          "label": "friendship",
+          "properties": {
+            "since": "2024-01-15T00:00:00",
+            "strength": 0.85
+          },
+          "sourceVertex": 1,
+          "targetVertex": 2
+        }
+      },
+      "EdgeSpecification": {
+        "required": [
+          "creationDate",
+          "sourceVertex",
+          "targetVertex",
+          "edgePropertyId"
+        ],
+        "type": "object",
+        "properties": {
+          "creationDate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The creation date of the edge as a Unix timestamp",
+            "format": "uint32",
+            "default": 0,
+            "example": 1713862800
+          },
+          "sourceVertex": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the source vertex where the edge starts",
+            "format": "int32",
+            "default": 1,
+            "example": 1
+          },
+          "targetVertex": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the target vertex where the edge ends",
+            "format": "int32",
+            "default": 2,
+            "example": 2
+          },
+          "edgePropertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The edge property identifier that defines the relationship type",
+            "default": "knows",
+            "example": "knows"
+          },
+          "properties": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PropertySpecification"
+            },
+            "description": "The properties of the edge as key-value pairs"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The label of the edge used for categorization",
+            "default": "friendship",
+            "example": "friendship"
+          }
+        },
+        "description": "Specification for creating a new edge between two vertices in the graph",
+        "example": {
+          "sourceVertex": 1,
+          "targetVertex": 2,
+          "edgePropertyId": "knows",
+          "label": "friendship",
+          "creationDate": 1713862800,
+          "properties": [
+            {
+              "propertyId": "since",
+              "propertyValue": "2024-01-15T00:00:00",
+              "fullQualifiedTypeName": "System.DateTime"
+            },
+            {
+              "propertyId": "strength",
+              "propertyValue": 0.85,
+              "fullQualifiedTypeName": "System.Double"
+            }
+          ]
+        }
+      },
+      "FulltextIndexScanSpecification": {
+        "required": [
+          "indexId",
+          "requestString"
+        ],
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The identifier of the fulltext index to search",
+            "default": "documentIndex",
+            "example": "documentIndex"
+          },
+          "requestString": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The search query text to look for in the indexed content",
+            "example": "graph database nosql"
+          }
+        },
+        "description": "Specification for performing fulltext search queries on indexed content",
+        "example": {
+          "indexId": "documentIndex",
+          "requestString": "graph database nosql"
+        }
+      },
+      "FulltextSearchResultElementREST": {
+        "required": [
+          "graphElementId",
+          "highlights",
+          "score"
+        ],
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the graph element (vertex or edge) that matched the search query",
+            "format": "int32",
+            "example": 123
+          },
+          "highlights": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Collection of highlighted text fragments showing the context of search term matches",
+            "example": [
+              "This is a &lt;em&gt;graph&lt;/em&gt; &lt;em&gt;database&lt;/em&gt; document"
+            ]
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The relevance score of this result, indicating how well it matches the search query",
+            "format": "double",
+            "example": 0.87
+          }
+        },
+        "description": "Represents a single match in fulltext search results with relevance scoring and highlighting",
+        "example": {
+          "graphElementId": 123,
+          "score": 0.87,
+          "highlights": [
+            "This is a &lt;em&gt;graph&lt;/em&gt; &lt;em&gt;database&lt;/em&gt; document",
+            "Another fragment with &lt;em&gt;NoSQL&lt;/em&gt; mention"
+          ]
+        }
+      },
+      "FulltextSearchResultREST": {
+        "required": [
+          "maximumScore",
+          "elements"
+        ],
+        "type": "object",
+        "properties": {
+          "maximumScore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The highest relevance score among all matching elements",
+            "format": "double",
+            "example": 0.87
+          },
+          "elements": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FulltextSearchResultElementREST"
+            },
+            "description": "Collection of matching elements with their relevance scores and highlighted content"
+          }
+        },
+        "description": "Result container for fulltext search operations with scoring and highlighting",
+        "example": {
+          "maximumScore": 0.87,
+          "elements": [
+            {
+              "graphElementId": 123,
+              "score": 0.87,
+              "highlight": "This is a <em>graph</em> <em>database</em> document about <em>NoSQL</em>"
+            },
+            {
+              "graphElementId": 456,
+              "score": 0.65,
+              "highlight": "Introduction to <em>graph</em> theory and <em>database</em> systems"
+            }
+          ]
+        }
+      },
+      "Graph": {
+        "type": "object",
+        "properties": {
+          "edges": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Edge"
+            },
+            "description": "Collection of all edges in the graph"
+          },
+          "vertices": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Vertex"
+            },
+            "description": "Collection of all vertices in the graph"
+          }
+        },
+        "description": "Represents an entire graph structure with vertices and edges",
+        "example": {
+          "vertices": [
+            {
+              "id": 1,
+              "label": "person",
+              "properties": {
+                "name": "John Doe",
+                "age": 30
+              }
+            },
+            {
+              "id": 2,
+              "label": "person",
+              "properties": {
+                "name": "Jane Smith",
+                "age": 28
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": 10,
+              "label": "friendship",
+              "sourceVertex": 1,
+              "targetVertex": 2,
+              "edgePropertyId": "knows",
+              "properties": {
+                "since": "2024-01-15T00:00:00"
+              }
+            }
+          ]
+        }
+      },
+      "IndexAddToSpecification": {
+        "required": [
+          "graphElementId",
+          "key"
+        ],
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the graph element to index",
+            "format": "int32",
+            "default": 123,
+            "example": 123
+          },
+          "key": {
+            "description": "The key under which to index the graph element",
+            "$ref": "#/components/schemas/PropertySpecification"
+          }
+        },
+        "description": "Specification for adding or updating a graph element in an index",
+        "example": {
+          "graphElementId": 123,
+          "key": {
+            "propertyValue": "John Doe",
+            "fullQualifiedTypeName": "System.String"
+          }
+        }
+      },
+      "IndexScanSpecification": {
+        "required": [
+          "indexId",
+          "operator",
+          "literal",
+          "resultType"
+        ],
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The identifier of the index to scan",
+            "default": "nameIndex",
+            "example": "nameIndex"
+          },
+          "operator": {
+            "description": "The binary operator to use for comparing property values",
+            "examples": [
+              "Equal"
+            ],
+            "$ref": "#/components/schemas/BinaryOperator"
+          },
+          "literal": {
+            "description": "The literal value to compare against",
+            "$ref": "#/components/schemas/LiteralSpecification"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional label filter to restrict the scan to specific element types",
+            "example": "person"
+          },
+          "resultType": {
+            "description": "Specifies which types of graph elements to include in the results",
+            "default": "Vertices",
+            "examples": [
+              "Vertices"
+            ],
+            "$ref": "#/components/schemas/ResultTypeSpecification"
+          }
+        },
+        "description": "Specification for scanning an index for elements with specific property values",
+        "example": {
+          "indexId": "nameIndex",
+          "operator": "Equal",
+          "literal": {
+            "value": "John Doe",
+            "fullQualifiedTypeName": "System.String"
+          },
+          "resultType": "Vertices"
+        }
+      },
+      "LiteralSpecification": {
+        "required": [
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The string representation of the value to use in comparisons",
+            "example": "John Doe"
+          },
+          "fullQualifiedTypeName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The fully qualified .NET type name of the value",
+            "default": "System.String",
+            "example": "System.String"
+          }
+        },
+        "description": "Specification for literal values used in graph queries and scans",
+        "example": {
+          "value": "John Doe",
+          "fullQualifiedTypeName": "System.String"
+        }
+      },
+      "LoadSpecification": {
+        "required": [
+          "startServices",
+          "saveGameLocation"
+        ],
+        "type": "object",
+        "properties": {
+          "startServices": {
+            "type": "boolean",
+            "description": "Indicates whether services should be automatically started after loading",
+            "default": true,
+            "example": true
+          },
+          "saveGameLocation": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The file path location of the Fallen-8 database save file",
+            "default": "C:/Fallen8/database.f8s",
+            "example": "C:/Fallen8/database.f8s"
+          }
+        },
+        "description": "Specification for loading a Fallen-8 database from disk",
+        "example": {
+          "startServices": true,
+          "saveGameLocation": "C:/Fallen8/database.f8s"
+        }
+      },
+      "PathCostSpecification": {
+        "type": "object",
+        "properties": {
+          "vertexCost": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Cost function for vertices during path traversal",
+            "default": "return (vertex) => 1.0;",
+            "example": "return (vertex) =&gt; vertex.TryGetProperty(out var age, \"age\") ? (double)age : 1.0;"
+          },
+          "edgeCost": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Cost function for edges during path traversal",
+            "default": "return (edge) => 1.0;",
+            "example": "return (edge) =&gt; edge.TryGetProperty(out var weight, \"weight\") ? (double)weight : 1.0;"
+          }
+        },
+        "description": "Specification for defining cost functions used in path calculations",
+        "example": {
+          "vertexCost": "return (v) =&gt; v.TryGetProperty(out var age, \"age\") ? (double)age : 1.0;",
+          "edgeCost": "return (e) =&gt; e.TryGetProperty(out var weight, \"weight\") ? (double)weight : 1.0;"
+        }
+      },
+      "PathElementREST": {
+        "required": [
+          "sourceVertexId",
+          "targetVertexId",
+          "edgeId",
+          "edgePropertyId",
+          "direction",
+          "weight"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceVertexId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the vertex where this path segment begins",
+            "format": "int32",
+            "default": 1,
+            "example": 1
+          },
+          "targetVertexId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the vertex where this path segment ends",
+            "format": "int32",
+            "default": 2,
+            "example": 2
+          },
+          "edgeId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the edge connecting the source and target vertices",
+            "format": "int32",
+            "default": 10,
+            "example": 10
+          },
+          "edgePropertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The property identifier/type of the edge in this path segment",
+            "default": "knows",
+            "example": "knows"
+          },
+          "direction": {
+            "description": "The direction in which the edge is traversed (OutgoingEdge, IncomingEdge, or UndirectedEdge)",
+            "default": 1,
+            "examples": [
+              "OutgoingEdge"
+            ],
+            "$ref": "#/components/schemas/Direction"
+          },
+          "weight": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The cost/weight associated with traversing this path segment",
+            "format": "double",
+            "default": 1.5,
+            "example": 1.5
+          }
+        },
+        "description": "Represents a single segment of a path between vertices in the graph",
+        "example": {
+          "sourceVertexId": 1,
+          "targetVertexId": 2,
+          "edgeId": 10,
+          "edgePropertyId": "knows",
+          "direction": "OutgoingEdge",
+          "weight": 1.5
+        }
+      },
+      "PathFilterSpecification": {
+        "required": [
+          "edgePropertyFilter",
+          "vertexFilter",
+          "edgeFilter"
+        ],
+        "type": "object",
+        "properties": {
+          "edgePropertyFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Filter to apply on edge properties during path traversal",
+            "default": "return (p,d) => true;",
+            "example": "return (p,d) =&gt; p == \"knows\";"
+          },
+          "vertexFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Filter to apply on vertices during path traversal",
+            "default": "return (v) => true;",
+            "example": "return (v) =&gt; v.Label == \"person\";"
+          },
+          "edgeFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Filter to apply on edges during path traversal",
+            "default": "return (e,d) => true;",
+            "example": "return (e,d) =&gt; e.Label == \"friendship\";"
+          }
+        },
+        "description": "Specification for filtering graph elements during path finding operations",
+        "example": {
+          "edgePropertyFilter": "return (p,d) =&gt; p == \"knows\";",
+          "vertexFilter": "return (v) =&gt; v.Label == \"person\";",
+          "edgeFilter": "return (e,d) =&gt; e.Label == \"friendship\";"
+        }
+      },
+      "PathREST": {
+        "required": [
+          "pathElements",
+          "totalWeight"
+        ],
+        "type": "object",
+        "properties": {
+          "pathElements": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PathElementREST"
+            },
+            "description": "The ordered sequence of path elements (vertices and edges) that form the path"
+          },
+          "totalWeight": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The aggregate weight/cost of the entire path",
+            "format": "double",
+            "example": 3.5
+          }
+        },
+        "description": "Represents a path between two vertices in the graph",
+        "example": {
+          "pathElements": [
+            {
+              "vertexId": 1,
+              "edgeId": 10,
+              "direction": "Outgoing",
+              "weight": 1.0
+            },
+            {
+              "vertexId": 2,
+              "edgeId": 15,
+              "direction": "Outgoing",
+              "weight": 2.5
+            },
+            {
+              "vertexId": 5,
+              "edgeId": null,
+              "direction": null,
+              "weight": 0.0
+            }
+          ],
+          "totalWeight": 3.5
+        }
+      },
+      "PathSpecification": {
+        "required": [
+          "pathAlgorithmName",
+          "maxDepth"
+        ],
+        "type": "object",
+        "properties": {
+          "pathAlgorithmName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The algorithm to use for path finding.",
+            "default": "BLS",
+            "example": "BLS"
+          },
+          "maxDepth": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The maximum number of edges in paths to consider",
+            "format": "uint16",
+            "default": 7,
+            "example": 5
+          },
+          "maxResults": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The maximum number of paths to return in the result",
+            "format": "uint16",
+            "default": 65535,
+            "example": 10
+          },
+          "maxPathWeight": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The maximum allowed weight for a path to be included in results",
+            "format": "double",
+            "default": 100,
+            "example": 100.0
+          },
+          "filter": {
+            "description": "Filtering criteria for elements to include in path calculations",
+            "$ref": "#/components/schemas/PathFilterSpecification"
+          },
+          "cost": {
+            "description": "Cost function specifications for weighting paths",
+            "$ref": "#/components/schemas/PathCostSpecification"
+          }
+        },
+        "description": "Specification for finding paths between vertices in the graph",
+        "example": {
+          "pathAlgorithmName": "BLS",
+          "maxDepth": 5,
+          "maxResults": 10,
+          "maxPathWeight": 100.0,
+          "filter": {
+            "edgePropertyFilter": "return (p,d) =&gt; true;",
+            "vertexFilter": "return (v) =&gt; true;",
+            "edgeFilter": "return (e,d) =&gt; true;"
+          },
+          "cost": {
+            "vertexCost": "return (v) =&gt; 1.0;",
+            "edgeCost": "return (e) =&gt; 1.0;"
+          }
+        }
+      },
+      "PatternSpecification": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The kind of pattern: `Vertex`, `Edge` or `VariableLengthEdge`.",
+            "default": "Vertex",
+            "example": "Vertex"
+          },
+          "patternName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional name used to identify this pattern element in the definition.",
+            "example": "start"
+          },
+          "graphElementFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Filter applied to any graph element (vertex or edge). The lambda receives an\r\n`AGraphElementModel`.",
+            "example": "return (ge) =&gt; ge.Label == \"person\";"
+          },
+          "vertexFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Vertex-specific filter. Only meaningful when string PatternSpecification.Type is\r\n`Vertex`. The lambda receives a `VertexModel`.",
+            "example": "return (v) =&gt; v.TryGetProperty(out var age, \"age\") &amp;&amp; (int)age &gt;= 18;"
+          },
+          "direction": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Traversal direction for edge patterns: `OutgoingEdge`, `IncomingEdge`\r\nor `UndirectedEdge`. Only meaningful for `Edge` /\r\n`VariableLengthEdge`. Defaults to `OutgoingEdge`.",
+            "default": "OutgoingEdge",
+            "example": "OutgoingEdge"
+          },
+          "edgePropertyFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Filter applied to an edge's property id (a string) before the edge itself is\r\ninspected. Only meaningful for edge patterns.",
+            "example": "return (p) =&gt; p == \"knows\";"
+          },
+          "edgeFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Edge-specific filter. Only meaningful for edge patterns. The lambda receives\r\nan `EdgeModel`.",
+            "example": "return (e) =&gt; e.Label == \"knows\";"
+          },
+          "minLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Minimum number of hops for a `VariableLengthEdge` pattern.",
+            "format": "uint16",
+            "default": 1,
+            "example": 1
+          },
+          "maxLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Maximum number of hops for a `VariableLengthEdge` pattern.",
+            "format": "uint16",
+            "default": 1,
+            "example": 3
+          }
+        },
+        "description": "A single element of a subgraph pattern sequence."
+      },
+      "PluginSpecification": {
+        "required": [
+          "uniqueId",
+          "pluginType"
+        ],
+        "type": "object",
+        "properties": {
+          "uniqueId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "A unique identifier for this plugin instance",
+            "default": "indexService1",
+            "example": "indexService1"
+          },
+          "pluginType": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The name of the plugin type to instantiate",
+            "default": "DictionaryIndex",
+            "example": "DictionaryIndex"
+          },
+          "pluginOptions": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PropertySpecification"
+            },
+            "description": "Configuration options for the plugin as key-value pairs"
+          }
+        },
+        "description": "Specification for creating and configuring a plugin service",
+        "example": {
+          "uniqueId": "indexService1",
+          "pluginType": "DictionaryIndex",
+          "pluginOptions": {
+            "indexProperty": {
+              "propertyId": "propertyName",
+              "fullQualifiedTypeName": "System.String",
+              "propertyValue": "propertyValue"
+            }
+          }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PropertySpecification": {
+        "required": [
+          "propertyId",
+          "fullQualifiedTypeName",
+          "propertyValue"
+        ],
+        "type": "object",
+        "properties": {
+          "propertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The identifier name of the property",
+            "default": "cacheSize",
+            "example": "cacheSize"
+          },
+          "fullQualifiedTypeName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The fully qualified .NET type name of the property",
+            "default": "System.Int32",
+            "example": "System.Int32"
+          },
+          "propertyValue": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The string representation of the property value",
+            "default": "1000",
+            "example": 1000
+          }
+        },
+        "description": "Defines a property with name, type, and value for plugin configuration",
+        "example": {
+          "propertyId": "cacheSize",
+          "fullQualifiedTypeName": "System.Int32",
+          "propertyValue": "1000"
+        }
+      },
+      "RangeIndexScanSpecification": {
+        "required": [
+          "indexId",
+          "leftLimit",
+          "rightLimit",
+          "fullQualifiedTypeName",
+          "resultType"
+        ],
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The identifier of the index to scan",
+            "default": "ageIndex",
+            "example": "ageIndex"
+          },
+          "leftLimit": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The lower bound of the range as a string representation",
+            "default": "18",
+            "example": 18
+          },
+          "rightLimit": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The upper bound of the range as a string representation",
+            "default": "30",
+            "example": 30
+          },
+          "fullQualifiedTypeName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The fully qualified .NET type name of the range values",
+            "default": "System.Int32",
+            "example": "System.Int32"
+          },
+          "includeLeft": {
+            "type": "boolean",
+            "description": "Whether to include the lower bound value in the range (inclusive)",
+            "default": true,
+            "example": true
+          },
+          "includeRight": {
+            "type": "boolean",
+            "description": "Whether to include the upper bound value in the range (inclusive)",
+            "default": false,
+            "example": false
+          },
+          "resultType": {
+            "description": "Specifies which types of graph elements to include in the results",
+            "default": "Vertices",
+            "examples": [
+              "Vertices"
+            ],
+            "$ref": "#/components/schemas/ResultTypeSpecification"
+          }
+        },
+        "description": "Specification for performing a range-based scan on an index",
+        "example": {
+          "indexId": "ageIndex",
+          "leftLimit": "18",
+          "rightLimit": "30",
+          "fullQualifiedTypeName": "System.Int32",
+          "includeLeft": true,
+          "includeRight": false,
+          "resultType": "Vertices"
+        }
+      },
+      "ResultTypeSpecification": {
+        "enum": [
+          "Vertices",
+          "Edges",
+          "Both"
+        ],
+        "description": "Specifies which types of graph elements to include in query results",
+        "example": "Vertices"
+      },
+      "SaveSpecification": {
+        "type": "object",
+        "properties": {
+          "saveGameLocation": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The file path location where the Fallen-8 database should be saved",
+            "example": "C:/Fallen8/database.f8s"
+          },
+          "savePartitions": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "The number of partitions to use when saving (optional, defaults to optimal based on processor count)",
+            "format": "int32",
+            "example": 8
+          }
+        },
+        "description": "Specification for saving a Fallen-8 database to disk",
+        "example": {
+          "saveGameLocation": "C:/Fallen8/database.f8s",
+          "savePartitions": 8
+        }
+      },
+      "ScanSpecification": {
+        "required": [
+          "operator",
+          "literal",
+          "resultType"
+        ],
+        "type": "object",
+        "properties": {
+          "operator": {
+            "description": "The binary operator to use for comparing property values",
+            "examples": [
+              "Equal"
+            ],
+            "$ref": "#/components/schemas/BinaryOperator"
+          },
+          "literal": {
+            "description": "The literal value to compare against",
+            "$ref": "#/components/schemas/LiteralSpecification"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional label filter to restrict the scan to specific element types",
+            "example": "person"
+          },
+          "resultType": {
+            "description": "Specifies which types of graph elements to include in the results",
+            "default": "Vertices",
+            "examples": [
+              "Vertices"
+            ],
+            "$ref": "#/components/schemas/ResultTypeSpecification"
+          }
+        },
+        "description": "Specification for scanning the graph for elements with specific property values",
+        "example": {
+          "operator": "Equal",
+          "literal": {
+            "value": "John Doe",
+            "fullQualifiedTypeName": "System.String"
+          },
+          "label": "person",
+          "resultType": "Vertices"
+        }
+      },
+      "SearchDistanceSpecification": {
+        "required": [
+          "indexId",
+          "graphElementId",
+          "distance"
+        ],
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The identifier of the spatial index to search",
+            "default": "locationIndex",
+            "example": "locationIndex"
+          },
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The identifier of the reference graph element for the distance calculation",
+            "format": "int32",
+            "default": 123,
+            "example": 123
+          },
+          "distance": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The maximum distance to search within",
+            "format": "float",
+            "default": 5,
+            "example": 5.0
+          }
+        },
+        "description": "Specification for performing spatial distance searches in the graph",
+        "example": {
+          "indexId": "locationIndex",
+          "graphElementId": 123,
+          "distance": 5.0
+        }
+      },
+      "StatusREST": {
+        "type": "object",
+        "properties": {
+          "usedMemory": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The amount of memory currently used by the database process in bytes",
+            "format": "int64",
+            "default": 1073741824,
+            "example": 1073741824
+          },
+          "vertexCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The total number of vertices in the database",
+            "format": "int32",
+            "default": 10000,
+            "example": 10000
+          },
+          "edgeCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The total number of edges in the database",
+            "format": "int32",
+            "default": 25000,
+            "example": 25000
+          },
+          "availableIndexPlugins": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "List of available index plugins that can be used with the database",
+            "example": [
+              "DictionaryIndex",
+              "SpatialIndex",
+              "FullTextIndex"
+            ]
+          },
+          "availablePathPlugins": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "List of available path-finding algorithm plugins",
+            "example": [
+              "Dijkstra",
+              "AStar",
+              "BellmanFord"
+            ]
+          },
+          "availableServicePlugins": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "List of available service plugins that can be started with the database",
+            "example": [
+              "ImportService",
+              "ExportService",
+              "AnalyticsService"
+            ]
+          }
+        },
+        "description": "Represents the current status of the Fallen-8 database",
+        "example": {
+          "usedMemory": 1073741824,
+          "vertexCount": 10000,
+          "edgeCount": 25000,
+          "availableIndexPlugins": [
+            "DictionaryIndex",
+            "SpatialIndex"
+          ],
+          "availablePathPlugins": [
+            "Dijkstra",
+            "AStar"
+          ],
+          "availableServicePlugins": [
+            "ImportService",
+            "ExportService"
+          ]
+        }
+      },
+      "Stream": {
+        "type": "string",
+        "format": "binary"
+      },
+      "SubGraphSpecification": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Unique name the subgraph is registered under.",
+            "example": "friends-of-alice"
+          },
+          "additionalInformation": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional metadata attached to the subgraph definition."
+          },
+          "vertexFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional pre-filter selecting which vertices are copied into the subgraph.\r\nNull or empty copies all vertices. The lambda receives an\r\n`AGraphElementModel`.",
+            "example": "return (ge) =&gt; ge.Label == \"person\";"
+          },
+          "edgeFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional pre-filter selecting which edges are copied into the subgraph. Null\r\nor empty copies all edges whose endpoints were copied. The lambda receives an\r\n`AGraphElementModel`.",
+            "example": "return (ge) =&gt; ge.Label == \"knows\";"
+          },
+          "patterns": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PatternSpecification"
+            },
+            "description": "Ordered pattern sequence describing the paths to keep. Should alternate\r\nvertex ↔ edge and start with a vertex pattern. Empty means \"no pruning\"."
+          }
+        },
+        "description": "Specification for creating a subgraph by pattern matching against the graph.",
+        "example": {
+          "name": "friends-of-alice",
+          "vertexFilter": "return (ge) =&gt; ge.Label == \"person\";",
+          "edgeFilter": "return (ge) =&gt; ge.Label == \"knows\";",
+          "patterns": [
+            {
+              "type": "Vertex",
+              "patternName": "start",
+              "graphElementFilter": "return (ge) =&gt; ge.Label == \"person\";"
+            },
+            {
+              "type": "Edge",
+              "patternName": "rel",
+              "direction": "OutgoingEdge",
+              "edgePropertyFilter": "return (p) =&gt; p == \"knows\";"
+            },
+            {
+              "type": "Vertex",
+              "patternName": "end",
+              "graphElementFilter": "return (ge) =&gt; ge.Label == \"person\";"
+            }
+          ]
+        }
+      },
+      "SubGraphSummary": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The name the subgraph is registered under."
+          },
+          "vertexCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Number of vertices in the extracted subgraph.",
+            "format": "int32"
+          },
+          "edgeCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Number of edges in the extracted subgraph.",
+            "format": "int32"
+          },
+          "algorithmPluginName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The algorithm plugin used to create the subgraph."
+          },
+          "sourceFallen8Id": {
+            "type": "string",
+            "description": "The id of the source graph the subgraph was created from.",
+            "format": "uuid"
+          },
+          "canRecalculate": {
+            "type": "boolean",
+            "description": "Whether this subgraph can be recalculated against its source."
+          },
+          "additionalInformation": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Metadata attached to the subgraph definition."
+          }
+        },
+        "description": "A lightweight summary of a registered subgraph (metadata and element counts),\r\nwithout the full vertex/edge payload.",
+        "example": {
+          "name": "friends-of-alice",
+          "vertexCount": 3,
+          "edgeCount": 2,
+          "algorithmPluginName": "Breadth First Search Subgraph Algorithm",
+          "sourceFallen8Id": "6f1e...",
+          "canRecalculate": true,
+          "additionalInformation": {
+            "category": "social"
+          }
+        }
+      },
+      "Vertex": {
+        "required": [
+          "id",
+          "creationDate",
+          "modificationDate"
+        ],
+        "type": "object",
+        "properties": {
+          "outEdges": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              }
+            },
+            "description": "Dictionary of outgoing edges grouped by edge property type"
+          },
+          "inEdges": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              }
+            },
+            "description": "Dictionary of incoming edges grouped by edge property type"
+          },
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The unique identifier of the graph element",
+            "format": "int32",
+            "default": 123,
+            "example": 123
+          },
+          "creationDate": {
+            "type": "string",
+            "description": "The date and time when the element was created",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "modificationDate": {
+            "type": "string",
+            "description": "The date and time when the element was last modified",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The type label of the graph element used for categorization",
+            "default": "person",
+            "example": "person"
+          },
+          "properties": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PropertySpecification"
+            },
+            "description": "The collection of properties (key-value pairs) associated with the graph element"
+          }
+        },
+        "description": "Represents a vertex (node) in the graph with its properties and connected edges",
+        "example": {
+          "id": 1,
+          "creationDate": 1713862800,
+          "modificationDate": 1713862800,
+          "label": "person",
+          "properties": {
+            "name": "John Doe",
+            "age": 30
+          },
+          "outEdges": {
+            "knows": [
+              10,
+              15
+            ]
+          },
+          "inEdges": {
+            "knows": [
+              5
+            ]
+          }
+        }
+      },
+      "VertexSpecification": {
+        "required": [
+          "creationDate"
+        ],
+        "type": "object",
+        "properties": {
+          "creationDate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The creation date of the vertex as a Unix timestamp",
+            "format": "uint32",
+            "default": 0,
+            "example": 1713862800
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The label of the vertex used for categorization",
+            "example": "person"
+          },
+          "properties": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PropertySpecification"
+            },
+            "description": "The properties of the vertex as key-value pairs"
+          }
+        },
+        "description": "Specification for creating a new vertex in the graph",
+        "example": {
+          "label": "person",
+          "creationDate": 1713862800,
+          "properties": [
+            {
+              "propertyId": "name",
+              "propertyValue": "John Doe",
+              "fullQualifiedTypeName": "System.String"
+            },
+            {
+              "propertyId": "age",
+              "propertyValue": 30,
+              "fullQualifiedTypeName": "System.Int32"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Admin"
+    },
+    {
+      "name": "Benchmark"
+    },
+    {
+      "name": "Graph"
+    },
+    {
+      "name": "SampleGraph"
+    },
+    {
+      "name": "SubGraph"
+    }
+  ]
+}
