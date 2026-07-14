@@ -1,8 +1,40 @@
 # Plugin Write Transactions — Specification
 
-> **Status:** Planned (P2 architecture) — from the 2026-07 principal-architect & performance review.
-> Plugins can read and derive but have no sanctioned way to *mutate* the graph; give them one without
-> opening the frozen transaction set or breaking the single-writer / WAL invariants.
+> **Status:** Implemented (mode a) (P2 architecture) — from the 2026-07 principal-architect &
+> performance review. Plugins could read and derive but had no sanctioned way to *mutate* the graph;
+> they now have one that does not open the frozen transaction set or break the single-writer / WAL
+> invariants.
+>
+> **Delivered on branch `feature/plugin-write-transactions` (mode (a) — the core capability):**
+> - **`IFallen8WriterContext`** (public, `NoSQL.GraphDB.Core.Transaction`) exposes the safe mutation
+>   subset — `CreateVertex`/`CreateVertices`/`TryCreateEdge`/`SetProperty`/`RemoveProperty`/
+>   `TryRemoveGraphElement` — forwarding to the engine's `*_internal` methods. Lifecycle ops
+>   (`Save`/`Load`/`Trim`/`TabulaRasa`) are deliberately absent. The context is hard-invalidated when the
+>   body returns (later use throws `InvalidOperationException`), so a plugin cannot mutate off the writer.
+> - **`DelegateTransaction : ATransaction`** (public sealed) — one new *built-in* whose body is a
+>   plugin-supplied `Action<IFallen8WriterContext>`; `ATransaction.TryExecute`/`Rollback` stay internal
+>   and the built-ins stay sealed (the vocabulary is not opened). It runs on the single writer by
+>   construction (executed by the `TransactionManager` worker), and is NOT recognised by the WAL codec,
+>   so — exactly like `Save`/`Load` — it is snapshot-durable and not WAL-logged (mode (a), zero codec
+>   change; `LogCommittedTransaction` returns `true` for an unrecognised type).
+> - **Atomicity via an undo journal** — the context records every create (removed on rollback) and
+>   property change (restored via the tested `RestoreProperties_internal`), so a throwing body has NO
+>   observable create/property effect (honouring transaction-atomicity's "RolledBack ⇒ no effect"); the
+>   manager records `Error` + `InternalError` and the writer survives.
+>
+> Guarded by `PluginWriteTransactionsTest` (composed mutation visible + body proven on the
+> `Fallen8-Transaction-Writer` thread; throwing body rolls back with no create/property effect + writer
+> survives; context-after-body throws; mode-(a) survives a snapshot but is absent after a WAL-only
+> replay).
+>
+> **Deferred (documented):**
+> - **Mode (b) — WAL-loggable plugin transactions** (a `WalEntryType.PluginDelegate` + a registration
+>   API for a serialisable descriptor + deterministic replay, in the `wal-subgraph-support` additive
+>   style). Optional and purely additive; mode (a) delivers the core capability. Until it lands, a
+>   `DelegateTransaction`'s durability is snapshot-only.
+> - **Reversible in-body removal** — `TryRemoveGraphElement` inside a body is not journalled (documented
+>   on the interface); a body needing reversible bulk removal uses the dedicated
+>   `RemoveGraphElementsTransaction`.
 
 ## 1. Problem / current state (verified)
 
