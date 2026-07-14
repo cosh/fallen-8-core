@@ -68,9 +68,11 @@ namespace NoSQL.GraphDB.App.Helper
         [UnconditionalSuppressMessage("Trimming", "IL2096:Call to 'System.Type.GetType' can perform case insensitive lookup of the type", Justification = "Type names are provided by API users and need case-insensitive lookup. Trimming is disabled for this application.")]
         internal static object CreateObject(PropertySpecification key)
         {
+            // Resolve via the primitive allow-list, never Type.GetType(userString) (feature
+            // dynamic-code-resource-limits R3): no arbitrary assembly load / static-ctor execution.
             return Convert.ChangeType(
                 key.PropertyValue,
-                Type.GetType(key.FullQualifiedTypeName, true, true));
+                AllowedLiteralTypes.Resolve(key.FullQualifiedTypeName));
         }
 
         /// <summary>
@@ -92,9 +94,7 @@ namespace NoSQL.GraphDB.App.Helper
                 {
                     properties.Add(aPropertyDefinition.Key, aPropertyDefinition.Value.FullQualifiedTypeName != null
                              ? Convert.ChangeType(aPropertyDefinition.Value.PropertyValue,
-                                                Type.GetType(
-                                                    aPropertyDefinition.Value.FullQualifiedTypeName,
-                                                    true, true))
+                                                AllowedLiteralTypes.Resolve(aPropertyDefinition.Value.FullQualifiedTypeName))
                             : aPropertyDefinition.Value.PropertyValue);
                 }
             }
@@ -120,9 +120,7 @@ namespace NoSQL.GraphDB.App.Helper
                 {
                     properties.Add(aPropertyDefinition.PropertyId, aPropertyDefinition.FullQualifiedTypeName != null
                              ? Convert.ChangeType(aPropertyDefinition.PropertyValue,
-                                                Type.GetType(
-                                                    aPropertyDefinition.FullQualifiedTypeName,
-                                                    true, true))
+                                                AllowedLiteralTypes.Resolve(aPropertyDefinition.FullQualifiedTypeName))
                             : aPropertyDefinition.PropertyValue);
                 }
             }
@@ -135,7 +133,7 @@ namespace NoSQL.GraphDB.App.Helper
         {
             return definition.FullQualifiedTypeName == null
                 ? definition.PropertyValue
-                : Convert.ChangeType(definition.PropertyValue, Type.GetType(definition.FullQualifiedTypeName, true, true));
+                : Convert.ChangeType(definition.PropertyValue, AllowedLiteralTypes.Resolve(definition.FullQualifiedTypeName));
         }
     }
 }

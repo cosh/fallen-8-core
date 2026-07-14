@@ -1,9 +1,38 @@
 # Dynamic-Code Resource Limits & Type Allow-List — Specification
 
-> **Status:** Planned (P1 security / DoS) — from the 2026-07 principal-architect & performance review.
-> Compiled user filter/cost fragments run with no compile bound and no execution budget, and
-> attacker-controlled type names are resolved via `Type.GetType`; add resource limits and a type
-> allow-list so untrusted input cannot hang a request thread or force-load assemblies.
+> **Status:** Partially implemented (P1 security / DoS) — from the 2026-07 principal-architect &
+> performance review. Compiled user filter/cost fragments ran with no compile bound and no execution
+> budget, and attacker-controlled type names were resolved via `Type.GetType`.
+>
+> **Delivered on branch `feature/dynamic-code-resource-limits`:**
+> - **R3 — type allow-list.** `AllowedLiteralTypes` is a closed, case-insensitive allow-list of the
+>   primitive literal types (keyed by full name, short name, and C# aliases). Every
+>   `Type.GetType(userString, throwOnError: true)` site — the `GraphController` scan/property paths and
+>   the four `ServiceHelper` sites — now resolves through it and **never** calls `Type.GetType`, so an
+>   attacker-controlled name cannot force-load an assembly or run a static ctor (reachable even on read
+>   endpoints). A disallowed name on the scan/property controllers is a `400`.
+> - **R2 — compile length cap.** `CodeGenerationHelper` rejects any filter/cost fragment longer than
+>   `MaxFilterFragmentLength` (100 000) or a generated source longer than `MaxGeneratedSourceLength`
+>   (1 000 000) **before** Roslyn is invoked, returning the human-readable message the controllers map
+>   to a `400`. The length cap is the load-bearing compile guard (Roslyn cancellation is only
+>   cooperative).
+>
+> Guarded by `DynamicCodeResourceLimitsTest` (allow-list resolves primitives / rejects
+> `System.Console`/`System.IO.File`/arbitrary names without `Type.GetType`; disallowed scan type → 400;
+> allowed primitive still works; oversize fragment → 400).
+>
+> **Deferred (documented):**
+> - **R1 — execution budget + task-abandon backstop.** Threading a `CancellationToken`/step budget
+>   through both path algorithms plus a `Task.Run`+bounded-wait deadline in the controller is the most
+>   invasive part, and — as §5 states — cooperative cancellation cannot truly interrupt a hostile
+>   delegate that never returns (the backstop leaks the runaway thread). Real isolation is the
+>   out-of-process / WASM design tracked in `api-security-boundary`; this budget is a follow-on to pair
+>   with it, not a substitute.
+> - **R4 — `MaxResults`/K ceiling.** `MaxResults` is a `UInt16` already bounded to 65 535 and defaults
+>   to 65 535, so a policy ceiling would reject the default and needs a config knob plus a lower default
+>   to be useful; the genuine K×lambda bound belongs to the deferred R1 budget.
+> - The `CompileTimeout`/`PathExecutionTimeout` config-object plumbing (`DynamicCodeLimits`) is deferred
+>   with R1; the landed R2/R3 use generous static defaults.
 
 ## 1. Problem / current state
 

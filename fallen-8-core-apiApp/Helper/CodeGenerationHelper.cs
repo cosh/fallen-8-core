@@ -72,13 +72,41 @@ namespace NoSQL.GraphDB.Core.App.Helper
         /// <summary>Resets <see cref="PathCompileCount"/> (tests/diagnostics).</summary>
         public static void ResetPathCompileCount() => System.Threading.Volatile.Write(ref _pathCompileCount, 0);
 
+        /// <summary>
+        ///   Compile bounds (feature dynamic-code-resource-limits R2). A single user filter/cost
+        ///   fragment longer than <see cref="MaxFilterFragmentLength"/>, or a generated source longer
+        ///   than <see cref="MaxGeneratedSourceLength"/>, is rejected BEFORE Roslyn is invoked - so a
+        ///   large/pathological fragment cannot burn arbitrary compile-time CPU/memory. The length cap
+        ///   is the load-bearing guard (Roslyn's own cancellation is only cooperative). Generous
+        ///   defaults: they bound abuse, not real fragments.
+        /// </summary>
+        private const int MaxFilterFragmentLength = 100_000;
+        private const int MaxGeneratedSourceLength = 1_000_000;
+
         #endregion
 
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "This method dynamically generates and loads code at runtime, which is incompatible with trimming")]
         [UnconditionalSuppressMessage("Trimming", "IL2072:Target parameter argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.", Justification = "Dynamic code generation requires runtime type creation")]
         public static String GeneratePathTraverser(out IPathTraverser traverser, PathSpecification definition)
         {
+            // Compile bounds (feature dynamic-code-resource-limits R2): reject an oversize fragment /
+            // generated source BEFORE invoking Roslyn. Returns the same human-readable message shape the
+            // controllers already map to a failed compile (-> 400).
+            var fragmentError = CheckPathFragmentLengths(definition);
+            if (fragmentError != null)
+            {
+                traverser = null;
+                return fragmentError;
+            }
+
             var sourceCode = CreateSource(definition);
+
+            if (sourceCode.Length > MaxGeneratedSourceLength)
+            {
+                traverser = null;
+                return String.Format("The generated path-traverser source ({0} chars) exceeds the maximum of {1}.",
+                    sourceCode.Length, MaxGeneratedSourceLength);
+            }
 
             var tree = SyntaxFactory.ParseSyntaxTree(sourceCode, CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest));
 
@@ -132,6 +160,47 @@ namespace NoSQL.GraphDB.Core.App.Helper
             traverser = pathTraverserInstance; ;
 
             return resultMessage;
+        }
+
+        /// <summary>
+        ///   Rejects an oversize filter/cost fragment before compilation (feature
+        ///   dynamic-code-resource-limits R2); returns a human-readable message, or <c>null</c> when all
+        ///   fragments are within <see cref="MaxFilterFragmentLength"/>.
+        /// </summary>
+        private static string CheckPathFragmentLengths(PathSpecification definition)
+        {
+            if (definition.Filter != null)
+            {
+                var error = CheckFragment("filter.vertex", definition.Filter.Vertex)
+                         ?? CheckFragment("filter.edge", definition.Filter.Edge)
+                         ?? CheckFragment("filter.edgeProperty", definition.Filter.EdgeProperty);
+                if (error != null)
+                {
+                    return error;
+                }
+            }
+
+            if (definition.Cost != null)
+            {
+                var error = CheckFragment("cost.vertex", definition.Cost.Vertex)
+                         ?? CheckFragment("cost.edge", definition.Cost.Edge);
+                if (error != null)
+                {
+                    return error;
+                }
+            }
+
+            return null;
+        }
+
+        private static string CheckFragment(string name, string fragment)
+        {
+            if (fragment != null && fragment.Length > MaxFilterFragmentLength)
+            {
+                return String.Format("The {0} fragment ({1} chars) exceeds the maximum of {2}.",
+                    name, fragment.Length, MaxFilterFragmentLength);
+            }
+            return null;
         }
 
         /// <summary>

@@ -82,12 +82,20 @@ Intent: record the fix works and where the boundary is.
 - [ ] Full suite green.
 
 ## Progress
-- [ ] Phase 0 — baseline & guardrail characterization tests + opt-in compile benchmark
-- [ ] Phase 1 — type allow-list replaces every `Type.GetType(userString, …)` site
-- [ ] Phase 2 — compile length caps + Roslyn parse/emit timeout
-- [ ] Phase 3 — execution budget through BLS + Dijkstra/Yen, task-abandon deadline, `k` ceiling
-- [ ] Phase 4 — REST defaults + status mapping + docs
-- [ ] Measure & document
+- [x] Phase 0 — `DynamicCodeResourceLimitsTest` pins the landed behaviours directly.
+- [x] Phase 1 — `AllowedLiteralTypes` replaces every `Type.GetType(userString, …)` site (4
+      `GraphController` scan/property paths via `TryResolveType`, 4 `ServiceHelper` sites via `Resolve`);
+      disallowed name → 400 on the controllers, no assembly load / static ctor anywhere.
+- [x] Phase 2 — compile **length caps** (`MaxFilterFragmentLength` / `MaxGeneratedSourceLength`) reject
+      oversize fragments/source before Roslyn. The Roslyn parse/emit **timeout** backstop is deferred
+      with Phase 3 (the length cap is the load-bearing guard; cancellation is only cooperative).
+- [ ] Phase 3 — **DEFERRED.** Execution budget through BLS + Dijkstra/Yen + the task-abandon deadline
+      (R1), and the `k` ceiling (R4 — moot given the `UInt16`/65535 default; needs a config knob + lower
+      default). Cooperative cancellation cannot interrupt a hostile delegate, so this pairs with the
+      out-of-process/WASM isolation in `api-security-boundary`, not a substitute for it.
+- [ ] Phase 4 — **DEFERRED.** The `DynamicCodeLimits` config object + status mapping for the budget;
+      the landed R2/R3 use generous static defaults and the existing 400 mapping.
+- [x] Measure & document — full suite green (444 passing).
 
 ## Decision / revisit condition
 

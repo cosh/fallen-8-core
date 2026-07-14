@@ -80,13 +80,14 @@ namespace NoSQL.GraphDB.App.Controllers
         #endregion
 
         /// <summary>
-        ///   Resolves a caller-supplied fully-qualified type name for value conversion (feature
-        ///   api-error-contract E3). A null/empty name means "use the raw value" (<paramref name="type"/>
-        ///   is <c>null</c>, returns <c>true</c>); a resolvable name returns its <see cref="Type"/>; a
-        ///   non-null but UNRESOLVABLE name returns <c>false</c> so the caller can answer 400 instead of
-        ///   letting <c>Type.GetType(name, throwOnError: true)</c> throw a <c>TypeLoadException</c> -> 500.
+        ///   Resolves a caller-supplied fully-qualified type name for value conversion. A null/empty
+        ///   name means "use the raw value" (<paramref name="type"/> is <c>null</c>, returns
+        ///   <c>true</c>); an ALLOW-LISTED primitive name returns its <see cref="Type"/>; any other name
+        ///   returns <c>false</c> so the caller answers 400 (feature api-error-contract E3). Resolution
+        ///   goes through <see cref="AllowedLiteralTypes"/>, NEVER <c>Type.GetType(userString)</c>, so an
+        ///   attacker-controlled name cannot force-load an assembly or run a static ctor (feature
+        ///   dynamic-code-resource-limits R3).
         /// </summary>
-        [UnconditionalSuppressMessage("Trimming", "IL2057:Type.GetType", Justification = "User-supplied type names; trimming is disabled for this app.")]
         private static bool TryResolveType(string fullQualifiedTypeName, out Type type)
         {
             if (string.IsNullOrEmpty(fullQualifiedTypeName))
@@ -95,8 +96,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 return true;
             }
 
-            type = Type.GetType(fullQualifiedTypeName, throwOnError: false, ignoreCase: true);
-            return type != null;
+            return AllowedLiteralTypes.TryResolve(fullQualifiedTypeName, out type);
         }
 
         public GraphController(ILogger<GraphController> logger, IFallen8 fallen8)
