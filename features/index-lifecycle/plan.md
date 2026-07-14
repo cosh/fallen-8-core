@@ -91,13 +91,29 @@ Intent: close the between-snapshots durability gap for index writes.
 - [ ] Confirm `IIndex`/`CanPersist` and all index save/load tests are green.
 
 ## Progress
-- [ ] Phase 0 — characterization test + opt-in benchmark proving the stale read and the cost curves
-- [ ] Phase 1 — `FilterLive` on all four index-serving read paths; characterization flipped
-- [ ] Phase 2 — reverse map + writer-owned buckets across the dictionary-backed indices; O(affected keys)
-- [ ] Phase 3 — removal purges registered indices on the single writer
-- [ ] Phase 4 — index mutations as single-writer transactions; snapshot-publish reads; `AThreadSafeElement` retired (or RWLS fallback)
-- [ ] Phase 5 — WAL entry types + codec for index writes; crash+replay consistency
-- [ ] Measure & document
+- [x] Phase 0 — `IndexLifecycleTest` (consistency, purge, rollback, reverse-map, save/load) +
+  opt-in `IndexLifecycleBenchmark` (`RemoveValue` scales with affected keys, not total keys). Note:
+  rather than a temporary "prove today's stale behaviour" characterization, the tests assert the FIXED
+  behaviour directly (the fix landed in the same pass).
+- [x] Phase 1 — `FilterLive` in `Fallen8.cs` applied to `IndexScan` Equals, `FindElementsIndex`,
+  `TryOrderedRangeIndexScan`, and `RangeIndexScan`/`Between`; index-served results now equal `GraphScan`
+  (returns the same shared bucket when nothing is dead, so the Equals fast path keeps its no-alloc path).
+- [x] Phase 2 — reverse map `element → keys` on `DictionaryIndex` and `RangeIndex` (O(affected keys)
+  `RemoveValue`, rebuilt on load, `_sortedKeys` invalidation preserved). **`SingleValueIndex`/
+  `RegExIndex` mirror deferred** (the two named heavy indices are done).
+- [x] Phase 3 — `TryRemoveGraphElement_private` purges the element (and a vertex's cascaded edges) from
+  every registered index on the commit path only; `IndexFactory.GetIndicesSnapshot()` gives a
+  race-free enumeration.
+- [ ] Phase 4 — **DEFERRED.** Index writes stay on the request thread under `AThreadSafeElement`;
+  routing them through the single writer as transactions (and retiring `AThreadSafeElement`) changes the
+  REST failure mapping and is a larger surface — its own follow-up. The write-end purge already runs on
+  the writer and is serialised against request-thread index writes by the existing `AThreadSafeElement`
+  lock, so it is safe without Phase 4.
+- [ ] Phase 5 — **DEFERRED.** WAL-logging index writes; blocked on Phase 4 (index writes must be
+  single-writer transactions first) and on the joint `WalEntryType` ordinal reservation with
+  `crash-durability-hardening`. Index durability stays snapshot-only, exactly as today.
+- [x] Measure & document — full suite green (416 passing); absolute `RemoveValue`/throughput numbers
+  left to the opt-in benchmark on the target box.
 
 ## Decision / revisit condition
 This theme reopens a specific prior deferral and reuses one prior decision; it does not relitigate

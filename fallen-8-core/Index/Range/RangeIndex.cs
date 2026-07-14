@@ -49,6 +49,16 @@ namespace NoSQL.GraphDB.Core.Index.Range
         private Dictionary<IComparable, ImmutableList<AGraphElementModel>> _idx;
 
         /// <summary>
+        ///   Reverse map: element -&gt; the set of keys it appears under (feature index-lifecycle 3.4).
+        ///   Lets <see cref="RemoveValue" /> touch ONLY the affected buckets - O(affected keys) - instead
+        ///   of the former full-key-set scan with a per-key allocation. Keyed by element REFERENCE
+        ///   identity, so it survives a Trim id-renumber. The <c>_sortedKeys</c> (P4) invalidation rule
+        ///   is preserved: a reverse-map removal still nulls <c>_sortedKeys</c> exactly when the key set
+        ///   shrinks. Maintained under the same write lock as <see cref="_idx" />.
+        /// </summary>
+        private Dictionary<AGraphElementModel, HashSet<IComparable>> _reverse;
+
+        /// <summary>
         ///   A lazily-built, cached ascending-sorted snapshot of <see cref="_idx" />'s KEYS, used to
         ///   answer range queries in O(log n + k) via binary search instead of the former O(n)
         ///   parallel scan over every key (finding P4). This sorted array is the "ordered structure"
@@ -94,6 +104,8 @@ namespace NoSQL.GraphDB.Core.Index.Range
         {
             _idx.Clear();
             _idx = null;
+            _reverse?.Clear();
+            _reverse = null;
             _sortedKeys = null;
         }
         #endregion
@@ -102,8 +114,30 @@ namespace NoSQL.GraphDB.Core.Index.Range
         public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter)
         {
             _idx = new Dictionary<IComparable, ImmutableList<AGraphElementModel>>();
+            _reverse = new Dictionary<AGraphElementModel, HashSet<IComparable>>();
             _sortedKeys = null;
             _logger = fallen8.LoggerFactory.CreateLogger<RangeIndex>();
+        }
+
+        private static Dictionary<AGraphElementModel, HashSet<IComparable>> BuildReverseMap(
+            Dictionary<IComparable, ImmutableList<AGraphElementModel>> idx)
+        {
+            var reverse = new Dictionary<AGraphElementModel, HashSet<IComparable>>();
+            foreach (var kv in idx)
+            {
+                foreach (var element in kv.Value)
+                {
+                    if (reverse.TryGetValue(element, out var keysForElement))
+                    {
+                        keysForElement.Add(kv.Key);
+                    }
+                    else
+                    {
+                        reverse[element] = new HashSet<IComparable> { kv.Key };
+                    }
+                }
+            }
+            return reverse;
         }
 
         public string PluginName
@@ -200,6 +234,9 @@ namespace NoSQL.GraphDB.Core.Index.Range
                     _idx.Add((IComparable)key, ImmutableList.CreateRange<AGraphElementModel>(value));
                 }
 
+                // Rebuild the reverse map from the freshly loaded buckets (index-lifecycle 3.4).
+                _reverse = BuildReverseMap(_idx);
+
                 // The key set was rebuilt from disk; rebuild the sorted-key snapshot lazily (P4).
                 _sortedKeys = null;
 
@@ -266,6 +303,16 @@ namespace NoSQL.GraphDB.Core.Index.Range
                     _sortedKeys = null;
                 }
 
+                // Maintain the reverse map so RemoveValue is O(affected keys) (index-lifecycle 3.4).
+                if (_reverse.TryGetValue(graphElement, out var keysForElement))
+                {
+                    keysForElement.Add(key);
+                }
+                else
+                {
+                    _reverse[graphElement] = new HashSet<IComparable> { key };
+                }
+
                 FinishWriteResource();
 
                 return;
@@ -284,6 +331,23 @@ namespace NoSQL.GraphDB.Core.Index.Range
 
             if (WriteResource())
             {
+                // Drop this key from the reverse set of every element in its bucket before removing it,
+                // so the reverse map cannot dangle (index-lifecycle 3.4).
+                if (_idx.TryGetValue(key, out var bucket))
+                {
+                    foreach (var element in bucket)
+                    {
+                        if (_reverse.TryGetValue(element, out var keysForElement))
+                        {
+                            keysForElement.Remove(key);
+                            if (keysForElement.Count == 0)
+                            {
+                                _reverse.Remove(element);
+                            }
+                        }
+                    }
+                }
+
                 var foundSth = _idx.Remove(key);
                 if (foundSth)
                 {
@@ -303,22 +367,34 @@ namespace NoSQL.GraphDB.Core.Index.Range
         {
             if (WriteResource())
             {
-                var toBeRemovedKeys = new List<IComparable>();
-
-                foreach (var aKey in _idx.Keys.ToList())
+                // O(affected keys): the reverse map names exactly the buckets the element is in
+                // (index-lifecycle 3.4), so there is no full-key-set scan and no per-key allocation.
+                var keySetShrank = false;
+                if (_reverse.TryGetValue(graphElement, out var keysForElement))
                 {
-                    var updatedValues = _idx[aKey].Remove(graphElement);
-                    _idx[aKey] = updatedValues;
-                    if (updatedValues.Count == 0)
+                    foreach (var aKey in keysForElement)
                     {
-                        toBeRemovedKeys.Add(aKey);
+                        if (_idx.TryGetValue(aKey, out var bucket))
+                        {
+                            var updatedValues = bucket.RemoveAll(x => ReferenceEquals(x, graphElement));
+                            if (updatedValues.Count == 0)
+                            {
+                                _idx.Remove(aKey);
+                                keySetShrank = true;
+                            }
+                            else
+                            {
+                                _idx[aKey] = updatedValues;
+                            }
+                        }
                     }
+
+                    _reverse.Remove(graphElement);
                 }
 
-                toBeRemovedKeys.ForEach(_ => _idx.Remove(_));
-                if (toBeRemovedKeys.Count > 0)
+                if (keySetShrank)
                 {
-                    // One or more keys were emptied and dropped -> the sorted-key snapshot is stale.
+                    // One or more keys were emptied and dropped -> the sorted-key snapshot is stale (P4).
                     _sortedKeys = null;
                 }
 
@@ -335,6 +411,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
             if (WriteResource())
             {
                 _idx.Clear();
+                _reverse.Clear();
                 _sortedKeys = null;
 
                 FinishWriteResource();
