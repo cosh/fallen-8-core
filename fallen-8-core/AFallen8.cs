@@ -144,6 +144,12 @@ namespace NoSQL.GraphDB.Core
             Id = id;
         }
 
+        /// <summary>
+        ///   Enables/disables automatic tombstone reclamation and sets its threshold (feature
+        ///   trim-reader-safety). Implemented by the concrete engine, which owns the auto-trim state.
+        /// </summary>
+        public abstract void ConfigureAutoTrim(bool enabled, int tombstoneThreshold);
+
         #endregion
 
         #region IDisposable Members

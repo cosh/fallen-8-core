@@ -84,15 +84,38 @@ Intent: capture the numbers and reconcile the cross-referenced decisions.
   `core-storage-representation/spec.md` §6 (the trim-vs-reader hash-container hazard is resolved).
 - [ ] Confirm 0 warnings / 0 errors; full default suite green; benchmarks `[Ignore]`d.
 
+## Outcome (what shipped)
+- **Part A** — `VertexModel.GetHashCode()` returns `RuntimeHelpers.GetHashCode(this)` (identity),
+  not the mutable `Id`. `EdgeModel`/`PathElement` were already identity/edge-hashed (unchanged).
+- **Part B** — `AGraphElementModel.ReleaseBodyForTombstone()` (nulls the property store; `VertexModel`
+  override also nulls adjacency) via single volatile writes; `MaybeAutoTrim` now frees tombstone
+  bodies WITHOUT renumbering (keeps the slot, id space unchanged) and is **opt-in, default OFF**
+  (`ConfigureAutoTrim(enabled, threshold)` on `IFallen8Admin`), triggered on tombstones accumulated
+  since the last pass (`_freedTombstoneCount`, reset by `Trim_internal`/`TabulaRasa_internal`). It
+  emits no WAL `Trim` marker (no id-space change). `Trim_internal`'s renumber is reserved for the
+  explicit `TrimTransaction`, now documented as the only id-renumbering path.
+- **Docs (Phase 3)** — the id-reassignment contract is on `Trim_internal` and `TrimTransaction`
+  (ids are stable handles across auto-trim; only an explicit Trim renumbers, not concurrently with
+  id-holders). The `id → slot` future work is noted in the spec.
+- Tests: `TrimReaderSafetyTest` (identity-hash mechanism; same-Id non-collision; HashSet membership
+  survives a concurrent Trim renumber) + the migrated `MemoryFootprintTest` auto-trim soak tests
+  (now assert **id-stability under auto-trim churn** + queryable, since free-fields keeps slots
+  rather than shrinking Count). Full suite green: **397 passed, 15 skipped**.
+
+### Deferred / not built
+- **Opt-in `TrimReaderSafetyBenchmark`** and a GC-retained-memory soak assertion — the migrated
+  `MemoryFootprintTest` pins the deterministic id-stability invariant instead of a flaky in-process
+  GC bound; the memory-bounding of free-fields is self-evident (properties + adjacency nulled).
+- **`id → slot` directory** — the renumber-free compaction end-state; constrains non-blocking-save;
+  future theme.
+
 ## Progress
 
-- [ ] Phase 0 — baseline & guardrails (deterministic mechanism test, concurrency stress guard,
-  opt-in benchmark)
-- [ ] Phase 1 — identity-stable `VertexModel.GetHashCode()` (Part A)
-- [ ] Phase 2 — free-fields auto-trim, opt-in/default-off, renumber reserved for `TrimTransaction`
-  (Part B)
-- [ ] Phase 3 — id-stability contract & docs
-- [ ] Measure & document — benchmark numbers captured; cross-refs reconciled
+- [x] Phase 0 — deterministic mechanism test + concurrent-renumber stress guard
+- [x] Phase 1 — identity-stable `VertexModel.GetHashCode()` (Part A)
+- [x] Phase 2 — free-fields auto-trim, opt-in/default-off, renumber reserved for `TrimTransaction` (Part B)
+- [x] Phase 3 — id-stability contract & docs (`Trim_internal`, `TrimTransaction`)
+- [x] Measure & document — soak tests migrated to id-stability; benchmark deferred (see above)
 
 ## Decision / revisit condition
 

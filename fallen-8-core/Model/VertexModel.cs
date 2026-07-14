@@ -489,9 +489,29 @@ namespace NoSQL.GraphDB.Core.Model
             return !(a == b);
         }
 
+        /// <summary>
+        ///   Also frees the vertex's adjacency when its slot becomes a tombstone (feature
+        ///   trim-reader-safety Part B). Adjacency is the dominant per-vertex memory; nulling the two
+        ///   <c>volatile</c> fields publishes atomically to lock-free readers. The removal cascade has
+        ///   already detached this vertex's edges from its live neighbours, so dropping the (now
+        ///   orphaned) adjacency of a removed vertex frees memory without affecting any live traversal.
+        /// </summary>
+        internal override void ReleaseBodyForTombstone()
+        {
+            base.ReleaseBodyForTombstone();
+            _outEdges = null;
+            _inEdges = null;
+        }
+
         public override int GetHashCode()
         {
-            return Id;
+            // Identity hash, NOT the mutable Id (feature trim-reader-safety Part A). Equals/==/!= are
+            // reference equality, so the hash must be identity-stable too: returning the mutable Id let
+            // a Trim/auto-trim renumber (SetId) change an already-inserted key's hash bucket underneath
+            // a lock-free reader, corrupting BLS's HashSet<VertexModel>/Dictionary<VertexModel,_>
+            // (missed dedup -> re-expanded frontier / wrong result). RuntimeHelpers.GetHashCode is the
+            // object identity hash - stable for the object's lifetime, zero bytes, no allocation.
+            return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
         }
 
         #endregion

@@ -432,6 +432,7 @@ namespace NoSQL.GraphDB.Tests
             }
             public ILoggerFactory LoggerFactory => _inner.LoggerFactory;
             public void SetId(Guid id) => _inner.SetId(id);
+            public void ConfigureAutoTrim(bool enabled, int tombstoneThreshold) => _inner.ConfigureAutoTrim(enabled, tombstoneThreshold);
             public TransactionState GetTransactionState(string txId) => _inner.GetTransactionState(txId);
             public bool TryGetGraphElement(out AGraphElementModel result, int id) => _inner.TryGetGraphElement(out result, id);
             public bool TryGetEdge(out EdgeModel result, int id) => _inner.TryGetEdge(out result, id);
