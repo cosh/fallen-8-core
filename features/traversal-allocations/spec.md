@@ -1,10 +1,37 @@
 # Traversal Allocations — Specification
 
-> **Status:** Planned (P2 performance) — from the 2026-07 principal-architect & performance review.
-> BFS (BLS) and Dijkstra allocate heavily per traversed edge, and the public traversal read surface
-> allocates a wrapper per lookup; cut per-hop allocations to ~0 and give library consumers the
-> allocation-free read the in-engine hot paths already enjoy — without touching the deferred
-> `Path`/`PathElement` rewrite.
+> **Status:** Partially implemented (P2 performance) — from the 2026-07 principal-architect &
+> performance review. BFS (BLS) and Dijkstra allocated heavily per traversed edge, and the public
+> traversal read surface allocated a wrapper per lookup; this pass lands the Dijkstra + public-read +
+> cleanup wins and defers the BLS per-edge struct rewrite.
+>
+> **Delivered on branch `feature/traversal-allocations`:**
+> - **B1 — Dijkstra neighbour memoisation.** `Search` memoises `GetNeighbours` per vertex (a
+>   `Dictionary<int, List<NeighbourStep>>`), so a vertex re-expanded at multiple hop levels
+>   materialise+filter+`Sort`s **once** instead of once per `(vertexId, hops)` state. The ban sets are
+>   applied downstream of `GetNeighbours`, so the memo is result-identical across banned-set variants;
+>   the 29 `WeightedDijkstraPathTest` cases (single + Yen K-shortest, ordering, determinism) pass
+>   unchanged.
+> - **C1 — allocation-free public read.** `VertexModel.TryGetOutEdgesSpan`/`TryGetInEdgesSpan` return a
+>   `ReadOnlySpan<EdgeModel>` over the group with no `ReadOnlyCollection` wrapper and a direct indexer,
+>   reaching parity with the internal `GetRawOutEdges` fast path. It is **count-bounded** over the
+>   `supernode-adjacency-build` `ArraySegment` (spare capacity never exposed) and read-only over the
+>   immutable-after-publish array. Additive — the `IReadOnlyList` members are unchanged.
+> - **D1 — dead code deleted.** `PathHelper.GetValidEdges` (zero production callers, the worst
+>   allocation anti-pattern) and its now-empty `PathHelper` type were removed.
+> - **D2 — presized read.** `GetAllNeighbors` starts from a `List` sized to `OutDegree + InDegree`.
+>
+> **Deferred (documented):**
+> - **A1–A4 — the BLS per-edge struct-frontier rewrite** (convert `FrontierElement`/`EdgeLocation` to
+>   `readonly struct`, fold `GetValidIncoming/OutgoingEdges`/`GetLocalFrontier` into `GetGlobalFrontier`,
+>   lazily allocate `VertexPredecessor` lists, drop the redundant `EdgePropertyId`). This is the most
+>   invasive part — it rewrites the frontier-expansion path that feeds reconstruction — and BLS results
+>   must stay byte-identical; deferred as a focused follow-on with the A4 `edge.EdgePropertyId == group
+>   key` characterization test as its precondition.
+> - **B2 — carrying the `VertexModel` on the Dijkstra search state** (to avoid the per-dequeue
+>   `TryGetVertex`) is entangled with the state-record shape; deferred with A1–A4.
+> - The public read-only struct enumerator over all groups (the full-traversal companion to the span
+>   accessor) is a noted follow-on; the span accessor covers the single-group hot path.
 
 ## 1. Problem / current state
 

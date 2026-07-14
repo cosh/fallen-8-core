@@ -343,7 +343,9 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> The neighbors. </returns>
         public List<VertexModel> GetAllNeighbors()
         {
-            var neighbors = new List<VertexModel>();
+            // Presize to the exact final count (feature traversal-allocations D2): both directions are
+            // projected, so the result holds OutDegree + InDegree neighbours - avoiding list regrowth.
+            var neighbors = new List<VertexModel>((int)(GetOutDegree() + GetInDegree()));
 
             // Behaviour preserved verbatim from the prior representation: BOTH directions are projected
             // through the edge's target vertex (the former code applied the same target extractor to the
@@ -469,6 +471,48 @@ namespace NoSQL.GraphDB.Core.Model
             }
 
             result = null;
+            return false;
+        }
+
+        /// <summary>
+        ///   Allocation-free out-edge group read for library consumers (feature traversal-allocations
+        ///   C1): a <see cref="ReadOnlySpan{T}" /> over the group's edges with NO
+        ///   <see cref="ReadOnlyCollection{T}" /> wrapper and a direct indexer (not two virtual calls),
+        ///   reaching parity with the in-engine <c>GetRawOutEdges</c> fast path. The span is bounded to
+        ///   the group's logical count (spare capacity from supernode-adjacency-build is never exposed),
+        ///   and the backing array is immutable-after-publish (copy-on-write, single writer), so the
+        ///   read-only span can never observe a mutation. It is a <c>ref struct</c>: use it for
+        ///   synchronous, in-scope iteration only (it cannot cross <c>await</c>/<c>yield</c> or live in
+        ///   a field); the <see cref="TryGetOutEdge" /> / <see cref="OutEdges" /> members remain for
+        ///   those uses.
+        /// </summary>
+        public Boolean TryGetOutEdgesSpan(out ReadOnlySpan<EdgeModel> edges, String edgePropertyId)
+        {
+            var snapshot = _outEdges;
+            if (snapshot != null && snapshot.TryGetGroup(edgePropertyId, out var group))
+            {
+                edges = group.AsSpan();
+                return true;
+            }
+
+            edges = default;
+            return false;
+        }
+
+        /// <summary>
+        ///   Incoming-edge counterpart of <see cref="TryGetOutEdgesSpan" />; same allocation-free,
+        ///   count-bounded, read-only contract.
+        /// </summary>
+        public Boolean TryGetInEdgesSpan(out ReadOnlySpan<EdgeModel> edges, String edgePropertyId)
+        {
+            var snapshot = _inEdges;
+            if (snapshot != null && snapshot.TryGetGroup(edgePropertyId, out var group))
+            {
+                edges = group.AsSpan();
+                return true;
+            }
+
+            edges = default;
             return false;
         }
 
