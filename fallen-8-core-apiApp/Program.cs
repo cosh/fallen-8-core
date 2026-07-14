@@ -26,13 +26,20 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Versioning;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Helper;
+using NoSQL.GraphDB.App.Services;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Persistency;
 using Scalar.AspNetCore;
+using System;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 
 namespace NoSQL.GraphDB.App
 {
@@ -83,8 +90,39 @@ namespace NoSQL.GraphDB.App
                 o.SubstituteApiVersionInUrl = true;
             });
 
-            // Add services to the container.
-            builder.Services.AddSingleton<IFallen8, Fallen8>();
+            // Durability configuration (feature hosted-durability-lifecycle): bind the
+            // Fallen8:Durability section so the hosted server persists by default (load on boot,
+            // save on clean shutdown, WAL between snapshots). Volatile is an explicit opt-out.
+            builder.Services.Configure<Fallen8DurabilityOptions>(
+                builder.Configuration.GetSection(Fallen8DurabilityOptions.SectionName));
+
+            // Register the engine singleton through a factory so durable mode constructs the
+            // WAL-enabling overload with the recipe compiler supplied AT CONSTRUCTION - an unanchored
+            // WAL replays during construction, so only a compiler present then can recover its
+            // subgraph entries. Volatile mode constructs the plain in-memory engine.
+            builder.Services.AddSingleton<IFallen8>(sp =>
+            {
+                var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+                var durability = sp.GetRequiredService<IOptions<Fallen8DurabilityOptions>>().Value;
+
+                if (durability.Volatile)
+                {
+                    return new Fallen8(loggerFactory);
+                }
+
+                // Ensure the storage directory exists BEFORE the engine opens the WAL there; a missing
+                // or unwritable directory must fail loudly at startup, never silently degrade to volatile.
+                var storageDirectory = durability.ResolveStorageDirectory();
+                Directory.CreateDirectory(storageDirectory);
+
+                return new Fallen8(loggerFactory,
+                    new WriteAheadLogOptions(durability.ResolveWalPath()),
+                    new RecipeSubGraphCompiler());
+            });
+
+            // Own the load-on-start / save-on-stop lifecycle around the existing Save/Load transactions.
+            builder.Services.AddHostedService<DurabilityLifecycleService>();
+
             builder.Services.AddControllers().AddJsonOptions(options =>
             {
                 // Serve the REST DTOs through source-generated metadata instead of runtime
@@ -96,8 +134,11 @@ namespace NoSQL.GraphDB.App
 
             var app = builder.Build();
 
-            // Register the recipe compiler so persisted subgraphs can be rebuilt on load.
-            app.Services.GetRequiredService<IFallen8>().SubGraphRecipeCompiler = new RecipeSubGraphCompiler();
+            // Force the engine singleton to construct now (before the host starts) so an unanchored
+            // WAL replays and the DurabilityLifecycleService's StartAsync can load over a live engine.
+            // The recipe compiler is supplied to the constructor (see the factory above), so persisted
+            // AND WAL-replayed subgraphs rehydrate.
+            _ = app.Services.GetRequiredService<IFallen8>();
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())

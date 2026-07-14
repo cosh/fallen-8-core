@@ -1,9 +1,11 @@
 # Hosted Durability Lifecycle — Specification
 
-> **Status:** Planned (P0 architectural) — from the 2026-07 principal-architect & performance
-> review. The durability engine (hardened checkpoint + opt-in WAL) exists but is **not wired into
-> the hosted API**, so the running server is purely volatile: a restart or crash loses everything
-> unless a client happened to call `/save`. This theme makes the product actually persist by default.
+> **Status:** Implemented (P0 architectural) — from the 2026-07 principal-architect & performance
+> review. The durability engine (hardened checkpoint + opt-in WAL) existed but was **not wired into
+> the hosted API**, so the running server was purely volatile: a restart or crash lost everything
+> unless a client happened to call `/save`. The hosted API now persists by default (load on boot,
+> WAL between snapshots, save on clean shutdown); volatile is an explicit opt-out. Periodic/threshold
+> checkpointing (§3.5, Phase 4) is deferred to the write-path-throughput / crash-durability themes.
 
 ## 1. Problem / current state
 
