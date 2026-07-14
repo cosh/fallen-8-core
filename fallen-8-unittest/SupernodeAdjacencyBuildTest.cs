@@ -259,9 +259,12 @@ namespace NoSQL.GraphDB.Tests
         // ---- Load round-trip ----------------------------------------------------------------------
 
         /// <summary>
-        /// A high-degree hub must save and reload with the exact same in/out degree, edge set, edge order
-        /// and endpoints — exercising the batched deferred-edge load fix-up (which turned the hub's
-        /// O(d²) per-edge rehydration into O(d)).
+        /// A high-degree hub must save and reload with the exact same in/out degree and edge SET (same
+        /// endpoints) — exercising the batched deferred-edge load fix-up (which turned the hub's O(d²)
+        /// per-edge rehydration into O(d)). The SET, not the order, is the guarantee: a multi-partition
+        /// load reconstructs cross-bunch deferred edges in parallel-bunch / ConcurrentDictionary
+        /// enumeration order, which is not deterministic across environments (this is why the assertion
+        /// is order-insensitive).
         /// </summary>
         [TestMethod]
         public void SaveLoad_SupernodeRoundTrips_WithIdenticalAdjacency()
@@ -283,8 +286,8 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual((uint)degree, hub.GetOutDegree());
             Assert.AreEqual((uint)degree, hub.GetInDegree());
 
-            var expectedOut = OrderedTargetIds(hub, outgoing: true);
-            var expectedIn = OrderedTargetIds(hub, outgoing: false);
+            var expectedOut = FarEndpointIds(hub, outgoing: true);
+            var expectedIn = FarEndpointIds(hub, outgoing: false);
 
             // Save with several partitions so a large fraction of the hub's edges are deferred cross-bunch
             // fix-ups on load (the O(d²) path this feature batches).
@@ -295,16 +298,18 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual((uint)degree, reloadedHub.GetOutDegree(), "Reloaded out-degree must match.");
             Assert.AreEqual((uint)degree, reloadedHub.GetInDegree(), "Reloaded in-degree must match.");
 
-            CollectionAssert.AreEqual(expectedOut, OrderedTargetIds(reloadedHub, outgoing: true),
-                "The reloaded hub's out-edge targets (and order) must match the source.");
-            CollectionAssert.AreEqual(expectedIn, OrderedTargetIds(reloadedHub, outgoing: false),
-                "The reloaded hub's in-edge sources (and order) must match the source.");
+            // The edge SET must match; the reloaded order of cross-bunch deferred edges is not
+            // deterministic across environments, so the comparison is order-insensitive.
+            CollectionAssert.AreEquivalent(expectedOut, FarEndpointIds(reloadedHub, outgoing: true),
+                "The reloaded hub's out-edge target set must match the source.");
+            CollectionAssert.AreEquivalent(expectedIn, FarEndpointIds(reloadedHub, outgoing: false),
+                "The reloaded hub's in-edge source set must match the source.");
 
             loaded.Dispose();
             fallen8.Dispose();
         }
 
-        private static int[] OrderedTargetIds(VertexModel vertex, bool outgoing)
+        private static int[] FarEndpointIds(VertexModel vertex, bool outgoing)
         {
             IReadOnlyList<EdgeModel> edges;
             var found = outgoing
