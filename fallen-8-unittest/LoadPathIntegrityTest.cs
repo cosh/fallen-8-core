@@ -189,6 +189,49 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region Save into a non-existent directory
+
+        [TestMethod]
+        public void Save_ToPathInNonexistentDirectory_CreatesItAndRoundTrips()
+        {
+            // A save to a path whose directory does not exist (e.g. a fresh "C:/Fallen8/database.f8s")
+            // must create the directory and succeed, not throw DirectoryNotFoundException from the
+            // first bunch-sidecar write. Uses multiple partitions to exercise the sidecar path.
+            var missingDir = Path.Combine(_tempDir, "does", "not", "exist", "yet");
+            var savePath = Path.Combine(missingDir, "database.f8s");
+            Assert.IsFalse(Directory.Exists(missingDir), "Precondition: the target directory does not exist.");
+
+            string actualPath;
+            using (var source = new Fallen8(_loggerFactory))
+            {
+                var create = new CreateVerticesTransaction();
+                create.AddVertex(1u, "person", new Dictionary<string, object> { { "name", "Alice" } });
+                source.EnqueueTransaction(create).WaitUntilFinished();
+                var createdId = create.GetCreatedVertices().Single().Id;
+
+                var saveTx = new SaveTransaction { Path = savePath, SavePartitions = 8 };
+                var saveInfo = source.EnqueueTransaction(saveTx);
+                saveInfo.WaitUntilFinished();
+
+                Assert.AreEqual(TransactionState.Finished, saveInfo.TransactionState,
+                    "A save into a non-existent directory must succeed (the directory is created), not roll back.");
+                Assert.IsTrue(Directory.Exists(missingDir), "The save must have created the target directory.");
+                actualPath = saveTx.ActualPath;
+                _ = createdId;
+            }
+
+            using (var loaded = new Fallen8(_loggerFactory))
+            {
+                var loadInfo = loaded.EnqueueTransaction(new LoadTransaction { Path = actualPath });
+                loadInfo.WaitUntilFinished();
+                Assert.AreEqual(TransactionState.Finished, loadInfo.TransactionState, "The saved graph must load back.");
+                Assert.AreEqual(1, loaded.VertexCount);
+                Assert.IsTrue(loaded.TryGetVertex(out var v, 0) && v.TryGetProperty(out string name, "name") && name == "Alice");
+            }
+        }
+
+        #endregion
+
         #region L2 - oversized segment must fail the save, not write a wrapped length
 
         [TestMethod]

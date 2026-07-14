@@ -311,6 +311,17 @@ namespace NoSQL.GraphDB.Core.Persistency
                 path = candidate;
             }
 
+            // Ensure the target directory exists before writing the header or the parallel bunch
+            // sidecars into it. A save to a path whose directory does not exist (e.g. a fresh
+            // "C:/Fallen8/database.f8s") would otherwise throw DirectoryNotFoundException from the
+            // first sidecar FileStream and roll the save back; creating it up front makes a save to a
+            // new location succeed. (A bare filename has no directory component - nothing to create.)
+            var saveDirectory = Path.GetDirectoryName(path);
+            if (!String.IsNullOrEmpty(saveDirectory))
+            {
+                Directory.CreateDirectory(saveDirectory);
+            }
+
             var graphElements = fallen8.GetAllGraphElements();
 
             // C1: size the loaded id-space to cover the HIGHEST surviving id, not the live COUNT.
