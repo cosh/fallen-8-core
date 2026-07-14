@@ -30,9 +30,13 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Interfaces;
@@ -76,9 +80,15 @@ namespace NoSQL.GraphDB.App.Controllers
 
         private readonly ILogger<AdminController> _logger;
 
+        /// <summary>
+        /// The isolated directory uploaded plugin DLLs are written to (never the app's own binary
+        /// directory) - feature api-security-boundary.
+        /// </summary>
+        private readonly String _pluginDirectory;
+
         #endregion
 
-        public AdminController(ILogger<AdminController> logger, IFallen8 fallen8)
+        public AdminController(ILogger<AdminController> logger, IFallen8 fallen8, IOptions<Fallen8SecurityOptions> security)
         {
             _logger = logger;
 
@@ -91,6 +101,8 @@ namespace NoSQL.GraphDB.App.Controllers
             _savePath = System.IO.Path.Combine(currentAssemblyDirectoryName, _saveFile);
 
             _optimalNumberOfPartitions = Convert.ToInt32(Environment.ProcessorCount * 3 / 2);
+
+            _pluginDirectory = (security?.Value ?? new Fallen8SecurityOptions()).ResolvePluginDirectory();
         }
 
         #region IDisposable Members
@@ -107,6 +119,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <returns>Status information including counts, available plugins and memory usage</returns>
         /// <response code="200">Returns the database status information</response>
         [HttpGet("/status")]
+        [AllowAnonymous]
         [Produces("application/json")]
         [ProducesResponseType(typeof(StatusREST), StatusCodes.Status200OK)]
         public StatusREST Status()
@@ -259,6 +272,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <returns>Count of vertices in the database</returns>
         /// <response code="200">Returns the number of vertices</response>
         [HttpGet("/vertex/count")]
+        [AllowAnonymous]
         [Produces("application/json")]
         [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
         public int VertexCount()
@@ -272,6 +286,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <returns>Count of edges in the database</returns>
         /// <response code="200">Returns the number of edges</response>
         [HttpGet("/edge/count")]
+        [AllowAnonymous]
         [Produces("application/json")]
         [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
         public int EdgeCount()
@@ -317,13 +332,32 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="dllStream">The plugin DLL binary content as a stream</param>
         /// <response code="204">Plugin successfully uploaded and registered</response>
         /// <response code="400">Invalid plugin data or incompatible plugin</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Dynamic plugin loading is disabled on this server (Fallen8:Security:EnableDynamicPluginLoading)</response>
+        /// <response code="413">The uploaded DLL exceeds the plugin size limit</response>
+        /// <remarks>
+        /// SECURITY: an uploaded plugin is loaded and executed IN-PROCESS WITH FULL TRUST - a trust
+        /// boundary, not a sandbox. Requires an authenticated caller AND
+        /// Fallen8:Security:EnableDynamicPluginLoading=true. The DLL is written to the configured,
+        /// isolated plugin directory, never next to the server binaries.
+        /// </remarks>
         [HttpPut("/plugin")]
+        [Authorize(Policy = Fallen8SecurityOptions.DynamicPluginPolicy)]
+        [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
+        [RequestSizeLimit(64L * 1024 * 1024)]
         [Consumes("application/octet-stream")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         public void UploadPlugin([FromBody] Stream dllStream)
         {
-            PluginFactory.Assimilate(dllStream);
+            // Write into the isolated plugin directory (created if absent), NOT AppContext.BaseDirectory,
+            // so an upload can never plant a DLL next to the server's own binaries. The directory is a
+            // registered plugin search directory (see Program.cs), so the plugin is still discovered.
+            System.IO.Directory.CreateDirectory(_pluginDirectory);
+            var assimilationPath = System.IO.Path.Combine(_pluginDirectory, System.IO.Path.GetRandomFileName() + ".dll");
+            PluginFactory.Assimilate(dllStream, assimilationPath);
         }
 
         #region private helper

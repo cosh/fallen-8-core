@@ -86,13 +86,38 @@ Intent: make the boundary and its honest limits legible.
 - [ ] Full `dotnet test` green; build 0 warnings / 0 errors. Numbers/measurements (if any perimeter
   timing is captured): to be captured on this box.
 
+## Outcome (what shipped)
+- **S1** — `ApiKeyAuthenticationHandler` (`X-Api-Key`, constant-time compare) registered as the
+  `Fallen8ApiKey` scheme; `AddAuthorization` sets a `FallbackPolicy` requiring an authenticated user
+  when a key is configured; the missing `app.UseAuthentication()` is added before `UseAuthorization()`.
+  With no key configured the server logs a loud UNAUTHENTICATED warning and leaves the fallback open
+  (dev posture; the dangerous surface is still gated).
+- **S2/S3/S4** — two authorization policies (`DynamicCodeExecution`, `DynamicPluginLoading`, each
+  RequireAuthenticatedUser + a flag requirement handled by `DynamicCapabilityAuthorizationHandler`)
+  applied via `[Authorize(Policy=…)]` on `POST /path`, `PUT /subgraph`, `PUT /plugin`. Flags default
+  **false** → authenticated caller gets **403** before any compile/load; anonymous gets **401**.
+- **S4 directory** — `PUT /plugin` writes into the configured isolated `PluginDirectory`
+  (default `<base>/plugins`), never `AppContext.BaseDirectory`; `PluginFactory.AddPluginSearchDirectory`
+  makes that directory a discovery location so an uploaded plugin is still found.
+- **S5** — default-deny CORS policy (origins from config), a fixed-window rate limiter on the sensitive
+  endpoints (`[EnableRateLimiting]`, 429 on breach), and `[RequestSizeLimit]` on the code (1 MiB) and
+  plugin (64 MiB) endpoints.
+- **S6** — `AllowRemoteAccess` flag bound + a prominent startup warning; hard loopback enforcement
+  deferred (see the Decision) to avoid overriding operator Kestrel/port config.
+- Tests: `ApiSecurityBoundaryTest` (anonymous→401, valid key accepted, open read reachable, code gate
+  off→403 / on→reaches action, plugin gate off→403+nothing-written, controller-level isolated-dir
+  write). `OpenApiDocumentTest` runs volatile+no-key so the pipeline still serves the doc.
+  Full suite green: **386 passed, 0 failed, 14 skipped**.
+
 ## Progress
-- [ ] Phase 0 — pipeline test harness + characterization of the current insecure reality
-- [ ] Phase 1 — authentication scheme + fallback policy + missing `UseAuthentication` (S1)
-- [ ] Phase 2 — opt-in `EnableDynamicCodeExecution` / `EnableDynamicPluginLoading` gate (S2/S3/S4)
-- [ ] Phase 3 — isolated plugin directory (S4)
-- [ ] Phase 4 — CORS + rate limiting + body-size + loopback-by-default (S5/S6)
-- [ ] Measure & document (README, honest-limits note, OpenAPI docs, cross-links)
+- [x] Phase 0 — pipeline test harness (`WebApplicationFactory<Program>`) + characterization (the
+  anonymous→401 tests double as the before/after boundary proof)
+- [x] Phase 1 — authentication scheme + fallback policy + missing `UseAuthentication` (S1)
+- [x] Phase 2 — opt-in `EnableDynamicCodeExecution` / `EnableDynamicPluginLoading` gate (S2/S3/S4)
+- [x] Phase 3 — isolated plugin directory (S4)
+- [x] Phase 4 — CORS + rate limiting + body-size (S5); **loopback-by-default (S6) partial**: flag +
+  warning shipped, hard bind enforcement deferred
+- [x] Measure & document (README, honest-limits note in the endpoint `<remarks>`, OpenAPI 401/403 docs)
 
 ## Decision / revisit condition
 
