@@ -1,8 +1,27 @@
 # Codegen Cache Keying — Specification
 
-> **Status:** Planned (P2 performance) — from the 2026-07 principal-architect & performance review.
-> The path-traverser compile cache is keyed coarser than the compiled artifact and rebuilds Roslyn
-> metadata references on every compile; tighten the cache to the real dependency.
+> **Status:** Implemented (P2 performance) — from the 2026-07 principal-architect & performance
+> review. The path-traverser compile cache was keyed coarser than the compiled artifact and rebuilt
+> Roslyn metadata references on every compile; both are now tightened to the real dependency.
+>
+> **Delivered on branch `feature/codegen-cache-keying`:**
+> - **(A) Narrow the key** — `GeneratedCodeCache` keys on the `(Filter, Cost)` `ValueTuple` (via
+>   `KeyFor`), exposed through `TryGetTraverser`/`AddTraverser`; `GraphController` uses the new accessor.
+>   Two `/path` requests differing only in `MaxDepth`/`MaxResults`/`MaxPathWeight`/`PathAlgorithmName`
+>   (all applied downstream, never baked into the traverser) now reuse ONE compiled traverser and one
+>   collectible context. Null filter/cost stay distinct from an all-defaults object.
+> - **(B) Hoist the references** — the Roslyn `MetadataReference` set is a `private static readonly`
+>   array built once per process (from the same assembly list + single-file `AppContext.BaseDirectory`
+>   fallback), shared by the path and subgraph compile paths, so a cold compile no longer re-reads the
+>   framework reference assemblies.
+> - **(D) Compile-count hook** — `CodeGenerationHelper.PathCompileCount`/`ResetPathCompileCount`
+>   (incremented per `Emit`) make "compiled once" test-observable.
+>
+> Guarded by `CodegenCacheKeyingTest` (bound-only-differing requests → exactly one compile + shared
+> traverser; different-filter requests → two distinct traversers). The pre-existing process-wide-reuse
+> test (`EnginePerformanceTest`) was migrated to the `TryGetTraverser` accessor. The 60 s sliding
+> expiry (C) was left unchanged — entries still expire so collectible contexts unload
+> (`collectible-codegen-assemblies` unaffected).
 
 ## 1. Problem / current state
 
