@@ -16,15 +16,21 @@ lets a user:
 2. **Query** it — property/index/range/fulltext/spatial scans, shortest paths
    (BLS/Dijkstra), and pattern-matched subgraphs.
 3. **Visualize** results on an interactive graph canvas with expand-on-demand.
-4. **Author the C# delegate fragments** that path and subgraph queries accept, in an
-   embedded Monaco editor with IntelliSense (completions, hovers, signature help) and
-   compile diagnostics.
+4. **Author the C# delegate fragments** that path (BLS/Dijkstra) and subgraph queries
+   accept, in an embedded Monaco editor with IntelliSense (completions, hovers,
+   signature help), compile diagnostics, and a natural-language assist that drafts a
+   fragment from a plain-language description (FR-26).
 5. **Work across multiple instances** — register several Fallen-8 endpoints (local,
    staging, production) and move between them without losing per-instance context.
 
 The delegate editor is the signature feature: Fallen-8's query filters are not a query
 language but compiled C# lambdas, and today only users who read the engine source can
-write them. The UI must make that authoring experience first-class.
+write them. The UI must make that authoring experience first-class. It is not a
+destination of its own, though — the editor exists for the path finder (BLS/Dijkstra)
+and the subgraph studio, and comes into play when a search is too complex for the
+plain form inputs. Every path and subgraph query must also work with all fragment
+slots left empty (empty = match everything, §6.1); writing C# is the escalation, not
+the entry point.
 
 ## 2. Goals and non-goals
 
@@ -68,7 +74,7 @@ Screen inventory the design must cover (naming is indicative, not binding):
 | Path finder | Source/target pickers, algorithm options, delegate slots, path results |
 | Subgraph studio | List/create/inspect/recalculate/delete subgraphs; pattern builder |
 | Graph canvas | Render/expand/style graph data; selection drives a detail panel |
-| Delegate editor | Shared Monaco component (embedded in path finder & subgraph studio) |
+| Delegate editor | Shared Monaco component; no standalone screen — opens in context from a fragment slot in the path finder or subgraph studio |
 
 ## 4. Functional requirements
 
@@ -132,6 +138,10 @@ Screen inventory the design must cover (naming is indicative, not binding):
   and that Dijkstra's `maxResults` is the K in K-shortest paths), plus `maxDepth`,
   `maxResults`, `maxPathWeight` inputs with the API defaults pre-filled.
 - FR-13 Five delegate slots (three filters, two costs — see §6) via the shared editor.
+  Every slot is optional and starts empty (empty = match everything / no custom cost);
+  a plain source→target query with no fragments is the common case and the slots are
+  presented as the advanced tier of the form, for searches the basic inputs cannot
+  express.
   Because the path endpoint swallows compile errors (returns an empty list and only
   logs the diagnostics — see `GraphController.CalculateShortestPath`), the UI must
   validate fragments **before** submitting (gap G-2). An empty result after successful
@@ -145,7 +155,8 @@ Screen inventory the design must cover (naming is indicative, not binding):
   (contents → canvas), `POST /subgraph/{name}/recalculate`, `DELETE /subgraph/{name}`.
 - FR-16 Pattern builder: an ordered sequence editor for `Vertex` / `Edge` /
   `VariableLengthEdge` steps with direction, min/max length (API caps max length at
-  100), and per-step delegate slots. The sequence must alternate vertex ↔ edge starting
+  100), and optional per-step delegate slots (same empty-means-match-all default as
+  FR-13). The sequence must alternate vertex ↔ edge starting
   with a vertex (a level-0 edge is also legal); the UI enforces this client-side and
   still surfaces the server's 400 if it disagrees.
 - FR-17 Create returns 201 with a summary; 400 carries Roslyn diagnostics (map into the
@@ -251,6 +262,22 @@ The canonical property-access idiom to teach via snippets:
 - FR-25 Submitting a path query with a fragment that fails validation is blocked
   client-side (because of the FR-13 error-swallowing behaviour); subgraph 400
   diagnostics are mapped back into the originating editor slot.
+- FR-26 **Natural-language assist.** Wherever the delegate editor appears, the user can
+  describe the intent in plain language ("only persons older than 30") and have an
+  SLM/LLM draft the fragment. Requirements:
+  - The generation context includes the slot's delegate kind and lambda shape (§6.1),
+    the available usings, and the §6.2 type surface including the `TryGetProperty`
+    idiom — so generated code targets the real API, not hallucinated members.
+  - Generated code is inserted into the editor as ordinary editable text and goes
+    through the same validation gate (FR-23/FR-25) before any submission; validation
+    failures feed their diagnostics back into a refine/regenerate loop. Generated
+    fragments are never sent to the query endpoints unvalidated.
+  - The model backend is pluggable and user-configured — a local SLM (e.g. an
+    Ollama/llama.cpp endpoint) or a hosted LLM API. With no backend configured, the
+    assist affordance is hidden or disabled with a hint; the editor is fully usable
+    without it.
+  - Where a hosted provider is configured, the UI states plainly that prompt text and
+    any included context leave the machine.
 
 ## 7. Backend prerequisites and gaps
 
@@ -264,6 +291,7 @@ documented UI fallback.
 | G-3 | No discovery of labels, property ids, edge-property ids, or existing index ids. | **Fallback.** Derive from sampled/loaded elements client-side and let users type free-form. Propose (do not build) a `GET /schema/summary` endpoint in the design doc. |
 | G-4 | No pagination on `/graph` or scan results. | **Fallback.** Expand-on-demand canvas + `maxElements` + explicit truncation indicators (FR-7). |
 | G-5 | No change-notification channel. | **Fallback.** Manual/interval refresh; note WebSocket push as future work. |
+| G-6 | No natural-language→delegate facility exists anywhere in the stack (FR-26). | **In scope, UI-led.** The design doc decides the architecture — browser→provider calls with a user-supplied key/endpoint, a browser-side SLM, or a thin apiApp proxy endpoint — and specifies how the generation prompt is assembled from §6.1/§6.2. Whatever the choice, the feature degrades gracefully to a plain editor when no model is configured, and configuration (endpoint, key, model name) lives in the global UI settings. |
 
 ## 8. Non-functional requirements
 
@@ -279,7 +307,10 @@ documented UI fallback.
   non-pointer equivalents where feasible; color choices legible in light and dark.
 - **Security posture:** no auth (see non-goals); the connect screen states the
   trusted-network assumption. Delegate fragments are arbitrary code **executed by the
-  server** — the UI does not pretend otherwise and the docs say so plainly.
+  server** — the UI does not pretend otherwise and the docs say so plainly. That
+  applies unchanged to NL-generated fragments (FR-26): generated code is reviewed and
+  validated in the editor like hand-written code, and any model API key configured for
+  the assist is stored locally and never sent to a Fallen-8 instance.
 - **Browser support:** current evergreen Chrome/Edge/Firefox/Safari.
 
 ## 9. Acceptance scenarios
@@ -305,6 +336,10 @@ documented UI fallback.
    slot.
 8. Tabula rasa demands typed confirmation; afterwards the dashboard shows zero counts.
 9. Stopping the API server yields a clear disconnected state, not a blank screen.
+10. With a model backend configured, describing a filter in plain language in any
+    delegate slot produces a fragment in the editor that passes validation and runs;
+    with no backend configured, the assist control is absent/disabled with a hint and
+    the editor works normally.
 
 ## 10. Testing requirements
 
@@ -316,21 +351,25 @@ documented UI fallback.
   per-instance state scoping (FR-1c: two registered instances never share or leak
   canvas/query context).
 - **UI component:** delegate editor (completions from the static model, marker
-  rendering), pattern-sequence builder validation.
+  rendering), pattern-sequence builder validation, NL assist (generation-prompt
+  construction per delegate kind asserting §6.1/§6.2 context is included, insertion
+  into the editor, disabled state without a configured backend — model calls mocked).
 - **End-to-end (against a live apiApp with generated sample data):** scenarios 1–8
-  above, plus the disconnected state (9).
+  above, plus the disconnected state (9). Scenario 10 runs only where a model backend
+  is available in the test environment; the unconfigured half of it is always testable.
 
 ## 11. Deliverables and workflow
 
 1. `features/web-ui/design.md` — personas, information architecture, screen wireframes
    (ASCII or Mermaid), key flows, empty/loading/error states, tech-stack decision
    (SPA framework, data layer, and graph-rendering library — compare at least
-   Cytoscape.js, Sigma.js, and a force-graph option at the FR-20 scale), and the G-1
-   hosting decision with rationale.
+   Cytoscape.js, Sigma.js, and a force-graph option at the FR-20 scale), the G-1
+   hosting decision with rationale, and the G-6 model-backend decision for the
+   natural-language assist (FR-26).
 2. `features/web-ui/plan.md` — phased implementation; suggested order: connect +
    dashboard + browser → query workspace → canvas → delegate editor with static
-   IntelliSense → G-2 validation endpoint + diagnostics mapping → subgraph studio →
-   mutations/polish. Each phase names its tests.
+   IntelliSense → G-2 validation endpoint + diagnostics mapping → NL assist
+   (FR-26/G-6) → subgraph studio → mutations/polish. Each phase names its tests.
 3. Implementation in `fallen-8-web-ui/` plus the G-1/G-2 backend changes in
    `fallen-8-core-apiApp/`, on branch `feature/web-ui`, tracked by a GitHub issue
    labeled `feature`, delivered via PR referencing the issue. Commit messages and PR
