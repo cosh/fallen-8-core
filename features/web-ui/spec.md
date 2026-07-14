@@ -5,6 +5,9 @@
 > agent designing and implementing the UI. The implementing agent's first deliverables
 > are a UX design document (`design.md`) and the phased [plan.md](./plan.md) — neither
 > exists yet. Follow the feature workflow in the repository root `CLAUDE.md`.
+>
+> An interactive visual prototype of the UI ("F8 Studio") has since been designed in
+> Claude Design and is checked in under [design/](./design/README.md).
 
 ## 1. Overview
 
