@@ -1,8 +1,13 @@
 # API Security Boundary — Specification
 
-> **Status:** Planned (P0 security) — from the 2026-07 principal-architect & performance review.
-> Establish an authentication trust boundary for the hosted API and gate the anonymous
-> remote-code-execution surface (Roslyn filter compile + arbitrary plugin DLL load).
+> **Status:** Implemented (P0 security) — from the 2026-07 principal-architect & performance review.
+> Established an authentication trust boundary for the hosted API and gated the previously-anonymous
+> remote-code-execution surface (Roslyn filter compile + plugin DLL load). Shipped: API-key auth +
+> fallback policy + the missing `UseAuthentication`; off-by-default `EnableDynamicCodeExecution` /
+> `EnableDynamicPluginLoading` gates (403); isolated plugin directory; default-deny CORS; a
+> fixed-window rate limiter on the sensitive endpoints; and request-size limits. **S6 (loopback-only
+> binding)** ships as the `AllowRemoteAccess` flag + a prominent startup warning; hard enforcement of
+> the bind address is deferred (it would override the operator's Kestrel/port config) and documented.
 
 ## 1. Problem / current state
 

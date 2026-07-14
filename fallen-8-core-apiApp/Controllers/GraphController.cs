@@ -30,10 +30,13 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.Logging;
+using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Interfaces;
@@ -986,12 +989,27 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <response code="200">Returns the found paths between the vertices</response>
         /// <response code="400">Invalid path specification</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)</response>
         /// <response code="404">Source or target vertex not found</response>
+        /// <response code="413">The request body exceeds the code-endpoint size limit</response>
+        /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
+        /// <remarks>
+        /// SECURITY: the filter/cost fragments in the body are compiled with Roslyn and executed
+        /// IN-PROCESS WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone
+        /// permitted to reach it is trusted as the server process. It requires an authenticated caller
+        /// AND the operator to have set Fallen8:Security:EnableDynamicCodeExecution=true.
+        /// </remarks>
         [HttpPost("/path/{from}/to/{to}")]
+        [Authorize(Policy = Fallen8SecurityOptions.DynamicCodePolicy)]
+        [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
+        [RequestSizeLimit(1_048_576)]
         [Produces("application/json")]
         [Consumes("application/json")]
         [ProducesResponseType(typeof(List<PathREST>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public List<PathREST> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {

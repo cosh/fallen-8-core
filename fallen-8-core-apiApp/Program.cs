@@ -23,9 +23,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Versioning;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -33,13 +37,16 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Helper;
+using NoSQL.GraphDB.App.Security;
 using NoSQL.GraphDB.App.Services;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Persistency;
+using NoSQL.GraphDB.Core.Plugin;
 using Scalar.AspNetCore;
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Threading.RateLimiting;
 
 namespace NoSQL.GraphDB.App
 {
@@ -123,6 +130,68 @@ namespace NoSQL.GraphDB.App
             // Own the load-on-start / save-on-stop lifecycle around the existing Save/Load transactions.
             builder.Services.AddHostedService<DurabilityLifecycleService>();
 
+            // Security configuration + trust boundary (feature api-security-boundary).
+            builder.Services.Configure<Fallen8SecurityOptions>(
+                builder.Configuration.GetSection(Fallen8SecurityOptions.SectionName));
+            var security = new Fallen8SecurityOptions();
+            builder.Configuration.GetSection(Fallen8SecurityOptions.SectionName).Bind(security);
+
+            // Authentication: an API-key scheme. When no key is configured it authenticates nobody
+            // (the server logs a warning below and runs unauthenticated, mitigated by the
+            // loopback-by-default bind and the off-by-default code/plugin gates).
+            builder.Services.AddAuthentication(Fallen8SecurityOptions.ApiKeyScheme)
+                .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
+                    Fallen8SecurityOptions.ApiKeyScheme, _ => { });
+
+            builder.Services.AddSingleton<IAuthorizationHandler, DynamicCapabilityAuthorizationHandler>();
+            builder.Services.AddAuthorization(o =>
+            {
+                // When a key is configured, everything requires an authenticated caller unless it opts
+                // out with [AllowAnonymous]. With no key configured there is no credential to present,
+                // so the fallback is left open (dev posture; the dangerous surface is still gated).
+                if (!string.IsNullOrWhiteSpace(security.ApiKey))
+                {
+                    o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+                }
+
+                // The RCE gates require BOTH an authenticated caller AND the operator to have enabled
+                // the capability: anonymous -> 401, authenticated-but-disabled -> 403.
+                o.AddPolicy(Fallen8SecurityOptions.DynamicCodePolicy, p => p
+                    .RequireAuthenticatedUser()
+                    .AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicCodeExecution)));
+                o.AddPolicy(Fallen8SecurityOptions.DynamicPluginPolicy, p => p
+                    .RequireAuthenticatedUser()
+                    .AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicPluginLoading)));
+            });
+
+            // CORS: one named policy, default deny. Only the configured origins are allowed; never a
+            // wildcard-with-credentials.
+            builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+            {
+                if (security.AllowedCorsOrigins != null && security.AllowedCorsOrigins.Length > 0)
+                {
+                    p.WithOrigins(security.AllowedCorsOrigins).AllowAnyHeader().AllowAnyMethod();
+                }
+                // else: no origins configured -> the policy allows nothing cross-origin (deny).
+            }));
+
+            // Rate limiting: a stricter fixed-window partition on the expensive/dangerous endpoints;
+            // a breach returns 429.
+            builder.Services.AddRateLimiter(o =>
+            {
+                o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                o.AddFixedWindowLimiter(Fallen8SecurityOptions.SensitiveRateLimitPolicy, fw =>
+                {
+                    fw.PermitLimit = security.SensitiveRateLimitPermitPerWindow;
+                    fw.Window = TimeSpan.FromSeconds(Math.Max(1, security.RateLimitWindowSeconds));
+                    fw.QueueLimit = 0;
+                });
+            });
+
+            // Register the isolated plugin directory as an additional plugin search directory so an
+            // uploaded DLL (written there, never next to the app binaries) is still discoverable.
+            PluginFactory.AddPluginSearchDirectory(security.ResolvePluginDirectory());
+
             builder.Services.AddControllers().AddJsonOptions(options =>
             {
                 // Serve the REST DTOs through source-generated metadata instead of runtime
@@ -140,6 +209,20 @@ namespace NoSQL.GraphDB.App
             // AND WAL-replayed subgraphs rehydrate.
             _ = app.Services.GetRequiredService<IFallen8>();
 
+            var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Fallen8.Security");
+            if (string.IsNullOrWhiteSpace(security.ApiKey))
+            {
+                startupLogger.LogWarning("Fallen-8 is running UNAUTHENTICATED (no Fallen8:Security:ApiKey configured). " +
+                    "Configure an API key before exposing this server. The code/plugin endpoints stay disabled " +
+                    "unless explicitly enabled.");
+            }
+            if (security.EnableDynamicCodeExecution || security.EnableDynamicPluginLoading)
+            {
+                startupLogger.LogWarning("Fallen-8 dynamic code/plugin execution is ENABLED. Compiled filters and " +
+                    "loaded plugins run in-process with FULL TRUST - anyone permitted to reach these endpoints is " +
+                    "trusted as the server process. This is a trust boundary, not a sandbox.");
+            }
+
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
@@ -149,6 +232,12 @@ namespace NoSQL.GraphDB.App
 
             app.UseHttpsRedirection();
 
+            app.UseCors();
+            app.UseRateLimiter();
+
+            // Correct order: authenticate the caller, THEN authorize (the missing UseAuthentication was
+            // why UseAuthorization was a no-op gate before - feature api-security-boundary S1).
+            app.UseAuthentication();
             app.UseAuthorization();
 
             app.MapControllers();

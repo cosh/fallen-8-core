@@ -76,7 +76,43 @@ namespace NoSQL.GraphDB.Core.Plugin
         private static readonly ConcurrentDictionary<Type, FrozenDictionary<String, Type>> _nameMaps
             = new ConcurrentDictionary<Type, FrozenDictionary<String, Type>>();
 
+        /// <summary>
+        ///   Extra directories to scan for plugin assemblies, in addition to the base directory. The
+        ///   hosted app registers its isolated, configured plugin directory here so an uploaded DLL is
+        ///   written there (never next to the app binaries) yet still discovered
+        ///   (feature api-security-boundary). Guarded by <see cref="_discoveryLock" />.
+        /// </summary>
+        private static readonly List<String> _extraSearchDirectories = new List<String>();
+
         #endregion
+
+        /// <summary>
+        ///   Registers an additional directory to scan for plugin assemblies (feature
+        ///   api-security-boundary). Idempotent; invalidates the discovery cache so a plugin already
+        ///   present in the newly added directory is picked up on the next lookup.
+        /// </summary>
+        public static void AddPluginSearchDirectory(String directory)
+        {
+            if (String.IsNullOrWhiteSpace(directory))
+            {
+                return;
+            }
+
+            var full = Path.GetFullPath(directory);
+            lock (_discoveryLock)
+            {
+                foreach (var existing in _extraSearchDirectories)
+                {
+                    if (String.Equals(existing, full, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+                }
+                _extraSearchDirectories.Add(full);
+                _candidateTypes = null;
+                _nameMaps.Clear();
+            }
+        }
 
         /// <summary>
         ///   Tries to find a plugin.
@@ -285,13 +321,25 @@ namespace NoSQL.GraphDB.Core.Plugin
         {
             var result = new List<Type>();
 
-            string currentAssemblyDirectoryName = AppContext.BaseDirectory;
-
-            var files = Directory.EnumerateFiles(currentAssemblyDirectoryName, "*.dll");
-
-            foreach (var file in files)
+            // Scan the base directory plus any registered extra directories (e.g. the hosted app's
+            // isolated plugin directory - feature api-security-boundary). De-duplicate by full path so
+            // a directory that resolves to the base directory is not scanned twice. Runs under
+            // _discoveryLock (see GetCandidateTypesLocked), so the extra-directory list is stable here.
+            var directories = new List<String> { Path.GetFullPath(AppContext.BaseDirectory) };
+            foreach (var extra in _extraSearchDirectories)
             {
-                result.AddRange(ProcessAFile(file));
+                if (!directories.Contains(extra, StringComparer.OrdinalIgnoreCase) && Directory.Exists(extra))
+                {
+                    directories.Add(extra);
+                }
+            }
+
+            foreach (var directory in directories)
+            {
+                foreach (var file in Directory.EnumerateFiles(directory, "*.dll"))
+                {
+                    result.AddRange(ProcessAFile(file));
+                }
             }
 
             return result;

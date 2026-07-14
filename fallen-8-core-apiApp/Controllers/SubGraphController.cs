@@ -27,9 +27,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Logging;
+using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
@@ -91,13 +94,25 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="fromSubGraph">Optional name of an existing subgraph to source this one from (creates a nested subgraph). When omitted, the subgraph is sourced from the whole graph.</param>
         /// <response code="201">The subgraph was created and registered. A syntactically-valid pattern that matches nothing yields a registered EMPTY subgraph (201), identically whether the source graph is empty or populated.</response>
         /// <response code="400">The specification was invalid, the pattern was structurally invalid, or a filter failed to compile</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)</response>
         /// <response code="404">The source subgraph named by fromSubGraph does not exist</response>
         /// <response code="409">A subgraph with the same name already exists, or a resource quota (subgraph count or materialized-element ceiling) was exceeded</response>
         /// <response code="500">The create transaction faulted with an internal error</response>
+        /// <remarks>
+        /// SECURITY: the pattern filter fragments are compiled with Roslyn and executed IN-PROCESS
+        /// WITH FULL TRUST - a trust boundary, not a sandbox. Requires an authenticated caller AND
+        /// Fallen8:Security:EnableDynamicCodeExecution=true.
+        /// </remarks>
         [HttpPut("/subgraph")]
+        [Authorize(Policy = Fallen8SecurityOptions.DynamicCodePolicy)]
+        [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
+        [RequestSizeLimit(1_048_576)]
         [Consumes("application/json")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(SubGraphSummary), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
