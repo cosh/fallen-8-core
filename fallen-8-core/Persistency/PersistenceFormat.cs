@@ -174,16 +174,9 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
-        /// <summary>
-        /// Computes the byte length and CRC-32 of a completed file, for recording in the manifest.
-        /// </summary>
-        internal static uint ComputeFileCrc(string fullPath, out long length)
-        {
-            using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, Helper.Constants.BufferSize, FileOptions.SequentialScan))
-            {
-                return Crc32.Compute(stream, out length);
-            }
-        }
+        // ComputeFileCrc (the save-side read-back of a just-written sidecar) was removed by feature
+        // checkpoint-io-efficiency 3.2: WriteSidecar now CRCs the in-memory image in one pass, so the
+        // file is never re-read to checksum it.
 
         private static bool MagicMatches(byte[] candidate)
         {

@@ -23,61 +23,34 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System;
 using System.IO;
 
 namespace NoSQL.GraphDB.Core.Persistency
 {
     /// <summary>
-    /// Minimal, dependency-free CRC-32 (IEEE 802.3: reflected input/output, polynomial
-    /// <c>0xEDB88320</c>, initial value <c>0xFFFFFFFF</c>, final XOR <c>0xFFFFFFFF</c>). It is used
-    /// to detect accidental corruption of a checkpoint - truncation, bit-rot, or a sidecar that does
-    /// not belong to this save - when a save is validated on load (finding C4/C2). It is an
-    /// integrity check against accidental damage, not a cryptographic signature against tampering.
+    /// CRC-32 (IEEE 802.3 / ISO-HDLC: reflected input/output, polynomial <c>0xEDB88320</c>, initial
+    /// value <c>0xFFFFFFFF</c>, final XOR <c>0xFFFFFFFF</c>). It detects accidental corruption of a
+    /// checkpoint - truncation, bit-rot, or a sidecar that does not belong to this save - when a save
+    /// is validated on load (finding C4/C2). An integrity check against accidental damage, not a
+    /// cryptographic signature against tampering.
+    ///
+    /// <para>
+    /// Backed by the hardware-accelerated <see cref="System.IO.Hashing.Crc32"/> (feature
+    /// checkpoint-io-efficiency), which computes CRC-32/ISO-HDLC with EXACTLY these parameters, so the
+    /// emitted <c>uint</c> is byte-for-byte identical to the former hand-rolled table loop - every
+    /// existing checkpoint keeps validating and there is no <c>formatVersion</c> bump. This is a pure
+    /// throughput swap: the accelerated implementation runs roughly an order of magnitude faster than
+    /// the scalar table loop, on the critical path of both save (the per-sidecar CRC) and load (the
+    /// validate pass).
+    /// </para>
     /// </summary>
     internal static class Crc32
     {
-        /// <summary>The value fed to <see cref="Update"/> for the first byte of a fresh computation.</summary>
-        internal const uint Seed = 0xFFFFFFFFu;
-
-        private static readonly uint[] Table = BuildTable();
-
-        private static uint[] BuildTable()
-        {
-            const uint polynomial = 0xEDB88320u;
-            var table = new uint[256];
-            for (uint i = 0; i < 256; i++)
-            {
-                var crc = i;
-                for (var bit = 0; bit < 8; bit++)
-                {
-                    crc = (crc & 1u) != 0 ? (crc >> 1) ^ polynomial : crc >> 1;
-                }
-                table[i] = crc;
-            }
-            return table;
-        }
-
-        /// <summary>Feeds more bytes into a running (not-yet-finalized) CRC state.</summary>
-        internal static uint Update(uint runningCrc, byte[] buffer, int offset, int count)
-        {
-            var crc = runningCrc;
-            for (var i = 0; i < count; i++)
-            {
-                crc = (crc >> 8) ^ Table[(crc ^ buffer[offset + i]) & 0xFFu];
-            }
-            return crc;
-        }
-
-        /// <summary>Turns a running CRC state into the final checksum.</summary>
-        internal static uint Finalize(uint runningCrc)
-        {
-            return runningCrc ^ 0xFFFFFFFFu;
-        }
-
         /// <summary>Computes the CRC-32 of a byte range in one call.</summary>
         internal static uint Compute(byte[] buffer, int offset, int count)
         {
-            return Finalize(Update(Seed, buffer, offset, count));
+            return System.IO.Hashing.Crc32.HashToUInt32(new ReadOnlySpan<byte>(buffer, offset, count));
         }
 
         /// <summary>
@@ -86,17 +59,17 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         internal static uint Compute(Stream stream, out long length)
         {
-            var crc = Seed;
+            var hasher = new System.IO.Hashing.Crc32();
             long total = 0;
             var buffer = new byte[Helper.Constants.BufferSize];
             int read;
             while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
             {
-                crc = Update(crc, buffer, 0, read);
+                hasher.Append(new ReadOnlySpan<byte>(buffer, 0, read));
                 total += read;
             }
             length = total;
-            return Finalize(crc);
+            return hasher.GetCurrentHashAsUInt32();
         }
     }
 }

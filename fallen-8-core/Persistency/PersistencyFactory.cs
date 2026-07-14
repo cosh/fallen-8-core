@@ -731,24 +731,35 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         private SidecarManifestEntry WriteSidecar(string finalFileName, Action<SerializationWriter> writeContent)
         {
+            // Single-pass save (feature checkpoint-io-efficiency 3.2). Build the sidecar image in a
+            // MemoryStream - where SerializationWriter's seek-back header patch (UpdateHeader) is free -
+            // CRC it in ONE in-memory pass, and write it to the temp file ONCE. The old path streamed
+            // the bytes to disk and then re-opened and re-read the whole file just to CRC it
+            // (ComputeFileCrc), moving every sidecar byte through the CPU twice inside the save's
+            // writer-hold window. This mirrors the main header commit's shape. The on-disk bytes, the
+            // CRC coverage (whole file, preamble included) and the manifest entry are byte-identical.
+            byte[] image;
+            using (var mem = new MemoryStream())
+            {
+                PersistenceFormat.WritePreamble(mem);
+
+                var writer = new SerializationWriter(mem);
+                writeContent(writer);
+                writer.UpdateHeader();
+                writer.Flush();
+
+                image = mem.ToArray();
+            }
+
+            var crc = Crc32.Compute(image, 0, image.Length);
+
             var temp = TempNameFor(finalFileName);
             try
             {
-                using (var file = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None,
-                           Constants.BufferSize, FileOptions.SequentialScan))
-                {
-                    PersistenceFormat.WritePreamble(file);
-
-                    var writer = new SerializationWriter(file);
-                    writeContent(writer);
-                    writer.UpdateHeader();
-                    writer.Flush();
-                    file.Flush(true);
-                }
-
-                var crc = PersistenceFormat.ComputeFileCrc(temp, out var size);
+                // temp + fsync + atomic rename - the existing durability sequence, unchanged.
+                WriteAllBytesDurably(temp, image);
                 File.Move(temp, finalFileName, true);
-                return new SidecarManifestEntry(Path.GetFileName(finalFileName), size, crc);
+                return new SidecarManifestEntry(Path.GetFileName(finalFileName), image.Length, crc);
             }
             catch
             {
@@ -810,7 +821,10 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             var result = new List<EdgeSneakPeak>();
 
-            using (var file = File.Open(graphElementBunchPath, FileMode.Open, FileAccess.Read))
+            // Right-sized, sequential parse open (feature checkpoint-io-efficiency): 64 KB buffer +
+            // SequentialScan, matching the integrity opens, instead of the framework-default 4 KB.
+            using (var file = new FileStream(graphElementBunchPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                       Constants.BufferSize, FileOptions.SequentialScan))
             {
                 // Reject a foreign/old/wrong-version bunch and advance past the preamble bytes so the
                 // reader starts on the payload (finding C4).
@@ -890,7 +904,8 @@ namespace NoSQL.GraphDB.Core.Persistency
                 return;
             }
 
-            using (var file = File.Open(serviceLocaion, FileMode.Open, FileAccess.Read))
+            using (var file = new FileStream(serviceLocaion, FileMode.Open, FileAccess.Read, FileShare.Read,
+                       Constants.BufferSize, FileOptions.SequentialScan))
             {
                 PersistenceFormat.ReadAndValidatePreamble(file, Path.GetFileName(serviceLocaion));
 
@@ -911,7 +926,8 @@ namespace NoSQL.GraphDB.Core.Persistency
                 return;
             }
 
-            using (var file = File.Open(indexLocaion, FileMode.Open, FileAccess.Read))
+            using (var file = new FileStream(indexLocaion, FileMode.Open, FileAccess.Read, FileShare.Read,
+                       Constants.BufferSize, FileOptions.SequentialScan))
             {
                 PersistenceFormat.ReadAndValidatePreamble(file, Path.GetFileName(indexLocaion));
 
