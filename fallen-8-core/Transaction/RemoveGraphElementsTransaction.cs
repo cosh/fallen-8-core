@@ -37,6 +37,10 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
+        // The ids this batch genuinely transitioned live -> removed, in removal order (feature
+        // transaction-atomicity), so Rollback can restore them if a later removal throws.
+        private List<Int32> _removedIds = new List<Int32>();
+
         internal override Boolean TriggersAutoTrim
         {
             get { return true; }
@@ -44,14 +48,21 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override void Rollback(Fallen8 f8)
         {
-            //rollback is implemented in the TryRemoveGraphElement_private method
+            // Restore the removals that had already been applied when a later one threw, so the whole
+            // batch is all-or-nothing (a per-element self-restore only covers the single faulting
+            // element - it cannot undo the earlier, already-committed removals of the same batch).
+            f8.RestoreRemovedElements_private(_removedIds);
         }
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            foreach (var GraphElementId in GraphElementIds)
+            // Range-check the whole batch before removing anything (an out-of-range id throws here,
+            // atomically), then remove, tracking each genuine removal for Rollback.
+            f8.RemoveGraphElements_internal(GraphElementIds, _removedIds, out var reason);
+            if (reason != TransactionFailureReason.None)
             {
-                f8.TryRemoveGraphElement_private(GraphElementId);
+                FailureReason = reason;
+                return false;
             }
 
             return true;
@@ -59,7 +70,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override void Cleanup()
         {
-            //NOOP
+            _removedIds = null;
         }
     }
 }

@@ -584,29 +584,49 @@ namespace NoSQL.GraphDB.Core
             return newVertex;
         }
 
-        internal List<VertexModel> CreateVertices_internal(List<VertexDefinition> definitions)
+        internal List<VertexModel> CreateVertices_internal(List<VertexDefinition> definitions, out Boolean inputValid)
         {
+            // Construct-then-commit (feature transaction-atomicity): nothing is mutated - not the id
+            // counter, not VertexCount, not the store - until every model in the batch has been built
+            // successfully. So a throw (or a structurally invalid definition) before the atomic append
+            // leaves the engine byte-for-byte as it was, and the id == index invariant is preserved
+            // under every failure path (the old code advanced _currentId/VertexCount per definition
+            // BEFORE the append, so a mid-loop throw left _currentId > Count permanently).
+            inputValid = true;
             var newVertices = new List<VertexModel>();
 
-            if (definitions != null && definitions.Count > 0)
+            if (definitions == null || definitions.Count == 0)
             {
-                foreach (var aVertexDef in definitions)
-                {
-                    //create the new vertex (interning the label and property keys, finding M2)
-                    var newVertex = new VertexModel(_currentId, aVertexDef.CreationDate, Intern(aVertexDef.Label), InternPropertyKeys(aVertexDef.Properties));
-
-                    newVertices.Add(newVertex);
-
-                    //increment the id (single-writer field, plain increment - finding P10)
-                    _currentId++;
-
-                    //Increase the vertex count
-                    VertexCount++;
-                }
-
-                //insert all vertices in batch
-                AppendGraphElements(newVertices);
+                return newVertices;
             }
+
+            // 1. Validate structure up front WITHOUT mutating: a null definition (a JSON array element
+            //    can be null) rolls the whole batch back cleanly as InvalidInput rather than NRE-ing
+            //    mid-loop after some ids were already consumed.
+            foreach (var aVertexDef in definitions)
+            {
+                if (aVertexDef == null)
+                {
+                    inputValid = false;
+                    return newVertices; // nothing built, nothing mutated
+                }
+            }
+
+            // 2. Build every model against a LOCAL id counter seeded from _currentId. A throw here
+            //    (e.g. OOM) still leaves the engine untouched - no compensation needed.
+            var nextId = _currentId;
+            foreach (var aVertexDef in definitions)
+            {
+                //create the new vertex (interning the label and property keys, finding M2)
+                newVertices.Add(new VertexModel(nextId, aVertexDef.CreationDate, Intern(aVertexDef.Label), InternPropertyKeys(aVertexDef.Properties)));
+                nextId++;
+            }
+
+            // 3. Commit atomically: one append (one Count bump), THEN advance the counters. The append
+            //    publishes Count last, so a reader sees either none or all of the batch.
+            AppendGraphElements(newVertices);
+            _currentId = nextId;
+            VertexCount += newVertices.Count;
 
             return newVertices;
         }
@@ -973,62 +993,84 @@ namespace NoSQL.GraphDB.Core
             return outgoingEdge;
         }
 
-        internal List<EdgeModel> CreateEdges_internal(List<EdgeDefinition> definitions, out Boolean allEndpointsResolved)
+        internal void CreateEdges_internal(List<EdgeDefinition> definitions, List<EdgeModel> createdEdges,
+            out Boolean inputValid, out Boolean allEndpointsResolved)
         {
+            // Construct-then-commit with store-then-adjacency (feature transaction-atomicity). The old
+            // code bumped _currentId/EdgeCount and wired adjacency per edge BEFORE the batch append,
+            // so a throw mid-loop left the id space corrupt (_currentId > Count) plus dangling
+            // adjacency. Now: validate the whole batch, build all models against a local id counter,
+            // append to the store FIRST, then wire adjacency (matching the single-edge order so a
+            // reader can never traverse to an edge TryGetEdge cannot resolve). The appended edges are
+            // recorded into the caller's <paramref name="createdEdges"/> list BEFORE wiring, so if a
+            // wiring step still throws (OOM), the transaction's Rollback removes exactly the edges
+            // that reached the store.
+            inputValid = true;
             allEndpointsResolved = true;
-            var newEdges = new List<EdgeModel>();
 
-            if (definitions != null && definitions.Count > 0)
+            if (definitions == null || definitions.Count == 0)
             {
-                // Verify EVERY referenced vertex exists and is live BEFORE wiring anything, so a
-                // batch that references a missing/removed vertex rolls back cleanly (NotFound) and
-                // ATOMICALLY - instead of committing a partial result or letting the master-store
-                // bounds check throw. Single-writer, so no endpoint can be removed between this pass
-                // and the wiring pass below.
-                foreach (var aEdgeDefinition in definitions)
+                return;
+            }
+
+            // 1. Structural validation (no null definitions) - a clean InvalidInput, no throw.
+            foreach (var aEdgeDefinition in definitions)
+            {
+                if (aEdgeDefinition == null)
                 {
-                    if (TryResolveLiveVertexForEdge(aEdgeDefinition.SourceVertexId) == null
-                        || TryResolveLiveVertexForEdge(aEdgeDefinition.TargetVertexId) == null)
-                    {
-                        allEndpointsResolved = false;
-                        return newEdges; // nothing wired
-                    }
-                }
-
-                foreach (var aEdgeDefinition in definitions)
-                {
-                    // Guaranteed non-null by the pre-validation pass above.
-                    var sourceVertex = TryResolveLiveVertexForEdge(aEdgeDefinition.SourceVertexId);
-                    var targetVertex = TryResolveLiveVertexForEdge(aEdgeDefinition.TargetVertexId);
-
-                    //intern the label, edge-property-id and property keys (finding M2)
-                    var edgePropertyId = Intern(aEdgeDefinition.EdgePropertyId);
-                    var newEdge = new EdgeModel(_currentId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex,
-                        Intern(aEdgeDefinition.Label), edgePropertyId, InternPropertyKeys(aEdgeDefinition.Properties));
-
-                    newEdges.Add(newEdge);
-
-                    //increment the ids (single-writer field, plain increment - finding P10)
-                    _currentId++;
-
-                    //add the edge to the source vertex
-                    sourceVertex.AddOutEdge(edgePropertyId, newEdge);
-
-                    //link the vertices
-                    targetVertex.AddIncomingEdge(edgePropertyId, newEdge);
-
-                    //increase the edgeCount
-                    EdgeCount++;
-                }
-
-                //add the edges to the graph elements in batch
-                if (newEdges.Count > 0)
-                {
-                    AppendGraphElements(newEdges);
+                    inputValid = false;
+                    return; // nothing built, nothing mutated
                 }
             }
 
-            return newEdges;
+            // 2. Endpoint validation: EVERY referenced vertex must be live BEFORE anything is built or
+            //    wired, so a missing/removed endpoint rolls the whole batch back cleanly (NotFound) and
+            //    atomically. Single-writer, so no endpoint can be removed between here and the wiring.
+            foreach (var aEdgeDefinition in definitions)
+            {
+                if (TryResolveLiveVertexForEdge(aEdgeDefinition.SourceVertexId) == null
+                    || TryResolveLiveVertexForEdge(aEdgeDefinition.TargetVertexId) == null)
+                {
+                    allEndpointsResolved = false;
+                    return; // nothing wired
+                }
+            }
+
+            // 3. Build every model against a LOCAL id counter, WITHOUT touching store/adjacency/counters.
+            var newEdges = new List<EdgeModel>(definitions.Count);
+            var nextId = _currentId;
+            foreach (var aEdgeDefinition in definitions)
+            {
+                // Guaranteed non-null by the pre-validation passes above.
+                var sourceVertex = TryResolveLiveVertexForEdge(aEdgeDefinition.SourceVertexId);
+                var targetVertex = TryResolveLiveVertexForEdge(aEdgeDefinition.TargetVertexId);
+
+                //intern the label, edge-property-id and property keys (finding M2)
+                var edgePropertyId = Intern(aEdgeDefinition.EdgePropertyId);
+                newEdges.Add(new EdgeModel(nextId, aEdgeDefinition.CreationDate, targetVertex, sourceVertex,
+                    Intern(aEdgeDefinition.Label), edgePropertyId, InternPropertyKeys(aEdgeDefinition.Properties)));
+                nextId++;
+            }
+
+            // 4. Commit: append to the store FIRST (store-then-adjacency), advance the counters, record
+            //    the now-committed edges for rollback, THEN wire adjacency. Recording before wiring
+            //    means a wiring throw is fully recoverable (Rollback removes every appended edge,
+            //    detaching any partial adjacency and restoring EdgeCount).
+            AppendGraphElements(newEdges);
+            _currentId = nextId;
+            EdgeCount += newEdges.Count;
+            createdEdges.AddRange(newEdges);
+
+            for (var i = 0; i < newEdges.Count; i++)
+            {
+                var edge = newEdges[i];
+
+                //add the edge to the source vertex
+                edge.SourceVertex.AddOutEdge(edge.EdgePropertyId, edge);
+
+                //link the vertices
+                edge.TargetVertex.AddIncomingEdge(edge.EdgePropertyId, edge);
+            }
         }
 
         internal void SetProperty_internal(Int32 graphElementId, String propertyId, Object property)
@@ -1039,6 +1081,31 @@ namespace NoSQL.GraphDB.Core
                 //intern the property key (finding M2)
                 graphElement.SetProperty(Intern(propertyId), property);
             }
+        }
+
+        /// <summary>
+        ///   Sets a single property and records its inverse into <paramref name="undo"/> ONLY after the
+        ///   set has succeeded (feature transaction-atomicity). <see cref="AGraphElementModel.SetProperty"/>
+        ///   throws before mutating on a value conflict, so a rolled-back single set leaves nothing to
+        ///   undo; the recorded inverse guards the invariant uniformly and covers a residual post-set
+        ///   throw. An out-of-range id throws here before any mutation, exactly as the plain setter did.
+        /// </summary>
+        internal void SetPropertyWithUndo_internal(Int32 graphElementId, String propertyId, Object property,
+            List<Transaction.PropertyMutationUndo> undo)
+        {
+            AGraphElementModel graphElement = GetGraphElementForMutation(graphElementId);
+            if (graphElement == null)
+            {
+                return; // no-op target (empty slot): nothing set, nothing to undo
+            }
+
+            var hadValueBefore = graphElement.TryGetProperty<Object>(out var priorValue, propertyId);
+
+            //intern the property key (finding M2)
+            graphElement.SetProperty(Intern(propertyId), property);
+
+            // Recorded only after SetProperty returns, so a conflict throw leaves undo empty.
+            undo.Add(new Transaction.PropertyMutationUndo(graphElementId, propertyId, hadValueBefore, priorValue));
         }
 
         internal void RemoveProperty_internal(Int32 graphElementId, String propertyId)
@@ -1271,6 +1338,255 @@ namespace NoSQL.GraphDB.Core
             }
 
             return true;
+        }
+
+        /// <summary>
+        ///   Applies a batch of property sets atomically (feature transaction-atomicity). Pre-validates
+        ///   the WHOLE batch before mutating anything - structural validity (no null definitions,
+        ///   populated to a clean <see cref="TransactionFailureReason.InvalidInput"/>) and
+        ///   conflict-freedom, accounting for intra-batch pending writes so a self-conflicting batch is
+        ///   caught too (<see cref="TransactionFailureReason.Conflict"/>). An out-of-range id keeps the
+        ///   historical throw (<see cref="ArgumentOutOfRangeException"/> - the worker maps it to
+        ///   InternalError/500, per transaction-failure-reasons), but now during validation, before any
+        ///   set is applied, so the batch is still atomic. On the happy path each set is applied and its
+        ///   inverse recorded into <paramref name="undo"/> (in apply order), so a residual post-validation
+        ///   throw (e.g. OOM) is undone by <see cref="RestoreProperties_internal"/>.
+        /// </summary>
+        internal Boolean SetProperties_internal(List<PropertyAddDefinition> definitions,
+            List<Transaction.PropertyMutationUndo> undo, out Transaction.TransactionFailureReason reason)
+        {
+            reason = Transaction.TransactionFailureReason.None;
+
+            if (definitions == null)
+            {
+                reason = Transaction.TransactionFailureReason.InvalidInput;
+                return false;
+            }
+
+            if (definitions.Count == 0)
+            {
+                return true;
+            }
+
+            // 1. Structural validation (no null definitions) - a clean InvalidInput, no throw.
+            foreach (var aDefinition in definitions)
+            {
+                if (aDefinition == null)
+                {
+                    reason = Transaction.TransactionFailureReason.InvalidInput;
+                    return false;
+                }
+            }
+
+            // 2. Conflict validation. Simulate the batch against the live store WITHOUT mutating,
+            //    tracking each (element,key)'s effective value after prior items in this batch, so an
+            //    intra-batch conflict (two different values for the same new key) is caught as well as
+            //    a conflict with the element's existing value. An out-of-range id throws here (before
+            //    any apply), preserving the InternalError/500 boundary while keeping the batch atomic.
+            //    A missing (null) slot stays a no-op, matching SetProperty_internal.
+            var pending = new Dictionary<(Int32, String), Object>();
+            foreach (var aDefinition in definitions)
+            {
+                var graphElement = GetGraphElementForMutation(aDefinition.GraphElementId);
+                if (graphElement == null)
+                {
+                    continue; // no-op target (empty slot), as today
+                }
+
+                // Canonicalize the candidate so the comparison is canonical-to-canonical (the store
+                // holds canonical values, and SetProperty compares after canonicalizing): a genuine
+                // no-op update (equal value) is not a conflict, a different value is.
+                var candidate = AGraphElementModel.CanonicalizeProperty(aDefinition.Property);
+                var key = (aDefinition.GraphElementId, aDefinition.PropertyId);
+
+                // The effective current value is the one a prior item in THIS batch set (pending), or
+                // else the element's stored value. Either is already canonical.
+                Boolean hasEffective;
+                Object effective;
+                if (!pending.TryGetValue(key, out effective))
+                {
+                    hasEffective = graphElement.TryGetProperty<Object>(out effective, aDefinition.PropertyId);
+                }
+                else
+                {
+                    hasEffective = true;
+                }
+
+                if (hasEffective && !AGraphElementModel.ArePropertyValuesEqual(effective, candidate))
+                {
+                    reason = Transaction.TransactionFailureReason.Conflict;
+                    return false;
+                }
+
+                pending[key] = candidate;
+            }
+
+            // 3. Apply, recording the inverse of each set (in apply order) for a residual-throw undo.
+            foreach (var aDefinition in definitions)
+            {
+                var graphElement = GetGraphElementForMutation(aDefinition.GraphElementId);
+                if (graphElement == null)
+                {
+                    continue;
+                }
+
+                var hadValueBefore = graphElement.TryGetProperty<Object>(out var priorValue, aDefinition.PropertyId);
+                undo.Add(new Transaction.PropertyMutationUndo(aDefinition.GraphElementId, aDefinition.PropertyId, hadValueBefore, priorValue));
+
+                //intern the property key (finding M2)
+                graphElement.SetProperty(Intern(aDefinition.PropertyId), aDefinition.Property);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        ///   Restores the property state recorded by <see cref="SetProperties_internal"/> when the
+        ///   batch is rolled back (feature transaction-atomicity). Replays the recorded inverses in
+        ///   REVERSE apply order so a key set more than once in the batch is returned to its original
+        ///   value/absence.
+        /// </summary>
+        internal void RestoreProperties_internal(List<Transaction.PropertyMutationUndo> undo)
+        {
+            if (undo == null)
+            {
+                return;
+            }
+
+            for (var i = undo.Count - 1; i >= 0; i--)
+            {
+                var entry = undo[i];
+                var graphElement = GetGraphElementForMutation(entry.GraphElementId);
+                graphElement?.RestoreProperty(entry.PropertyId, entry.HadValueBefore, entry.PriorValue);
+            }
+        }
+
+        /// <summary>
+        ///   Removes a batch of graph elements atomically (feature transaction-atomicity). Every id is
+        ///   range-checked BEFORE any removal, so an out-of-range id still throws
+        ///   <see cref="ArgumentOutOfRangeException"/> (InternalError/500, per transaction-failure-reasons)
+        ///   but leaves the batch atomic (nothing removed). Each id that genuinely transitions
+        ///   live -> removed is recorded into <paramref name="removedIds"/> so that, if a later removal
+        ///   throws (e.g. a poisoned/corrupt adjacency), <see cref="RestoreRemovedElements_private"/>
+        ///   undoes the earlier removals of the same batch.
+        /// </summary>
+        internal void RemoveGraphElements_internal(List<Int32> graphElementIds, List<Int32> removedIds,
+            out Transaction.TransactionFailureReason reason)
+        {
+            reason = Transaction.TransactionFailureReason.None;
+
+            if (graphElementIds == null)
+            {
+                reason = Transaction.TransactionFailureReason.InvalidInput;
+                return;
+            }
+
+            if (graphElementIds.Count == 0)
+            {
+                return;
+            }
+
+            // Range-check the whole batch up front (out-of-range throws BEFORE any removal, so the
+            // batch is atomic - the historical throw contract is preserved, just moved earlier).
+            var snap = _snapshot;
+            foreach (var id in graphElementIds)
+            {
+                if (id < 0 || id >= snap.Count)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(graphElementIds));
+                }
+            }
+
+            // Apply, tracking genuine live -> removed transitions. If a removal throws, it self-restores
+            // that element and rethrows; the throw escapes to the worker, whose Rollback restores the
+            // earlier tracked ids of this batch.
+            foreach (var id in graphElementIds)
+            {
+                if (TryRemoveGraphElement_private(id))
+                {
+                    removedIds.Add(id);
+                }
+            }
+        }
+
+        /// <summary>
+        ///   Restores a set of fully-removed elements when a remove batch is rolled back (feature
+        ///   transaction-atomicity), then recomputes the counters. Restores in REVERSE removal order so
+        ///   a vertex removed before one of its (cascaded) edges is restored after that edge.
+        /// </summary>
+        internal void RestoreRemovedElements_private(List<Int32> removedIds)
+        {
+            if (removedIds == null || removedIds.Count == 0)
+            {
+                return;
+            }
+
+            for (var i = removedIds.Count - 1; i >= 0; i--)
+            {
+                var element = GetGraphElementForMutation(removedIds[i]);
+                if (element != null)
+                {
+                    RestoreRemovedElement_private(element);
+                }
+            }
+
+            //the removals maintained counts incrementally; a full recompute after the restore keeps
+            //them exactly correct without re-deriving the inverse of each cascade.
+            RecalculateGraphElementCounter();
+        }
+
+        /// <summary>
+        ///   Inverse of a COMPLETED soft-removal (feature transaction-atomicity): clears the removed
+        ///   flag and re-attaches the element to the adjacency the removal detached it from. For a
+        ///   vertex, the raw out/in adjacency snapshots are captured up front (both are immutable
+        ///   copy-on-write references, so re-attaching a self-loop via the out pass does not leak it
+        ///   into the in pass), then each edge is re-attached to the OTHER endpoint's adjacency it was
+        ///   detached from - the exact inverse of the removal cascade, including self-loops without
+        ///   duplication. For an edge, it is re-attached to both endpoints.
+        /// </summary>
+        private void RestoreRemovedElement_private(AGraphElementModel element)
+        {
+            element.MarkAsNotRemoved();
+
+            if (element is VertexModel vertex)
+            {
+                // Capture BOTH adjacency snapshots before mutating either: the removal detached each
+                // out-edge from its target's InEdges and each in-edge from its source's OutEdges, so
+                // re-attaching those (and only those) exactly inverts it. A self-loop sits in this
+                // vertex's OutEdges only after removal (the out pass detached it from InEdges), so it
+                // is absent from the in-snapshot and is not re-attached twice.
+                var outSnapshot = vertex.GetRawOutEdges();
+                var inSnapshot = vertex.GetRawInEdges();
+
+                if (outSnapshot != null)
+                {
+                    foreach (var group in outSnapshot)
+                    {
+                        foreach (var outEdge in group.Value)
+                        {
+                            outEdge.MarkAsNotRemoved();
+                            outEdge.TargetVertex.AddIncomingEdge(group.Key, outEdge);
+                        }
+                    }
+                }
+
+                if (inSnapshot != null)
+                {
+                    foreach (var group in inSnapshot)
+                    {
+                        foreach (var inEdge in group.Value)
+                        {
+                            inEdge.MarkAsNotRemoved();
+                            inEdge.SourceVertex.AddOutEdge(group.Key, inEdge);
+                        }
+                    }
+                }
+            }
+            else if (element is EdgeModel edge)
+            {
+                edge.TargetVertex.AddIncomingEdge(edge.EdgePropertyId, edge);
+                edge.SourceVertex.AddOutEdge(edge.EdgePropertyId, edge);
+            }
         }
 
         internal void TabulaRasa_internal()

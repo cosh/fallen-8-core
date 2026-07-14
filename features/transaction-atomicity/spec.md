@@ -1,6 +1,6 @@
 # Transaction Atomicity — Specification
 
-> **Status:** Planned — from the 2026-07 principal-architect & performance review. **P0 correctness.**
+> **Status:** Implemented — from the 2026-07 principal-architect & performance review. **P0 correctness.**
 > Enforce the engine-wide invariant that a transaction whose terminal state is `RolledBack` has ZERO
 > observable effect. It is violated today by the batch create/remove/property transactions, which can
 > silently corrupt the `id == index` master-store invariant and leave the write-ahead log diverging

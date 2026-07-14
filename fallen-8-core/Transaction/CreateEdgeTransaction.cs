@@ -48,16 +48,24 @@ namespace NoSQL.GraphDB.Core.Transaction
             Definition = null;
         }
 
+        private EdgeModel _edgeCreated;
+
         internal override void Rollback(Fallen8 f8)
         {
-            //TODO
+            // Remove the edge if one was created (feature transaction-atomicity). A clean NotFound
+            // rollback leaves _edgeCreated null (nothing to compensate); this fills the former //TODO
+            // so the "RolledBack => no observable effect" invariant is uniform across transactions.
+            if (_edgeCreated != null)
+            {
+                f8.TryRemoveGraphElement_private(_edgeCreated.Id);
+            }
         }
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            var edge = f8.CreateEdge_internal(Definition.SourceVertexId, Definition.EdgePropertyId, Definition.TargetVertexId, Definition.CreationDate, Definition.Label, Definition.Properties);
+            _edgeCreated = f8.CreateEdge_internal(Definition.SourceVertexId, Definition.EdgePropertyId, Definition.TargetVertexId, Definition.CreationDate, Definition.Label, Definition.Properties);
 
-            if (edge == null)
+            if (_edgeCreated == null)
             {
                 // The only clean reason CreateEdge_internal returns null is a missing/removed
                 // referenced vertex - a client-caused NotFound, not an internal fault.

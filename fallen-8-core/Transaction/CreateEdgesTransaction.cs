@@ -41,6 +41,16 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override void Rollback(Fallen8 f8)
         {
+            // The internal method records edges into _edgesAdded as soon as they reach the store
+            // (before adjacency wiring), so this removes exactly the edges that were committed if a
+            // wiring step threw - detaching any partial adjacency and restoring EdgeCount. A clean
+            // pre-validation false (invalid input / unresolved endpoint) leaves _edgesAdded empty, so
+            // this is a no-op then (feature transaction-atomicity).
+            if (_edgesAdded == null)
+            {
+                return;
+            }
+
             foreach (var aEdge in _edgesAdded)
             {
                 f8.TryRemoveGraphElement_private(aEdge.Id);
@@ -49,7 +59,15 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            _edgesAdded = f8.CreateEdges_internal(Edges, out var allEndpointsResolved);
+            f8.CreateEdges_internal(Edges, _edgesAdded, out var inputValid, out var allEndpointsResolved);
+
+            if (!inputValid)
+            {
+                // A structurally invalid batch (a null edge definition): a clean InvalidInput, no
+                // throw, nothing wired.
+                FailureReason = TransactionFailureReason.InvalidInput;
+                return false;
+            }
 
             if (!allEndpointsResolved)
             {

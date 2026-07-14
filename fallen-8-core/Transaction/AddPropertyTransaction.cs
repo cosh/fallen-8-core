@@ -25,6 +25,7 @@
 
 using NoSQL.GraphDB.Core.Model;
 using System;
+using System.Collections.Generic;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
@@ -36,6 +37,10 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
+        // The inverse of the applied set, recorded only after it succeeds (feature
+        // transaction-atomicity), so Rollback restores the pre-transaction state.
+        private List<PropertyMutationUndo> _undo = new List<PropertyMutationUndo>();
+
         internal override void ReleaseAfterCompletion()
         {
             // Drop the input definition (and the boxed property value it carries) once the
@@ -46,16 +51,21 @@ namespace NoSQL.GraphDB.Core.Transaction
         internal override void Cleanup()
         {
             Definition = null;
+            _undo = null;
         }
 
         internal override void Rollback(Fallen8 f8)
         {
-            //TODO
+            // A single set throws before mutating on a value conflict, so a rolled-back set usually
+            // has nothing to undo (_undo stays empty). This restores the prior value/absence for the
+            // residual case where a step after the successful set throws, keeping the
+            // "RolledBack => no observable effect" invariant uniform.
+            f8.RestoreProperties_internal(_undo);
         }
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            f8.SetProperty_internal(Definition.GraphElementId, Definition.PropertyId, Definition.Property);
+            f8.SetPropertyWithUndo_internal(Definition.GraphElementId, Definition.PropertyId, Definition.Property, _undo);
             return true;
         }
     }

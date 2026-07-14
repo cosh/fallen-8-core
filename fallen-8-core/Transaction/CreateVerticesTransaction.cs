@@ -41,6 +41,15 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override void Rollback(Fallen8 f8)
         {
+            // Safety net for the construct-then-commit path (feature transaction-atomicity): the
+            // internal method mutates nothing until an atomic append, so a rolled-back batch normally
+            // has nothing to compensate. This still removes any vertices that did reach the store on
+            // the residual case where a step after the append throws.
+            if (_verticesCreated == null)
+            {
+                return;
+            }
+
             foreach (var aVertex in _verticesCreated)
             {
                 f8.TryRemoveGraphElement_private(aVertex.Id);
@@ -49,12 +58,15 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            try
+            // No swallowing try/catch: a structurally invalid batch (a null definition) returns a
+            // clean InvalidInput below, while a genuine exception (e.g. OOM) escapes to the worker,
+            // which records it as Error/InternalError (B6) - instead of the old behaviour that hid
+            // an id-space corruption behind a benign-looking clean rollback.
+            _verticesCreated = f8.CreateVertices_internal(Vertices, out var inputValid);
+
+            if (!inputValid)
             {
-                _verticesCreated = f8.CreateVertices_internal(Vertices);
-            }
-            catch (Exception)
-            {
+                FailureReason = TransactionFailureReason.InvalidInput;
                 return false;
             }
 

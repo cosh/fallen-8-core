@@ -449,6 +449,40 @@ namespace NoSQL.GraphDB.Core.Model
             _removed = false;
         }
 
+        /// <summary>
+        ///   Canonicalizes a property value exactly as <see cref="SetProperty" /> does, so a caller
+        ///   tracking intra-batch pending values compares canonical-to-canonical (matching the values
+        ///   held in the store).
+        /// </summary>
+        internal static Object CanonicalizeProperty(Object value)
+        {
+            return Canonicalize(value);
+        }
+
+        /// <summary>
+        ///   Value-equality using the same semantics as <see cref="SetProperty" />'s conflict check.
+        /// </summary>
+        internal static Boolean ArePropertyValuesEqual(Object a, Object b)
+        {
+            return ValueEquals(a, b);
+        }
+
+        /// <summary>
+        ///   Restores a property to its pre-transaction state as part of a rolled-back batch
+        ///   (feature transaction-atomicity): drops whatever value the batch set (if any) and, when
+        ///   the key existed before the batch, re-adds its prior value. Implemented via
+        ///   <see cref="RemoveProperty" /> + <see cref="SetProperty" /> so the re-add never hits the
+        ///   conflict throw (the key is absent after the remove).
+        /// </summary>
+        internal void RestoreProperty(String propertyId, Boolean hadValueBefore, Object priorValue)
+        {
+            RemoveProperty(propertyId);
+            if (hadValueBefore)
+            {
+                SetProperty(propertyId, priorValue);
+            }
+        }
+
         #endregion
     }
 }
