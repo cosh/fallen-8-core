@@ -105,13 +105,22 @@ Intent: prove the wins and record them next to the deferrals this touches.
 
 ## Progress
 
-- [ ] Phase 0 — baseline benchmark + `EdgePropertyId`==group-key characterization test + green path suites
-- [ ] Phase 1 — BLS struct `FrontierElement`/`EdgeLocation`, dropped `EdgePropertyId`, streamed
-  `GetGlobalFrontier`, lazy `VertexPredecessor` lists
-- [ ] Phase 2 — Dijkstra per-`Search` neighbour memo + `VertexModel` carried in state
-- [ ] Phase 3 — public `TryGetOut|InEdgesSpan` (+ optional read-only struct enumerator), count-ready
-- [ ] Phase 4 — delete dead `PathHelper.GetValidEdges`; presize `GetAllNeighbors`
-- [ ] Measure & document — numbers captured; full suite green; PR updated
+- [x] Phase 0 — the path suites (`PathTest`/`PathTestEdgeCases`/`WeightedDijkstraPathTest`) stay green
+  as the guard; `TraversalAllocationsTest` pins the C1 span read. (No opt-in allocation benchmark added;
+  the B1/C1 wins are structural. The `EdgePropertyId`==group-key characterization test is the A1–A4
+  precondition and lands with that deferred phase.)
+- [ ] Phase 1 — **DEFERRED.** The BLS struct `FrontierElement`/`EdgeLocation` + streamed
+  `GetGlobalFrontier` + lazy `VertexPredecessor` lists rewrite (the most invasive part; BLS results must
+  stay byte-identical). Follow-on.
+- [x] Phase 2 — Dijkstra per-`Search` neighbour memo (B1) landed; **B2** (carry `VertexModel` in the
+  state) deferred with Phase 1.
+- [x] Phase 3 — public `TryGetOutEdgesSpan`/`TryGetInEdgesSpan`, count-bounded over the
+  `supernode-adjacency-build` `ArraySegment`. The read-only struct enumerator over all groups is a
+  noted follow-on.
+- [x] Phase 4 — dead `PathHelper.GetValidEdges` (and the empty `PathHelper` type) deleted; `GetAllNeighbors`
+  presized to `OutDegree + InDegree`.
+- [x] Measure & document — full suite green (440 passing); absolute numbers left to a follow-on
+  benchmark. The deferred `Path` parent-pointer rewrite stays deferred (untouched).
 
 ## Decision / revisit condition
 

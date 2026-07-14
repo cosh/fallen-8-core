@@ -194,6 +194,18 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             private bool _negativeCostWarned;
             private long _sequence;
 
+            /// <summary>
+            ///   Per-vertex neighbour-step memo (feature traversal-allocations B1). The
+            ///   materialise+filter+<c>Sort</c> of a vertex's neighbours is invariant across hop levels
+            ///   AND across banned-set variants within one <see cref="Search"/> - the filters/costs are
+            ///   fixed for the whole search and the ban sets are applied DOWNSTREAM of
+            ///   <see cref="GetNeighbours"/> in the expansion loop - so the same vertex was previously
+            ///   re-materialised and re-sorted up to <c>MaxDepth</c> times. Computing it once and reusing
+            ///   the read-only sorted list is result-identical (same order, same determinism) and turns
+            ///   O(degree·log degree) redundant work per re-expansion into an O(1) lookup.
+            /// </summary>
+            private Dictionary<int, List<NeighbourStep>> _neighbourMemo;
+
             public Search(ShortestPathDefinition definition, IFallen8 fallen8, ILogger logger)
             {
                 _fallen8 = fallen8;
@@ -558,6 +570,21 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             ///   search is deterministic regardless of the underlying dictionary ordering.
             /// </summary>
             private List<NeighbourStep> GetNeighbours(VertexModel vertex)
+            {
+                // Compute a vertex's sorted neighbour steps once per Search and reuse them (B1). The
+                // list is only read by the expansion loop, so sharing it across states is safe.
+                _neighbourMemo ??= new Dictionary<int, List<NeighbourStep>>();
+                if (_neighbourMemo.TryGetValue(vertex.Id, out var cached))
+                {
+                    return cached;
+                }
+
+                var built = BuildNeighbours(vertex);
+                _neighbourMemo[vertex.Id] = built;
+                return built;
+            }
+
+            private List<NeighbourStep> BuildNeighbours(VertexModel vertex)
             {
                 var steps = new List<NeighbourStep>();
 
