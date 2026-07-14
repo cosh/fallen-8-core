@@ -41,9 +41,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   "maxResults": 10,
     ///   "maxPathWeight": 100.0,
     ///   "filter": {
-    ///     "edgePropertyFilter": "return (p,d) => true;",
+    ///     "edgePropertyFilter": "return (p) => true;",
     ///     "vertexFilter": "return (v) => true;",
-    ///     "edgeFilter": "return (e,d) => true;"
+    ///     "edgeFilter": "return (e) => true;"
     ///   },
     ///   "cost": {
     ///     "vertexCost": "return (v) => 1.0;",

@@ -978,8 +978,8 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        "maxResults": 10,
         ///        "filter": {
         ///          "vertexFilter": "return (v) => v.Label == \"Person\";",
-        ///          "edgeFilter": "return (e,d) => e.Label == \"friendship\";",
-        ///          "edgePropertyFilter": "return (p,d) => p == \"knows\";"
+        ///          "edgeFilter": "return (e) => e.Label == \"friendship\";",
+        ///          "edgePropertyFilter": "return (p) => p == \"knows\";"
         ///        },
         ///        "cost": {
         ///          "vertexCost": "return (v) => v.TryGetProperty(out var age, \"age\") ? (double)age : 1.0;",
@@ -1011,7 +1011,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public List<PathREST> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
+        public ActionResult<List<PathREST>> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {
             // Always initialize with empty list to avoid returning null
             List<PathREST> result = new List<PathREST>();
@@ -1043,8 +1043,13 @@ namespace NoSQL.GraphDB.App.Controllers
                     }
                     else
                     {
+                        // A filter/cost fragment failed to compile: this is a client-caused, malformed
+                        // request, so surface it as a 400 with the Roslyn diagnostics rather than a
+                        // silent 200-empty (feature path-filter-arity-fix; the already-declared
+                        // ProducesResponseType(400) is now reachable). A SUCCESSFUL compile that simply
+                        // finds no path still returns 200 with []; only a compile failure is a 400.
                         _logger?.LogError(compilerMessage);
-                        return result; // Return empty list if we can't get a traverser
+                        return BadRequest(compilerMessage);
                     }
                 }
                 else

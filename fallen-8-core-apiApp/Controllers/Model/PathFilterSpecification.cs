@@ -51,9 +51,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// </remarks>
     /// <example>
     /// {
-    ///   "edgePropertyFilter": "return (p,d) => p == \"knows\";",
+    ///   "edgePropertyFilter": "return (p) => p == \"knows\";",
     ///   "vertexFilter": "return (v) => v.Label == \"person\";",
-    ///   "edgeFilter": "return (e,d) => e.Label == \"friendship\";"
+    ///   "edgeFilter": "return (e) => e.Label == \"friendship\";"
     /// }
     /// </example>
     public sealed class PathFilterSpecification : IEquatable<PathFilterSpecification>
@@ -66,18 +66,22 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// in the traversal, or false to exclude them.
         ///
         /// Examples:
-        /// - "return (p,d) => p == \"knows\";" - Include only "knows" edges
-        /// - "return (p,d) => p.StartsWith(\"rel_\");" - Include edges with properties starting with "rel_"
-        /// - "return (p,d) => true;" - Include all edges (default)
+        /// - "return (p) => p == \"knows\";" - Include only "knows" edges
+        /// - "return (p) => p.StartsWith(\"rel_\");" - Include edges with properties starting with "rel_"
+        /// - "return (p) => true;" - Include all edges (default)
+        ///
+        /// The fragment must be a ONE-argument lambda: it is compiled against
+        /// <c>Delegates.EdgePropertyFilter(String edgePropertyId)</c>. Direction is resolved
+        /// structurally by the traversal, so the predicate never takes a direction argument.
         /// </remarks>
-        /// <example>return (p,d) => p == "knows";</example>
+        /// <example>return (p) => p == "knows";</example>
         [Required]
         [JsonPropertyName("edgePropertyFilter")]
-        [DefaultValue("return (p,d) => true;")]
+        [DefaultValue("return (p) => true;")]
         public String EdgeProperty
         {
             get; set;
-        } = "return (p,d) => true;";
+        } = "return (p) => true;";
 
         /// <summary>
         /// Filter to apply on vertices during path traversal
@@ -108,18 +112,22 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// in the traversal, or false to exclude them.
         ///
         /// Examples:
-        /// - "return (e,d) => e.Label == \"friendship\";" - Include only edges labeled "friendship"
-        /// - "return (e,d) => e.TryGetProperty(out var weight, \"weight\") &amp;&amp; (double)weight &lt; 10;" - Include only edges with weight &lt; 10
-        /// - "return (e,d) => true;" - Include all edges (default)
+        /// - "return (e) => e.Label == \"friendship\";" - Include only edges labeled "friendship"
+        /// - "return (e) => e.TryGetProperty(out var weight, \"weight\") &amp;&amp; (double)weight &lt; 10;" - Include only edges with weight &lt; 10
+        /// - "return (e) => true;" - Include all edges (default)
+        ///
+        /// The fragment must be a ONE-argument lambda: it is compiled against
+        /// <c>Delegates.EdgeFilter(EdgeModel edge)</c>. Direction is resolved structurally by the
+        /// traversal, so the predicate never takes a direction argument.
         /// </remarks>
-        /// <example>return (e,d) => e.Label == "friendship";</example>
+        /// <example>return (e) => e.Label == "friendship";</example>
         [Required]
         [JsonPropertyName("edgeFilter")]
-        [DefaultValue("return (e,d) => true;")]
+        [DefaultValue("return (e) => true;")]
         public String Edge
         {
             get; set;
-        } = "return (e,d) => true;";
+        } = "return (e) => true;";
 
         public override Boolean Equals(Object obj)
         {

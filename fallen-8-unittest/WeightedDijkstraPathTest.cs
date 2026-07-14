@@ -1145,7 +1145,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             // Act
-            var result = controller.CalculateShortestPath(graph.Id("A"), graph.Id("B"), spec);
+            var result = controller.CalculateShortestPath(graph.Id("A"), graph.Id("B"), spec).Value;
 
             // Assert - the weighted route A->C->B with a genuine, non-zero total weight of 2.
             Assert.IsNotNull(result);
@@ -1176,9 +1176,9 @@ namespace NoSQL.GraphDB.Tests
 
             // Act - same request, only the algorithm name differs.
             var dijkstra = controller.CalculateShortestPath(graph.Id("A"), graph.Id("B"),
-                new PathSpecification { PathAlgorithmName = "DIJKSTRA", MaxDepth = 5, MaxResults = 1, Cost = Cost() });
+                new PathSpecification { PathAlgorithmName = "DIJKSTRA", MaxDepth = 5, MaxResults = 1, Cost = Cost() }).Value;
             var bls = controller.CalculateShortestPath(graph.Id("A"), graph.Id("B"),
-                new PathSpecification { PathAlgorithmName = "BLS", MaxDepth = 5, MaxResults = 1, Cost = Cost() });
+                new PathSpecification { PathAlgorithmName = "BLS", MaxDepth = 5, MaxResults = 1, Cost = Cost() }).Value;
 
             // Assert - DIJKSTRA takes the two-hop weighted route; BLS the one-hop route with weight 0.
             Assert.AreEqual(1, dijkstra.Count);
