@@ -31,7 +31,21 @@ namespace NoSQL.GraphDB.Core.Transaction
 {
     public abstract class ATransaction
     {
-        public readonly string TransactionId = Guid.NewGuid().ToString();
+        /// <summary>
+        ///   The transaction's identity as a <see cref="Guid" /> (feature transaction-retention F14).
+        ///   Held as a value type and stringified only on demand, so the per-transaction 36-char string
+        ///   is no longer allocated eagerly for every transaction (most callers wait on the completion
+        ///   task and never read the id); it also lets the manager key its bookkeeping by the Guid
+        ///   directly instead of a string.
+        /// </summary>
+        internal readonly Guid TransactionIdGuid = Guid.NewGuid();
+
+        /// <summary>
+        ///   The transaction id as a string, computed on access from <see cref="TransactionIdGuid" />
+        ///   (source-compatible with the former public field). Pass it to
+        ///   <c>Fallen8.GetTransactionState(string)</c> to poll the state by id.
+        /// </summary>
+        public string TransactionId => TransactionIdGuid.ToString();
 
         /// <summary>
         ///   The structured reason this transaction rolled back cleanly, recorded by

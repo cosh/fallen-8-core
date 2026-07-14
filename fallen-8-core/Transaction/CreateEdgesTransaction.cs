@@ -107,7 +107,12 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public ImmutableList<EdgeModel> GetCreatedEdges()
         {
-            return ImmutableList.CreateRange(_edgesAdded);
+            // Null-safe (feature transaction-retention R2): return empty rather than throwing when the
+            // captured list has been dropped, so an unrelated trim can never turn this into an
+            // ArgumentNullException. A waited-on caller reading promptly gets the actual created models.
+            return _edgesAdded == null
+                ? ImmutableList<EdgeModel>.Empty
+                : ImmutableList.CreateRange(_edgesAdded);
         }
 
         internal override void ReleaseAfterCompletion()
@@ -119,9 +124,11 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override void Cleanup()
         {
-            // Null-safe: ReleaseAfterCompletion() may already have dropped Edges.
+            // Drop only the INPUT (feature transaction-retention R2). The created-model list is NOT
+            // nulled here anymore: the edges are already referenced by the master store, and bounded
+            // retention (R1) collects the whole ATransaction once its entry is evicted. Nulling it used
+            // to race an unrelated trim against a caller's GetCreatedEdges().
             Edges = null;
-            _edgesAdded = null;
         }
     }
 }
