@@ -335,6 +335,113 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
+        /// <summary>
+        /// Growing-hub guard (feature supernode-adjacency-build Step 2). A single vertex's out-group
+        /// grows monotonically to a high degree, one small transaction at a time, driving the
+        /// spare-capacity path: the writer writes an edge into a spare slot of the SAME backing array
+        /// and publishes <c>count + 1</c>, sharing that array across immutable adjacency instances. This
+        /// is the exact hazard the amortised-capacity change introduces, so it needs a dedicated race:
+        /// many readers hammer the hub's adjacency during the growth and must (a) never see a torn read
+        /// / null spare slot, and (b) never observe the out-degree REGRESS - append-only growth means a
+        /// reader's successive volatile reads must be non-decreasing, which a torn count/array mismatch
+        /// would violate.
+        /// </summary>
+        [TestMethod]
+        public void ConcurrentReaders_DuringMonotonicHubGrowth_NeverSeeTornAdjacencyOrRegressingDegree()
+        {
+            var fallen8 = new Fallen8(_loggerFactory);
+
+            // One hub + many leaves. Every edge shares ONE edge-property-id, so the hub stays inline and
+            // its single out-group grows through the ×2 spare-capacity reallocations (the Step 2 path).
+            const int leafCount = 3000;
+            var vertexTx = new CreateVerticesTransaction();
+            vertexTx.AddVertex(1u, VertexLabel); // the hub
+            for (var i = 0; i < leafCount; i++)
+            {
+                vertexTx.AddVertex(1u, VertexLabel);
+            }
+            fallen8.EnqueueTransaction(vertexTx).WaitUntilFinished();
+            var created = vertexTx.GetCreatedVertices();
+            int hubId = created[0].Id;
+
+            var errors = new ConcurrentQueue<Exception>();
+            int writerDone = 0;
+
+            var readers = StartReaders(() =>
+            {
+                uint lastDegree = 0;
+                while (Volatile.Read(ref writerDone) == 0)
+                {
+                    if (!fallen8.TryGetVertex(out var hub, hubId))
+                    {
+                        continue;
+                    }
+
+                    // Append-only growth: a reader's successive out-degree reads must never regress.
+                    uint degree = hub.GetOutDegree();
+                    Assert.IsTrue(degree >= lastDegree,
+                        "Out-degree regressed under append-only growth (torn count read): " + degree + " < " + lastDegree + ".");
+                    Assert.IsTrue(degree <= (uint)leafCount, "Out-degree exceeded the leaf count (torn read).");
+                    lastDegree = degree;
+
+                    // The hub's out-group must never surface a null slot - a leaked spare slot is exactly
+                    // what an over-count / wrong-length read would expose.
+                    if (hub.TryGetOutEdge(out var edges, EdgePropertyId))
+                    {
+                        for (var e = 0; e < edges.Count; e++)
+                        {
+                            Assert.IsNotNull(edges[e], "Torn read: null slot inside the hub's out-edge group (spare slot leaked).");
+                            Assert.AreSame(hub, edges[e].SourceVertex, "A hub out-edge must originate from the hub.");
+                            Assert.IsNotNull(edges[e].TargetVertex, "Torn read: hub out-edge with a null target.");
+                        }
+                    }
+
+                    // A captured view must be stable for its lifetime even as the writer keeps appending.
+                    var view = hub.OutEdges;
+                    if (view != null)
+                    {
+                        int firstPass = CountEdges(view);
+                        int secondPass = CountEdges(view);
+                        Assert.AreEqual(firstPass, secondPass,
+                            "A captured hub view must be stable for its whole lifetime under concurrent growth.");
+                    }
+
+                    foreach (var neighbour in hub.GetAllNeighbors())
+                    {
+                        Assert.IsNotNull(neighbour, "GetAllNeighbors must never yield a null neighbour under growth.");
+                    }
+                }
+            }, errors);
+
+            try
+            {
+                for (var i = 0; i < leafCount; i++)
+                {
+                    var addTx = new CreateEdgesTransaction();
+                    addTx.AddEdge(hubId, EdgePropertyId, created[i + 1].Id, 1u, EdgeLabel);
+                    fallen8.EnqueueTransaction(addTx).WaitUntilFinished();
+                }
+            }
+            finally
+            {
+                Volatile.Write(ref writerDone, 1);
+            }
+
+            JoinReaders(readers);
+            AssertNoErrors(errors);
+
+            // Final state: exactly leafCount out-edges, one group, no null slot, all rooted at the hub.
+            Assert.IsTrue(fallen8.TryGetVertex(out var finalHub, hubId));
+            Assert.AreEqual((uint)leafCount, finalHub.GetOutDegree(), "The fully-grown hub must have exactly leafCount out-edges.");
+            Assert.IsTrue(finalHub.TryGetOutEdge(out var finalEdges, EdgePropertyId));
+            Assert.AreEqual(leafCount, finalEdges.Count, "The single out-group must hold every appended edge.");
+            for (var e = 0; e < finalEdges.Count; e++)
+            {
+                Assert.IsNotNull(finalEdges[e], "No slot in the fully-grown hub group may be null.");
+                Assert.AreSame(finalHub, finalEdges[e].SourceVertex);
+            }
+        }
+
         #region helpers
 
         private static int CountEdges<TList>(IEnumerable<KeyValuePair<string, TList>> view)

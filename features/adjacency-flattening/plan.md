@@ -145,3 +145,10 @@ small-map-inline trade-off and nets a large win for typical graphs.
   segmented master store (core-storage).
 - Do NOT change edge-property-id grouping semantics or the persistence format (load already
   reconstructs adjacency from `Dictionary<string, List<EdgeModel>>`).
+- **Follow-up (append cost): `supernode-adjacency-build` (LANDED).** These measurements are
+  *retained-bytes only* — they did not measure the cost of the append itself, which this flattening
+  traded from the old `ImmutableList`'s O(log d) insert to a full-group `EdgeModel[]` copy per edge
+  (O(d²) to build/load a degree-d hub, with LOH churn past ~10 600 refs). `supernode-adjacency-build`
+  makes per-edge append amortised O(1) (batch-group wiring + ×2 spare capacity) without touching the
+  public surface, the copy-on-write reader contract, or the on-disk format established here. Steady-
+  state retained bytes are unchanged bar transient spare capacity (≤ ~2× the group array).

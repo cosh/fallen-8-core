@@ -134,6 +134,48 @@ namespace NoSQL.GraphDB.Core.Model
         }
 
         /// <summary>
+        ///   Adds many outgoing edges grouped by edge-property-id in ONE publish (feature
+        ///   supernode-adjacency-build Step 1). Each key's edges are appended as a batch, so k edges to
+        ///   this vertex/direction cost one array rebuild (or one spare-capacity fill) per key instead of
+        ///   k, and the whole adjacency is published by a SINGLE volatile store - no reader ever observes
+        ///   an intermediate per-key instance. Used by the batch create path and the load fix-up.
+        /// </summary>
+        internal void AddOutEdges(Dictionary<String, List<EdgeModel>> edgesByPropertyId)
+        {
+            var current = _outEdges;
+            if (current == null)
+            {
+                _outEdges = EdgeAdjacency.FromListGroups(edgesByPropertyId);
+                return;
+            }
+
+            foreach (var kv in edgesByPropertyId)
+            {
+                current = current.WithEdgesAppended(kv.Key, kv.Value);
+            }
+            _outEdges = current;
+        }
+
+        /// <summary>
+        ///   Incoming-edge counterpart of <see cref="AddOutEdges" />; one publish for all keys.
+        /// </summary>
+        internal void AddIncomingEdges(Dictionary<String, List<EdgeModel>> edgesByPropertyId)
+        {
+            var current = _inEdges;
+            if (current == null)
+            {
+                _inEdges = EdgeAdjacency.FromListGroups(edgesByPropertyId);
+                return;
+            }
+
+            foreach (var kv in edgesByPropertyId)
+            {
+                current = current.WithEdgesAppended(kv.Key, kv.Value);
+            }
+            _inEdges = current;
+        }
+
+        /// <summary>
         ///   Removes an incoming edge
         /// </summary>
         /// <param name="edgePropertyId"> Edge property identifier. </param>
@@ -313,7 +355,7 @@ namespace NoSQL.GraphDB.Core.Model
                 foreach (var group in outSnapshot)
                 {
                     var edges = group.Value;
-                    for (var i = 0; i < edges.Length; i++)
+                    for (var i = 0; i < edges.Count; i++)
                     {
                         neighbors.Add(edges[i].TargetVertex);
                     }
@@ -326,7 +368,7 @@ namespace NoSQL.GraphDB.Core.Model
                 foreach (var group in inSnapshot)
                 {
                     var edges = group.Value;
-                    for (var i = 0; i < edges.Length; i++)
+                    for (var i = 0; i < edges.Count; i++)
                     {
                         neighbors.Add(edges[i].TargetVertex);
                     }
@@ -403,7 +445,7 @@ namespace NoSQL.GraphDB.Core.Model
             var snapshot = _outEdges;
             if (snapshot != null && snapshot.TryGetGroup(edgePropertyId, out var group))
             {
-                result = Array.AsReadOnly(group);
+                result = new ReadOnlyEdgeSlice(group);
                 return true;
             }
 
@@ -422,7 +464,7 @@ namespace NoSQL.GraphDB.Core.Model
             var snapshot = _inEdges;
             if (snapshot != null && snapshot.TryGetGroup(edgePropertyId, out var group))
             {
-                result = Array.AsReadOnly(group);
+                result = new ReadOnlyEdgeSlice(group);
                 return true;
             }
 
@@ -550,7 +592,7 @@ namespace NoSQL.GraphDB.Core.Model
                 {
                     if (_adjacency.TryGetGroup(key, out var group))
                     {
-                        return Array.AsReadOnly(group);
+                        return new ReadOnlyEdgeSlice(group);
                     }
                     throw new KeyNotFoundException();
                 }
@@ -573,7 +615,7 @@ namespace NoSQL.GraphDB.Core.Model
                 {
                     foreach (var group in _adjacency)
                     {
-                        yield return Array.AsReadOnly(group.Value);
+                        yield return new ReadOnlyEdgeSlice(group.Value);
                     }
                 }
             }
@@ -586,7 +628,7 @@ namespace NoSQL.GraphDB.Core.Model
             {
                 if (_adjacency.TryGetGroup(key, out var group))
                 {
-                    value = Array.AsReadOnly(group);
+                    value = new ReadOnlyEdgeSlice(group);
                     return true;
                 }
 
@@ -598,7 +640,41 @@ namespace NoSQL.GraphDB.Core.Model
             {
                 foreach (var group in _adjacency)
                 {
-                    yield return new KeyValuePair<String, IReadOnlyList<EdgeModel>>(group.Key, Array.AsReadOnly(group.Value));
+                    yield return new KeyValuePair<String, IReadOnlyList<EdgeModel>>(group.Key, new ReadOnlyEdgeSlice(group.Value));
+                }
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return GetEnumerator();
+            }
+        }
+
+        /// <summary>
+        ///   A truly read-only, count-bounded projection of a group's backing array over the logical
+        ///   slice <c>[0, count)</c>. Wraps the <see cref="ArraySegment{T}" /> the adjacency hands out so
+        ///   the spare capacity beyond the count is never observable and the backing array is never
+        ///   exposed for mutation (unlike <see cref="ArraySegment{T}" /> itself, whose <c>IList</c> facet
+        ///   is writable). Holds only the segment, so it is stable for the captured adjacency's lifetime.
+        /// </summary>
+        private sealed class ReadOnlyEdgeSlice : IReadOnlyList<EdgeModel>
+        {
+            private readonly ArraySegment<EdgeModel> _segment;
+
+            internal ReadOnlyEdgeSlice(ArraySegment<EdgeModel> segment)
+            {
+                _segment = segment;
+            }
+
+            public EdgeModel this[int index] => _segment[index];
+
+            public int Count => _segment.Count;
+
+            public IEnumerator<EdgeModel> GetEnumerator()
+            {
+                for (var i = 0; i < _segment.Count; i++)
+                {
+                    yield return _segment[i];
                 }
             }
 

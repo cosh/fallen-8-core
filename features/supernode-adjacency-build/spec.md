@@ -1,9 +1,24 @@
 # Supernode Adjacency Build — Specification
 
-> **Status:** Planned (P1 performance/scale) — from the 2026-07 principal-architect & performance
-> review. Adjacency append is O(d) per edge, so building or LOADING a high-degree hub is O(d²) with
-> large-object-heap churn; make per-edge append amortised O(1) without changing the public surface or
-> the copy-on-write reader contract.
+> **Status:** Implemented (P1 performance/scale) — from the 2026-07 principal-architect & performance
+> review. Adjacency append was O(d) per edge, so building or LOADING a high-degree hub was O(d²) with
+> large-object-heap churn; per-edge append is now amortised O(1) with no change to the public surface
+> or the copy-on-write reader contract.
+>
+> Delivered on branch `feature/supernode-adjacency-build`, both composing steps: **Step 1
+> (batch-group wiring)** — `EdgeAdjacency.WithEdgesAppended` plus `VertexModel.AddOutEdges/
+> AddIncomingEdges` collapse k edges to one vertex/direction into one array build + one volatile
+> publish, applied in `CreateEdges_internal` and the deferred-edge load fix-up; **Step 2 (amortised
+> capacity)** — each group carries a logical count distinct from its ×2-over-allocated backing array,
+> and an append writes a reader-invisible spare slot then publishes `count + 1` sharing the array
+> (the master store's `AppendGraphElement` discipline). The enumerator hands out a count-bounded
+> `ArraySegment<EdgeModel>` (never the raw array); every read/derived path and the save path slice
+> `[0, count)`, so the on-disk bytes are unchanged. The public `VertexModel` surface and the REST
+> `/vertex` DTO are byte-identical — **no version bump**. Guarded by `SupernodeAdjacencyBuildTest`
+> (batch/single-edge correctness + order, load round-trip, a machine-independent linear-scaling
+> allocation ratio), `AdjacencyConcurrencyTest.ConcurrentReaders_DuringMonotonicHubGrowth_*` (the
+> shared growing-array race), and the pre-existing adjacency/path/persistence/removal suites; an
+> opt-in `SupernodeAdjacencyBuildBenchmark` captures the wall-time/allocation numbers.
 
 ## 1. Problem / current state
 

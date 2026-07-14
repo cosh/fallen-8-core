@@ -1093,16 +1093,56 @@ namespace NoSQL.GraphDB.Core
             EdgeCount += newEdges.Count;
             createdEdges.AddRange(newEdges);
 
+            // Batch adjacency wiring (feature supernode-adjacency-build Step 1). The old loop wired one
+            // edge at a time (source.AddOutEdge + target.AddIncomingEdge), so k edges landing on one
+            // vertex/direction in this batch cost k separate whole-group array rebuilds - O(d²) to build
+            // a hub. Group the new edges by (vertex, direction, edge-property-id) FIRST, preserving
+            // encounter order, then publish each vertex/direction adjacency ONCE via the batch
+            // AddOutEdges/AddIncomingEdges. The edges are already recorded in createdEdges above, so a
+            // wiring throw stays fully recoverable (Rollback removes every appended edge, detaching any
+            // partial adjacency); a vertex touched under several keys chains the per-key builds and
+            // publishes its final instance once.
+            var outByVertex = new Dictionary<VertexModel, Dictionary<String, List<EdgeModel>>>();
+            var inByVertex = new Dictionary<VertexModel, Dictionary<String, List<EdgeModel>>>();
             for (var i = 0; i < newEdges.Count; i++)
             {
                 var edge = newEdges[i];
-
-                //add the edge to the source vertex
-                edge.SourceVertex.AddOutEdge(edge.EdgePropertyId, edge);
-
-                //link the vertices
-                edge.TargetVertex.AddIncomingEdge(edge.EdgePropertyId, edge);
+                GroupEdgeForWiring(outByVertex, edge.SourceVertex, edge.EdgePropertyId, edge);
+                GroupEdgeForWiring(inByVertex, edge.TargetVertex, edge.EdgePropertyId, edge);
             }
+
+            foreach (var vertexGroups in outByVertex)
+            {
+                vertexGroups.Key.AddOutEdges(vertexGroups.Value);
+            }
+            foreach (var vertexGroups in inByVertex)
+            {
+                vertexGroups.Key.AddIncomingEdges(vertexGroups.Value);
+            }
+        }
+
+        /// <summary>
+        ///   Buckets an edge under <c>vertex -&gt; edge-property-id -&gt; edges</c>, creating the inner
+        ///   maps/lists on demand and preserving encounter order within each group, so
+        ///   <see cref="CreateEdges_internal" /> can wire a whole batch with one adjacency publish per
+        ///   vertex/direction (feature supernode-adjacency-build Step 1).
+        /// </summary>
+        private static void GroupEdgeForWiring(Dictionary<VertexModel, Dictionary<String, List<EdgeModel>>> byVertex,
+            VertexModel vertex, String edgePropertyId, EdgeModel edge)
+        {
+            if (!byVertex.TryGetValue(vertex, out var byKey))
+            {
+                byKey = new Dictionary<String, List<EdgeModel>>();
+                byVertex[vertex] = byKey;
+            }
+
+            if (!byKey.TryGetValue(edgePropertyId, out var list))
+            {
+                list = new List<EdgeModel>();
+                byKey[edgePropertyId] = list;
+            }
+
+            list.Add(edge);
         }
 
         internal void SetProperty_internal(Int32 graphElementId, String propertyId, Object property)

@@ -91,10 +91,29 @@ Intent: prove linear scaling and no LOH churn, and record where the residual sit
 
 ## Progress
 
-- [ ] Phase 0 — baseline benchmark + linear-scaling characterization test + growing-hub concurrency guard
-- [ ] Phase 1 — `WithEdgesAppended` + batch-group wiring in `CreateEdges_internal` and the load fix-up
-- [ ] Phase 2 — logical count + ×2 spare-capacity append + count-aware accessors/consumers/public view
-- [ ] Measure & document — linear scaling + no-LOH proof; cross-link `adjacency-flattening`
+- [x] Phase 0 — opt-in `SupernodeAdjacencyBuildBenchmark` (prefix `[SNBENCH]`, batch / single-edge /
+  load round-trip, degrees env-tunable via `F8_SUPERNODE_DEGREES`, measured with
+  `GC.GetTotalAllocatedBytes(true)` since the build runs on the writer thread); a default-suite
+  linear-scaling characterization (`HubBuild_AllocatedBytes_ScaleLinearlyNotQuadratically`, asserts
+  the 2d/d allocation ratio is < 3× — it would trip near 4× on the old O(d²) build); and a dedicated
+  growing-hub concurrency guard added to `AdjacencyConcurrencyTest`
+  (`ConcurrentReaders_DuringMonotonicHubGrowth_NeverSeeTornAdjacencyOrRegressingDegree`) — readers
+  observe no torn read / null spare slot and a strictly non-decreasing out-degree while the writer
+  grows one hub through the shared-array spare-capacity path.
+- [x] Phase 1 — `EdgeAdjacency.WithEdgesAppended` + `VertexModel.AddOutEdges`/`AddIncomingEdges`
+  (one publish per vertex/direction); batch-group wiring in `CreateEdges_internal` (grouped by
+  `(vertex, direction, key)`) and the deferred-edge load fix-up (bucketed by the same key,
+  encounter-order preserved).
+- [x] Phase 2 — logical count per group (`EdgeGroup { Array; Count }`, inline `_soleArray` +
+  `_soleCount`); ×2 spare-capacity append (write the spare slot first, publish `count+1` sharing the
+  array); count-aware `TotalDegree`/`TryGetGroup`/`RemoveById`/`Contains`/enumerator (now yields a
+  count-bounded `ArraySegment<EdgeModel>`); the ~8 in-engine consumers moved from `.Value.Length` to
+  `.Value.Count` (compiler-flagged); the public read view exposes a truly read-only, count-bounded
+  `ReadOnlyEdgeSlice` (never a spare slot); the save path persists the logical count.
+- [x] Measure & document — full suite green (409 passing). Absolute before/after numbers are left to
+  the opt-in benchmark on the target box; the linear-scaling test proves the O(d²) → O(d) shape at
+  default degrees, and the append path allocates only the O(log d) ×2 doubling arrays (no per-edge
+  whole-group copy). Public surface and on-disk format unchanged → no version bump.
 
 ## Decision / revisit condition
 

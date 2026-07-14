@@ -70,7 +70,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                     {
                         var validEdges = new List<EdgeModel>();
 
-                        for (var i = 0; i < edgeContainer.Value.Length; i++)
+                        for (var i = 0; i < edgeContainer.Value.Count; i++)
                         {
                             var aEdge = edgeContainer.Value[i];
                             if (edgeFilter(aEdge))
@@ -99,7 +99,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         {
                             var validEdges = new List<EdgeModel>();
 
-                            for (var i = 0; i < edgeContainer.Value.Length; i++)
+                            for (var i = 0; i < edgeContainer.Value.Count; i++)
                             {
                                 var aEdge = edgeContainer.Value[i];
                                 if (

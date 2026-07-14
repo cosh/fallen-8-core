@@ -1058,36 +1058,59 @@ namespace NoSQL.GraphDB.Core.Persistency
                 }
             });
 
-            //Update the vertices with their edges
+            // Update the vertices with their deferred edges. Bucket the fix-ups by
+            // (vertex, direction, edge-property-id) FIRST, preserving encounter order, then apply one
+            // batch append per vertex/direction (feature supernode-adjacency-build Step 1). The old loop
+            // called AddIncomingEdge/AddOutEdge once per deferred edge, so a hub whose edges were mostly
+            // deferred (the common case in a parallel bunch load) was rebuilt one array at a time -
+            // O(d²). Bucketing turns it into O(d): one WithEdgesAppended per key, one publish per
+            // vertex/direction. The per-vertex OWN groups were already reconstructed in one shot via the
+            // internal ctor (FromListGroups), so this only batches the deferred cross-bunch edges.
+            var outByVertex = new Dictionary<VertexModel, Dictionary<String, List<EdgeModel>>>();
+            var inByVertex = new Dictionary<VertexModel, Dictionary<String, List<EdgeModel>>>();
+
             foreach (var aKV in edgeTodo)
             {
                 EdgeModel edge = graphElements[aKV.Key] as EdgeModel;
-                if (edge != null)
-                {
-                    foreach (var aTodo in aKV.Value)
-                    {
-                        VertexModel interestingVertex = graphElements[aTodo.VertexId] as VertexModel;
-                        if (interestingVertex != null)
-                        {
-                            if (aTodo.IsIncomingEdge)
-                            {
-                                interestingVertex.AddIncomingEdge(aTodo.EdgePropertyId, edge);
-                            }
-                            else
-                            {
-                                interestingVertex.AddOutEdge(aTodo.EdgePropertyId, edge);
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogError(String.Format("Corrupt savegame... could not get the vertex {0}", aTodo.VertexId));
-                        }
-                    }
-                }
-                else
+                if (edge == null)
                 {
                     _logger.LogError(String.Format("Corrupt savegame... could not get the edge {0}", aKV.Key));
+                    continue;
                 }
+
+                foreach (var aTodo in aKV.Value)
+                {
+                    VertexModel interestingVertex = graphElements[aTodo.VertexId] as VertexModel;
+                    if (interestingVertex == null)
+                    {
+                        _logger.LogError(String.Format("Corrupt savegame... could not get the vertex {0}", aTodo.VertexId));
+                        continue;
+                    }
+
+                    var byVertex = aTodo.IsIncomingEdge ? inByVertex : outByVertex;
+                    if (!byVertex.TryGetValue(interestingVertex, out var byKey))
+                    {
+                        byKey = new Dictionary<String, List<EdgeModel>>();
+                        byVertex[interestingVertex] = byKey;
+                    }
+
+                    if (!byKey.TryGetValue(aTodo.EdgePropertyId, out var list))
+                    {
+                        list = new List<EdgeModel>();
+                        byKey[aTodo.EdgePropertyId] = list;
+                    }
+
+                    list.Add(edge);
+                }
+            }
+
+            foreach (var vertexGroups in outByVertex)
+            {
+                vertexGroups.Key.AddOutEdges(vertexGroups.Value);
+            }
+            foreach (var vertexGroups in inByVertex)
+            {
+                vertexGroups.Key.AddIncomingEdges(vertexGroups.Value);
             }
         }
 
@@ -1335,7 +1358,9 @@ namespace NoSQL.GraphDB.Core.Persistency
                 foreach (var aOutEdgeProperty in outgoingEdges)
                 {
                     writer.WriteOptimized(aOutEdgeProperty.Key);
-                    writer.WriteVarInt32(aOutEdgeProperty.Value.Length);
+                    // Persist the LOGICAL count, not the backing array length (which may carry spare
+                    // capacity, feature supernode-adjacency-build) - the on-disk bytes are unchanged.
+                    writer.WriteVarInt32(aOutEdgeProperty.Value.Count);
                     foreach (var aOutEdge in aOutEdgeProperty.Value)
                     {
                         writer.WriteVarInt32(aOutEdge.Id);
@@ -1354,7 +1379,9 @@ namespace NoSQL.GraphDB.Core.Persistency
                 foreach (var aIncEdgeProperty in incomingEdges)
                 {
                     writer.WriteOptimized(aIncEdgeProperty.Key);
-                    writer.WriteVarInt32(aIncEdgeProperty.Value.Length);
+                    // Persist the LOGICAL count, not the backing array length (feature
+                    // supernode-adjacency-build) - on-disk bytes unchanged.
+                    writer.WriteVarInt32(aIncEdgeProperty.Value.Count);
                     foreach (var aIncEdge in aIncEdgeProperty.Value)
                     {
                         writer.WriteVarInt32(aIncEdge.Id);
