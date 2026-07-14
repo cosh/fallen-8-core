@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;padding:0;background:#06080c;}
+  body{font-family:'IBM Plex Sans',sans-serif;color:#c9d4e3;}
+  a{color:#56d9ee;text-decoration:none;} a:hover{color:#8ee8f7;text-decoration:underline;}
+  ::-webkit-scrollbar{width:10px;height:10px;} ::-webkit-scrollbar-thumb{background:#1c2434;border-radius:5px;} ::-webkit-scrollbar-track{background:transparent;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes blink{0%,55%{opacity:1}56%,100%{opacity:0}}
+</style>
+</helmet>
+<div style="display:flex;height:100vh;min-width:1280px;background:#06080c;overflow:hidden;font-size:14px">
+  <!-- ICON RAIL -->
+  <nav style="width:60px;flex:none;background:#090c12;border-right:1px solid #141a26;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px">
+    <div style="width:34px;height:34px;border:1px solid #1f2a3d;border-radius:8px;display:grid;place-items:center;margin-bottom:14px;background:linear-gradient(160deg,#0d1420,#090c12)">
+      <span style="font-family:Rajdhani;font-weight:700;font-size:15px;color:#56d9ee;letter-spacing:.5px">F8</span>
+    </div>
+    <button title="Instances" onClick="{{ goConnect }}" style="{{ navConnectStyle }}" style-hover="color:#c9d4e3"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="14" height="5" rx="1.5"></rect><rect x="3" y="12" width="14" height="5" rx="1.5"></rect><circle cx="6" cy="5.5" r="0.5" fill="currentColor"></circle><circle cx="6" cy="14.5" r="0.5" fill="currentColor"></circle></svg></button>
+    <button title="Dashboard" onClick="{{ goDash }}" style="{{ navDashStyle }}" style-hover="color:#c9d4e3"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 11a7 7 0 0 1 14 0"></path><path d="M10 11 13 7"></path><path d="M2.5 15h15"></path></svg></button>
+    <button title="Element browser" onClick="{{ goBrowse }}" style="{{ navBrowseStyle }}" style-hover="color:#c9d4e3"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="2.4"></circle><circle cx="14.5" cy="9" r="2.4"></circle><circle cx="8" cy="15" r="2.4"></circle><path d="M8.2 7 12.2 8.4M7 8.3 7.6 12.7M12.6 10.8 9.9 13.6"></path></svg></button>
+    <button title="Query workspace" onClick="{{ goQuery }}" style="{{ navQueryStyle }}" style-hover="color:#c9d4e3"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8.5" cy="8.5" r="5"></circle><path d="M12.5 12.5 17 17"></path></svg></button>
+    <button title="Subgraph studio" onClick="{{ goSub }}" style="{{ navSubStyle }}" style-hover="color:#c9d4e3"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="1.8"></circle><circle cx="14" cy="8" r="1.8"></circle><circle cx="9" cy="14" r="1.8"></circle><path d="M7.7 5.7 12.3 7.4M13 9.5 10 12.6M7.4 6.5 8.6 12.2"></path><rect x="2" y="2" width="16" height="16" rx="3" stroke-dasharray="2.5 2.5" opacity="0.5"></rect></svg></button>
+    <button title="Graph canvas" onClick="{{ goCanvas }}" style="{{ navCanvasStyle }}" style-hover="color:#c9d4e3"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="15" height="15" rx="2"></rect><circle cx="7" cy="8" r="1.6"></circle><circle cx="13" cy="12.5" r="1.6"></circle><path d="M8.2 9.2 11.8 11.4"></path></svg></button>
+    <button title="Path finder" onClick="{{ goPath }}" style="{{ navPathStyle }}" style-hover="color:#c9d4e3"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4.5" cy="15.5" r="2"></circle><circle cx="15.5" cy="4.5" r="2"></circle><path d="M6 14 9 11M11 9 14 6" stroke-dasharray="0.1 3" stroke-linecap="round"></path><path d="M9 11a3 3 0 0 1 2-2" ></path></svg></button>
+    <div style="flex:1"></div>
+    <div title="Connected" style="width:8px;height:8px;border-radius:50%;background:#3ddc97;box-shadow:0 0 8px #3ddc9788;animation:pulse 3s infinite"></div>
+  </nav>
+  <!-- MAIN COLUMN -->
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+    <!-- TOP BAR -->
+    <header style="height:48px;flex:none;background:#090c12;border-bottom:1px solid #141a26;display:flex;align-items:center;gap:16px;padding:0 20px">
+      <span style="font-family:Rajdhani;font-weight:700;font-size:17px;letter-spacing:3px;color:#e8eef7;text-transform:uppercase">Fallen-8</span>
+      <span style="font-family:Rajdhani;font-weight:600;font-size:15px;letter-spacing:3px;color:#56d9ee;text-transform:uppercase;margin-left:-6px">Studio</span>
+      <div style="width:1px;height:20px;background:#1c2434"></div>
+      <span style="font-family:Rajdhani;font-weight:600;font-size:16px;letter-spacing:2px;text-transform:uppercase;color:#c9d4e3">{{ screenTitle }}</span>
+      <div style="flex:1"></div>
+      <!-- instance switcher -->
+      <div style="display:flex;align-items:center;gap:8px;background:#0d1420;border:1px solid {{ instBorder }};border-radius:7px;padding:6px 12px;cursor:pointer" style-hover="border-color:#2e3b55">
+        <span style="width:7px;height:7px;border-radius:50%;background:{{ instDot }};box-shadow:0 0 6px {{ instDot }}"></span>
+        <span style="font-family:'JetBrains Mono';font-size:12.5px;color:{{ instColor }}">{{ instName }}</span>
+        <span style="font-family:'JetBrains Mono';font-size:11px;color:#5f6c81">{{ instUrl }}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#5f6c81" stroke-width="1.5"><path d="M2 3.5 5 6.5 8 3.5"></path></svg>
+      </div>
+    </header>
+    <!-- CONTENT -->
+    <main style="flex:1;min-height:0;overflow:auto;position:relative">
+      <sc-if value="{{ isConnect }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:1060px;margin:0 auto;padding:44px 40px">
+          <div style="font-family:Rajdhani;font-weight:700;font-size:28px;letter-spacing:2px;text-transform:uppercase;color:#e8eef7">Instances</div>
+          <div style="color:#5f6c81;margin-top:6px;max-width:640px;line-height:1.5">Registered Fallen-8 endpoints. The API has no authentication — connect only to instances on trusted networks. Health is polled lazily via <span style="font-family:'JetBrains Mono';font-size:12.5px;color:#8494ab">GET /status</span>.</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:30px">
+            <!-- local -->
+            <div style="background:#0b0f16;border:1px solid #35e0c022;border-radius:12px;padding:20px;outline:2px solid #56d9ee55;outline-offset:2px">
+              <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:#3ddc97;box-shadow:0 0 8px #3ddc9788"></span><span style="font-family:'JetBrains Mono';font-size:14px;color:#e8eef7">local-dev</span><span style="margin-left:auto;font-size:10.5px;font-family:Rajdhani;font-weight:600;letter-spacing:1.5px;color:#56d9ee;border:1px solid #56d9ee44;border-radius:4px;padding:2px 7px">ACTIVE</span></div>
+              <div style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81;margin-top:6px">http://localhost:2323</div>
+              <div style="display:flex;gap:22px;margin-top:16px">
+                <div><div style="font-family:Rajdhani;font-weight:700;font-size:22px;color:#e8eef7">41,002</div><div style="font-size:11px;color:#5f6c81;letter-spacing:.5px">vertices</div></div>
+                <div><div style="font-family:Rajdhani;font-weight:700;font-size:22px;color:#e8eef7">118,440</div><div style="font-size:11px;color:#5f6c81;letter-spacing:.5px">edges</div></div>
+                <div><div style="font-family:Rajdhani;font-weight:700;font-size:22px;color:#e8eef7">812<span style="font-size:13px;color:#5f6c81"> MB</span></div><div style="font-size:11px;color:#5f6c81;letter-spacing:.5px">memory</div></div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:18px">
+                <button style="flex:1;background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-family:'IBM Plex Sans';font-size:12px;padding:6px 0;cursor:pointer" style-hover="color:#c9d4e3;border-color:#2e3b55">Edit</button>
+                <button style="flex:1;background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-family:'IBM Plex Sans';font-size:12px;padding:6px 0;cursor:pointer" style-hover="color:#c9d4e3;border-color:#2e3b55">Remove</button>
+              </div>
+            </div>
+            <!-- staging -->
+            <div style="background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:20px">
+              <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:#3ddc97;box-shadow:0 0 8px #3ddc9788"></span><span style="font-family:'JetBrains Mono';font-size:14px;color:#e8eef7">staging</span></div>
+              <div style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81;margin-top:6px">http://f8-stage.internal:2323</div>
+              <div style="display:flex;gap:22px;margin-top:16px">
+                <div><div style="font-family:Rajdhani;font-weight:700;font-size:22px;color:#e8eef7">3,214</div><div style="font-size:11px;color:#5f6c81;letter-spacing:.5px">vertices</div></div>
+                <div><div style="font-family:Rajdhani;font-weight:700;font-size:22px;color:#e8eef7">9,858</div><div style="font-size:11px;color:#5f6c81;letter-spacing:.5px">edges</div></div>
+                <div><div style="font-family:Rajdhani;font-weight:700;font-size:22px;color:#e8eef7">96<span style="font-size:13px;color:#5f6c81"> MB</span></div><div style="font-size:11px;color:#5f6c81;letter-spacing:.5px">memory</div></div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:18px">
+                <button style="flex:1;background:#0f2130;border:1px solid #56d9ee44;border-radius:6px;color:#56d9ee;font-family:'IBM Plex Sans';font-size:12px;padding:6px 0;cursor:pointer" style-hover="background:#123043">Switch to</button>
+                <button style="flex:1;background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-family:'IBM Plex Sans';font-size:12px;padding:6px 0;cursor:pointer" style-hover="color:#c9d4e3;border-color:#2e3b55">Edit</button>
+              </div>
+            </div>
+            <!-- prod, unreachable -->
+            <div style="background:#0b0f16;border:1px solid #ff5d5d33;border-radius:12px;padding:20px">
+              <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:#ff5d5d;box-shadow:0 0 8px #ff5d5d88;animation:pulse 1.6s infinite"></span><span style="font-family:'JetBrains Mono';font-size:14px;color:#e8eef7">prod-eu</span><span style="margin-left:auto;font-size:10.5px;font-family:Rajdhani;font-weight:600;letter-spacing:1.5px;color:#ff5d5d;border:1px solid #ff5d5d44;border-radius:4px;padding:2px 7px">UNREACHABLE</span></div>
+              <div style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81;margin-top:6px">http://f8-prod-eu.internal:2323</div>
+              <div style="margin-top:16px;font-size:12.5px;color:#8494ab;line-height:1.55;background:#160e12;border:1px solid #ff5d5d22;border-radius:8px;padding:10px 12px"><span style="color:#ff5d5d;font-family:'JetBrains Mono';font-size:11.5px">ECONNREFUSED</span> — last seen 2h ago with 1.2M vertices. Retrying every 30s.</div>
+              <div style="display:flex;gap:8px;margin-top:14px">
+                <button style="flex:1;background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-family:'IBM Plex Sans';font-size:12px;padding:6px 0;cursor:pointer" style-hover="color:#c9d4e3;border-color:#2e3b55">Retry now</button>
+                <button style="flex:1;background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-family:'IBM Plex Sans';font-size:12px;padding:6px 0;cursor:pointer" style-hover="color:#c9d4e3;border-color:#2e3b55">Edit</button>
+              </div>
+            </div>
+          </div>
+          <!-- add instance -->
+          <div style="margin-top:26px;background:#0b0f16;border:1px dashed #1f2a3d;border-radius:12px;padding:20px;display:flex;align-items:flex-end;gap:14px">
+            <div style="flex:1;display:flex;flex-direction:column;gap:6px"><label style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Name</label><input placeholder="e.g. prod-us" style="background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#c9d4e3;font-family:'JetBrains Mono';font-size:13px;padding:9px 12px;outline:none" style-focus="border-color:#56d9ee66"></div>
+            <div style="flex:2;display:flex;flex-direction:column;gap:6px"><label style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Base URL</label><input placeholder="http://host:2323" style="background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#c9d4e3;font-family:'JetBrains Mono';font-size:13px;padding:9px 12px;outline:none" style-focus="border-color:#56d9ee66"></div>
+            <button style="background:#56d9ee;border:none;border-radius:6px;color:#06222b;font-family:Rajdhani;font-weight:700;font-size:14px;letter-spacing:1.5px;text-transform:uppercase;padding:10px 22px;cursor:pointer" style-hover="background:#8ee8f7">Register</button>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
+        <div style="max-width:1060px;margin:0 auto;padding:44px 40px">
+          <div style="display:flex;align-items:baseline;gap:14px">
+            <div style="font-family:Rajdhani;font-weight:700;font-size:28px;letter-spacing:2px;text-transform:uppercase;color:#e8eef7">Dashboard</div>
+            <div style="font-family:'JetBrains Mono';font-size:12px;color:#5f6c81">{{ instName }} · refreshed 4s ago</div>
+            <button style="margin-left:auto;background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-size:12px;padding:7px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3;border-color:#2e3b55">↻ Refresh</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:28px">
+            <div style="background:linear-gradient(150deg,#0d1420,#0b0f16);border:1px solid #141a26;border-radius:12px;padding:22px"><div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Vertices</div><div style="font-family:Rajdhani;font-weight:700;font-size:42px;color:#e8eef7;margin-top:4px">41,002</div></div>
+            <div style="background:linear-gradient(150deg,#0d1420,#0b0f16);border:1px solid #141a26;border-radius:12px;padding:22px"><div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Edges</div><div style="font-family:Rajdhani;font-weight:700;font-size:42px;color:#e8eef7;margin-top:4px">118,440</div></div>
+            <div style="background:linear-gradient(150deg,#0d1420,#0b0f16);border:1px solid #141a26;border-radius:12px;padding:22px"><div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Used memory</div><div style="font-family:Rajdhani;font-weight:700;font-size:42px;color:#e8eef7;margin-top:4px">812 <span style="font-size:20px;color:#5f6c81">MB</span></div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:18px">
+            <div style="background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:20px"><div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#56d9ee;font-family:Rajdhani;font-weight:600">Index plugins</div><div style="display:flex;flex-direction:column;gap:8px;margin-top:12px"><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">DictionaryIndex</span><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">RangeIndex</span><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">FulltextIndex</span><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">SpatialIndex</span></div></div>
+            <div style="background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:20px"><div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#56d9ee;font-family:Rajdhani;font-weight:600">Path plugins</div><div style="display:flex;flex-direction:column;gap:8px;margin-top:12px"><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">BLS</span><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">Dijkstra</span></div></div>
+            <div style="background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:20px"><div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#56d9ee;font-family:Rajdhani;font-weight:600">Service plugins</div><div style="display:flex;flex-direction:column;gap:8px;margin-top:12px"><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">RESTService</span><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">BenchmarkService</span></div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:18px;margin-top:18px">
+            <div style="background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:20px">
+              <div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Administration · {{ instName }}</div>
+              <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+                <button style="background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#c9d4e3;font-size:12.5px;padding:9px 16px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="border-color:#2e3b55">Save snapshot</button>
+                <button style="background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#c9d4e3;font-size:12.5px;padding:9px 16px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="border-color:#2e3b55">Load snapshot…</button>
+                <button style="background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#c9d4e3;font-size:12.5px;padding:9px 16px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="border-color:#2e3b55">Trim memory</button>
+                <button onClick="{{ openWipe }}" style="background:#1a0d10;border:1px solid #ff5d5d44;border-radius:6px;color:#ff8484;font-size:12.5px;padding:9px 16px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#241014">Tabula rasa</button>
+              </div>
+              <div style="margin-top:14px;font-size:12px;color:#5f6c81;font-family:'JetBrains Mono'">last save → /data/f8/save_20260714_0912.f8 · 03:12 UTC</div>
+            </div>
+            <div style="background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:20px">
+              <div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Playground</div>
+              <div style="font-size:12.5px;color:#8494ab;margin-top:8px;line-height:1.5">Empty instance? Generate a sample graph to explore.</div>
+              <div style="display:flex;gap:10px;margin-top:12px">
+                <button style="background:#0f2130;border:1px solid #56d9ee44;border-radius:6px;color:#56d9ee;font-size:12.5px;padding:9px 16px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#123043">Generate sample graph</button>
+                <button style="background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-size:12.5px;padding:9px 16px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">Run benchmark</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- tabula rasa confirmation -->
+        <sc-if value="{{ wipeOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:fixed;inset:0;background:#04060acc;backdrop-filter:blur(3px);display:grid;place-items:center;z-index:50">
+            <div style="width:460px;background:#0b0f16;border:1px solid #ff5d5d44;border-radius:14px;padding:26px;box-shadow:0 30px 80px #000c">
+              <div style="font-family:Rajdhani;font-weight:700;font-size:20px;letter-spacing:2px;text-transform:uppercase;color:#ff8484">Tabula rasa</div>
+              <div style="margin-top:10px;color:#c9d4e3;line-height:1.6;font-size:13.5px">This erases <b>all data</b> on <span style="font-family:'JetBrains Mono';color:#ffb454">{{ instName }}</span> <span style="font-family:'JetBrains Mono';font-size:12px;color:#5f6c81">({{ instUrl }})</span>. There is no undo. Type the instance name to confirm.</div>
+              <input placeholder="{{ instName }}" style="width:100%;box-sizing:border-box;margin-top:16px;background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#c9d4e3;font-family:'JetBrains Mono';font-size:13px;padding:10px 12px;outline:none" style-focus="border-color:#ff5d5d66">
+              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+                <button onClick="{{ closeWipe }}" style="background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-size:12.5px;padding:9px 18px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">Cancel</button>
+                <button style="background:#3a1216;border:1px solid #ff5d5d55;border-radius:6px;color:#ffb1b1;font-size:12.5px;padding:9px 18px;cursor:not-allowed;font-family:'IBM Plex Sans';opacity:.55">Erase everything</button>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </sc-if>
+      <sc-if value="{{ isBrowse }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;height:100%;min-height:0">
+          <!-- element list -->
+          <div style="width:320px;flex:none;border-right:1px solid #141a26;display:flex;flex-direction:column;background:#090c12">
+            <div style="padding:16px 16px 10px;display:flex;flex-direction:column;gap:10px">
+              <input placeholder="Fetch element by id…" style="background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#c9d4e3;font-family:'JetBrains Mono';font-size:12.5px;padding:8px 12px;outline:none" style-focus="border-color:#56d9ee66">
+              <div style="display:flex;gap:6px">
+                <span style="font-size:11px;font-family:Rajdhani;font-weight:600;letter-spacing:1px;color:#06222b;background:#56d9ee;border-radius:5px;padding:4px 10px;cursor:pointer">VERTICES</span>
+                <span style="font-size:11px;font-family:Rajdhani;font-weight:600;letter-spacing:1px;color:#8494ab;background:#101827;border-radius:5px;padding:4px 10px;cursor:pointer" style-hover="color:#c9d4e3">EDGES</span>
+                <span style="margin-left:auto;font-size:11px;color:#ffb454;font-family:'JetBrains Mono';padding:4px 0" title="GET /graph returned exactly maxElements — more may exist">⚠ truncated at 1000</span>
+              </div>
+            </div>
+            <div style="flex:1;overflow:auto;padding:0 8px 12px">
+              <sc-for list="{{ browseList }}" as="el" hint-placeholder-count="8">
+                <div onClick="{{ el.pick }}" style="{{ el.rowStyle }}" style-hover="background:#0d1420">
+                  <span style="width:8px;height:8px;border-radius:50%;background:{{ el.dot }};flex:none"></span>
+                  <span style="font-family:'JetBrains Mono';font-size:12px;color:#5f6c81;width:44px;flex:none">#{{ el.id }}</span>
+                  <span style="font-size:12.5px;color:#c9d4e3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ el.name }}</span>
+                  <span style="margin-left:auto;font-size:10.5px;color:#5f6c81;font-family:'JetBrains Mono'">{{ el.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <!-- detail -->
+          <div style="flex:1;overflow:auto;padding:32px 36px;min-width:0">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="width:12px;height:12px;border-radius:50%;background:{{ selDot }};box-shadow:0 0 10px {{ selDot }}88"></span>
+              <span style="font-family:Rajdhani;font-weight:700;font-size:26px;color:#e8eef7">{{ selName }}</span>
+              <span style="font-family:'JetBrains Mono';font-size:13px;color:#5f6c81">vertex #{{ selId }} · label <span style="color:#8494ab">{{ selLabel }}</span></span>
+              <button style="margin-left:auto;background:#0f2130;border:1px solid #56d9ee44;border-radius:6px;color:#56d9ee;font-size:12px;padding:7px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#123043">Send to canvas →</button>
+            </div>
+            <div style="display:flex;gap:20px;margin-top:10px;font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">
+              <span>created 2026-07-02 14:11:08</span><span>modified 2026-07-12 09:44:51</span>
+              <span style="color:#8494ab">in-degree 3</span><span style="color:#8494ab">out-degree 4</span><span style="color:#8494ab">degree 7</span>
+            </div>
+            <div style="margin-top:26px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Typed properties</div>
+            <div style="margin-top:10px;background:#0b0f16;border:1px solid #141a26;border-radius:10px;overflow:hidden">
+              <div style="display:grid;grid-template-columns:160px 1fr 220px;padding:9px 16px;border-bottom:1px solid #141a26;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600"><span>Property</span><span>Value</span><span>Type</span></div>
+              <sc-for list="{{ selProps }}" as="p" hint-placeholder-count="4">
+                <div style="display:grid;grid-template-columns:160px 1fr 220px;padding:10px 16px;border-bottom:1px solid #10151f;font-family:'JetBrains Mono';font-size:12.5px" style-hover="background:#0d1420">
+                  <span style="color:#8494ab">{{ p.k }}</span><span style="color:{{ p.color }}">{{ p.v }}</span><span style="color:#5f6c81">{{ p.t }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="margin-top:26px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Adjacency</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:10px">
+              <div style="background:#0b0f16;border:1px solid #141a26;border-radius:10px;padding:16px">
+                <div style="font-size:12px;color:#8494ab;display:flex;align-items:center;gap:8px"><span style="color:#56d9ee">→</span> Outgoing · 4 edges</div>
+                <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
+                  <sc-for list="{{ outEdges }}" as="e" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;gap:10px;background:#0d1420;border:1px solid #141a26;border-radius:7px;padding:8px 12px;cursor:pointer" style-hover="border-color:#2e3b55">
+                      <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#ffb454">{{ e.prop }}</span>
+                      <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">edge #{{ e.id }}</span>
+                      <span style="margin-left:auto;font-size:12px;color:#c9d4e3">→ {{ e.other }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="background:#0b0f16;border:1px solid #141a26;border-radius:10px;padding:16px">
+                <div style="font-size:12px;color:#8494ab;display:flex;align-items:center;gap:8px"><span style="color:#c792ea">←</span> Incoming · 3 edges</div>
+                <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
+                  <sc-for list="{{ inEdges }}" as="e" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;gap:10px;background:#0d1420;border:1px solid #141a26;border-radius:7px;padding:8px 12px;cursor:pointer" style-hover="border-color:#2e3b55">
+                      <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#ffb454">{{ e.prop }}</span>
+                      <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">edge #{{ e.id }}</span>
+                      <span style="margin-left:auto;font-size:12px;color:#c9d4e3">← {{ e.other }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ isQuery }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;height:100%;min-height:0">
+          <div style="padding:26px 36px 0">
+            <div style="display:flex;gap:8px">
+              <span style="font-family:Rajdhani;font-weight:600;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#06222b;background:#56d9ee;border-radius:6px;padding:6px 14px;cursor:pointer">Property scan</span>
+              <span style="font-family:Rajdhani;font-weight:600;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#8494ab;background:#101827;border-radius:6px;padding:6px 14px;cursor:pointer" style-hover="color:#c9d4e3">Index scan</span>
+              <span style="font-family:Rajdhani;font-weight:600;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#8494ab;background:#101827;border-radius:6px;padding:6px 14px;cursor:pointer" style-hover="color:#c9d4e3">Range</span>
+              <span style="font-family:Rajdhani;font-weight:600;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#8494ab;background:#101827;border-radius:6px;padding:6px 14px;cursor:pointer" style-hover="color:#c9d4e3">Fulltext</span>
+              <span style="font-family:Rajdhani;font-weight:600;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#8494ab;background:#101827;border-radius:6px;padding:6px 14px;cursor:pointer" style-hover="color:#c9d4e3">Spatial</span>
+              <span style="margin-left:auto;font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81;padding:6px 0">POST /scan/graph/property/{propertyId}</span>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:12px;margin-top:18px;background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:18px">
+              <div style="display:flex;flex-direction:column;gap:6px;width:180px"><label style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Property id</label><input value="age" style="background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#c9d4e3;font-family:'JetBrains Mono';font-size:13px;padding:9px 12px;outline:none" style-focus="border-color:#56d9ee66"></div>
+              <div style="display:flex;flex-direction:column;gap:6px;width:170px"><label style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Operator</label><div style="background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#c9d4e3;font-family:'JetBrains Mono';font-size:13px;padding:9px 12px;display:flex;justify-content:space-between;cursor:pointer"><span>GreaterOrEqual</span><span style="color:#5f6c81">▾</span></div></div>
+              <div style="display:flex;flex-direction:column;gap:6px;flex:1"><label style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Literal — typed</label>
+                <div style="display:flex;gap:8px">
+                  <input value="30" style="flex:1;background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#a5e88b;font-family:'JetBrains Mono';font-size:13px;padding:9px 12px;outline:none" style-focus="border-color:#56d9ee66">
+                  <div style="background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#c792ea;font-family:'JetBrains Mono';font-size:12.5px;padding:9px 12px;display:flex;gap:8px;cursor:pointer"><span>System.Int32</span><span style="color:#5f6c81">▾</span></div>
+                </div>
+              </div>
+              <button style="background:#56d9ee;border:none;border-radius:6px;color:#06222b;font-family:Rajdhani;font-weight:700;font-size:14px;letter-spacing:1.5px;text-transform:uppercase;padding:10px 24px;cursor:pointer" style-hover="background:#8ee8f7">Run scan</button>
+            </div>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:18px 36px 28px">
+            <div style="display:flex;align-items:center;gap:14px;padding:0 2px 10px">
+              <span style="font-size:12.5px;color:#c9d4e3"><b style="color:#56d9ee;font-family:'JetBrains Mono'">214</b> ids returned · hydrated <span style="font-family:'JetBrains Mono';color:#8494ab">214/214</span></span>
+              <div style="width:130px;height:4px;background:#141a26;border-radius:2px;overflow:hidden"><div style="width:100%;height:100%;background:#3ddc97"></div></div>
+              <span style="font-family:'JetBrains Mono';font-size:11px;color:#5f6c81">142 ms</span>
+              <div style="flex:1"></div>
+              <button style="background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-size:12px;padding:6px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">Open as table</button>
+              <button style="background:#0f2130;border:1px solid #56d9ee44;border-radius:6px;color:#56d9ee;font-size:12px;padding:6px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#123043">Send to canvas →</button>
+            </div>
+            <div style="flex:1;min-height:0;overflow:auto;background:#0b0f16;border:1px solid #141a26;border-radius:12px">
+              <div style="display:grid;grid-template-columns:80px 110px 1fr 90px 110px 110px;padding:10px 18px;border-bottom:1px solid #141a26;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600;position:sticky;top:0;background:#0b0f16"><span>Id</span><span>Label</span><span>name</span><span>age</span><span>out-degree</span><span>in-degree</span></div>
+              <sc-for list="{{ scanRows }}" as="r" hint-placeholder-count="8">
+                <div style="display:grid;grid-template-columns:80px 110px 1fr 90px 110px 110px;padding:10px 18px;border-bottom:1px solid #10151f;font-family:'JetBrains Mono';font-size:12.5px;cursor:pointer" style-hover="background:#0d1420">
+                  <span style="color:#5f6c81">#{{ r.id }}</span><span style="color:#ffb454">{{ r.label }}</span><span style="color:#c9d4e3">{{ r.name }}</span><span style="color:#a5e88b">{{ r.age }}</span><span style="color:#8494ab">{{ r.outd }}</span><span style="color:#8494ab">{{ r.ind }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ isCanvas }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;height:100%;min-height:0">
+          <div style="flex:1;position:relative;min-width:0;background:radial-gradient(ellipse 90% 70% at 50% 40%,#0b111c 0%,#06080c 75%)">
+            <!-- toolbar -->
+            <div style="position:absolute;top:16px;left:16px;z-index:5;display:flex;gap:8px;align-items:center">
+              <div style="background:#0b0f16ee;border:1px solid #1f2a3d;border-radius:8px;padding:6px 12px;display:flex;gap:10px;align-items:center;font-size:12px;color:#8494ab">
+                <span style="color:#c9d4e3">Layout</span><span style="font-family:'JetBrains Mono';font-size:12px;color:#56d9ee;cursor:pointer">force ▾</span>
+              </div>
+              <button style="background:#0b0f16ee;border:1px solid #1f2a3d;border-radius:8px;color:#8494ab;font-size:12px;padding:7px 12px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">Fit</button>
+              <button style="background:#0b0f16ee;border:1px solid #1f2a3d;border-radius:8px;color:#8494ab;font-size:12px;padding:7px 12px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">Expand selected</button>
+              <button style="background:#0b0f16ee;border:1px solid #1f2a3d;border-radius:8px;color:#8494ab;font-size:12px;padding:7px 12px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">Remove from view</button>
+            </div>
+            <!-- legend + counts -->
+            <div style="position:absolute;bottom:16px;left:16px;z-index:5;display:flex;gap:8px;align-items:center">
+              <div style="background:#0b0f16ee;border:1px solid #1f2a3d;border-radius:8px;padding:8px 14px;display:flex;gap:16px;font-size:12px">
+                <span style="display:flex;align-items:center;gap:6px;color:#8494ab"><span style="width:9px;height:9px;border-radius:50%;background:#56d9ee"></span>person</span>
+                <span style="display:flex;align-items:center;gap:6px;color:#8494ab"><span style="width:9px;height:9px;border-radius:50%;background:#ffb454"></span>ship</span>
+                <span style="display:flex;align-items:center;gap:6px;color:#8494ab"><span style="width:9px;height:9px;border-radius:50%;background:#c792ea"></span>port</span>
+              </div>
+              <div style="background:#0b0f16ee;border:1px solid #1f2a3d;border-radius:8px;padding:8px 14px;font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">1,204 elements · <span style="color:#ffb454">⚠ source truncated at 1000</span></div>
+            </div>
+            <svg viewBox="0 0 1000 640" style="width:100%;height:100%;display:block">
+              <g stroke="#1d2b42" stroke-width="1">
+                <line x1="500" y1="300" x2="380" y2="210"></line><line x1="500" y1="300" x2="640" y2="240"></line><line x1="500" y1="300" x2="560" y2="430"></line><line x1="500" y1="300" x2="360" y2="390"></line>
+                <line x1="380" y1="210" x2="270" y2="150"></line><line x1="380" y1="210" x2="430" y2="110"></line><line x1="640" y1="240" x2="740" y2="160"></line><line x1="640" y1="240" x2="760" y2="290"></line>
+                <line x1="560" y1="430" x2="660" y2="500"></line><line x1="560" y1="430" x2="480" y2="530"></line><line x1="360" y1="390" x2="250" y2="440"></line><line x1="360" y1="390" x2="290" y2="320"></line>
+                <line x1="740" y1="160" x2="840" y2="120"></line><line x1="760" y1="290" x2="860" y2="350"></line><line x1="250" y1="440" x2="170" y2="510"></line><line x1="270" y1="150" x2="180" y2="100"></line>
+                <line x1="660" y1="500" x2="770" y2="540"></line><line x1="430" y1="110" x2="540" y2="70"></line><line x1="290" y1="320" x2="180" y2="290"></line><line x1="860" y1="350" x2="900" y2="450"></line>
+              </g>
+              <g stroke="#56d9ee" stroke-width="2" opacity="0.9">
+                <line x1="500" y1="300" x2="640" y2="240"></line><line x1="640" y1="240" x2="760" y2="290"></line>
+              </g>
+              <g>
+                <circle cx="380" cy="210" r="9" fill="#56d9ee"></circle><circle cx="270" cy="150" r="7" fill="#56d9ee"></circle><circle cx="430" cy="110" r="7" fill="#56d9ee"></circle><circle cx="180" cy="100" r="6" fill="#56d9ee"></circle><circle cx="540" cy="70" r="6" fill="#56d9ee"></circle>
+                <circle cx="640" cy="240" r="9" fill="#ffb454"></circle><circle cx="740" cy="160" r="7" fill="#ffb454"></circle><circle cx="840" cy="120" r="6" fill="#ffb454"></circle><circle cx="360" cy="390" r="8" fill="#ffb454"></circle><circle cx="290" cy="320" r="6" fill="#ffb454"></circle><circle cx="180" cy="290" r="6" fill="#ffb454"></circle>
+                <circle cx="560" cy="430" r="8" fill="#c792ea"></circle><circle cx="660" cy="500" r="7" fill="#c792ea"></circle><circle cx="480" cy="530" r="6" fill="#c792ea"></circle><circle cx="770" cy="540" r="6" fill="#c792ea"></circle><circle cx="250" cy="440" r="7" fill="#c792ea"></circle><circle cx="170" cy="510" r="6" fill="#c792ea"></circle>
+                <circle cx="760" cy="290" r="8" fill="#ffb454"></circle><circle cx="860" cy="350" r="6" fill="#ffb454"></circle><circle cx="900" cy="450" r="5" fill="#c792ea"></circle>
+                <circle cx="500" cy="300" r="13" fill="#56d9ee" stroke="#e8eef7" stroke-width="2"></circle>
+                <circle cx="500" cy="300" r="20" fill="none" stroke="#56d9ee" stroke-width="1" opacity="0.5"></circle>
+              </g>
+              <g font-family="JetBrains Mono" font-size="11" fill="#8494ab">
+                <text x="500" y="336" text-anchor="middle" fill="#e8eef7">rachael</text>
+                <text x="380" y="192" text-anchor="middle">deckard</text>
+                <text x="640" y="222" text-anchor="middle">spinner-42</text>
+                <text x="760" y="272" text-anchor="middle">esper-7</text>
+                <text x="560" y="452" text-anchor="middle">bay-c</text>
+              </g>
+            </svg>
+          </div>
+          <!-- selection detail -->
+          <div style="width:300px;flex:none;border-left:1px solid #141a26;background:#090c12;padding:20px;overflow:auto">
+            <div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Selection</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:12px"><span style="width:10px;height:10px;border-radius:50%;background:#56d9ee;box-shadow:0 0 8px #56d9ee88"></span><span style="font-family:Rajdhani;font-weight:700;font-size:20px;color:#e8eef7">rachael</span><span style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">#4471</span></div>
+            <div style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81;margin-top:4px">label person · degree 7</div>
+            <div style="margin-top:16px;display:flex;flex-direction:column;gap:1px;background:#0b0f16;border:1px solid #141a26;border-radius:8px;overflow:hidden">
+              <div style="display:flex;justify-content:space-between;padding:9px 12px;font-family:'JetBrains Mono';font-size:12px;border-bottom:1px solid #10151f"><span style="color:#8494ab">name</span><span style="color:#e9b56d">"Rachael"</span></div>
+              <div style="display:flex;justify-content:space-between;padding:9px 12px;font-family:'JetBrains Mono';font-size:12px;border-bottom:1px solid #10151f"><span style="color:#8494ab">age</span><span style="color:#a5e88b">29</span></div>
+              <div style="display:flex;justify-content:space-between;padding:9px 12px;font-family:'JetBrains Mono';font-size:12px"><span style="color:#8494ab">replicant</span><span style="color:#c792ea">true</span></div>
+            </div>
+            <button style="width:100%;margin-top:14px;background:#0f2130;border:1px solid #56d9ee44;border-radius:6px;color:#56d9ee;font-size:12.5px;padding:9px 0;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#123043">Expand neighbors (7)</button>
+            <button style="width:100%;margin-top:8px;background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-size:12.5px;padding:9px 0;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">Open in browser</button>
+            <button style="width:100%;margin-top:8px;background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-size:12.5px;padding:9px 0;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">Remove from view</button>
+            <div style="margin-top:22px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Path overlay</div>
+            <div style="margin-top:10px;background:#0b0f16;border:1px solid #141a26;border-radius:8px;padding:12px;font-size:12px;color:#8494ab;line-height:1.6">
+              <span style="color:#56d9ee;font-family:'JetBrains Mono'">rachael → spinner-42 → esper-7</span><br>2 hops · totalWeight <span style="font-family:'JetBrains Mono';color:#a5e88b">14.6</span> · Dijkstra
+            </div>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ isPath }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:1100px;margin:0 auto;padding:34px 40px">
+          <div style="display:flex;align-items:baseline;gap:14px">
+            <div style="font-family:Rajdhani;font-weight:700;font-size:28px;letter-spacing:2px;text-transform:uppercase;color:#e8eef7">Path finder</div>
+            <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">POST /path/{from}/to/{to}</span>
+          </div>
+          <div style="margin-top:20px;background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:20px">
+            <div style="display:flex;align-items:flex-end;gap:14px">
+              <div style="display:flex;flex-direction:column;gap:6px;flex:1"><label style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">From</label>
+                <div style="display:flex;align-items:center;gap:8px;background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;padding:8px 12px;cursor:pointer" style-hover="border-color:#2e3b55"><span style="width:8px;height:8px;border-radius:50%;background:#56d9ee"></span><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">#4471 rachael</span><span style="margin-left:auto;color:#5f6c81;font-size:11px">person</span></div>
+              </div>
+              <span style="color:#5f6c81;padding-bottom:11px">→</span>
+              <div style="display:flex;flex-direction:column;gap:6px;flex:1"><label style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">To</label>
+                <div style="display:flex;align-items:center;gap:8px;background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;padding:8px 12px;cursor:pointer" style-hover="border-color:#2e3b55"><span style="width:8px;height:8px;border-radius:50%;background:#ffb454"></span><span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">#5121 esper-7</span><span style="margin-left:auto;color:#5f6c81;font-size:11px">ship</span></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px"><label style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Algorithm</label>
+                <div style="display:flex;background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;overflow:hidden">
+                  <span style="font-family:'JetBrains Mono';font-size:12.5px;color:#8494ab;padding:8px 16px;cursor:pointer" title="Hop-count breadth search — ignores costs and maxPathWeight">BLS</span>
+                  <span style="font-family:'JetBrains Mono';font-size:12.5px;color:#06222b;background:#56d9ee;padding:8px 16px;cursor:pointer">Dijkstra</span>
+                </div>
+              </div>
+              <button style="background:#56d9ee;border:none;border-radius:6px;color:#06222b;font-family:Rajdhani;font-weight:700;font-size:14px;letter-spacing:1.5px;text-transform:uppercase;padding:10px 24px;cursor:pointer" style-hover="background:#8ee8f7">Find paths</button>
+            </div>
+            <div style="display:flex;gap:14px;margin-top:14px;align-items:center">
+              <div style="display:flex;align-items:center;gap:8px"><label style="font-size:11.5px;color:#5f6c81">maxDepth</label><input value="7" style="width:56px;background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#a5e88b;font-family:'JetBrains Mono';font-size:12.5px;padding:6px 10px;outline:none"></div>
+              <div style="display:flex;align-items:center;gap:8px"><label style="font-size:11.5px;color:#5f6c81">maxResults <span style="color:#2e3b55">·</span> K-shortest</label><input value="3" style="width:56px;background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#a5e88b;font-family:'JetBrains Mono';font-size:12.5px;padding:6px 10px;outline:none"></div>
+              <div style="display:flex;align-items:center;gap:8px"><label style="font-size:11.5px;color:#5f6c81">maxPathWeight</label><input value="∞" style="width:56px;background:#0d1420;border:1px solid #1f2a3d;border-radius:6px;color:#a5e88b;font-family:'JetBrains Mono';font-size:12.5px;padding:6px 10px;outline:none"></div>
+              <span style="font-size:11.5px;color:#5f6c81">Dijkstra orders by weight; under BLS, costs and maxPathWeight are ignored.</span>
+            </div>
+          </div>
+          <!-- delegate slots -->
+          <div style="margin-top:18px;background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:20px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Advanced — delegate slots</span>
+              <span style="font-size:11.5px;color:#5f6c81">optional · empty = match everything · C# fragments run on the server</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px">
+              <div onClick="{{ openEditor }}" style="display:flex;align-items:center;gap:10px;background:#0d1420;border:1px solid #56d9ee44;border-radius:8px;padding:11px 14px;cursor:pointer" style-hover="border-color:#56d9ee88">
+                <span style="font-family:'JetBrains Mono';font-size:12px;color:#56d9ee">filter.vertexFilter</span>
+                <span style="font-family:'JetBrains Mono';font-size:11px;color:#5f6c81;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">return (v) => v.Label == "person" && …</span>
+                <span style="font-size:10.5px;font-family:Rajdhani;font-weight:600;letter-spacing:1px;color:#ff8484;border:1px solid #ff5d5d44;border-radius:4px;padding:2px 7px;flex:none">1 ERROR</span>
+              </div>
+              <div onClick="{{ openEditor }}" style="display:flex;align-items:center;gap:10px;background:#0d1420;border:1px solid #1f2a3d;border-radius:8px;padding:11px 14px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <span style="font-family:'JetBrains Mono';font-size:12px;color:#8494ab">cost.edgeCost</span>
+                <span style="font-family:'JetBrains Mono';font-size:11px;color:#5f6c81;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">return (e) => e.TryGetProperty(out double w, …</span>
+                <span style="font-size:10.5px;font-family:Rajdhani;font-weight:600;letter-spacing:1px;color:#3ddc97;border:1px solid #3ddc9744;border-radius:4px;padding:2px 7px;flex:none">VALID</span>
+              </div>
+              <div onClick="{{ openEditor }}" style="display:flex;align-items:center;gap:10px;background:transparent;border:1px dashed #1f2a3d;border-radius:8px;padding:11px 14px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <span style="font-family:'JetBrains Mono';font-size:12px;color:#5f6c81">filter.edgeFilter</span><span style="font-size:11.5px;color:#2e3b55;flex:1">empty — matches everything</span><span style="color:#5f6c81;font-size:12px;flex:none">+ edit</span>
+              </div>
+              <div onClick="{{ openEditor }}" style="display:flex;align-items:center;gap:10px;background:transparent;border:1px dashed #1f2a3d;border-radius:8px;padding:11px 14px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <span style="font-family:'JetBrains Mono';font-size:12px;color:#5f6c81">filter.edgePropertyFilter</span><span style="font-size:11.5px;color:#2e3b55;flex:1">empty — matches everything</span><span style="color:#5f6c81;font-size:12px;flex:none">+ edit</span>
+              </div>
+              <div onClick="{{ openEditor }}" style="display:flex;align-items:center;gap:10px;background:transparent;border:1px dashed #1f2a3d;border-radius:8px;padding:11px 14px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <span style="font-family:'JetBrains Mono';font-size:12px;color:#5f6c81">cost.vertexCost</span><span style="font-size:11.5px;color:#2e3b55;flex:1">empty — no vertex cost</span><span style="color:#5f6c81;font-size:12px;flex:none">+ edit</span>
+              </div>
+            </div>
+            <div style="margin-top:12px;font-size:11.5px;color:#ffb454;display:flex;align-items:center;gap:8px"><span>⚠</span><span>Submission blocked — <span style="font-family:'JetBrains Mono'">filter.vertexFilter</span> has a compile error. The server would silently return an empty list.</span></div>
+          </div>
+          <!-- results -->
+          <div style="margin-top:18px;background:#0b0f16;border:1px solid #141a26;border-radius:12px;padding:20px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Results — last run</span>
+              <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">2 paths · Dijkstra · 89 ms</span>
+              <button style="margin-left:auto;background:#0f2130;border:1px solid #56d9ee44;border-radius:6px;color:#56d9ee;font-size:12px;padding:6px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#123043">Overlay on canvas →</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+              <div style="display:flex;align-items:center;gap:12px;background:#0d1420;border:1px solid #141a26;border-radius:8px;padding:12px 16px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <span style="font-family:Rajdhani;font-weight:700;color:#56d9ee;font-size:15px">1</span>
+                <span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">rachael <span style="color:#5f6c81">—pilots→</span> spinner-42 <span style="color:#5f6c81">—docks→</span> esper-7</span>
+                <span style="margin-left:auto;font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">2 hops · totalWeight <span style="color:#a5e88b">14.6</span></span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;background:#0d1420;border:1px solid #141a26;border-radius:8px;padding:12px 16px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <span style="font-family:Rajdhani;font-weight:700;color:#5f6c81;font-size:15px">2</span>
+                <span style="font-family:'JetBrains Mono';font-size:12.5px;color:#c9d4e3">rachael <span style="color:#5f6c81">—knows→</span> deckard <span style="color:#5f6c81">—tracks→</span> esper-7</span>
+                <span style="margin-left:auto;font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">2 hops · totalWeight <span style="color:#a5e88b">21.9</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ isSub }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;height:100%;min-height:0">
+          <!-- subgraph list -->
+          <div style="width:300px;flex:none;border-right:1px solid #141a26;background:#090c12;display:flex;flex-direction:column">
+            <div style="padding:16px;display:flex;align-items:center;gap:10px"><span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Subgraphs · 3</span><button style="margin-left:auto;background:#0f2130;border:1px solid #56d9ee44;border-radius:6px;color:#56d9ee;font-size:12px;padding:5px 12px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#123043">+ New</button></div>
+            <div style="flex:1;overflow:auto;padding:0 10px 14px;display:flex;flex-direction:column;gap:6px">
+              <div style="background:#0d1420;border:1px solid #56d9ee44;border-radius:8px;padding:12px;cursor:pointer">
+                <div style="font-family:'JetBrains Mono';font-size:13px;color:#e8eef7">adult-pilots</div>
+                <div style="font-family:'JetBrains Mono';font-size:11px;color:#5f6c81;margin-top:4px">312 vertices · 840 edges · 3 steps</div>
+                <div style="font-size:10.5px;color:#5f6c81;margin-top:4px">recalculated 2m ago</div>
+              </div>
+              <div style="background:transparent;border:1px solid #141a26;border-radius:8px;padding:12px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <div style="font-family:'JetBrains Mono';font-size:13px;color:#c9d4e3">offworld-routes</div>
+                <div style="font-family:'JetBrains Mono';font-size:11px;color:#5f6c81;margin-top:4px">88 vertices · 141 edges · 5 steps · from <span style="color:#8494ab">adult-pilots</span></div>
+              </div>
+              <div style="background:transparent;border:1px solid #141a26;border-radius:8px;padding:12px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <div style="font-family:'JetBrains Mono';font-size:13px;color:#c9d4e3">quarantine-zone</div>
+                <div style="font-family:'JetBrains Mono';font-size:11px;color:#ffb454;margin-top:4px">0 vertices · 0 edges — empty is a valid result</div>
+              </div>
+            </div>
+            <div style="padding:12px 16px;border-top:1px solid #141a26;font-size:11px;color:#5f6c81;line-height:1.5">Quota: 3 / 16 subgraphs · 1,381 / 50,000 materialized elements</div>
+          </div>
+          <!-- detail + pattern builder -->
+          <div style="flex:1;overflow:auto;padding:30px 36px;min-width:0">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="font-family:Rajdhani;font-weight:700;font-size:26px;color:#e8eef7">adult-pilots</span>
+              <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">PUT /subgraph · 201 Created</span>
+              <div style="flex:1"></div>
+              <button style="background:#0f2130;border:1px solid #56d9ee44;border-radius:6px;color:#56d9ee;font-size:12px;padding:7px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#123043">Send contents to canvas →</button>
+              <button style="background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-size:12px;padding:7px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">↻ Recalculate</button>
+              <button style="background:#1a0d10;border:1px solid #ff5d5d44;border-radius:6px;color:#ff8484;font-size:12px;padding:7px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#241014">Delete</button>
+            </div>
+            <div style="display:flex;gap:22px;margin-top:8px;font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81"><span>312 vertices</span><span>840 edges</span><span>source: whole graph</span><span>created 2026-07-13 22:04</span></div>
+            <!-- top-level filters -->
+            <div style="margin-top:24px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Top-level filters · (AGraphElementModel ge) ⇒ bool</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+              <div onClick="{{ openEditorSubVertex }}" style="display:flex;align-items:center;gap:10px;background:#0d1420;border:1px solid #1f2a3d;border-radius:8px;padding:11px 14px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <span style="font-family:'JetBrains Mono';font-size:12px;color:#8494ab">vertexFilter</span>
+                <span style="font-family:'JetBrains Mono';font-size:11px;color:#5f6c81;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">return (ge) => ge.Label == "person";</span>
+                <span style="font-size:10.5px;font-family:Rajdhani;font-weight:600;letter-spacing:1px;color:#3ddc97;border:1px solid #3ddc9744;border-radius:4px;padding:2px 7px;flex:none">VALID</span>
+              </div>
+              <div onClick="{{ openEditorSubEdge }}" style="display:flex;align-items:center;gap:10px;background:transparent;border:1px dashed #1f2a3d;border-radius:8px;padding:11px 14px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <span style="font-family:'JetBrains Mono';font-size:12px;color:#5f6c81">edgeFilter</span><span style="font-size:11.5px;color:#2e3b55;flex:1">empty — matches everything</span><span style="color:#5f6c81;font-size:12px;flex:none">+ edit</span>
+              </div>
+            </div>
+            <!-- pattern -->
+            <div style="margin-top:24px;display:flex;align-items:center;gap:10px">
+              <span style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Pattern sequence</span>
+              <span style="font-size:11.5px;color:#5f6c81">alternates vertex ↔ edge, starting with a vertex · per-step filters optional</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+              <div style="display:flex;align-items:center;gap:12px;background:#0b0f16;border:1px solid #141a26;border-radius:10px;padding:12px 16px">
+                <span style="width:26px;height:26px;border-radius:50%;background:#12203044;border:1px solid #56d9ee44;display:grid;place-items:center;font-family:Rajdhani;font-weight:700;font-size:12px;color:#56d9ee;flex:none">1</span>
+                <span style="font-size:10.5px;font-family:Rajdhani;font-weight:600;letter-spacing:1px;color:#56d9ee;border:1px solid #56d9ee44;border-radius:4px;padding:3px 8px;flex:none">VERTEX</span>
+                <span onClick="{{ openEditorStep1 }}" style="font-family:'JetBrains Mono';font-size:11.5px;color:#8494ab;cursor:pointer" style-hover="color:#c9d4e3">vertexFilter: age ≥ 18 <span style="color:#3ddc97">✓</span></span>
+                <div style="flex:1"></div>
+                <span style="color:#2e3b55;font-size:12px;cursor:pointer" style-hover="color:#ff8484">remove</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;background:#0b0f16;border:1px solid #141a26;border-radius:10px;padding:12px 16px">
+                <span style="width:26px;height:26px;border-radius:50%;background:#12203044;border:1px solid #ffb45444;display:grid;place-items:center;font-family:Rajdhani;font-weight:700;font-size:12px;color:#ffb454;flex:none">2</span>
+                <span style="font-size:10.5px;font-family:Rajdhani;font-weight:600;letter-spacing:1px;color:#ffb454;border:1px solid #ffb45444;border-radius:4px;padding:3px 8px;flex:none">VAR-LENGTH EDGE</span>
+                <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#8494ab">direction: out ▾</span>
+                <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#8494ab">min <span style="color:#a5e88b">1</span> · max <span style="color:#a5e88b">4</span> <span style="color:#5f6c81">(≤100)</span></span>
+                <span onClick="{{ openEditorStep2 }}" style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81;cursor:pointer" style-hover="color:#c9d4e3">edgePropertyFilter: + edit</span>
+                <div style="flex:1"></div>
+                <span style="color:#2e3b55;font-size:12px;cursor:pointer" style-hover="color:#ff8484">remove</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;background:#0b0f16;border:1px solid #141a26;border-radius:10px;padding:12px 16px">
+                <span style="width:26px;height:26px;border-radius:50%;background:#12203044;border:1px solid #56d9ee44;display:grid;place-items:center;font-family:Rajdhani;font-weight:700;font-size:12px;color:#56d9ee;flex:none">3</span>
+                <span style="font-size:10.5px;font-family:Rajdhani;font-weight:600;letter-spacing:1px;color:#56d9ee;border:1px solid #56d9ee44;border-radius:4px;padding:3px 8px;flex:none">VERTEX</span>
+                <span onClick="{{ openEditorStep3 }}" style="font-family:'JetBrains Mono';font-size:11.5px;color:#8494ab;cursor:pointer" style-hover="color:#c9d4e3">vertexFilter: Label == "ship" <span style="color:#3ddc97">✓</span></span>
+                <div style="flex:1"></div>
+                <span style="color:#2e3b55;font-size:12px;cursor:pointer" style-hover="color:#ff8484">remove</span>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button style="background:transparent;border:1px dashed #1f2a3d;border-radius:10px;color:#5f6c81;font-size:12px;padding:10px 16px;cursor:pointer;flex:1;font-family:'IBM Plex Sans'" style-hover="border-color:#2e3b55;color:#c9d4e3">+ Edge step</button>
+                <button disabled style="background:transparent;border:1px dashed #141a26;border-radius:10px;color:#2e3b55;font-size:12px;padding:10px 16px;flex:1;font-family:'IBM Plex Sans';cursor:not-allowed" title="Sequence must alternate — next step must be an edge">+ Vertex step (must alternate)</button>
+              </div>
+            </div>
+            <div style="margin-top:18px;background:#160e12;border:1px solid #ff5d5d22;border-radius:8px;padding:12px 14px;display:flex;gap:10px;align-items:baseline;font-size:12px">
+              <span style="font-family:'JetBrains Mono';color:#ff8484;flex:none">409</span>
+              <span style="color:#8494ab;line-height:1.5">Last create attempt: name <span style="font-family:'JetBrains Mono';color:#c9d4e3">adult-pilots</span> already exists on <span style="font-family:'JetBrains Mono';color:#ffb454">{{ instName }}</span> — rename or delete the existing subgraph. (404 = missing fromSubGraph source · 400 = fragment diagnostics open in their editor slot)</span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+      <!-- DELEGATE EDITOR OVERLAY -->
+      <sc-if value="{{ editorOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:fixed;inset:0;background:#04060acc;backdrop-filter:blur(3px);display:grid;place-items:center;z-index:60">
+        <div style="width:min(1180px,92vw);height:min(720px,88vh);background:#0a0d13;border:1px solid #2e3b55;border-radius:14px;box-shadow:0 40px 120px #000d;display:flex;flex-direction:column;overflow:hidden">
+        <div style="flex:none;display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid #141a26;background:#090c12">
+          <span style="font-family:Rajdhani;font-weight:700;font-size:16px;letter-spacing:2px;text-transform:uppercase;color:#e8eef7">Delegate editor</span>
+          <span style="font-family:'JetBrains Mono';font-size:12px;color:#56d9ee">{{ edSlot }}</span>
+          <span style="font-family:'JetBrains Mono';font-size:11.5px;color:#5f6c81">{{ edCtx }}</span>
+          <button onClick="{{ closeEditor }}" style="margin-left:auto;background:transparent;border:none;color:#5f6c81;font-size:18px;cursor:pointer;line-height:1" style-hover="color:#c9d4e3">✕</button>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0;padding:18px 22px">
+            <!-- NL assist -->
+            <div style="display:flex;gap:10px;align-items:center;background:#0d1420;border:1px solid #1f2a3d;border-radius:8px;padding:8px 8px 8px 14px">
+              <span style="color:#c792ea;font-size:14px">✦</span>
+              <input value="only persons older than 18 that have outgoing edges" style="flex:1;background:transparent;border:none;color:#c9d4e3;font-size:13px;outline:none;font-family:'IBM Plex Sans'">
+              <button style="background:#1b1430;border:1px solid #c792ea44;border-radius:6px;color:#c792ea;font-size:12px;padding:7px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="background:#241a40">Draft fragment</button>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:6px;padding:0 4px;font-size:11px;color:#5f6c81"><span>model: <span style="font-family:'JetBrains Mono';color:#8494ab">ollama · qwen2.5-coder</span> (local)</span><span>·</span><span>drafts are inserted as editable text and must pass validation before any run</span></div>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:14px">
+              <span style="font-family:'JetBrains Mono';font-size:12px;color:#5f6c81">{{ edSig }}</span>
+              <div style="flex:1"></div>
+              <button style="background:#101827;border:1px solid #1f2a3d;border-radius:6px;color:#8494ab;font-size:12px;padding:7px 14px;cursor:pointer;font-family:'IBM Plex Sans'" style-hover="color:#c9d4e3">Copy fragment</button>
+              <button style="background:#56d9ee;border:none;border-radius:6px;color:#06222b;font-family:Rajdhani;font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;padding:8px 20px;cursor:pointer" style-hover="background:#8ee8f7">Validate</button>
+            </div>
+            <!-- editor -->
+            <div style="flex:1;min-height:0;margin-top:16px;background:#0a0d13;border:1px solid #141a26;border-radius:12px;overflow:hidden;display:flex;flex-direction:column">
+              <div style="display:flex;gap:0;flex:1;font-family:'JetBrains Mono';font-size:13.5px;line-height:1.9;padding:14px 0;position:relative">
+                <div style="width:52px;flex:none;text-align:right;padding-right:14px;color:#2e3b55;user-select:none">1<br>2<br>3<br>4<br>5<br>6</div>
+                <div style="flex:1;min-width:0">
+                  <div><span style="color:#5f7a5f">// match adult persons with at least one outgoing edge</span></div>
+                  <div><span style="color:#c792ea">return</span> <span style="color:#c9d4e3">(v) =></span></div>
+                  <div><span style="color:#c9d4e3">&nbsp;&nbsp;v.</span><span style="color:#56d9ee">Label</span> <span style="color:#c792ea">==</span> <span style="color:#e9b56d">"person"</span> <span style="color:#c792ea">&&</span></div>
+                  <div style="background:#1a0d1022;position:relative"><span style="color:#c9d4e3">&nbsp;&nbsp;v.</span><span style="color:#56d9ee;border-bottom:2px dotted #ff5d5d">TryGetProprety</span><span style="color:#c9d4e3">(</span><span style="color:#c792ea">out int</span><span style="color:#c9d4e3"> age, </span><span style="color:#e9b56d">"age"</span><span style="color:#c9d4e3">)</span> <span style="color:#c792ea">&&</span></div>
+                  <div><span style="color:#c9d4e3">&nbsp;&nbsp;age <span style="color:#c792ea">>=</span> <span style="color:#a5e88b">18</span> <span style="color:#c792ea">&&</span> v.</span><span style="color:#56d9ee">GetOutDegree</span><span style="color:#c9d4e3">() <span style="color:#c792ea">></span> <span style="color:#a5e88b">0</span>;<span style="display:inline-block;width:2px;height:16px;background:#56d9ee;vertical-align:-3px;animation:blink 1.1s infinite"></span></span></div>
+                  <div>&nbsp;</div>
+                  <!-- completion popup -->
+                  <div style="position:absolute;left:210px;top:78px;width:380px;background:#0d1420;border:1px solid #2e3b55;border-radius:8px;box-shadow:0 16px 44px #000a;overflow:hidden;z-index:5">
+                    <div style="display:flex;gap:10px;padding:7px 12px;background:#12203044;font-size:12px"><span style="color:#f7d774">ƒ</span><span style="color:#e8eef7">TryGetProperty&lt;T&gt;</span><span style="color:#5f6c81">(out T result, string propertyId) : bool</span></div>
+                    <div style="display:flex;gap:10px;padding:7px 12px;font-size:12px" style-hover="background:#12203044"><span style="color:#f7d774">ƒ</span><span style="color:#c9d4e3">GetAllProperties</span><span style="color:#5f6c81">() : ImmutableDictionary&lt;string,object&gt;</span></div>
+                    <div style="display:flex;gap:10px;padding:7px 12px;font-size:12px" style-hover="background:#12203044"><span style="color:#f7d774">ƒ</span><span style="color:#c9d4e3">GetPropertyCount</span><span style="color:#5f6c81">() : int</span></div>
+                    <div style="padding:7px 12px;background:#0a0d13;border-top:1px solid #141a26;font-size:11px;color:#5f6c81">The canonical property idiom — completes to <span style="color:#8494ab;font-family:'JetBrains Mono'">TryGetProperty(out int x, "id")</span></div>
+                  </div>
+                </div>
+              </div>
+              <!-- diagnostics -->
+              <div style="flex:none;border-top:1px solid #141a26;background:#0b0f16;padding:10px 18px;display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;gap:10px;align-items:center;font-family:'JetBrains Mono';font-size:12px">
+                  <span style="color:#ff5d5d">✕ CS1061</span><span style="color:#c9d4e3">'VertexModel' does not contain a definition for 'TryGetProprety'</span><span style="margin-left:auto;color:#5f6c81">fragment 4:5</span>
+                </div>
+                <div style="font-size:11px;color:#5f6c81">Position mapped from generated class → fragment line 4 · submission blocked until valid</div>
+              </div>
+            </div>
+          </div>
+          <!-- snippet library -->
+          <div style="width:300px;flex:none;border-left:1px solid #141a26;background:#090c12;padding:20px;overflow:auto;display:flex;flex-direction:column;gap:10px">
+            <div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:#5f6c81;font-family:Rajdhani;font-weight:600">Snippets</div>
+            <sc-for list="{{ snippets }}" as="s" hint-placeholder-count="4">
+              <div style="background:#0b0f16;border:1px solid #141a26;border-radius:8px;padding:12px;cursor:pointer" style-hover="border-color:#2e3b55">
+                <div style="font-size:12.5px;color:#c9d4e3">{{ s.title }}</div>
+                <div style="font-family:'JetBrains Mono';font-size:11px;color:#5f6c81;margin-top:6px;white-space:pre-wrap;line-height:1.5">{{ s.code }}</div>
+              </div>
+            </sc-for>
+            <div style="margin-top:auto;background:#160e12;border:1px solid #ff5d5d22;border-radius:8px;padding:12px;font-size:11.5px;color:#8494ab;line-height:1.55"><span style="color:#ff8484">⚠</span> Fragments are compiled and <b>executed by the server</b>. Treat them as arbitrary code.</div>
+          </div>
+        </div>
+        </div>
+        </div>
+      </sc-if>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1600, &quot;height&quot;: 950}, &quot;screen&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;connect&quot;, &quot;dash&quot;, &quot;browse&quot;, &quot;query&quot;, &quot;subgraph&quot;, &quot;canvas&quot;, &quot;path&quot;], &quot;default&quot;: &quot;dash&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;View&quot;}, &quot;activeInstance&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;local-dev&quot;, &quot;staging&quot;, &quot;prod-eu&quot;], &quot;default&quot;: &quot;local-dev&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;View&quot;}}">
+class Component extends DCLogic {
+  state = { screen: 'dash', wipeOpen: false, selIdx: 0, editorOpen: false };
+  renderVals() {
+    const p = this.props;
+    if (p.screen !== undefined && p.screen !== this._lastScreenProp) { this._lastScreenProp = p.screen; this.state.screen = p.screen; }
+    const screen = this.state.screen;
+    const inst = p.activeInstance ?? 'local-dev';
+    const instances = {
+      'local-dev': { url: 'http://localhost:2323', color: '#3ddc97', text: '#c9d4e3', border: '#1f2a3d' },
+      'staging': { url: 'http://f8-stage.internal:2323', color: '#56d9ee', text: '#c9d4e3', border: '#1f2a3d' },
+      'prod-eu': { url: 'http://f8-prod-eu.internal:2323', color: '#ffb454', text: '#ffb454', border: '#ffb45455' },
+    };
+    const ii = instances[inst] || instances['local-dev'];
+    const titles = { connect: 'Instances', dash: 'Dashboard', browse: 'Element browser', query: 'Query workspace', canvas: 'Graph canvas', path: 'Path finder', subgraph: 'Subgraph studio' };
+    const nav = (id) => `width:38px;height:38px;border:none;border-radius:8px;display:grid;place-items:center;cursor:pointer;background:${screen === id ? '#12203044' : 'transparent'};color:${screen === id ? '#56d9ee' : '#5f6c81'}`;
+    const go = (id) => () => this.setState({ screen: id });
+    const people = [
+      [4471, 'Rachael', 'person', '#56d9ee'], [4472, 'Deckard', 'person', '#56d9ee'], [4473, 'Gaff', 'person', '#56d9ee'],
+      [5120, 'Spinner-42', 'ship', '#ffb454'], [5121, 'Esper-7', 'ship', '#ffb454'], [5209, 'Falcon-08', 'ship', '#ffb454'],
+      [6011, 'Bay C', 'port', '#c792ea'], [6012, 'Sector 6 dock', 'port', '#c792ea'], [4480, 'K. Vasquez', 'person', '#56d9ee'],
+      [4481, 'L. Organa', 'person', '#56d9ee'], [5210, 'Corvette-19', 'ship', '#ffb454'], [6013, 'Offworld gate', 'port', '#c792ea'],
+    ];
+    const browseList = people.map(([id, name, label, dot], i) => ({
+      id, name, label, dot,
+      pick: () => this.setState({ selIdx: i }),
+      rowStyle: `display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:7px;cursor:pointer;background:${this.state.selIdx === i ? '#0d1420' : 'transparent'};outline:${this.state.selIdx === i ? '1px solid #1f2a3d' : 'none'}`,
+    }));
+    const sel = people[this.state.selIdx];
+    const names = ['Deckard', 'Gaff', 'Rachael', 'K. Vasquez', 'L. Organa', 'J. F. Sebastian', 'H. Bryant', 'Pris'];
+    return {
+      isConnect: screen === 'connect', isDash: screen === 'dash', isBrowse: screen === 'browse',
+      isQuery: screen === 'query', isCanvas: screen === 'canvas', isPath: screen === 'path', isSub: screen === 'subgraph', goSub: go('subgraph'), navSubStyle: nav('subgraph'),
+      editorOpen: this.state.editorOpen, closeEditor: () => this.setState({ editorOpen: false }),
+      edSlot: this.state.edSlot || 'filter.vertexFilter', edCtx: this.state.edCtx || 'Path finder · rachael → esper-7', edSig: this.state.edSig || '(VertexModel v) ⇒ bool · return false to exclude · empty = match everything',
+      openEditor: () => this.setState({ editorOpen: true, edSlot: 'filter.vertexFilter', edCtx: 'Path finder · rachael → esper-7', edSig: '(VertexModel v) ⇒ bool · return false to exclude · empty = match everything' }),
+      openEditorSubVertex: () => this.setState({ editorOpen: true, edSlot: 'vertexFilter', edCtx: 'Subgraph studio · adult-pilots · top level', edSig: '(AGraphElementModel ge) ⇒ bool · return false to exclude · empty = match everything' }),
+      openEditorSubEdge: () => this.setState({ editorOpen: true, edSlot: 'edgeFilter', edCtx: 'Subgraph studio · adult-pilots · top level', edSig: '(AGraphElementModel ge) ⇒ bool · return false to exclude · empty = match everything' }),
+      openEditorStep1: () => this.setState({ editorOpen: true, edSlot: 'vertexFilter', edCtx: 'Subgraph studio · adult-pilots · step 1', edSig: '(VertexModel v) ⇒ bool · return false to exclude · empty = match everything' }),
+      openEditorStep2: () => this.setState({ editorOpen: true, edSlot: 'edgePropertyFilter', edCtx: 'Subgraph studio · adult-pilots · step 2', edSig: '(string p) ⇒ bool · return false to exclude · empty = match everything' }),
+      openEditorStep3: () => this.setState({ editorOpen: true, edSlot: 'vertexFilter', edCtx: 'Subgraph studio · adult-pilots · step 3', edSig: '(VertexModel v) ⇒ bool · return false to exclude · empty = match everything' }),
+      screenTitle: titles[screen] || '', instName: inst, instUrl: ii.url, instDot: ii.color, instColor: ii.text, instBorder: ii.border,
+      goConnect: go('connect'), goDash: go('dash'), goBrowse: go('browse'), goQuery: go('query'), goCanvas: go('canvas'), goPath: go('path'),
+      navConnectStyle: nav('connect'), navDashStyle: nav('dash'), navBrowseStyle: nav('browse'), navQueryStyle: nav('query'), navCanvasStyle: nav('canvas'), navPathStyle: nav('path'),
+      wipeOpen: this.state.wipeOpen, openWipe: () => this.setState({ wipeOpen: true }), closeWipe: () => this.setState({ wipeOpen: false }),
+      browseList,
+      selId: sel[0], selName: sel[1], selLabel: sel[2], selDot: sel[3],
+      selProps: [
+        { k: 'name', v: `"${sel[1]}"`, t: 'System.String', color: '#e9b56d' },
+        { k: 'age', v: '29', t: 'System.Int32', color: '#a5e88b' },
+        { k: 'replicant', v: 'true', t: 'System.Boolean', color: '#c792ea' },
+        { k: 'incept', v: '2021-01-08T00:00:00', t: 'System.DateTime', color: '#8ee8f7' },
+      ],
+      outEdges: [
+        { prop: 'pilots', id: 9102, other: 'Spinner-42' }, { prop: 'knows', id: 9107, other: 'Deckard' },
+        { prop: 'docked_at', id: 9111, other: 'Bay C' }, { prop: 'knows', id: 9130, other: 'Gaff' },
+      ],
+      inEdges: [
+        { prop: 'knows', id: 9140, other: 'Deckard' }, { prop: 'tracks', id: 9141, other: 'Esper-7' },
+        { prop: 'knows', id: 9155, other: 'K. Vasquez' },
+      ],
+      scanRows: names.map((n, i) => ({ id: 4471 + i, label: 'person', name: n, age: 30 + ((i * 7) % 23), outd: 2 + (i % 5), ind: 1 + (i % 4) })),
+      snippets: [
+        { title: 'Property + threshold', code: 'return (v) =>\n  v.TryGetProperty(out int age, "age")\n  && age > 30;' },
+        { title: 'Label match', code: 'return (v) => v.Label == "person";' },
+        { title: 'Edge property allow-list', code: 'return (p) =>\n  p == "knows" || p == "pilots";' },
+        { title: 'Weighted edge cost', code: 'return (e) =>\n  e.TryGetProperty(out double w, "weight")\n  ? w : 1.0;' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
