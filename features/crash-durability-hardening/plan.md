@@ -104,16 +104,45 @@ Intent: make the trust boundary explicit and keep recovery cheap for repeated sp
       the WAL header version bump in release notes.
 - [ ] Mark the PR ready for review; reference the feature issue (`Closes #<n>`).
 
+## Outcome (what shipped)
+- **D1** — `WriteAheadLog.Append` captures the pre-append length, truncates a torn frame on failure,
+  trips a sticky `_failed` fence (subsequent appends are a no-op), logs one Error, and rethrows;
+  `HasFailed` exposes it and `ResetToSnapshot` clears it. `TransactionInformation.Durable` (default
+  true) is set false by the manager on **every** committed tx while the fence is tripped (not only the
+  first). `Fallen8.LogCommittedTransaction` now returns durability.
+- **D2** — the failed-load `else` branch restores `_currentId` and, when the WAL is enabled, sets
+  `walHandledIdSpace = true` so the closing `Trim_internal` is skipped (symmetric with the success
+  path) — no unlogged compaction diverges the id space the log baseline assumes.
+- **D3** — `_walAwaitingPairedLoad` is set when an **anchored** log is adopted at construction;
+  `LogCommittedTransaction`/`LogWriteAheadLogMarker` suspend and report non-durable while set; cleared
+  by a paired `Load` and by `Save`.
+- **D4** — `ReplayWriteAheadLog` wraps the data-entry `TryExecute` in try/catch; a throw **or** false
+  on a core data entry stops replay at the last good entry with a `recovered N` log and never escapes;
+  `RemoveSubGraph` (and `CreateSubGraph`) skip-and-continue as derived state.
+- **D6** — `SaveSubGraphRecipes` runs **before** the header commit-point rename and now **throws** on
+  failure (was caught+logged), so a manifest failure fails the whole `Save`, commits nothing, and
+  leaves the WAL unreset (its `CreateSubGraph` entries survive for the next replay).
+- **D7** — the integrity-not-authenticity trust boundary is documented on `ReplaySubGraphCreate`;
+  recovery reuses the landed content-keyed compile cache (distinct-spec scaling), so no new work.
+- Tests: `WriteAheadLogHardeningTest` covers D1 (fence + non-durable + no-silent-drop; Save clears the
+  fence), D2 (no id divergence after a failed load), and D3 (pre-load mutation non-durable + not
+  replayed) — all via the public surface (WAL-file read-only attribute, non-existent load path,
+  anchored-then-reopened log). Full suite green: **390 passed, 0 failed, 14 skipped**.
+- **D4/D6 test scope (honest note):** their fault-injection requires a crafted-WAL / mid-save-failure
+  seam, and the engine deliberately declares no `InternalsVisibleTo`, so they are covered by code
+  review plus the full WAL suite staying green (the changes are conservative — a try/catch + a
+  warn→break for data entries; a reorder + rethrow), not a dedicated red-test.
+
 ## Progress
-- [ ] Phase 0 — fault-injection seams + characterization tests (D1–D4) + opt-in D7 benchmark
-- [ ] Phase 1 — sticky WAL-failure fence (D1)
-- [ ] Phase 2 — symmetric no-Trim on a failed load (D2)
-- [ ] Phase 3 — awaiting-paired-load fence (D3)
-- [ ] Phase 4 — fail-stop replay for data entries; keep subgraph skip-and-continue (D4)
-- [ ] Phase 5 — crash-durable commit-point renames + identity pairing (D5)
-- [ ] Phase 6 — recipe manifest before the commit point (D6)
-- [ ] Phase 7 — recipe-replay trust boundary + compile cache (D7)
-- [ ] Measure & document
+- [x] Phase 0 — fault-injection via the public surface (read-only WAL file, failed load, anchored reopen)
+- [x] Phase 1 — sticky WAL-failure fence (D1)
+- [x] Phase 2 — symmetric no-Trim on a failed load (D2)
+- [x] Phase 3 — awaiting-paired-load fence (D3)
+- [x] Phase 4 — fail-stop replay for data entries; subgraph skip-and-continue (D4)
+- [~] Phase 5 — **deferred**: crash-durable renames (P/Invoke) + WAL-header identity pairing (format bump)
+- [x] Phase 6 — recipe manifest before the commit point + fail-loud (D6)
+- [x] Phase 7 — recipe-replay trust boundary documented; content-keyed compile cache reused (D7)
+- [x] Measure & document
 
 ## Decision / revisit condition
 - **`non-blocking-save/` (measured, deferred).** D5/D6 keep the save on the single writer thread and

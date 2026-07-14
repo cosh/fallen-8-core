@@ -455,12 +455,27 @@ namespace NoSQL.GraphDB.Core.Persistency
 
             var tempMain = TempNameFor(path);
             WriteAllBytesDurably(tempMain, headerBytes);
-            File.Move(tempMain, path, true); // atomic commit point
 
             // Subgraph recipes are persisted as ONE manifest next to the save point (finding C6),
-            // written atomically and read as a whole (no directory scan), so a later, smaller save
-            // can no longer leave stale recipe files behind for the loader to rehydrate.
-            SaveSubGraphRecipes(fallen8, path);
+            // written atomically and read as a whole (no directory scan). D6 (feature
+            // crash-durability-hardening): write it BEFORE the commit-point rename and FAIL the save
+            // if it cannot be written. Because the header has not been renamed into place yet, failing
+            // here commits nothing (Load never reads an uncommitted header's manifest), and - now that
+            // wal-subgraph-support logs CreateSubGraph/RemoveSubGraph - it leaves the WAL UNRESET, so
+            // its subgraph entries survive for the next replay instead of being stranded by a
+            // reset-after-a-swallowed-manifest-failure. A committed header therefore always has its
+            // recipe manifest already durable.
+            try
+            {
+                SaveSubGraphRecipes(fallen8, path);
+            }
+            catch
+            {
+                TryDeleteFile(tempMain);
+                throw;
+            }
+
+            File.Move(tempMain, path, true); // atomic commit point (the recipe manifest is already durable)
 
             return path;
         }
@@ -554,8 +569,14 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, String.Format("Could not persist the subgraph recipe manifest \"{0}\": {1}", manifestPath, ex.Message));
+                // D6 (feature crash-durability-hardening): do NOT swallow. The caller runs this BEFORE
+                // the header commit-point rename, so throwing fails the whole Save with nothing
+                // committed and the WAL left unreset (its CreateSubGraph entries survive). Previously
+                // this was caught+logged and the Save "succeeded" with no recipes and a reset WAL,
+                // losing subgraphs from both durability paths.
                 TryDeleteFile(temp);
+                _logger.LogError(ex, String.Format("Could not persist the subgraph recipe manifest \"{0}\": {1}", manifestPath, ex.Message));
+                throw new IOException(String.Format("Could not persist the subgraph recipe manifest \"{0}\".", manifestPath), ex);
             }
         }
 

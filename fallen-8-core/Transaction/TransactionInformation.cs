@@ -72,6 +72,22 @@ namespace NoSQL.GraphDB.Core.Transaction
             get; set;
         } = TransactionFailureReason.None;
 
+        /// <summary>
+        /// Whether this committed transaction is durable in the write-ahead log (feature
+        /// crash-durability-hardening D1/D3). <c>true</c> in the normal case and whenever the WAL is
+        /// disabled (durability is then via the next explicit Save). Set to <c>false</c> - under the
+        /// same happens-before as <see cref="TransactionState"/> - when the WAL append failed or the
+        /// log is in a degraded/suspended state (a tripped failure fence, or an anchored log awaiting
+        /// its paired snapshot Load): the transaction is still applied in memory and reported
+        /// <see cref="TransactionState.Finished"/>, but a waited-on caller can see its log durability
+        /// is degraded. A subsequent successful Save re-establishes a durable baseline and clears the
+        /// degraded state for future transactions.
+        /// </summary>
+        public Boolean Durable
+        {
+            get; set;
+        } = true;
+
         private readonly Task _txTask;
 
         public TransactionInformation(Task txTask)

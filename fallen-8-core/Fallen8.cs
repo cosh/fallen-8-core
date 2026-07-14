@@ -222,6 +222,17 @@ namespace NoSQL.GraphDB.Core
         private bool _walSuspended;
 
         /// <summary>
+        ///   Set when an ANCHORED write-ahead log is adopted at construction (a log paired with a
+        ///   snapshot that has not been loaded yet). While set, logging is suspended: a mutation made
+        ///   before the paired <c>Load</c> would otherwise be recorded against the empty initial graph
+        ///   in a file whose header claims the snapshot baseline, producing a state that never existed
+        ///   on replay (feature crash-durability-hardening D3). Cleared by a paired <c>Load</c> (either
+        ///   pairing branch) and by <c>Save</c>. Read/written only on the single writer thread (or the
+        ///   constructing thread before the instance is published).
+        /// </summary>
+        private bool _walAwaitingPairedLoad;
+
+        /// <summary>
         /// The logger
         /// </summary>
         private readonly ILogger<Fallen8> _logger;
@@ -323,6 +334,14 @@ namespace NoSQL.GraphDB.Core
                 _currentId = baseline;
                 ReplayWriteAheadLog();
                 RecalculateGraphElementCounter();
+            }
+            else if (_wal.IsAnchored)
+            {
+                // The adopted log pairs with a snapshot that has NOT been loaded yet. Suspend logging
+                // until that snapshot is Loaded (or a Save re-baselines), so a mutation made before the
+                // paired Load is not recorded against the empty initial graph / wrong baseline
+                // (feature crash-durability-hardening D3). Recommended usage is still: Load, then mutate.
+                _walAwaitingPairedLoad = true;
             }
         }
 
@@ -878,6 +897,11 @@ namespace NoSQL.GraphDB.Core
             // loading the NEW snapshot will not replay it (no double-apply) while the new snapshot
             // already contains everything committed up to this save.
             _wal?.ResetToSnapshot(actualPath, _currentId);
+
+            // A successful Save re-baselines the log against this snapshot: it is no longer awaiting a
+            // paired load, and its failure fence (if any) was cleared by ResetToSnapshot
+            // (feature crash-durability-hardening D1/D3).
+            _walAwaitingPairedLoad = false;
 
             return actualPath;
         }
@@ -1631,30 +1655,62 @@ namespace NoSQL.GraphDB.Core
         ///   The append fsyncs before returning, so a committed transaction's log entry is durable
         ///   before its <c>WaitUntilFinished()</c> returns (the task completes only after this call).
         /// </summary>
-        internal void LogCommittedTransaction(ATransaction tx)
+        /// <summary>
+        ///   Appends a committed transaction to the write-ahead log. Returns whether the transaction is
+        ///   durable in the log: <c>true</c> when the WAL is disabled (durability is then via the next
+        ///   Save) or the entry was appended and fsynced; <c>false</c> when logging is suspended because
+        ///   the log is anchored and awaiting its paired snapshot Load (D3) or the failure fence has
+        ///   tripped (D1). A first append failure throws (the caller records it); once the fence is
+        ///   tripped, subsequent calls return <c>false</c> without throwing.
+        /// </summary>
+        internal bool LogCommittedTransaction(ATransaction tx)
         {
             var wal = _wal;
-            if (wal == null || _walSuspended)
+            if (wal == null)
             {
-                return;
+                return true;
+            }
+
+            if (_walSuspended)
+            {
+                // Replaying: the operation came from the log and must not be re-appended. Not a new
+                // commit, so durability is not degraded.
+                return true;
+            }
+
+            if (_walAwaitingPairedLoad)
+            {
+                // D3: an anchored log is waiting for its paired snapshot; a pre-load mutation is applied
+                // in memory but must not be logged against the wrong baseline. Report it non-durable.
+                return false;
+            }
+
+            if (wal.HasFailed)
+            {
+                // D1: the log is degraded until the next Save; the transaction stays committed but is
+                // not durable in the log.
+                return false;
             }
 
             if (!WalTransactionCodec.TryGetEntryType(tx, out var type))
             {
-                return;
+                // Not a loggable transaction (e.g. Save/Load); durability is via the snapshot.
+                return true;
             }
 
             wal.Append(WalTransactionCodec.SerializeEntry(type, tx));
+            return true;
         }
 
         /// <summary>
         ///   Appends a payload-less lifecycle marker (used for an automatic Trim, which is not a
-        ///   transaction). A no-op when the WAL is disabled or while replaying.
+        ///   transaction). A no-op when the WAL is disabled, while replaying, while awaiting a paired
+        ///   load (D3), or once the failure fence has tripped (D1).
         /// </summary>
         private void LogWriteAheadLogMarker(Persistency.WalEntryType type)
         {
             var wal = _wal;
-            if (wal == null || _walSuspended)
+            if (wal == null || _walSuspended || _walAwaitingPairedLoad || wal.HasFailed)
             {
                 return;
             }
@@ -1697,9 +1753,42 @@ namespace NoSQL.GraphDB.Core
 
                     if (tx != null)
                     {
-                        if (!tx.TryExecute(this))
+                        // Fail-stop for CORE DATA entries (feature crash-durability-hardening D4): a
+                        // false return or a thrown exception is treated exactly like a decode failure -
+                        // stop at the last good entry, because continuing would misapply every later
+                        // entry against a diverged id space. Subgraph entries are DERIVED state that
+                        // allocate no ids, so a RemoveSubGraph that fails skips-and-continues (like the
+                        // CreateSubGraph path below) rather than halting recovery.
+                        var isDerivedSubGraphEntry = type == Persistency.WalEntryType.RemoveSubGraph;
+                        bool applied;
+                        try
                         {
-                            _logger.LogWarning("Re-executing a logged {Type} transaction during recovery returned false.", type);
+                            applied = tx.TryExecute(this);
+                        }
+                        catch (Exception ex)
+                        {
+                            if (isDerivedSubGraphEntry)
+                            {
+                                _logger.LogWarning(ex, "Re-executing a logged {Type} entry during recovery threw; skipping it and continuing ({Count} replayed).", type, replayed);
+                                replayed++;
+                                continue;
+                            }
+
+                            _logger.LogError(ex, "Re-executing a logged {Type} transaction during recovery threw; recovery STOPS at the last good entry ({Count} replayed).", type, replayed);
+                            break;
+                        }
+
+                        if (!applied)
+                        {
+                            if (isDerivedSubGraphEntry)
+                            {
+                                _logger.LogWarning("Re-executing a logged {Type} entry during recovery returned false; skipping it and continuing ({Count} replayed).", type, replayed);
+                            }
+                            else
+                            {
+                                _logger.LogError("Re-executing a logged {Type} transaction during recovery returned false; recovery STOPS at the last good entry ({Count} replayed).", type, replayed);
+                                break;
+                            }
                         }
                     }
                     else if (type == Persistency.WalEntryType.Trim)
@@ -1737,6 +1826,16 @@ namespace NoSQL.GraphDB.Core
         ///   false - is logged and SKIPPED so recovery continues with later entries (subgraphs are
         ///   rebuildable derived state). Subgraph creation allocates no ids in this graph, so it does
         ///   not perturb the vertex/edge id-determinism the surrounding replay relies on.
+        ///
+        ///   <para><b>Trust boundary (feature crash-durability-hardening D7).</b> Replaying a recipe
+        ///   RECOMPILES the persisted C# fragment via Roslyn and runs it in-process. The WAL/snapshot
+        ///   CRC is <em>integrity</em> (against corruption), NOT <em>authenticity</em> (against
+        ///   tampering): anyone who can write the save/WAL files gains code execution in the loading
+        ///   process at next start. The save/WAL directory is therefore a trust boundary equivalent to
+        ///   the application binaries; the mitigation is operational (restrict write access to that
+        ///   directory). Recovery reuses the content-keyed compile cache (see
+        ///   <c>collectible-codegen-assemblies</c>), so K subgraphs sharing one recipe spec compile
+        ///   once and recovery time scales with the number of DISTINCT specs, not the subgraph count.</para>
         /// </summary>
         private void ReplaySubGraphCreate(byte[] payload)
         {
@@ -1956,15 +2055,33 @@ namespace NoSQL.GraphDB.Core
                     _txManager.Trim();
                     RecalculateGraphElementCounter();
                     walHandledIdSpace = true;
+
+                    // The paired snapshot is now loaded (or the log was re-anchored to it): logging is
+                    // no longer suspended (feature crash-durability-hardening D3).
+                    _walAwaitingPairedLoad = false;
                 }
             }
             else
             {
+                // A failed load (e.g. a non-existent path returning false) must leave EVERYTHING as it
+                // was - symmetric with the catch branch above, which restores _currentId. Restore it
+                // here too so a partially-advanced counter cannot survive a failed load.
+                _currentId = oldCurrentId;
                 _snapshot = oldSnapshot;
                 IndexFactory = oldIndexFactory;
                 ServiceFactory = oldServiceFactory;
                 SubGraphFactory = oldSubGraphFactory;
                 ServiceFactory.StartAllServices();
+
+                // D2: with the WAL enabled, the restored snapshot already sits in the exact id space the
+                // log baseline was recorded against. Running the closing Trim_internal would reassign
+                // ids WITHOUT logging a Trim marker, so a later reload + replay (which does not know
+                // about that trim) would resolve the wrong elements. Skip it, symmetric with the
+                // success path (feature crash-durability-hardening D2).
+                if (_wal != null)
+                {
+                    walHandledIdSpace = true;
+                }
             }
 
             // WAL-disabled (and failed-load) path: compact as before - behaviour is unchanged. The

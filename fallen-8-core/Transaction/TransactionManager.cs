@@ -221,7 +221,15 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             try
             {
-                _f8.LogCommittedTransaction(tx);
+                // LogCommittedTransaction returns whether the transaction is durable in the log. It is
+                // false (without throwing) when the log is in a degraded/suspended state - the failure
+                // fence has tripped (D1) or the log is anchored and awaiting its paired Load (D3) - so
+                // EVERY affected transaction is marked non-durable, not only the first failure.
+                var durable = _f8.LogCommittedTransaction(tx);
+                if (!durable)
+                {
+                    txInfo.Durable = false;
+                }
             }
             catch (Exception logEx)
             {
@@ -229,10 +237,11 @@ namespace NoSQL.GraphDB.Core.Transaction
                 // transaction is already applied in memory and stays committed (Finished); its
                 // durability is degraded (the entry may not have reached disk), which is recorded on
                 // the caller's TransactionInformation and logged loudly. A subsequent full Save
-                // re-establishes a durable baseline.
+                // re-establishes a durable baseline (feature crash-durability-hardening D1).
                 _logger.LogError(logEx, "Appending transaction {TransactionId} ({TransactionType}) to the write-ahead log failed; the transaction stays committed but is not durable in the log.",
                     tx.TransactionId, transactionType);
                 txInfo.Error = logEx;
+                txInfo.Durable = false;
             }
         }
 
