@@ -70,7 +70,29 @@ namespace NoSQL.GraphDB.Core.Transaction
             }
         }
 
-        private readonly ConcurrentDictionary<String, TransactionInformation> transactionState = new ConcurrentDictionary<String, TransactionInformation>();
+        private readonly ConcurrentDictionary<Guid, TransactionInformation> transactionState = new ConcurrentDictionary<Guid, TransactionInformation>();
+
+        /// <summary>Default ceiling on retained TERMINAL transaction entries (feature
+        /// transaction-retention R1): large enough that a caller polling <c>GetTransactionState</c>
+        /// straight after completion still finds its entry, small enough to bound memory on an
+        /// insert-only workload that never removes (and so never auto-trims).</summary>
+        private const int DefaultMaxRetainedTerminalTransactions = 100_000;
+
+        /// <summary>
+        ///   FIFO of terminal (<c>Finished</c>/<c>RolledBack</c>) transaction ids in completion order
+        ///   (feature transaction-retention R1). Touched ONLY on the single writer thread - terminal
+        ///   transitions run in <see cref="SetTransactionState"/> (which the worker calls from
+        ///   <see cref="ExecuteTransactionBody"/>) and <see cref="Trim"/> - so it needs no lock of its
+        ///   own. When it exceeds <see cref="MaxRetainedTerminalTransactions"/> the oldest ids are popped
+        ///   and evicted from <see cref="transactionState"/>, bounding the bookkeeping without a client
+        ///   having to call <c>/trim</c>.
+        /// </summary>
+        private readonly Queue<Guid> _terminalFifo = new Queue<Guid>();
+
+        /// <summary>The active terminal-retention bound; defaults to
+        /// <see cref="DefaultMaxRetainedTerminalTransactions"/>. Settable (internal) so a test can lower
+        /// it without enqueuing hundreds of thousands of transactions.</summary>
+        internal int MaxRetainedTerminalTransactions { get; set; } = DefaultMaxRetainedTerminalTransactions;
 
         private readonly Fallen8 _f8;
 
@@ -230,16 +252,38 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         private TransactionInformation SetTransactionState(ATransaction tx, TransactionState state)
         {
-            _logger.LogDebug("Transaction {TransactionId} ({TransactionType}) state changed to {State}",
-                tx.TransactionId, tx.GetType().Name, state);
+            // Guard so the id string + interpolation are not built when Debug is disabled (F14).
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Transaction {TransactionId} ({TransactionType}) state changed to {State}",
+                    tx.TransactionId, tx.GetType().Name, state);
+            }
 
-            return transactionState.AddOrUpdate(tx.TransactionId,
+            var info = transactionState.AddOrUpdate(tx.TransactionIdGuid,
                                         new TransactionInformation(null) { Transaction = tx, TransactionState = state },
-                                        (id, info) =>
+                                        (id, existing) =>
                                         {
-                                            info.TransactionState = state;
-                                            return info;
+                                            existing.TransactionState = state;
+                                            return existing;
                                         });
+
+            // Bound terminal-entry retention (R1). SetTransactionState is called ONLY for terminal
+            // transitions (Finished/RolledBack) and ONLY on the single writer thread, so the FIFO is
+            // maintained here without a lock: record the id, then evict the oldest terminal entries past
+            // the bound. A caller holding the returned TransactionInformation is unaffected (it reads the
+            // instance directly); only a GetTransactionState(txId) lookup of a long-superseded id stops
+            // resolving (-> NotExist), exactly as a trimmed id already does.
+            _terminalFifo.Enqueue(tx.TransactionIdGuid);
+            while (_terminalFifo.Count > MaxRetainedTerminalTransactions)
+            {
+                var oldest = _terminalFifo.Dequeue();
+                if (transactionState.TryRemove(oldest, out var evicted))
+                {
+                    evicted.Transaction?.Cleanup();
+                }
+            }
+
+            return info;
         }
 
         /// <summary>
@@ -381,8 +425,13 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public TransactionInformation AddTransaction(ATransaction tx)
         {
-            _logger.LogInformation("Adding transaction {TransactionId} ({TransactionType}) to queue",
-                tx.TransactionId, tx.GetType().Name);
+            // Demoted to Debug and guarded (F14): no id string / interpolation per enqueue at the
+            // default level. The rare failure-path logs stay as LogError/LogWarning.
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Adding transaction {TransactionId} ({TransactionType}) to queue",
+                    tx.TransactionId, tx.GetType().Name);
+            }
 
             // The writer completes this AFTER the group fsync (feature write-path-throughput).
             // RunContinuationsAsynchronously so completing it on the writer thread never inlines an
@@ -402,7 +451,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             // instance, so a waited-on caller observes the terminal TransactionState/Error/Durable on
             // the instance returned here (B6). The transaction id is a fresh GUID, so the indexer
             // assignment simply publishes it unconditionally.
-            transactionState[tx.TransactionId] = txInfo;
+            transactionState[tx.TransactionIdGuid] = txInfo;
 
             _transactions.Add(new WorkItem(tx, completion, txInfo));
 
@@ -411,8 +460,9 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public TransactionState GetState(String txId)
         {
-            TransactionInformation info;
-            if (transactionState.TryGetValue(txId, out info))
+            // Resolve the string id via a Try*-style parse (F14: the id is a Guid internally). An
+            // unparseable or unknown id is simply NotExist - the same answer a trimmed/evicted id gives.
+            if (Guid.TryParse(txId, out var id) && transactionState.TryGetValue(id, out var info))
             {
                 return info.TransactionState;
             }
@@ -446,6 +496,12 @@ namespace NoSQL.GraphDB.Core.Transaction
                 transactionState.TryRemove(aTxId, out txInfo);
                 txInfo.Transaction.Cleanup();
             }
+
+            // A full Trim removed every terminal entry the FIFO tracked, so its ids are now stale.
+            // Clear it so it does not carry dead ids (feature transaction-retention R1). Runs on the
+            // writer (TrimTransaction/Load/MaybeAutoTrim) or single-threaded during WAL-replay bootstrap,
+            // the same threads that enqueue into the FIFO, so no lock is needed.
+            _terminalFifo.Clear();
         }
 
         /// <summary>

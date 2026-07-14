@@ -88,6 +88,17 @@ namespace NoSQL.GraphDB.Core.Transaction
             get; set;
         } = true;
 
+        /// <summary>
+        /// Whether this transaction committed (<see cref="TransactionState.Finished"/>) but its
+        /// write-ahead-log append did not reach disk - the inverse of <see cref="Durable"/>, named for
+        /// the durability-degraded contract (feature transaction-retention R3). It lets a caller
+        /// distinguish a committed-but-degraded transaction (<c>Finished</c> +
+        /// <c>DurabilityDegraded == true</c> + <c>Error == null</c>) from a genuine execution fault
+        /// (<c>RolledBack</c> + <c>Error != null</c>): the WAL-append failure is signalled HERE, never on
+        /// <see cref="Error"/>, so <see cref="Error"/> keeps its single meaning "execution faulted".
+        /// </summary>
+        public Boolean DurabilityDegraded => !Durable;
+
         private readonly Task _txTask;
 
         public TransactionInformation(Task txTask)

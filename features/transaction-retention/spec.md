@@ -1,10 +1,29 @@
 # Transaction Retention & Completion Contract — Specification
 
-> **Status:** Planned (P1 architecture) — from the 2026-07 principal-architect & performance review.
-> Transaction bookkeeping grows without bound on insert-only workloads, `Trim`'s cleanup of the
-> created-model lists can make a caller's `GetCreated*` throw, and the `Error` channel is overloaded
-> to also mean "durability degraded". Bound retention structurally and clean up the completion
-> contract.
+> **Status:** Implemented (P1 architecture) — from the 2026-07 principal-architect & performance
+> review. Transaction bookkeeping grew without bound on insert-only workloads, `Trim`'s cleanup of the
+> created-model lists could make a caller's `GetCreated*` throw, and the `Error` channel was overloaded
+> to also mean "durability degraded". Retention is now bounded structurally and the completion contract
+> is cleaned up.
+>
+> **Delivered on branch `feature/transaction-retention`:**
+> - **R1 bounded retention** — `TransactionManager` keeps a writer-thread-only FIFO of terminal
+>   transaction ids and evicts the oldest past `MaxRetainedTerminalTransactions` (default 100 000), so
+>   an insert-only / no-removal workload reclaims terminal entries automatically with a deterministic
+>   ceiling — no `/trim` needed. A recent id still resolves via `GetTransactionState`; a long-superseded
+>   one reads `NotExist`, exactly like a trimmed id.
+> - **R2 handles never throw** — `GetCreatedVertices()`/`GetCreatedEdges()` are null-safe (empty, not
+>   `ArgumentNullException`), and `Cleanup()` no longer nulls the captured created-model lists, so a
+>   waited-on caller reading after an unrelated trim gets the **actual** models (the models are already
+>   held by the master store; R1 collects the whole transaction on eviction).
+> - **R3 durability signal** — already carried by the existing `Durable` flag (a WAL-append failure
+>   sets `Durable = false`, never `Error`); this adds the documented `DurabilityDegraded => !Durable`
+>   convenience so a committed-but-degraded transaction (`Finished` + `DurabilityDegraded` +
+>   `Error == null`) is unambiguously distinct from a fault (`RolledBack` + `Error != null`).
+> - **F14 hot-path** — the transaction id is held as a `Guid` and stringified on demand (the manager
+>   keys its dictionary by the `Guid`), so no per-transaction id string is allocated eagerly; the two
+>   per-transaction info logs are demoted to `Debug` and `IsEnabled`-guarded so nothing is formatted at
+>   the default level. `TransactionId` stays a source-compatible `string` property.
 
 ## 1. Problem / current state
 

@@ -88,11 +88,24 @@ Intent: a waited-on caller reads the actual created models, immune to a foreign 
 
 ## Progress
 
-- [ ] Phase 0 — benchmark + characterization tests pinning the leak, the throw, and the `Error` overload
-- [ ] Phase 1 — null-safe `GetCreated*`; `DurabilityDegraded` replaces the `Error` overload; F14 logging + `Guid` id
-- [ ] Phase 2 — bounded terminal-entry retention (FIFO, worker-thread-only) + tests
-- [ ] Phase 3 — stop nulling created-models in `Cleanup`; contract/doc update + race test
-- [ ] Measure & document — after-benchmark, spec/cross-link update, full suite green
+- [x] Phase 0 — opt-in `TransactionRetentionBenchmark` (insert-only workload, `GC.GetTotalAllocatedBytes`
+  + retained entry count vs N, prefix `[TXBENCH]`) + `TransactionRetentionTest`. Note: the tests assert
+  the FIXED behaviour directly (the fixes landed in the same pass) rather than first pinning the buggy
+  state; the `Error`-overload was **already** resolved before this branch (the WAL path records
+  degradation via the `Durable` flag, not `Error`).
+- [x] Phase 1 — null-safe `GetCreatedVertices()`/`GetCreatedEdges()`; `DurabilityDegraded => !Durable`
+  convenience added (the `Error` overload was already gone via `Durable`); F14: the two per-tx info
+  logs demoted to `Debug` and `IsEnabled`-guarded, `SetTransactionState` already `Debug`.
+- [x] Phase 2 — bounded terminal-entry retention: a writer-thread-only `Queue<Guid>` FIFO in
+  `TransactionManager`, evicting past `MaxRetainedTerminalTransactions` (default 100 000) in
+  `SetTransactionState`; `Trim` clears the FIFO. Dictionary rekeyed by `Guid` (F14). Tests cover the
+  bound, recent-resolves/old-NotExist, and id round-trip.
+- [x] Phase 3 — `Cleanup()` on both create transactions stops nulling the created-model lists (drops
+  only the input); race test: create → foreign `TrimTransaction` → `GetCreated*` returns the actual
+  models, never throws; plus a null-guard test.
+- [x] Measure & document — full suite green (422 passing); absolute before/after numbers left to the
+  opt-in benchmark on the target box. `memory-footprint` M3's "reads empty after Trim" is now the
+  strict improvement "reads the actual models" (null-safe accessors still guarantee no throw).
 
 ## Decision / revisit condition
 

@@ -89,7 +89,12 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         public ImmutableList<VertexModel> GetCreatedVertices()
         {
-            return ImmutableList.CreateRange(_verticesCreated);
+            // Null-safe (feature transaction-retention R2): return empty rather than throwing when the
+            // captured list has been dropped, so an unrelated trim can never turn this into an
+            // ArgumentNullException. A waited-on caller reading promptly gets the actual created models.
+            return _verticesCreated == null
+                ? ImmutableList<VertexModel>.Empty
+                : ImmutableList.CreateRange(_verticesCreated);
         }
 
         internal override void ReleaseAfterCompletion()
@@ -102,8 +107,12 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override void Cleanup()
         {
-            // Null-safe: ReleaseAfterCompletion() may already have dropped Vertices.
-            _verticesCreated = null;
+            // Drop only the INPUT (feature transaction-retention R2). The created-model list is NOT
+            // nulled here anymore: the models are already referenced by the master store, so nulling
+            // reclaimed only the small List node while opening a race (an unrelated trim between a
+            // caller's WaitUntilFinished() and its GetCreatedVertices() used to null the list underneath
+            // it). Bounded retention (R1) drops the whole ATransaction once its entry is evicted, and the
+            // list is then collected wholesale. ReleaseAfterCompletion() may already have dropped Vertices.
             Vertices = null;
         }
     }
