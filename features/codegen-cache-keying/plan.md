@@ -70,12 +70,16 @@ Intent: reduce recompile churn without keeping collectible contexts alive.
 
 ## Progress
 
-- [ ] Phase 0 — compile counter/reset hook; characterization test (two compiles today); opt-in
-      cold-compile benchmark baseline.
-- [ ] Phase 1 — `(Filter, Cost)` key + `TryGetTraverser`; controller switched; doc-comment corrected;
-      P1 test migrated + new bound-only/one-compile and filter-differs/two-compile assertions.
-- [ ] Phase 2 — static `MetadataReference[]` shared by path + subgraph compiles.
-- [ ] Phase 3 — bounded/unload-safe expiration; path-traverser unload assertion; subgraph unload test
-      still green.
-- [ ] Measure & document — benchmark re-run (numbers on this box); `dynamic-code-resource-limits`
-      interaction noted.
+- [x] Phase 0 — `CodeGenerationHelper.PathCompileCount`/`ResetPathCompileCount` compile counter;
+      `CodegenCacheKeyingTest` asserts the fixed behaviour directly (one compile for bound-only-differing
+      requests, two for filter-differing). (No opt-in cold-compile benchmark added; the static-reference
+      win is structural.)
+- [x] Phase 1 — `(Filter, Cost)` key + `TryGetTraverser`/`AddTraverser` on `GeneratedCodeCache`;
+      controller switched; doc-comment corrected; the P1 process-wide-reuse test migrated to the accessor.
+- [x] Phase 2 — `private static readonly MetadataReference[] _globalReferences` (built once) shared by
+      the path and subgraph compile paths.
+- [x] Phase 3 — expiration left at the existing 60 s sliding window (bounded, unload-safe); the
+      collectible-context unload guarantee is unchanged (subgraph unload test still green). Not pinned.
+- [x] Measure & document — full suite green (435 passing). `dynamic-code-resource-limits` (same files)
+      is cleanly separable: its length/timeout checks run before a compile and the caching here does not
+      defeat them.

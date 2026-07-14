@@ -42,12 +42,18 @@ namespace NoSQL.GraphDB.Core.App.Controllers.Cache
         ///   The compiled path-traverser cache. It is PROCESS-WIDE (static) so it is shared across
         ///   every request and every <c>GraphController</c> instance (finding P1). Controllers are
         ///   instantiated per request, so the previous per-instance cache never saw a second hit and
-        ///   every <c>/path</c> call recompiled its traverser with Roslyn. A compiled traverser
-        ///   depends only on the (value-equality) <see cref="PathSpecification" /> that produced it,
-        ///   never on a particular graph instance, so sharing it process-wide is safe and mirrors the
-        ///   static/shared subgraph plugin cache. The backing store is behind the same
-        ///   <see cref="Traverser" /> property and <see cref="AddTraverser" /> method as before, so
-        ///   callers are unchanged.
+        ///   every <c>/path</c> call recompiled its traverser with Roslyn.
+        ///
+        ///   The key is the compiled artifact's TRUE dependency — the <c>(Filter, Cost)</c> pair
+        ///   (feature codegen-cache-keying). <c>CreateSource</c> reads only <see cref="PathSpecification.Filter"/>
+        ///   and <see cref="PathSpecification.Cost"/>; the numeric bounds (<c>MaxDepth</c>/<c>MaxResults</c>/
+        ///   <c>MaxPathWeight</c>) and <c>PathAlgorithmName</c> are applied DOWNSTREAM at traversal time
+        ///   and are never baked into the traverser. Keying on the whole spec (as before) therefore
+        ///   compiled a fresh, byte-identical assembly - into its own collectible AssemblyLoadContext -
+        ///   for two requests that differ only in a numeric bound. Both filter/cost model classes
+        ///   implement value equality, so the tuple hashes/compares structurally and handles null
+        ///   components (a null filter/cost stays distinct from an all-defaults object, preserving
+        ///   match-everything semantics).
         /// </summary>
         private readonly static IMemoryCache _traverser = new MemoryCache(
             new MemoryCacheOptions
@@ -56,14 +62,31 @@ namespace NoSQL.GraphDB.Core.App.Controllers.Cache
                 ExpirationScanFrequency = TimeSpan.FromMinutes(1)
             });
 
-        public IMemoryCache Traverser
+        /// <summary>The cache key: the compiled traverser depends only on the filter + cost fragments.</summary>
+        private static (PathFilterSpecification, PathCostSpecification) KeyFor(PathSpecification definition)
         {
-            get { return _traverser; }
+            return (definition.Filter, definition.Cost);
+        }
+
+        /// <summary>
+        ///   Looks up the compiled traverser for a spec's <c>(Filter, Cost)</c>. Two requests differing
+        ///   only in a numeric bound / algorithm name resolve to the SAME cached traverser.
+        /// </summary>
+        public bool TryGetTraverser(PathSpecification definition, out IPathTraverser traverser)
+        {
+            if (_traverser.TryGetValue(KeyFor(definition), out var cached) && cached is IPathTraverser found)
+            {
+                traverser = found;
+                return true;
+            }
+
+            traverser = null;
+            return false;
         }
 
         public void AddTraverser(PathSpecification definition, IPathTraverser generatedCode)
         {
-            Traverser.Set(definition, generatedCode, _cacheOptions);
+            _traverser.Set(KeyFor(definition), generatedCode, _cacheOptions);
         }
     }
 }

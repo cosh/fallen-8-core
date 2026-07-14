@@ -122,20 +122,17 @@ namespace NoSQL.GraphDB.Tests
             // Act - first request compiles the traverser and (with the fix) publishes it process-wide.
             controller1.CalculateShortestPath(vertices[0].Id, vertices[1].Id, spec1);
 
-            object firstCachedObj;
-            Assert.IsTrue(probe.Traverser.TryGetValue(spec1, out firstCachedObj),
+            // Probe via the new (Filter, Cost)-keyed accessor (feature codegen-cache-keying).
+            Assert.IsTrue(probe.TryGetTraverser(spec1, out var firstTraverser),
                 "After the first request the compiled traverser must be visible through a DIFFERENT " +
                 "cache handle - i.e. the cache is process-wide, not per controller instance (P1).");
-            var firstTraverser = (IPathTraverser)firstCachedObj;
             Assert.IsNotNull(firstTraverser, "A traverser must have been compiled and cached.");
 
             // Second request with a value-equal spec on a fresh controller must HIT the shared cache.
             controller2.CalculateShortestPath(vertices[0].Id, vertices[1].Id, spec2);
 
-            object secondCachedObj;
-            Assert.IsTrue(probe.Traverser.TryGetValue(spec2, out secondCachedObj),
+            Assert.IsTrue(probe.TryGetTraverser(spec2, out var secondTraverser),
                 "The value-equal spec must resolve to the same cache entry.");
-            var secondTraverser = (IPathTraverser)secondCachedObj;
 
             // Assert - the SAME traverser instance is still cached. Had the second controller missed
             // the cache (the P1 bug), it would have recompiled and overwritten the entry with a new

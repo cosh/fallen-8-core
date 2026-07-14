@@ -1131,8 +1131,9 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 IPathTraverser traverser = null;
 
-                Object cachedTraverser;
-                if (!_cache.Traverser.TryGetValue(definition, out cachedTraverser))
+                // Cache lookup keys on (Filter, Cost) only (feature codegen-cache-keying), so requests
+                // that differ solely in a numeric bound / algorithm name reuse one compiled traverser.
+                if (!_cache.TryGetTraverser(definition, out traverser))
                 {
                     //Traverser was not cached
                     var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);
@@ -1152,10 +1153,7 @@ namespace NoSQL.GraphDB.App.Controllers
                         return BadRequest(compilerMessage);
                     }
                 }
-                else
-                {
-                    traverser = (IPathTraverser)cachedTraverser;
-                }
+                // On a cache hit, TryGetTraverser already set `traverser`.
 
                 if (traverser != null)
                 {

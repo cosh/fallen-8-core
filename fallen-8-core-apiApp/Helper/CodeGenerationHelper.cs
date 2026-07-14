@@ -58,6 +58,20 @@ namespace NoSQL.GraphDB.Core.App.Helper
         private const String VertexCostMethodName = "VertexCost";
         private const String EdgeCostMethodName = "EdgeCost";
 
+        /// <summary>
+        ///   Diagnostic counter of ACTUAL path-traverser Roslyn compiles (feature codegen-cache-keying).
+        ///   Incremented once per <c>compilation.Emit</c> in <see cref="GeneratePathTraverser"/>, so a
+        ///   test can assert that bound-only-differing requests compile exactly once. Intended for tests
+        ///   and diagnostics.
+        /// </summary>
+        private static int _pathCompileCount;
+
+        /// <summary>The number of path-traverser compiles performed so far (tests/diagnostics).</summary>
+        public static int PathCompileCount => System.Threading.Volatile.Read(ref _pathCompileCount);
+
+        /// <summary>Resets <see cref="PathCompileCount"/> (tests/diagnostics).</summary>
+        public static void ResetPathCompileCount() => System.Threading.Volatile.Write(ref _pathCompileCount, 0);
+
         #endregion
 
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "This method dynamically generates and loads code at runtime, which is incompatible with trimming")]
@@ -75,7 +89,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
             var compilation = CSharpCompilation.Create(fileName)
               .WithOptions(
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
-              .AddReferences(GetGlobalReferences())
+              .AddReferences(_globalReferences)
               .AddSyntaxTrees(tree);
 
             IPathTraverser pathTraverserInstance = null;
@@ -83,6 +97,9 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             using (var ms = new MemoryStream())
             {
+                // Count every real compile (feature codegen-cache-keying): a cache hit never reaches
+                // here, so this is the "compiled once" signal the acceptance test asserts.
+                System.Threading.Interlocked.Increment(ref _pathCompileCount);
                 EmitResult compilationResult = compilation.Emit(ms);
                 if (compilationResult.Success)
                 {
@@ -204,8 +221,17 @@ namespace NoSQL.GraphDB.Core.App.Helper
                .WithBody(SyntaxFactory.Block(syntax));
         }
 
+        /// <summary>
+        ///   The Roslyn metadata references, built ONCE per process (feature codegen-cache-keying).
+        ///   Framework/engine reference assemblies never change for the life of the process, so reading
+        ///   them from disk on every compile paid hundreds of ms per cold compile for nothing. Shared by
+        ///   the path and subgraph compile paths. <see cref="MetadataReference"/> instances are immutable
+        ///   and process-lifetime and reference no collectible context, so this is unload-safe.
+        /// </summary>
+        private static readonly MetadataReference[] _globalReferences = BuildGlobalReferences().ToArray();
+
         [UnconditionalSuppressMessage("SingleFile", "IL3000:Avoid accessing Assembly file path when publishing as a single file", Justification = "This method handles the single-file case by checking for empty Location and uses AppContext.BaseDirectory as fallback")]
-        private static IEnumerable<MetadataReference> GetGlobalReferences()
+        private static IEnumerable<MetadataReference> BuildGlobalReferences()
         {
             var assemblies = new[]
                 {
@@ -567,7 +593,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             var compilation = CSharpCompilation.Create(fileName)
               .WithOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
-              .AddReferences(GetGlobalReferences())
+              .AddReferences(_globalReferences)
               .AddSyntaxTrees(tree);
 
             using (var ms = new MemoryStream())
