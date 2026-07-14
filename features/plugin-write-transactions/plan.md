@@ -101,12 +101,20 @@ Intent: prove the modes and record the contract.
 
 ## Progress
 
-- [ ] Phase 0 — baseline & guardrails (single-writer, WAL-classification, snapshot-visibility pins;
-      opt-in benchmark)
-- [ ] Phase 1 — `IFallen8WriterContext` + `DelegateTransaction` (mode (a), non-loggable)
-- [ ] Phase 2 — atomicity / undo journal / failure-reason wiring / remove caveat
-- [ ] Phase 3 — mode (b) WAL-loggable plugin transactions (optional)
-- [ ] Measure & document
+- [x] Phase 0 — `PluginWriteTransactionsTest` pins single-writer execution, WAL-classification (mode a
+      not logged → absent after WAL-only replay), and snapshot visibility. (No opt-in benchmark added;
+      the capability is functional, not a perf lever.)
+- [x] Phase 1 — `IFallen8WriterContext` + `DelegateTransaction` (mode (a), non-loggable), runs on the
+      single writer; snapshot-durable via the WAL codec's existing `default: return true` for an
+      unrecognised type (zero codec change).
+- [x] Phase 2 — undo journal (create → remove, property → `RestoreProperties_internal`); throwing body →
+      `Error` + `InternalError` + rollback with no create/property effect; the remove caveat is
+      documented on the interface and steers reversible bulk removal to `RemoveGraphElementsTransaction`.
+- [ ] Phase 3 — **DEFERRED (optional).** Mode (b) WAL-loggable plugin transactions
+      (`WalEntryType.PluginDelegate` + a descriptor/replay registration API, `wal-subgraph-support`
+      style). Purely additive; mode (a) delivers the core capability, so a `DelegateTransaction` is
+      snapshot-durable only until this lands.
+- [x] Measure & document — full suite green (448 passing).
 
 ## Decision / revisit condition
 
