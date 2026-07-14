@@ -74,6 +74,10 @@ namespace NoSQL.GraphDB.Tests
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
                 builder.UseEnvironment("Development");
+                // This test is about the OpenAPI document, not durability: run the engine in volatile
+                // mode so booting the host does not read/write a checkpoint or WAL in the test bin
+                // directory (feature hosted-durability-lifecycle made durable the default).
+                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
 

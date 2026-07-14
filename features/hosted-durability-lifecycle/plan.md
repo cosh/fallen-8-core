@@ -92,14 +92,37 @@ Intent: bound WAL growth and boot-replay time — coordinate, do not duplicate.
   path, `Volatile`, `SaveOnShutdown`) and the durable-by-default / volatile-opt-out behaviour in this
   feature's README (or the appsettings comment block).
 
+## Outcome (what shipped)
+
+- `Fallen8DurabilityOptions` (bound from `Fallen8:Durability`) + a factory registration in
+  `Program.cs` that constructs the WAL-enabling engine with `RecipeSubGraphCompiler` at construction
+  in durable mode (default) and the plain engine in volatile mode. The imperative post-build compiler
+  assignment is gone; the storage directory is created before the engine opens the WAL (fails loudly
+  if it can't).
+- `CheckpointDiscovery.TryFindLatestCheckpoint` holds the discovery logic (verbatim from the deleted
+  `AdminController.FindLatestFallen8`), unit-tested; the dead controller method is removed.
+- `DurabilityLifecycleService : IHostedService` loads the latest checkpoint on `StartAsync` (a
+  rolled-back load fails startup, never serves an empty graph) and saves on `StopAsync` when
+  `SaveOnShutdown` (a failed save is logged, not fatal — WAL durability holds). `appsettings.json`
+  carries the documented `Fallen8:Durability` block.
+- Tests: `HostedDurabilityLifecycleTest` (clean-restart-survives, crash-recovers-via-WAL,
+  empty-start-clean, volatile-loses-data — all via `WebApplicationFactory<Program>`) and
+  `CheckpointDiscoveryTest`. `OpenApiDocumentTest` runs volatile so booting it writes nothing.
+  Full suite green: **378 passed, 0 failed, 14 skipped**.
+- **Phase 4 (periodic/threshold checkpoint) not built** — deferred to write-path-throughput /
+  crash-durability-hardening per §3.5; the shutdown save is the only automatic checkpoint for now.
+  The dedicated shutdown-save benchmark was not added; the `non-blocking-save` numbers stand as the
+  reference for the stall (see the Decision below).
+
 ## Progress
 
-- [ ] Phase 0 — baseline characterization test + shutdown-save benchmark (opt-in, ignored)
-- [ ] Phase 1 — `Fallen8DurabilityOptions` + WAL-enabled factory registration; drop imperative compiler set
-- [ ] Phase 2 — `CheckpointDiscovery.TryFindLatestCheckpoint` helper; delete dead `FindLatestFallen8`
-- [ ] Phase 3 — `DurabilityLifecycleService` (load on start, save/flush on stop); integration tests
-- [ ] Phase 4 — (optional) periodic/threshold checkpoint hook, off by default
-- [ ] Measure & document — three scenarios green, stall captured, config keys documented
+- [x] Phase 0 — (superseded) the durability wiring is proven by the Phase 3 integration tests below,
+  which assert the volatile-default → durable-default flip directly
+- [x] Phase 1 — `Fallen8DurabilityOptions` + WAL-enabled factory registration; dropped imperative compiler set
+- [x] Phase 2 — `CheckpointDiscovery.TryFindLatestCheckpoint` helper; deleted dead `FindLatestFallen8`
+- [x] Phase 3 — `DurabilityLifecycleService` (load on start, save on stop); integration tests
+- [~] Phase 4 — (optional) periodic/threshold checkpoint hook — **deferred** (coordinated with write-path-throughput / crash-durability-hardening)
+- [x] Measure & document — three scenarios + volatile opt-out green; config keys documented
 
 ## Decision / revisit condition
 
