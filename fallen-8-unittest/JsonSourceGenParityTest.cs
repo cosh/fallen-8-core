@@ -521,7 +521,39 @@ namespace NoSQL.GraphDB.Tests
                 }, "IndexAddToSpecification"),
                 (new LoadSpecification { StartServices = true, SaveGameLocation = "C:/Fallen8/database.f8s" }, "LoadSpecification"),
                 (new SaveSpecification { SaveGameLocation = "C:/Fallen8/database.f8s", SavePartitions = 8 }, "SaveSpecification"),
-                (ResultTypeSpecification.Both, "ResultTypeSpecification")
+                (ResultTypeSpecification.Both, "ResultTypeSpecification"),
+                (new ValidateDelegateSpecification
+                {
+                    DelegateKind = "VertexFilter",
+                    Fragment = "return (v) => v.Label == \"person\";"
+                }, "ValidateDelegateSpecification"),
+                (new DelegateValidationREST
+                {
+                    Valid = false,
+                    Diagnostics = new List<DelegateDiagnosticREST>
+                    {
+                        new DelegateDiagnosticREST
+                        {
+                            Line = 1,
+                            Column = 17,
+                            EndLine = 1,
+                            EndColumn = 21,
+                            Id = "CS1061",
+                            Message = "no such member",
+                            Severity = "error"
+                        }
+                    }
+                }, "DelegateValidationREST"),
+                (new DelegateDiagnosticREST
+                {
+                    Line = 2,
+                    Column = 26,
+                    EndLine = 2,
+                    EndColumn = 29,
+                    Id = "CS0103",
+                    Message = "The name 'zzz' does not exist in the current context",
+                    Severity = "error"
+                }, "DelegateDiagnosticREST")
             };
         }
 

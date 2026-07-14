@@ -1,0 +1,53 @@
+{
+  "$comment": "Static IntelliSense model for delegate fragments (FR-22), hand-maintained against features/web-ui/spec.md §6.2 which mirrors fallen-8-core/Model/AGraphElementModel.cs, VertexModel.cs, EdgeModel.cs. Regeneration: update this file whenever those public surfaces change; the spec section is the review checklist. Only members a fragment can meaningfully touch are listed.",
+  "types": {
+    "AGraphElementModel": {
+      "base": null,
+      "members": [
+        { "name": "Id", "kind": "field", "signature": "int Id", "doc": "The graph element id (unique per instance)." },
+        { "name": "Label", "kind": "field", "signature": "string Label", "doc": "The element's label, or null." },
+        { "name": "GetCreationDate", "kind": "method", "signature": "DateTime GetCreationDate()", "doc": "The creation timestamp." },
+        { "name": "GetModificationDate", "kind": "method", "signature": "DateTime GetModificationDate()", "doc": "The last-modification timestamp." },
+        { "name": "GetPropertyCount", "kind": "method", "signature": "int GetPropertyCount()", "doc": "Number of properties on this element." },
+        { "name": "GetAllProperties", "kind": "method", "signature": "ImmutableDictionary<string, object> GetAllProperties()", "doc": "All properties as an immutable dictionary." },
+        { "name": "TryGetProperty", "kind": "method", "signature": "bool TryGetProperty<T>(out T result, string propertyId)", "doc": "The canonical typed property access: returns false when the property is missing or not a T. Example: v.TryGetProperty(out int age, \"age\") && age > 30" }
+      ]
+    },
+    "VertexModel": {
+      "base": "AGraphElementModel",
+      "members": [
+        { "name": "GetInDegree", "kind": "method", "signature": "uint GetInDegree()", "doc": "Count of incoming edges." },
+        { "name": "GetOutDegree", "kind": "method", "signature": "uint GetOutDegree()", "doc": "Count of outgoing edges." },
+        { "name": "GetAllNeighbors", "kind": "method", "signature": "List<VertexModel> GetAllNeighbors()", "doc": "All adjacent vertices (both directions)." },
+        { "name": "GetIncomingEdgeIds", "kind": "method", "signature": "List<string> GetIncomingEdgeIds()", "doc": "The incoming edge-property ids." },
+        { "name": "GetOutgoingEdgeIds", "kind": "method", "signature": "List<string> GetOutgoingEdgeIds()", "doc": "The outgoing edge-property ids." },
+        { "name": "OutEdges", "kind": "property", "signature": "IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>> OutEdges", "doc": "Outgoing edges grouped by edge-property id." },
+        { "name": "InEdges", "kind": "property", "signature": "IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>> InEdges", "doc": "Incoming edges grouped by edge-property id." },
+        { "name": "TryGetOutEdge", "kind": "method", "signature": "bool TryGetOutEdge(out IReadOnlyList<EdgeModel> result, string edgePropertyId)", "doc": "Outgoing edges for one edge-property id." },
+        { "name": "TryGetInEdge", "kind": "method", "signature": "bool TryGetInEdge(out IReadOnlyList<EdgeModel> result, string edgePropertyId)", "doc": "Incoming edges for one edge-property id." }
+      ]
+    },
+    "EdgeModel": {
+      "base": "AGraphElementModel",
+      "members": [
+        { "name": "SourceVertex", "kind": "field", "signature": "VertexModel SourceVertex", "doc": "The edge's source vertex (readonly)." },
+        { "name": "TargetVertex", "kind": "field", "signature": "VertexModel TargetVertex", "doc": "The edge's target vertex (readonly)." },
+        { "name": "EdgePropertyId", "kind": "property", "signature": "string EdgePropertyId", "doc": "The edge-property id this edge belongs to." }
+      ]
+    },
+    "string": {
+      "base": null,
+      "members": [
+        { "name": "Length", "kind": "property", "signature": "int Length", "doc": "String length." },
+        { "name": "StartsWith", "kind": "method", "signature": "bool StartsWith(string value)", "doc": "Prefix test." },
+        { "name": "EndsWith", "kind": "method", "signature": "bool EndsWith(string value)", "doc": "Suffix test." },
+        { "name": "Contains", "kind": "method", "signature": "bool Contains(string value)", "doc": "Substring test." },
+        { "name": "Equals", "kind": "method", "signature": "bool Equals(string value)", "doc": "Equality test." },
+        { "name": "ToLower", "kind": "method", "signature": "string ToLower()", "doc": "Lower-case copy." },
+        { "name": "ToUpper", "kind": "method", "signature": "string ToUpper()", "doc": "Upper-case copy." },
+        { "name": "Trim", "kind": "method", "signature": "string Trim()", "doc": "Whitespace-trimmed copy." },
+        { "name": "IndexOf", "kind": "method", "signature": "int IndexOf(string value)", "doc": "First index of value, or -1." }
+      ]
+    }
+  }
+}

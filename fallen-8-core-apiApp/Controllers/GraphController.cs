@@ -826,9 +826,11 @@ namespace NoSQL.GraphDB.App.Controllers
                     definition.FullQualifiedTypeName, ex.Message));
             }
 
+            // Definition must be constructed here: the nested-initializer form assigns into
+            // the property's default value, which is null -> NullReferenceException.
             AddPropertyTransaction tx = new AddPropertyTransaction()
             {
-                Definition =
+                Definition = new PropertyAddDefinition()
                 {
                     GraphElementId = graphElementId,
                     PropertyId = propertyId,

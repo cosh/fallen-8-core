@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --font-mono:
+    "JetBrains Mono", "Cascadia Code", "Fira Code", ui-monospace, SFMono-Regular,
+    Menlo, Consolas, monospace;
+
+  /* F8 Studio dark chrome (prototype: features/web-ui/design/) */
+  --color-ink: #0b0e12;
+  --color-panel: #12161c;
+  --color-panel-2: #171c24;
+  --color-line: #232a35;
+  --color-fg: #cdd6e4;
+  --color-fg-dim: #8393a8;
+  --color-fg-faint: #55647a;
+  --color-accent: #4cc38a;
+  --color-accent-2: #58a6ff;
+  --color-warn: #d29922;
+  --color-danger: #f85149;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink text-fg font-mono text-[13px] antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* Shared primitives used across screens */
+.panel {
+  @apply border-line bg-panel rounded-md border;
+}
+
+.panel-title {
+  @apply text-fg-dim border-line flex items-center gap-2 border-b px-3 py-2 text-[11px] font-semibold tracking-widest uppercase;
+}
+
+.btn {
+  @apply border-line bg-panel-2 text-fg hover:border-fg-faint inline-flex cursor-pointer items-center gap-1.5 rounded border px-2.5 py-1 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.btn-accent {
+  @apply border-accent/40 text-accent hover:border-accent;
+}
+
+.btn-danger {
+  @apply border-danger/40 text-danger hover:border-danger;
+}
+
+.input {
+  @apply border-line bg-ink text-fg placeholder:text-fg-faint focus:border-accent-2 w-full rounded border px-2 py-1 text-[12px] outline-none;
+}
+
+.label {
+  @apply text-fg-dim mb-1 block text-[11px] tracking-wider uppercase;
+}
+
+.table-cell {
+  @apply border-line border-b px-2.5 py-1.5 text-left align-top;
+}

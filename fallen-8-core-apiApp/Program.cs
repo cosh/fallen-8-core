@@ -253,11 +253,13 @@ namespace NoSQL.GraphDB.App
             // deployment (no wwwroot/index.html) is unchanged, including problem+json 404s for
             // unknown paths. Cross-origin calls to OTHER instances stay governed by the CORS
             // allow-list above (Fallen8:Security:AllowedCorsOrigins).
+            // Note: "/" and client-side routes are handled by the MapFallbackToFile endpoint
+            // below (routing runs before this middleware and endpoint-matched requests skip
+            // static files); this serves the hashed assets and direct file requests.
             var spaIndexPresent = File.Exists(System.IO.Path.Combine(
                 app.Environment.ContentRootPath, "wwwroot", "index.html"));
             if (spaIndexPresent)
             {
-                app.UseDefaultFiles();
                 app.UseStaticFiles();
             }
 
@@ -274,8 +276,10 @@ namespace NoSQL.GraphDB.App
             if (spaIndexPresent)
             {
                 // SPA fallback: any path no controller matched renders the app shell, so
-                // client-side routes survive a full-page reload.
-                app.MapFallbackToFile("index.html");
+                // client-side routes survive a full-page reload. The shell is public chrome
+                // (AllowAnonymous) even when an API key is configured - every data endpoint
+                // stays behind the fallback authorization policy.
+                app.MapFallbackToFile("index.html").AllowAnonymous();
             }
 
             app.Run();
