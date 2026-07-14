@@ -8,10 +8,16 @@
          InEdges are now read-only views (IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>>) and
          TryGetOutEdge/TryGetInEdge return IReadOnlyList<EdgeModel> instead of the mutable
          ImmutableDictionary/ImmutableList (adjacency-flattening). The REST api/v{version} contract is
-         unchanged. -->
-    <Version>0.1.0</Version>
-    <AssemblyVersion>0.1.0.0</AssemblyVersion>
-    <FileVersion>0.1.0.0</FileVersion>
+         unchanged.
+         0.1.0 -> 0.2.0: breaking change to the whole-graph read surface. GetAllVertices/GetAllEdges/
+         GetAllGraphElements and IndexScan/RangeIndexScan now return IReadOnlyList<T> (backed by a
+         right-sized List) instead of ImmutableList<T>, dropping the per-call AVL tree
+         (scan-result-representation). Common members (.Count, indexer, foreach, LINQ) are unchanged;
+         only ImmutableList-specific members are lost. IIndex return types are unchanged, and the REST
+         api/v{version} contract is unchanged (controllers project to DTOs). -->
+    <Version>0.2.0</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <FileVersion>0.2.0.0</FileVersion>
     <Authors>Henning Rauch</Authors>
     <Company>RauchEntwicklung</Company>
     <Copyright>Copyright (c) 2025 Henning Rauch</Copyright>

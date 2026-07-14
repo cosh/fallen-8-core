@@ -1,9 +1,19 @@
 # Scan-Result Representation — Specification
 
-> **Status:** Planned (P1 performance) — from the 2026-07 principal-architect & performance review.
+> **Status:** Implemented (P1 performance) — from the 2026-07 principal-architect & performance review.
 > The master store shed its immutable tree (`core-storage-representation`), but every full-graph
-> read still re-materialises one: de-tree the scan results so a read hands back a right-sized,
+> read still re-materialised one: de-tree the scan results so a read hands back a right-sized,
 > contiguous read-only sequence instead of a per-call AVL tree.
+>
+> Delivered on branch `feature/scan-result-representation`: `GetAllVertices`/`GetAllEdges`/
+> `GetAllGraphElements` and `IndexScan`/`RangeIndexScan` now return `IReadOnlyList<T>` backed by a
+> right-sized `List<T>` filled by the sequential snapshot walk; the `IndexScan` `Equals` fast path
+> keeps returning the index's own retained bucket; `FindElementsIndex` is sequential (the PLINQ over a
+> light predicate is gone); `fallen-8-core` bumped 0.1.0 → 0.2.0. Parity + representation contracts are
+> pinned by `ScanResultRepresentationTest` (and the pre-existing P4 IndexScan parity/de-dup tests in
+> `EnginePerformanceFollowupsTest`); an opt-in `ScanResultRepresentationBenchmark` measures the
+> allocation/time drop. The optional streaming `IEnumerable<T>` overload (§3) was deferred — see the
+> plan.
 
 ## 1. Problem / current state
 

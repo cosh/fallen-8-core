@@ -92,7 +92,7 @@ namespace NoSQL.GraphDB.Tests
             }
 
             // Warm up both paths (build the RangeIndex sorted-key cache; JIT the PLINQ scan).
-            ImmutableList<AGraphElementModel> warm;
+            IReadOnlyList<AGraphElementModel> warm;
             fallen8.IndexScan(out warm, "benchRange", n - 2, BinaryOperator.Greater);
             fallen8.IndexScan(out warm, "benchDict", n - 2, BinaryOperator.Greater);
 
@@ -107,7 +107,7 @@ namespace NoSQL.GraphDB.Tests
                 int fastCount = 0;
                 for (int r = 0; r < fastReps; r++)
                 {
-                    ImmutableList<AGraphElementModel> res;
+                    IReadOnlyList<AGraphElementModel> res;
                     fallen8.IndexScan(out res, "benchRange", literal, BinaryOperator.Greater);
                     fastCount = res.Count;
                 }
@@ -118,7 +118,7 @@ namespace NoSQL.GraphDB.Tests
                 int slowCount = 0;
                 for (int r = 0; r < slowReps; r++)
                 {
-                    ImmutableList<AGraphElementModel> res;
+                    IReadOnlyList<AGraphElementModel> res;
                     fallen8.IndexScan(out res, "benchDict", literal, BinaryOperator.Greater);
                     slowCount = res.Count;
                 }

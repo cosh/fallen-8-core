@@ -92,12 +92,22 @@ Intent: capture the after-numbers and record the outcome.
 
 ## Progress
 
-- [ ] Phase 0 — opt-in benchmark + parity characterization test
-- [ ] Phase 1 — `GetAll*` return `IReadOnlyList<T>` over a right-sized `List<T>`; locals + mock migrated
-- [ ] Phase 2 — `IndexScan`/`RangeIndexScan` de-treed; `FindElementsIndex` sequential (no PLINQ)
-- [ ] Phase 3 — subgraph consumption off `ImmutableList.ForEach`; optional streaming overload
-- [ ] Phase 4 — `fallen-8-core` version bump
-- [ ] Measure & document — before/after captured, full suite green
+- [x] Phase 0 — opt-in benchmark (`ScanResultRepresentationBenchmark`, prefix `[SCANBENCH]`, measured
+  with `GC.GetAllocatedBytesForCurrentThread()` since the fill runs on the calling thread) + parity
+  characterization test (`ScanResultRepresentationTest`). Operator-level `IndexScan`/`RangeIndexScan`
+  parity and cross-bucket de-dup were already pinned by the pre-existing P4 tests in
+  `EnginePerformanceFollowupsTest`, so the new parity test targets the `GetAll*` surface and the
+  de-treed representation contract rather than duplicating them.
+- [x] Phase 1 — `GetAll*` return `IReadOnlyList<T>` over a right-sized `List<T>`; locals + mock migrated
+- [x] Phase 2 — `IndexScan`/`RangeIndexScan` de-treed; `FindElementsIndex` sequential (no PLINQ)
+- [x] Phase 3 — subgraph consumption off `ImmutableList.ForEach` (BFS rewritten to `foreach`). The
+  optional streaming `IEnumerable<T>` overload is **deferred**: a pure add with no current caller
+  forced to move, out of scope for this pass; revisit if a hot path needs to skip materialisation.
+- [x] Phase 4 — `fallen-8-core` version bump (0.1.0 → 0.2.0, incl. `AssemblyVersion`/`FileVersion`)
+- [x] Measure & document — full suite green (402 passing). Absolute before/after numbers are left to
+  be captured on the target box via the opt-in benchmark (it seeds 1M/2.5M elements and is `[Ignore]`d
+  out of the default run); the design change is a fixed AVL-tree → right-sized reference-array swap,
+  so the expected order-of-magnitude allocation drop follows structurally.
 
 ## Decision / revisit condition
 

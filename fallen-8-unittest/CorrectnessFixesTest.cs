@@ -273,7 +273,7 @@ namespace NoSQL.GraphDB.Tests
             index.AddOrUpdate(30, vertices[2]);
 
             // Act
-            ImmutableList<AGraphElementModel> result;
+            IReadOnlyList<AGraphElementModel> result;
             bool found = fallen8.RangeIndexScan(out result, "ageRange", 15, 25, true, true);
 
             // Assert

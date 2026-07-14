@@ -128,10 +128,10 @@ namespace NoSQL.GraphDB.Tests
             {
                 foreach (var literal in Literals)
                 {
-                    ImmutableList<AGraphElementModel> rangeResult;
+                    IReadOnlyList<AGraphElementModel> rangeResult;
                     var rangeFound = fallen8.IndexScan(out rangeResult, "rangeIdx", literal, op);
 
-                    ImmutableList<AGraphElementModel> genericResult;
+                    IReadOnlyList<AGraphElementModel> genericResult;
                     var genericFound = fallen8.IndexScan(out genericResult, "dictIdx", literal, op);
 
                     var context = $"{op} literal={literal}";
@@ -186,7 +186,7 @@ namespace NoSQL.GraphDB.Tests
             // Cross-bucket dedup, the headline case: Greater(5) matches EVERY key. v0 sits under keys
             // 10 and 40, and v1 under keys 20 and 50, so the raw bucket concatenation has 7 entries;
             // the result must dedup to exactly the 5 distinct indexed vertices.
-            ImmutableList<AGraphElementModel> all;
+            IReadOnlyList<AGraphElementModel> all;
             Assert.IsTrue(fallen8.IndexScan(out all, "rangeIdx", 5, BinaryOperator.Greater));
             CollectionAssert.AreEquivalent(new AGraphElementModel[] { v[0], v[1], v[2], v[3], v[4] }, all.ToList(),
                 "Greater(5) must return all five distinct indexed vertices");
@@ -204,7 +204,7 @@ namespace NoSQL.GraphDB.Tests
             PopulateStandardLayout(rangeIndex, v);
 
             // Empty: nothing is greater than the maximum key.
-            ImmutableList<AGraphElementModel> empty;
+            IReadOnlyList<AGraphElementModel> empty;
             Assert.IsFalse(fallen8.IndexScan(out empty, "rangeIdx", 50, BinaryOperator.Greater),
                 "Greater(maxKey) must return false (empty)");
             Assert.IsNotNull(empty, "an empty ordered scan must return a non-null list, not null");
@@ -216,7 +216,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(0, empty.Count);
 
             // Full: everything is >= the minimum key.
-            ImmutableList<AGraphElementModel> full;
+            IReadOnlyList<AGraphElementModel> full;
             Assert.IsTrue(fallen8.IndexScan(out full, "rangeIdx", 10, BinaryOperator.GreaterOrEquals));
             CollectionAssert.AreEquivalent(new AGraphElementModel[] { v[0], v[1], v[2], v[3], v[4] }, full.ToList());
         }
@@ -236,14 +236,14 @@ namespace NoSQL.GraphDB.Tests
             // A DictionaryIndex is not an IRangeIndex, so an ordered operator still runs the generic
             // O(n) FindElementsIndex path and must return the correct (deduped) set - proving the new
             // branch left the generic path untouched for non-range indices.
-            ImmutableList<AGraphElementModel> dictGreater;
+            IReadOnlyList<AGraphElementModel> dictGreater;
             Assert.IsTrue(fallen8.IndexScan(out dictGreater, "dictIdx", 25, BinaryOperator.Greater));
             CollectionAssert.AreEquivalent(new AGraphElementModel[] { v[3], v[0], v[4], v[1] }, dictGreater.ToList(),
                 "the DictionaryIndex ordered scan must be unchanged by the RangeIndex reroute");
 
             // NotEquals is NOT an ordered operator; even on a RangeIndex it must keep the generic path.
             // Parity check against the same query on the DictionaryIndex.
-            ImmutableList<AGraphElementModel> rangeNotEq, dictNotEq;
+            IReadOnlyList<AGraphElementModel> rangeNotEq, dictNotEq;
             var rangeFound = fallen8.IndexScan(out rangeNotEq, "rangeIdx", 20, BinaryOperator.NotEquals);
             var dictFound = fallen8.IndexScan(out dictNotEq, "dictIdx", 20, BinaryOperator.NotEquals);
             Assert.AreEqual(dictFound, rangeFound, "NotEquals found flag must match between range and dict");
@@ -251,7 +251,7 @@ namespace NoSQL.GraphDB.Tests
                 "NotEquals on a RangeIndex must equal the generic-path result (not rerouted)");
 
             // Equals likewise keeps the generic TryGetValue path for both index kinds.
-            ImmutableList<AGraphElementModel> rangeEq, dictEq;
+            IReadOnlyList<AGraphElementModel> rangeEq, dictEq;
             fallen8.IndexScan(out rangeEq, "rangeIdx", 20, BinaryOperator.Equals);
             fallen8.IndexScan(out dictEq, "dictIdx", 20, BinaryOperator.Equals);
             CollectionAssert.AreEquivalent(dictEq.ToList(), rangeEq.ToList(),
@@ -262,7 +262,7 @@ namespace NoSQL.GraphDB.Tests
         private static void AssertScanEquivalent(Fallen8 fallen8, string indexId, IComparable literal,
             BinaryOperator op, params AGraphElementModel[] expected)
         {
-            ImmutableList<AGraphElementModel> result;
+            IReadOnlyList<AGraphElementModel> result;
             fallen8.IndexScan(out result, indexId, literal, op);
             Assert.IsNotNull(result, $"{op} literal={literal} must not return null");
             CollectionAssert.AreEquivalent(expected, result.ToList(), $"{op} literal={literal}");

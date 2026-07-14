@@ -749,7 +749,7 @@ namespace NoSQL.GraphDB.Core
             return result.Count > 0;
         }
 
-        public override bool IndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
+        public override bool IndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
         {
             if (string.IsNullOrWhiteSpace(indexId))
             {
@@ -784,11 +784,15 @@ namespace NoSQL.GraphDB.Core
             switch (binOp)
             {
                 case BinaryOperator.Equals:
-                    if (!index.TryGetValue(out result, literal))
+                    // The Equals fast path returns the index's OWN posting-list bucket, which the index
+                    // retains and shares (its copy-on-write is load-bearing) - so keep it as-is, just
+                    // widened to IReadOnlyList (feature scan-result-representation).
+                    if (!index.TryGetValue(out var equalsBucket, literal))
                     {
                         result = null;
                         return false;
                     }
+                    result = equalsBucket;
                     break;
 
                 case BinaryOperator.Greater:
@@ -821,7 +825,7 @@ namespace NoSQL.GraphDB.Core
             return result.Count > 0;
         }
 
-        public override bool RangeIndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
+        public override bool RangeIndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
         {
             if (string.IsNullOrWhiteSpace(indexId))
             {
@@ -848,7 +852,11 @@ namespace NoSQL.GraphDB.Core
             var rangeIndex = index as IRangeIndex;
             if (rangeIndex != null)
             {
-                return rangeIndex.Between(out result, leftLimit, rightLimit, includeLeft, includeRight);
+                // IRangeIndex.Between still returns the index's own ImmutableList bucket (IIndex return
+                // types are unchanged - its copy-on-write is load-bearing); widen it to IReadOnlyList.
+                var found = rangeIndex.Between(out var between, leftLimit, rightLimit, includeLeft, includeRight);
+                result = between;
+                return found;
             }
 
             result = null;
@@ -2205,16 +2213,32 @@ namespace NoSQL.GraphDB.Core
         /// <param name='finder'> Finder delegate. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='index'> Index. </param>
-        private static ImmutableList<AGraphElementModel> FindElementsIndex(BinaryOperatorDelegate finder,
-                                                                           IComparable literal, IIndex index)
+        private static List<AGraphElementModel> FindElementsIndex(BinaryOperatorDelegate finder,
+                                                                  IComparable literal, IIndex index)
         {
-            return ImmutableList.CreateRange<AGraphElementModel>(index.GetKeyValues()
-                                                             .AsParallel()
-                                                             .Select(aIndexElement => new KeyValuePair<IComparable, ImmutableList<AGraphElementModel>>((IComparable)aIndexElement.Key, aIndexElement.Value))
-                                                             .Where(aTypedIndexElement => finder(aTypedIndexElement.Key, literal))
-                                                             .Select(_ => _.Value)
-                                                             .SelectMany(__ => __)
-                                                             .Distinct());
+            // Sequential (feature scan-result-representation): the finder is a light IComparable.CompareTo,
+            // so the former .AsParallel() paid PLINQ partition/merge overhead over a cheap predicate; and
+            // the result is a per-call throwaway, so a right-sized de-duplicating List replaces the AVL
+            // tree. A reference-identity HashSet reproduces the former cross-bucket .Distinct() (an element
+            // indexed under several matching keys appears once) in a single pass, no re-treeing.
+            var result = new List<AGraphElementModel>();
+            var seen = new HashSet<AGraphElementModel>();
+            foreach (var indexElement in index.GetKeyValues())
+            {
+                if (!finder((IComparable)indexElement.Key, literal))
+                {
+                    continue;
+                }
+
+                foreach (var graphElement in indexElement.Value)
+                {
+                    if (seen.Add(graphElement))
+                    {
+                        result.Add(graphElement);
+                    }
+                }
+            }
+            return result;
         }
 
         /// <summary>
@@ -2234,7 +2258,7 @@ namespace NoSQL.GraphDB.Core
         ///   method therefore reapplies the SAME <c>.Distinct()</c>, so a graph element indexed under
         ///   several matching keys appears exactly once - byte-identical to the generic output set.
         /// </summary>
-        private static bool TryOrderedRangeIndexScan(out ImmutableList<AGraphElementModel> result,
+        private static bool TryOrderedRangeIndexScan(out IReadOnlyList<AGraphElementModel> result,
                                                      IRangeIndex rangeIndex, IComparable literal, BinaryOperator binOp)
         {
             ImmutableList<AGraphElementModel> matched;
@@ -2262,8 +2286,18 @@ namespace NoSQL.GraphDB.Core
                     return false;
             }
 
-            // Reapply FindElementsIndex's cross-bucket .Distinct() so the deduped set is identical.
-            result = ImmutableList.CreateRange<AGraphElementModel>(matched.Distinct());
+            // Reapply FindElementsIndex's cross-bucket .Distinct() so the deduped set is identical -
+            // into a right-sized List (feature scan-result-representation), no throwaway tree.
+            var deduped = new List<AGraphElementModel>(matched.Count);
+            var seen = new HashSet<AGraphElementModel>();
+            foreach (var graphElement in matched)
+            {
+                if (seen.Add(graphElement))
+                {
+                    deduped.Add(graphElement);
+                }
+            }
+            result = deduped;
             return true;
         }
 
@@ -2505,33 +2539,62 @@ namespace NoSQL.GraphDB.Core
             return result;
         }
 
-        public override ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null)
+        public override IReadOnlyList<VertexModel> GetAllVertices(String interestingLabel = null)
         {
-            // Sequential, id-ordered scan (finding P7): the predicate is a light null/removed/type/
-            // label check, so PLINQ overhead is not worth paying. The old parallel scan was unordered;
-            // callers never relied on a particular order.
-            return ImmutableList.CreateRange<VertexModel>(
-                 LiveElementsSequential(_snapshot)
-                 .Where(_ => _ != null && !_._removed && _ is VertexModel)
-                 .Where(CheckLabel(interestingLabel))
-                 .Select(_ => (VertexModel)_));
+            // Fill a right-sized List directly instead of packing the sequential scan into an
+            // ImmutableList (an AVL tree) the caller immediately drops (feature scan-result-representation).
+            // The walk is the same cheap, cache-friendly, id-ordered scan (finding P7); only the result
+            // packaging changes - a flat reference array (8 B/slot, contiguous) instead of ~48 B/node
+            // tree. Capture the snapshot once (volatile read); VertexCount is a capacity hint only, so a
+            // stale count costs at most a resize, never a wrong result (the snapshot walk is authoritative).
+            var snap = _snapshot;
+            var labelMatches = CheckLabel(interestingLabel);
+            var segments = snap.Segments;
+            int count = snap.Count;
+            var result = new List<VertexModel>(interestingLabel == null ? VertexCount : 0);
+            for (int i = 0; i < count; i++)
+            {
+                if (segments[i >> SegmentShift][i & SegmentMask] is VertexModel vertex && !vertex._removed && labelMatches(vertex))
+                {
+                    result.Add(vertex);
+                }
+            }
+            return result;
         }
 
-        public override ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null)
+        public override IReadOnlyList<EdgeModel> GetAllEdges(String interestingLabel = null)
         {
-            return ImmutableList.CreateRange<EdgeModel>(
-                        LiveElementsSequential(_snapshot)
-                        .Where(_ => _ != null && !_._removed && _ is EdgeModel)
-                        .Where(CheckLabel(interestingLabel))
-                        .Select(_ => (EdgeModel)_));
+            var snap = _snapshot;
+            var labelMatches = CheckLabel(interestingLabel);
+            var segments = snap.Segments;
+            int count = snap.Count;
+            var result = new List<EdgeModel>(interestingLabel == null ? EdgeCount : 0);
+            for (int i = 0; i < count; i++)
+            {
+                if (segments[i >> SegmentShift][i & SegmentMask] is EdgeModel edge && !edge._removed && labelMatches(edge))
+                {
+                    result.Add(edge);
+                }
+            }
+            return result;
         }
 
-        public override ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
+        public override IReadOnlyList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
         {
-            return ImmutableList.CreateRange<AGraphElementModel>(
-                        LiveElementsSequential(_snapshot)
-                        .Where(_ => _ != null && !_._removed)
-                        .Where(CheckLabel(interestingLabel)));
+            var snap = _snapshot;
+            var labelMatches = CheckLabel(interestingLabel);
+            var segments = snap.Segments;
+            int count = snap.Count;
+            var result = new List<AGraphElementModel>(interestingLabel == null ? VertexCount + EdgeCount : 0);
+            for (int i = 0; i < count; i++)
+            {
+                var graphElement = segments[i >> SegmentShift][i & SegmentMask];
+                if (graphElement != null && !graphElement._removed && labelMatches(graphElement))
+                {
+                    result.Add(graphElement);
+                }
+            }
+            return result;
         }
 
         #endregion
