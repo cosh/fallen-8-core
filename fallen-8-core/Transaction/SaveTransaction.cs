@@ -30,13 +30,17 @@ namespace NoSQL.GraphDB.Core.Transaction
     public class SaveTransaction : ATransaction
     {
         /// <summary>
-        /// Number of partitions which should be used to persist the data
+        /// Number of partitions to split the graph elements into when persisting. A non-positive
+        /// value (the default) lets the engine size the partition count by work and core count
+        /// (<c>min(cores, ceil(count / target))</c>), so a large graph is not forced into a small
+        /// fixed number of oversized bunches - which could push a single bunch past the 2 GB per-file
+        /// limit (feature load-path-integrity L2). A positive value is honoured as an explicit cap.
         /// </summary>
         public Int32 SavePartitions
         {
             get;
             set;
-        } = 5;
+        } = 0;
 
         /// <summary>
         /// The path where the data should be persisted

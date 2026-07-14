@@ -197,9 +197,20 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
+        /// The minimum on-disk size of one <see cref="SidecarManifestEntry"/>: a name length-prefix
+        /// (>= 1 byte for the empty string), an <see cref="Int64"/> size (8), and a
+        /// <see cref="UInt32"/> CRC (4). Used to bound a declared manifest count against the bytes
+        /// actually left in the header before allocating (feature load-path-integrity L3). Must track
+        /// the entry framing in <see cref="WriteManifestList"/> / <see cref="SidecarManifestEntry"/>.
+        /// </summary>
+        private const int MinManifestEntrySize = sizeof(Int64) + sizeof(UInt32) + 1;
+
+        /// <summary>
         /// Reads one length-prefixed list of <see cref="SidecarManifestEntry"/> (file name, byte
-        /// size and CRC-32) from the header. The count and each name are already bounded by the
-        /// header's own validated length and the reader's per-prefix guards (finding C5).
+        /// size and CRC-32) from the header. The count is bounded against the bytes remaining in the
+        /// header region BEFORE the capacity allocation, so a crafted header (a CRC is integrity, not
+        /// authenticity) cannot drive a huge preallocation (finding C5 / load-path-integrity L3); each
+        /// name is then bounded by the reader's per-prefix guards.
         /// </summary>
         private static List<SidecarManifestEntry> ReadManifestList(SerializationReader reader)
         {
@@ -207,6 +218,22 @@ namespace NoSQL.GraphDB.Core.Persistency
             if (count < 0)
             {
                 throw new InvalidDataException(String.Format("A checkpoint manifest declared a negative entry count ({0}); the header is corrupt.", count));
+            }
+
+            // Reject a count that cannot possibly be backed by the bytes left in the header, before
+            // allocating the list's capacity (matches the EnsureAvailable discipline the rest of the
+            // load already follows). BytesRemaining is -1 on a reader with no known end; fall back to
+            // the seekable base stream so the header region (always length-known) is still bounded.
+            long remaining = reader.BytesRemaining;
+            if (remaining < 0 && reader.BaseStream.CanSeek)
+            {
+                remaining = reader.BaseStream.Length - reader.BaseStream.Position;
+            }
+            if (remaining >= 0 && count > remaining / MinManifestEntrySize)
+            {
+                throw new InvalidDataException(String.Format(
+                    "A checkpoint manifest declared {0} entries, more than the {1} byte(s) remaining in the header could hold; it is corrupt.",
+                    count, remaining));
             }
 
             var list = new List<SidecarManifestEntry>(count);
@@ -741,7 +768,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         private List<EdgeSneakPeak> LoadAGraphElementBunch(
             string graphElementBunchPath,
             AGraphElementModel[] graphElementsOfFallen8,
-            ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>> edgeTodoOnVertex)
+            ConcurrentDictionary<Int32, ConcurrentQueue<EdgeOnVertexToDo>> edgeTodoOnVertex)
         {
             //if there is no savepoint file... do nothing
             if (!File.Exists(graphElementBunchPath))
@@ -950,7 +977,14 @@ namespace NoSQL.GraphDB.Core.Persistency
 
         private void LoadGraphElementsCore(AGraphElementModel[] graphElements, List<String> graphElementStreams)
         {
-            var edgeTodo = new ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>>();
+            // A ConcurrentQueue per edge id, not a shared List: the parallel bunch load (below) records
+            // the two endpoints of a not-yet-materialised cross-bunch edge from two threads at once
+            // under the same edge-id key. ConcurrentDictionary.AddOrUpdate runs its update delegate
+            // OUTSIDE the bucket lock (and can re-run it on a CAS retry), so mutating a shared List
+            // there raced - torn backing array / lost or duplicated fix-up (feature load-path-integrity
+            // L1). GetOrAdd publishes exactly one queue per key and Enqueue is itself thread-safe, so
+            // each fix-up is recorded exactly once with no torn state.
+            var edgeTodo = new ConcurrentDictionary<Int32, ConcurrentQueue<EdgeOnVertexToDo>>();
             var result = new List<EdgeSneakPeak>[graphElementStreams.Count];
 
             //create the major part of the graph elements
@@ -1127,7 +1161,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='edgeTodo'> Edge todo. </param>
         private void LoadVertex(SerializationReader reader, AGraphElementModel[] graphElements,
-                                       ConcurrentDictionary<Int32, List<EdgeOnVertexToDo>> edgeTodo)
+                                       ConcurrentDictionary<Int32, ConcurrentQueue<EdgeOnVertexToDo>> edgeTodo)
         {
             var id = reader.ReadOptimizedInt32();              // P7: var-int id
             var creationDate = reader.ReadUInt32();
@@ -1187,13 +1221,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                                 IsIncomingEdge = false
                             };
 
-                            edgeTodo.AddOrUpdate(edgeId,
-                                 new List<EdgeOnVertexToDo> { aEdgeTodo },
-                                 (id, list) =>
-                                    {
-                                        list.Add(aEdgeTodo);
-                                        return list;
-                                    });
+                            edgeTodo.GetOrAdd(edgeId, _ => new ConcurrentQueue<EdgeOnVertexToDo>()).Enqueue(aEdgeTodo);
                         }
                     }
                     outEdgeProperties.Add(outEdgePropertyId, outEdges);
@@ -1234,13 +1262,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                                 IsIncomingEdge = true
                             };
 
-                            edgeTodo.AddOrUpdate(edgeId,
-                                 new List<EdgeOnVertexToDo> { aEdgeTodo },
-                                 (id, list) =>
-                                 {
-                                     list.Add(aEdgeTodo);
-                                     return list;
-                                 });
+                            edgeTodo.GetOrAdd(edgeId, _ => new ConcurrentQueue<EdgeOnVertexToDo>()).Enqueue(aEdgeTodo);
                         }
                     }
                     incEdgeProperties.Add(incEdgePropertyId, incEdges);

@@ -1,7 +1,7 @@
 # Load-Path Integrity — Specification
 
-> **Status:** Planned — **P0 correctness** — from the 2026-07 principal-architect & performance
-> review. Close two silent-corruption cliffs and one DoS in the checkpoint read/write path that
+> **Status:** Implemented — **P0 correctness** — from the 2026-07 principal-architect & performance
+> review. Closed two silent-corruption cliffs and one DoS in the checkpoint read/write path that
 > predate or slipped past `persistence-hardening`.
 
 The hardened checkpoint format (`persistence-hardening`: atomic temp+fsync+rename, completion
