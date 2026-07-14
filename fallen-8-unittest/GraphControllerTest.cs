@@ -29,6 +29,7 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
@@ -92,7 +93,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             scanDef.Operator = BinaryOperator.Equals;
-            var result = _controller.GraphScan("name", scanDef);
+            var result = _controller.GraphScan("name", scanDef).Value;
 
             Assert.IsNotNull(result, "Graph should not be null");
             Assert.AreEqual(1, result.Count(), "There should be one vertex in the graph");
@@ -191,7 +192,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             scanDef.Operator = BinaryOperator.Equals;
-            var result = _controller.GraphScan("since", scanDef);
+            var result = _controller.GraphScan("since", scanDef).Value;
 
             // Check if edge is created
             Assert.AreEqual(1, result.Count(), "There should be one edge in the graph");
@@ -206,8 +207,8 @@ namespace NoSQL.GraphDB.Tests
 
             // Check source and target vertex IDs for the edge
             var edgeId = outgoingEdges[0];
-            Assert.AreEqual(sourceVertex.Id, _controller.GetSourceVertexForEdge(edgeId), "Edge source should match source vertex");
-            Assert.AreEqual(targetVertex.Id, _controller.GetTargetVertexForEdge(edgeId), "Edge target should match target vertex");
+            Assert.AreEqual(sourceVertex.Id, _controller.GetSourceVertexForEdge(edgeId).Value, "Edge source should match source vertex");
+            Assert.AreEqual(targetVertex.Id, _controller.GetTargetVertexForEdge(edgeId).Value, "Edge target should match target vertex");
         }
 
         [TestMethod]
@@ -331,19 +332,20 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        [ExpectedException(typeof(WebException))]
-        public void GetSourceVertexForEdge_WhenEdgeNotExists_ShouldThrowException()
+        public void GetSourceVertexForEdge_WhenEdgeNotExists_ShouldReturn404()
         {
-            // Act - should throw exception for non-existent edge ID
-            _controller.GetSourceVertexForEdge(999);
+            // A missing edge is a 404, not a thrown WebException -> 500 (feature api-error-contract E4).
+            var result = _controller.GetSourceVertexForEdge(999);
+            Assert.IsInstanceOfType(result.Result, typeof(NotFoundObjectResult),
+                "A missing edge must yield 404, not throw.");
         }
 
         [TestMethod]
-        [ExpectedException(typeof(WebException))]
-        public void GetTargetVertexForEdge_WhenEdgeNotExists_ShouldThrowException()
+        public void GetTargetVertexForEdge_WhenEdgeNotExists_ShouldReturn404()
         {
-            // Act - should throw exception for non-existent edge ID
-            _controller.GetTargetVertexForEdge(999);
+            var result = _controller.GetTargetVertexForEdge(999);
+            Assert.IsInstanceOfType(result.Result, typeof(NotFoundObjectResult),
+                "A missing edge must yield 404, not throw.");
         }
 
         [TestMethod]
@@ -561,8 +563,8 @@ namespace NoSQL.GraphDB.Tests
 
             // Get the edge ID and verify it connects the expected vertices
             var edgeId = result[0];
-            Assert.AreEqual(sourceId.Id, _controller.GetSourceVertexForEdge(edgeId), "Edge source should match source vertex");
-            Assert.AreEqual(targetId.Id, _controller.GetTargetVertexForEdge(edgeId), "Edge target should match target vertex");
+            Assert.AreEqual(sourceId.Id, _controller.GetSourceVertexForEdge(edgeId).Value, "Edge source should match source vertex");
+            Assert.AreEqual(targetId.Id, _controller.GetTargetVertexForEdge(edgeId).Value, "Edge target should match target vertex");
         }
     }
 }

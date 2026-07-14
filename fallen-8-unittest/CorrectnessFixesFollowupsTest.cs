@@ -110,7 +110,7 @@ namespace NoSQL.GraphDB.Tests
 
             // A removal of a non-existent (out-of-range) id throws inside the worker and is rolled back.
             // Act
-            var result = await controller.TryRemoveGraphElement(int.MaxValue.ToString(), waitForCompletion: true);
+            var result = await controller.TryRemoveGraphElement(int.MaxValue, waitForCompletion: true);
 
             // Assert
             Assert.AreEqual(StatusCodes.Status500InternalServerError, StatusCodeOf(result),
@@ -177,7 +177,7 @@ namespace NoSQL.GraphDB.Tests
             var controller = new GraphController(_loggerFactory.CreateLogger<GraphController>(), fallen8);
 
             // Act - fire-and-forget: the same removal that rolls back, but without waiting.
-            var result = await controller.TryRemoveGraphElement(int.MaxValue.ToString(), waitForCompletion: false);
+            var result = await controller.TryRemoveGraphElement(int.MaxValue, waitForCompletion: false);
 
             // Assert
             Assert.AreEqual(StatusCodes.Status202Accepted, StatusCodeOf(result),

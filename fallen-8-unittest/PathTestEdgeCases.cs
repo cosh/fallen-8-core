@@ -53,13 +53,13 @@ namespace NoSQL.GraphDB.Tests
                 Literal = new LiteralSpecification { Value = "Alice", FullQualifiedTypeName = "System.String" },
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
-            }).First();
+            }).Value.First();
             var bob = controller.GraphScan("name", new ScanSpecification
             {
                 Literal = new LiteralSpecification { Value = "Bob", FullQualifiedTypeName = "System.String" },
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
-            }).First();
+            }).Value.First();
 
             // Act
             var result = controller.CalculateShortestPath(alice, bob, null).Value;
@@ -81,13 +81,13 @@ namespace NoSQL.GraphDB.Tests
                 Literal = new LiteralSpecification { Value = "Alice", FullQualifiedTypeName = "System.String" },
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
-            }).First();
+            }).Value.First();
             var bob = controller.GraphScan("name", new ScanSpecification
             {
                 Literal = new LiteralSpecification { Value = "Bob", FullQualifiedTypeName = "System.String" },
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
-            }).First();
+            }).Value.First();
 
             var spec = new PathSpecification { MaxDepth = 0, MaxResults = 10 };
             var result = controller.CalculateShortestPath(alice, bob, spec).Value;
@@ -134,13 +134,13 @@ namespace NoSQL.GraphDB.Tests
                 Literal = new LiteralSpecification { Value = "A", FullQualifiedTypeName = "System.String" },
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
-            }).First();
+            }).Value.First();
             var x = controller.GraphScan("name", new ScanSpecification
             {
                 Literal = new LiteralSpecification { Value = "X", FullQualifiedTypeName = "System.String" },
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
-            }).First();
+            }).Value.First();
             var spec = new PathSpecification { MaxDepth = 5, MaxResults = 10 };
             var result = controller.CalculateShortestPath(a, x, spec).Value;
             Assert.IsNotNull(result, "Result should not be null");

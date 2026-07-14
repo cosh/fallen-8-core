@@ -350,14 +350,33 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
-        public void UploadPlugin([FromBody] Stream dllStream)
+        public IActionResult UploadPlugin([FromBody] Stream dllStream)
         {
+            if (dllStream == null)
+            {
+                return BadRequest("A plugin DLL stream is required.");
+            }
+
             // Write into the isolated plugin directory (created if absent), NOT AppContext.BaseDirectory,
             // so an upload can never plant a DLL next to the server's own binaries. The directory is a
             // registered plugin search directory (see Program.cs), so the plugin is still discovered.
             System.IO.Directory.CreateDirectory(_pluginDirectory);
             var assimilationPath = System.IO.Path.Combine(_pluginDirectory, System.IO.Path.GetRandomFileName() + ".dll");
-            PluginFactory.Assimilate(dllStream, assimilationPath);
+
+            try
+            {
+                PluginFactory.Assimilate(dllStream, assimilationPath);
+            }
+            catch (Exception ex)
+            {
+                // An invalid/incompatible DLL is a client error (400), not an unhandled 500 - matching
+                // the documented ProducesResponseType(400) (feature api-error-contract E7). Best-effort
+                // cleanup of the partially-written file.
+                try { if (System.IO.File.Exists(assimilationPath)) System.IO.File.Delete(assimilationPath); } catch { }
+                return BadRequest("The uploaded plugin could not be loaded: " + ex.Message);
+            }
+
+            return NoContent();
         }
 
         #region private helper
