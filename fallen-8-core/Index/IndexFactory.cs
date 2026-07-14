@@ -151,6 +151,30 @@ namespace NoSQL.GraphDB.Core.Index
         }
 
         /// <summary>
+        ///   Returns a point-in-time snapshot of the registered indices, copied under the read lock so
+        ///   it never observes a torn <see cref="Indices" /> mid-mutation (create/delete take the write
+        ///   lock). Used by the engine's write-end index purge (feature index-lifecycle 3.3) to
+        ///   enumerate the indices safely off the single-writer thread without racing a concurrent
+        ///   create/delete on the request thread.
+        /// </summary>
+        internal IReadOnlyList<IIndex> GetIndicesSnapshot()
+        {
+            if (ReadResource())
+            {
+                try
+                {
+                    return new List<IIndex>(Indices.Values);
+                }
+                finally
+                {
+                    FinishReadResource();
+                }
+            }
+
+            throw new CollisionException();
+        }
+
+        /// <summary>
         ///   Tries the index of the get.
         /// </summary>
         /// <returns> <c>true</c> if the index was found; otherwise, <c>false</c> . </returns>

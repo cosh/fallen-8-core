@@ -786,13 +786,15 @@ namespace NoSQL.GraphDB.Core
                 case BinaryOperator.Equals:
                     // The Equals fast path returns the index's OWN posting-list bucket, which the index
                     // retains and shares (its copy-on-write is load-bearing) - so keep it as-is, just
-                    // widened to IReadOnlyList (feature scan-result-representation).
+                    // widened to IReadOnlyList (feature scan-result-representation), then filtered to the
+                    // LIVE elements (feature index-lifecycle 3.2) so a removed-but-still-indexed element
+                    // never surfaces. FilterLive returns the same shared bucket when nothing is dead.
                     if (!index.TryGetValue(out var equalsBucket, literal))
                     {
                         result = null;
                         return false;
                     }
-                    result = equalsBucket;
+                    result = FilterLive(equalsBucket);
                     break;
 
                 case BinaryOperator.Greater:
@@ -853,9 +855,11 @@ namespace NoSQL.GraphDB.Core
             if (rangeIndex != null)
             {
                 // IRangeIndex.Between still returns the index's own ImmutableList bucket (IIndex return
-                // types are unchanged - its copy-on-write is load-bearing); widen it to IReadOnlyList.
+                // types are unchanged - its copy-on-write is load-bearing); widen it to IReadOnlyList and
+                // filter to the LIVE elements (feature index-lifecycle 3.2) so a removed element does not
+                // surface through the range path either.
                 var found = rangeIndex.Between(out var between, leftLimit, rightLimit, includeLeft, includeRight);
-                result = between;
+                result = FilterLive(between);
                 return found;
             }
 
@@ -1409,7 +1413,87 @@ namespace NoSQL.GraphDB.Core
                 throw;
             }
 
+            // Write-end index purge (feature index-lifecycle 3.3). The live->removed transition has now
+            // COMMITTED (we are past the try/catch, so a rolled-back removal never reaches here), so drop
+            // the element - and, for a vertex, its cascaded-removed incident edges - from every registered
+            // index. This stops a removed element being pinned by an index bucket (its body becomes
+            // collectable) and complements the read-end FilterLive floor. RemoveValue is O(affected keys)
+            // via each index's reverse map, so the fan-out over indices is bounded; it runs here on the
+            // single writer, serialised against request-thread index writes by the index's own lock.
+            PurgeRemovedElementFromIndices(graphElement);
+
             return true;
+        }
+
+        /// <summary>
+        ///   Removes <paramref name="removedElement" /> (and, when it is a vertex, every edge in its
+        ///   adjacency - the edges the cascade just removed) from every registered index. Enumerates a
+        ///   snapshot of the indices so it cannot race a concurrent create/delete. A best-effort per
+        ///   index: an index whose <c>RemoveValue</c> throws is logged and skipped so one faulty index
+        ///   cannot fail an otherwise-committed removal.
+        /// </summary>
+        private void PurgeRemovedElementFromIndices(AGraphElementModel removedElement)
+        {
+            var indices = IndexFactory?.GetIndicesSnapshot();
+            if (indices == null || indices.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var index in indices)
+            {
+                PurgeValueFromIndex(index, removedElement);
+
+                // A removed vertex takes its incident edges out of the live set too; purge those from
+                // the index as well. The removed vertex's OWN adjacency still lists them at this point
+                // (it is freed only later, on trim), so it is the authoritative source of the cascaded
+                // edges. RemoveValue is an O(1) reverse-map miss for any edge the index never held.
+                if (removedElement is VertexModel vertex)
+                {
+                    PurgeVertexEdgesFromIndex(index, vertex);
+                }
+            }
+        }
+
+        private void PurgeVertexEdgesFromIndex(IIndex index, VertexModel vertex)
+        {
+            var outEdges = vertex.GetRawOutEdges();
+            if (outEdges != null)
+            {
+                foreach (var group in outEdges)
+                {
+                    foreach (var edge in group.Value)
+                    {
+                        PurgeValueFromIndex(index, edge);
+                    }
+                }
+            }
+
+            var inEdges = vertex.GetRawInEdges();
+            if (inEdges != null)
+            {
+                foreach (var group in inEdges)
+                {
+                    foreach (var edge in group.Value)
+                    {
+                        PurgeValueFromIndex(index, edge);
+                    }
+                }
+            }
+        }
+
+        private void PurgeValueFromIndex(IIndex index, AGraphElementModel element)
+        {
+            try
+            {
+                index.RemoveValue(element);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to purge graph element {GraphElementId} from an index after removal; the read-end live filter still hides it, but its body may stay pinned.",
+                    element?.Id);
+            }
         }
 
         /// <summary>
@@ -2253,6 +2337,49 @@ namespace NoSQL.GraphDB.Core
         /// <param name='finder'> Finder delegate. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='index'> Index. </param>
+        /// <summary>
+        ///   Filters an index bucket down to its LIVE elements (feature index-lifecycle 3.2): drops any
+        ///   <c>null</c> or <c>_removed</c> element so an index-serving scan returns exactly the live set
+        ///   <see cref="FindElements(ElementSeeker)" /> / GraphScan would for the same logical query -
+        ///   index membership is only valid while its element is live, and this is the read-end floor
+        ///   that holds that contract even before the write-end purge runs. Returns the SAME reference
+        ///   when nothing is dead (the common case), so the Equals fast path keeps handing back the
+        ///   index's shared bucket with no allocation.
+        /// </summary>
+        private static IReadOnlyList<AGraphElementModel> FilterLive(IReadOnlyList<AGraphElementModel> bucket)
+        {
+            if (bucket == null)
+            {
+                return null;
+            }
+
+            var dead = 0;
+            for (var i = 0; i < bucket.Count; i++)
+            {
+                var element = bucket[i];
+                if (element == null || element._removed)
+                {
+                    dead++;
+                }
+            }
+
+            if (dead == 0)
+            {
+                return bucket;
+            }
+
+            var live = new List<AGraphElementModel>(bucket.Count - dead);
+            for (var i = 0; i < bucket.Count; i++)
+            {
+                var element = bucket[i];
+                if (element != null && !element._removed)
+                {
+                    live.Add(element);
+                }
+            }
+            return live;
+        }
+
         private static List<AGraphElementModel> FindElementsIndex(BinaryOperatorDelegate finder,
                                                                   IComparable literal, IIndex index)
         {
@@ -2272,7 +2399,9 @@ namespace NoSQL.GraphDB.Core
 
                 foreach (var graphElement in indexElement.Value)
                 {
-                    if (seen.Add(graphElement))
+                    // Skip null / _removed so a removed-but-still-indexed element never surfaces
+                    // (feature index-lifecycle 3.2), then dedup across buckets.
+                    if (graphElement != null && !graphElement._removed && seen.Add(graphElement))
                     {
                         result.Add(graphElement);
                     }
@@ -2327,12 +2456,13 @@ namespace NoSQL.GraphDB.Core
             }
 
             // Reapply FindElementsIndex's cross-bucket .Distinct() so the deduped set is identical -
-            // into a right-sized List (feature scan-result-representation), no throwaway tree.
+            // into a right-sized List (feature scan-result-representation), no throwaway tree - and skip
+            // null / _removed so a removed element never surfaces (feature index-lifecycle 3.2).
             var deduped = new List<AGraphElementModel>(matched.Count);
             var seen = new HashSet<AGraphElementModel>();
             foreach (var graphElement in matched)
             {
-                if (seen.Add(graphElement))
+                if (graphElement != null && !graphElement._removed && seen.Add(graphElement))
                 {
                     deduped.Add(graphElement);
                 }

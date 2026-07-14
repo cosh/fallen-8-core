@@ -1,8 +1,30 @@
 # Index Lifecycle — Specification
 
-> **Status:** Planned (P1 architecture) — from the 2026-07 principal-architect & performance review.
-> Index membership is decoupled from element lifecycle, the single-writer invariant, and the WAL;
-> this theme makes index mutations first-class derived state with an explicit lifecycle.
+> **Status:** Partially implemented (P1 architecture) — from the 2026-07 principal-architect &
+> performance review. Index membership is decoupled from element lifecycle, the single-writer
+> invariant, and the WAL; this theme makes index mutations first-class derived state with an explicit
+> lifecycle.
+>
+> **Landed on branch `feature/index-lifecycle`** (the removal-lifecycle core):
+> - **3.2 read-end filter** — a shared `FilterLive` helper drops `null`/`_removed` at all four
+>   index-serving paths (`IndexScan` Equals, the generic `FindElementsIndex`, `TryOrderedRangeIndexScan`,
+>   and `RangeIndexScan`/`Between`), so an index scan returns exactly what `GraphScan` does for the same
+>   logical query. `FilterLive` returns the same shared bucket when nothing is dead, preserving the
+>   `scan-result-representation` Equals fast path.
+> - **3.4 reverse map** — `DictionaryIndex` and `RangeIndex` gained a reference-keyed `element → keys`
+>   map so `RemoveValue` is O(affected keys) with no full-key scan or per-key allocation (rebuilt on
+>   load; `RangeIndex` still invalidates `_sortedKeys` exactly on key-set shrink).
+> - **3.3 write-end purge** — a committed removal (and, for a vertex, its cascaded edges) is dropped
+>   from every registered index on the single writer, only on the commit path (a rolled-back removal
+>   never purges), so a removed element's body is no longer pinned by a bucket.
+>
+> **Deferred (documented):** 3.5 (routing index writes through the single writer as transactions and
+> retiring `AThreadSafeElement`) — a large surface that changes the REST failure mapping; and 3.6
+> (WAL-logging index writes) — whose entry-type ordinals are owned jointly with
+> `crash-durability-hardening`. Until 3.5 lands, index writes stay on the request thread under
+> `AThreadSafeElement`, and index durability stays snapshot-only (defect (c)/(d) unchanged). The
+> `SingleValueIndex`/`RegExIndex` reverse-map mirror is also deferred (the two named heavy indices,
+> `DictionaryIndex`/`RangeIndex`, are done).
 
 ## 1. Problem / current state
 
