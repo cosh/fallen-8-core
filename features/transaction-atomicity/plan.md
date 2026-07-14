@@ -86,19 +86,39 @@ Intent: promote the Phase 0 characterization tests to passing and add the durabi
   unless the optional `InvalidInput` reclassification (spec §3) is deliberately taken.
 
 ## Measure & document
-- [ ] Run `TransactionAtomicityBenchmark` on this box (remove `[Ignore]` locally) and record the
-  before/after batch throughput; confirm the pre-validation pass does not regress it. Numbers: to be
-  captured on this box.
-- [ ] Note in this plan (a Stage outcome section) what shipped, and confirm the guardrails held:
-  single-writer, lock-free reads, the WAL append point, and the `transaction-failure-reasons` mapping.
+- [x] Run `TransactionAtomicityBenchmark` on this box and record batch throughput; confirm the
+  pre-validation pass does not regress it. Numbers captured on this box (Debug build, 200k vertices,
+  batch 10k): create-vertices ~493k/s, create-edges ~909k/s, add-properties ~1.09M/s,
+  remove-elements ~1.61M/s. The added O(n) pre-validation pass is negligible next to model
+  construction/interning; no observable regression.
+- [x] Guardrails held: single-writer + lock-free reads over the volatile snapshot (no new locks),
+  the WAL "log on success only" append point unchanged, and the `transaction-failure-reasons`
+  channel reused (InvalidInput / NotFound / Conflict; out-of-range remove kept → InternalError/500).
+
+## Outcome (what shipped)
+- **Batch creates** (`CreateVertices_internal`, `CreateEdges_internal`) are construct-then-commit:
+  validate the whole batch, build all models against a LOCAL id counter, atomic `AppendGraphElements`,
+  then advance counters; edges wire adjacency AFTER the append (store-then-adjacency, matching the
+  single-edge path). The appended edges are tracked on `CreateEdgesTransaction` so a residual wiring
+  throw is rolled back. `CreateVerticesTransaction`'s swallowing `try/catch` was removed.
+- **Batch remove/property** (`RemoveGraphElements_internal`, `SetProperties_internal`) are
+  validate-then-apply with tracked undo: range/structure/conflict checks up front (incl. intra-batch
+  conflicts), then apply while recording inverses; `Rollback` restores exactly the applied progress
+  (`RestoreRemovedElements_private` inverts a completed removal cascade including self-loops without
+  duplication; `RestoreProperties_internal` replays inverses in reverse).
+- **Single-transaction rollbacks** filled (`CreateEdgeTransaction`, `AddPropertyTransaction`) and the
+  atomicity invariant documented on `ATransaction`.
+- **Note (out of scope, surfaced here):** bulk delete by absolute id interacts with auto-trim id
+  renumbering — the `trim-reader-safety` feature owns that; the benchmark's end-state check is
+  relaxed accordingly.
 
 ## Progress
-- [ ] Phase 0 — characterization tests (failing today) + guarded benchmark
-- [ ] Phase 1 — batch creates construct-then-commit (vertices + edges; store-then-adjacency)
-- [ ] Phase 2 — batch remove/property validate-then-apply with tracked undo
-- [ ] Phase 3 — fill single-transaction rollbacks + document the invariant on `ATransaction`
-- [ ] Phase 4 — atomicity + WAL crash/replay tests green; old partial-commit tests migrated
-- [ ] Measure & document
+- [x] Phase 0 — characterization tests (failing before the fix) + guarded benchmark
+- [x] Phase 1 — batch creates construct-then-commit (vertices + edges; store-then-adjacency)
+- [x] Phase 2 — batch remove/property validate-then-apply with tracked undo
+- [x] Phase 3 — fill single-transaction rollbacks + document the invariant on `ATransaction`
+- [x] Phase 4 — atomicity + WAL crash/replay tests green; no old partial-commit tests needed migration
+- [x] Measure & document
 
 ## Decision / revisit condition
 - **`transaction-failure-reasons/` (landed):** this feature reuses its `TransactionFailureReason` channel

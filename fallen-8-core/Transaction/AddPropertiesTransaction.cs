@@ -36,16 +36,26 @@ namespace NoSQL.GraphDB.Core.Transaction
             get; set;
         } = new List<PropertyAddDefinition>();
 
+        // Inverse of each set applied by TryExecute, in apply order (feature transaction-atomicity),
+        // so Rollback restores the pre-transaction state if a residual step throws after validation.
+        private List<PropertyMutationUndo> _undo = new List<PropertyMutationUndo>();
+
         internal override void Rollback(Fallen8 f8)
         {
-            //NOP
+            // Undoes the applied sets in reverse. After the validate-then-apply pass this is only
+            // needed for a residual post-validation throw (e.g. OOM); a clean pre-validation false
+            // (InvalidInput/Conflict) leaves _undo empty, so this is a no-op then.
+            f8.RestoreProperties_internal(_undo);
         }
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            foreach (var aDefinition in Properties)
+            // Validate the whole batch (structure + conflict-freedom, incl. intra-batch) before
+            // applying anything; then apply, recording each inverse for a residual-throw rollback.
+            if (!f8.SetProperties_internal(Properties, _undo, out var reason))
             {
-                f8.SetProperty_internal(aDefinition.GraphElementId, aDefinition.PropertyId, aDefinition.Property);
+                FailureReason = reason;
+                return false;
             }
 
             return true;
@@ -76,6 +86,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             // Null-safe: ReleaseAfterCompletion() may already have dropped Properties.
             Properties = null;
+            _undo = null;
         }
     }
 }

@@ -72,6 +72,17 @@ namespace NoSQL.GraphDB.Core.Transaction
             // no-op by default
         }
 
+        /// <summary>
+        ///   Atomicity contract (feature transaction-atomicity). A transaction that does not commit
+        ///   leaves the engine byte-for-byte as it was before <see cref="TryExecute"/> ran: either
+        ///   <see cref="TryExecute"/> mutates nothing and returns <c>false</c> (recording a
+        ///   <see cref="FailureReason"/>) or throws before mutating, OR every mutation it made is
+        ///   undone by <see cref="Rollback"/>. A terminal state of <c>RolledBack</c> therefore implies
+        ///   ZERO observable effect - no partial batch is left committed, and the <c>id == index</c>
+        ///   master-store invariant is preserved under every failure path. The write-ahead log relies
+        ///   on this: it logs only committed transactions, so a rolled-back transaction must leave
+        ///   nothing for the log to miss.
+        /// </summary>
         abstract internal void Rollback(Fallen8 f8);
         abstract internal Boolean TryExecute(Fallen8 f8);
 
