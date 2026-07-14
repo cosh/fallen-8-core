@@ -253,23 +253,30 @@ error, empty/oversized, unknown kind).
 ### 3.4 Natural-language assist (FR-26, G-6)
 
 **Decision: browser-to-provider, no apiApp proxy.** The UI calls a user-configured,
-OpenAI-compatible chat-completions endpoint directly. This supports a local SLM (Ollama /
-llama.cpp, matching the prototype's `ollama · qwen2.5-coder`) and hosted APIs behind one
-interface, and it keeps any API key off the Fallen-8 instance entirely, which the security
-posture requires.
+Ollama-native or OpenAI-compatible endpoint directly. This supports a local SLM (Ollama /
+llama.cpp) and hosted APIs behind one interface, and it keeps any API key off the
+Fallen-8 instance entirely, which the security posture requires.
 
-- Config lives in global UI settings: `{ endpoint, apiKey?, modelName }`, stored in local
-  storage. With no backend configured, the assist affordance is hidden or disabled with a
-  hint, and the editor is fully usable without it.
+The model backend is specified in full by [nl-assist/spec.md](./nl-assist/spec.md)
+(FR-26.1–FR-26.11): the MIT-only blessed model set (default: Phi-4-mini via Ollama), the
+prompt contract, the validation-and-refine loop, and the privacy/key-isolation rules.
+That spec is authoritative for this section; the points below summarize it.
+
+- Config lives in global UI settings:
+  `nlAssist: { endpoint, apiKind, model, apiKey?, temperature, maxRetries }` (FR-26.4),
+  stored in local storage. With no backend configured, the assist affordance is hidden or
+  disabled with a hint, and the editor is fully usable without it.
 - The generation prompt is assembled client-side and **must** include: the slot's
   `delegateKind` and lambda shape (§6.1), the available usings, and the §6.2 type surface
   including the `TryGetProperty` idiom, so drafts target the real API rather than
   hallucinated members.
 - Generated code is inserted as ordinary editable text and goes through the **same
-  validation gate** (§3.3). Validation failures feed diagnostics back into a
-  refine/regenerate loop. Nothing generated is ever sent to a query endpoint unvalidated.
-- Where a hosted provider is configured, the UI states plainly that the prompt and its
-  included context leave the machine.
+  validation gate** (§3.3). Validation failures feed diagnostics back into a bounded
+  refine/regenerate loop (FR-26.7). Nothing generated is ever sent to a query endpoint
+  unvalidated.
+- Where a non-loopback endpoint is configured, the UI states plainly, before the first
+  send, that the prompt and its included context leave the machine (FR-26.10); loopback
+  endpoints show no such notice.
 
 ```mermaid
 sequenceDiagram
@@ -414,9 +421,8 @@ fallen-8-web-ui/
   e2e/              # playwright
 ```
 
-Delivery (spec §11.3): branch `feature/web-ui`, GitHub issue labeled `feature`, PR
-referencing the issue. Commit messages and PR text are honest and concise and do not
-reference an AI assistant.
+Delivery (spec §11.3): branch `feature/web-ui`, delivered via PR. Commit messages and PR
+text are honest and concise and do not reference an AI assistant.
 
 ---
 
