@@ -1,10 +1,32 @@
 # Checkpoint I/O Efficiency — Specification
 
-> **Status:** Planned — **P2 performance** — from the 2026-07 principal-architect & performance
-> review. Make checkpoint I/O single-pass and SIMD: stop re-reading every sidecar just to CRC it on
-> save, fold the CRC check into the single load parse instead of a separate whole-file pass, and
-> replace the byte-at-a-time CRC-32 with a hardware-accelerated one — halving the bytes moved on both
-> save and load while keeping the exact same on-disk envelope, manifest and CRC coverage.
+> **Status:** Largely implemented — **P2 performance** — from the 2026-07 principal-architect &
+> performance review. Make checkpoint I/O single-pass and SIMD: stop re-reading every sidecar just to
+> CRC it on save, and replace the byte-at-a-time CRC-32 with a hardware-accelerated one — halving the
+> save-side bytes moved while keeping the exact same on-disk envelope, manifest and CRC coverage.
+>
+> **Delivered on branch `feature/checkpoint-io-efficiency`:**
+> - **(3.1) SIMD CRC** — the `Crc32` facade is re-backed by `System.IO.Hashing.Crc32` (CRC-32/ISO-HDLC,
+>   the exact same polynomial/parameters), so the emitted value is byte-for-byte identical and every
+>   existing checkpoint still validates — no `formatVersion` bump; the hand-rolled table loop is gone.
+>   The `System.IO.Hashing` 10.0.0 package was added.
+> - **(3.2) Save single-pass** — `WriteSidecar` builds the sidecar image in a `MemoryStream` (where the
+>   `SerializationWriter` seek-back header patch is free), CRCs it in ONE in-memory pass, and writes it
+>   once via `WriteAllBytesDurably` — the old `ComputeFileCrc` read-back of the just-written file is
+>   deleted. The read-back ran on the single writer inside the save's writer-hold window, so removing it
+>   directly shrinks the `non-blocking-save`-measured stall (without moving the write off the worker).
+> - **Buffer right-sizing** — the bunch/index/service parse opens now use `Constants.BufferSize` (64 KB)
+>   + `FileOptions.SequentialScan`, matching the integrity opens.
+>
+> Guarded by `CheckpointIoEfficiencyTest` (the CRC matches the canonical `0xCBF43926` ISO-HDLC check
+> value → byte-compatible; array/stream overloads agree incl. > 64 KB; single-pass save round-trips)
+> plus the full persistence/WAL round-trip suite (57 tests) staying green on the new CRC.
+>
+> **Deferred (documented):** **(3.3) load-side CRC tee** — folding the per-bunch CRC into the single
+> parse pass (a `Crc32ReadStream`) so a bunch is read once on load. Bunches still validate-then-parse,
+> but now on the SIMD CRC (an order of magnitude faster) with right-sized buffers, so the load CRC cost
+> is already slashed; the second read remains and is the follow-on. Index/service in-parse CRC folding
+> is likewise deferred (best-effort, plugin-driven parse).
 
 ## 1. Problem / current state
 
