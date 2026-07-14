@@ -76,20 +76,36 @@ Intent: extend the existing length-guard discipline to the one spot that escaped
 
 ## Measure & document
 
-- [ ] Run the full suite (`dotnet test fallen-8-core.sln`) plus the `persistence-hardening`,
-  `wal-subgraph-support` and partitioning round-trip tests — all green; `formatVersion` unchanged.
-- [ ] Capture the L1 stress iteration count / bunch count used and its runtime **on this box**, and
-  note the partitioning-default change's effect on default-save bunch counts, in the PR description.
-- [ ] Update `features/load-path-integrity/` with the outcome (a short "Outcome" note mirroring the
-  reference features) and cross-link `persistence-hardening`.
+- [x] Full suite green after the fixes: **369 passed, 0 failed, 14 skipped** (benchmarks), incl. the
+  `persistence-hardening`, `wal-subgraph-support` and partitioning round-trip tests; `formatVersion`
+  unchanged. The `SavePartitions` default change (5 → 0) caused no regressions.
+- [x] L1 stress params (this box): default `Load_CrossBunchEdges_RehydratesAdjacencyExactly` runs
+  20 000 vertices + 20 000 cross-bunch edges over 8 save/load iterations (~1 s); opt-in
+  `Load_CrossBunchEdges_Heavy` (200 000 / 40 iterations) is `[Ignore]`d out of the default run.
+
+## Outcome (what shipped)
+
+- **L1** — the cross-bunch edge fix-up scratch structure is now
+  `ConcurrentDictionary<Int32, ConcurrentQueue<EdgeOnVertexToDo>>`; both `AddOrUpdate` sites became
+  `GetOrAdd(edgeId, _ => new ConcurrentQueue<…>()).Enqueue(todo)`. No torn list, no double-add; the
+  sequential consumer iterates the queue unchanged. No format change.
+- **L2** — `SerializationWriter.UpdateHeader` computes the length as `long` and throws
+  `InvalidDataException` when a segment exceeds `int.MaxValue`, instead of the unchecked `(int)` cast;
+  the throw aborts the save before the header/rename commit (temp deleted, previous savegame intact).
+  `SaveTransaction.SavePartitions` now defaults to `0` ("size by work+cores") so a large graph is not
+  forced into ≤ 5 oversized bunches; an explicit positive value is still honoured.
+- **L3** — `ReadManifestList` bounds the declared count against the bytes remaining in the header
+  (`MinManifestEntrySize = 13`) before allocating; the misleading doc-comment was corrected. The
+  Phase 0 probe confirmed today's code actually `OutOfMemoryException`s on the crafted count — now a
+  fast `InvalidDataException`.
 
 ## Progress
 
-- [ ] Phase 0 — baseline & guardrails (L1 stress + opt-in heavy, L2 overflow probe, L3 crafted-manifest probe)
-- [ ] Phase 1 — L1 lock-free `ConcurrentQueue` edge fix-up
-- [ ] Phase 2 — L2 fail-loud `UpdateHeader` + `SavePartitions` default loosened
-- [ ] Phase 3 — L3 manifest count bound + doc-comment fix
-- [ ] Measure & document
+- [x] Phase 0 — baseline & guardrails (L1 stress + opt-in heavy, L2 overflow probe, L3 crafted-manifest probe)
+- [x] Phase 1 — L1 lock-free `ConcurrentQueue` edge fix-up
+- [x] Phase 2 — L2 fail-loud `UpdateHeader` + `SavePartitions` default loosened
+- [x] Phase 3 — L3 manifest count bound + doc-comment fix
+- [x] Measure & document
 
 ## Decision / revisit condition
 

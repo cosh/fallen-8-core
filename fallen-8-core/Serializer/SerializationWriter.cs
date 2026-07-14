@@ -2138,7 +2138,22 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>The total length of serialized data or 0 if the stream is not seekable</returns>
         public int UpdateHeader()
         {
-            var result = BaseStream.CanSeek ? (int)BaseStream.Position - startPosition : 0;
+            // Compute the payload length as a long and fail loudly if it exceeds the Int32 header the
+            // format uses (feature load-path-integrity L2). The old unchecked (int) cast wrapped a
+            // > 2 GB segment to a negative/short length that was still CRC'd, manifested and committed -
+            // producing a checkpoint that "saved" but could never be loaded (the reader computes a
+            // negative remaining length and throws). Throwing here aborts the save before any commit:
+            // the caller's temp file is deleted and the previous savegame stays intact.
+            long length = BaseStream.CanSeek ? BaseStream.Position - startPosition : 0;
+            if (length > int.MaxValue)
+            {
+                throw new InvalidDataException(String.Format(
+                    "A checkpoint segment reached {0} bytes, exceeding the {1}-byte (2 GB) per-file limit of the on-disk format. " +
+                    "Save with more partitions (SaveTransaction.SavePartitions) so each segment stays under the limit.",
+                    length, int.MaxValue));
+            }
+
+            var result = (int)length;
 
             // BaseStream.CanSeek is implied if allowUpdateHeader is true
             if (allowUpdateHeader)
