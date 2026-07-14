@@ -1,9 +1,43 @@
 # API Error Contract — Specification
 
-> **Status:** Planned (P1 correctness) — from the 2026-07 principal-architect & performance review.
-> Several REST endpoints crash, throw, or silently swallow errors in ways that contradict their
-> documented status codes; this establishes one consistent error contract (correct status + RFC 7807
-> body) across the API surface.
+> **Status:** Largely implemented (P1 correctness) — from the 2026-07 principal-architect &
+> performance review. Several REST endpoints crashed, threw, or silently swallowed errors in ways that
+> contradicted their documented status codes; this establishes one consistent error contract (correct
+> status + RFC 7807 body) across the API surface.
+>
+> **Delivered on branch `feature/api-error-contract`:**
+> - **E1 global net** — `Program.cs` registers `AddProblemDetails()`, wires `UseExceptionHandler()`
+>   outside Development (dev keeps the developer exception page), and adds `UseStatusCodePages()`, so an
+>   unhandled fault (and a bare status result) is now an `application/problem+json` response.
+> - **E2 id parsing → 400** — the property/remove mutations and the four degree getters take `int`
+>   route params (route-binding failure is a 400 ProblemDetails under `[ApiController]`) instead of
+>   `Convert.ToInt32` throwing `FormatException` → 500.
+> - **E3 literal/type parsing → 400** — a shared `TryResolveType` + `TryConvertLiteral` guard turns an
+>   unknown type name / null literal / unconvertible value on `GraphScan`/`IndexScan`/`RangeIndexScan`/
+>   `AddProperty` into a `BadRequest`, not a thrown `TypeLoadException` → 500. The three scans return
+>   `ActionResult<IEnumerable<int>>`.
+> - **E4 missing edge → 404** — `GetSource`/`GetTargetVertexForEdge` return `ActionResult<int>` +
+>   `NotFound()`; the two `[ExpectedException(WebException)]` tests were migrated to assert 404.
+> - **E6 bounded reads** — `GetGraph` clamps `maxElements` to `[0, MaxPageSize]` (100 000), so a single
+>   request can no longer materialize the whole graph and a negative yields an empty page.
+> - **E7 (partial)** — the degree getters return `ActionResult<uint>` (404 for a missing vertex vs
+>   200/0 for a live zero-degree vertex, ending the ambiguity); `UploadPlugin` guards `Assimilate` and
+>   returns `BadRequest` on failure (and 400 on a null stream), returning `NoContent()` on success.
+>
+> Guarded by `ApiErrorContractTest` (edge 404, degree 404-vs-0, scan bad-type 400, GetGraph clamp,
+> UploadPlugin 400) plus the migrated `GraphControllerTest`/`PathTest`/`PathTestEdgeCases` call sites.
+>
+> **Deferred (documented):**
+> - **E5 (partial)** — the compile-failure → 400 on `/path` already landed with `path-filter-arity-fix`.
+>   The *missing-source/target-vertex → 404* and *unknown-algorithm-name → 400* refinements are
+>   deferred: an existing test deliberately treats a nonexistent-vertex path query as a 200-empty
+>   result, and flipping it to 404 is a judgement-call behaviour change better made explicitly.
+> - **E8 admin test suite** — a net-new `AdminControllerTest` covering the full `/save`/`/load`/`/status`/
+>   `/trim`/`/tabularasa`/`/plugin`/`/service` surface is deferred; the admin surface is otherwise
+>   unchanged by this pass (no regression), and `UploadPlugin`'s new guard is covered by
+>   `ApiErrorContractTest`.
+> - The exhaustive `[ProducesResponseType]` reconciliation across every mutation is left for the E8
+>   follow-up; the reachable statuses touched here (404/400 on the getters/scans) are declared.
 
 ## 1. Problem / current state
 

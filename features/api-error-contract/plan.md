@@ -109,15 +109,26 @@ Intent: prove the contract end-to-end and keep the docs honest.
 
 ## Progress
 
-- [ ] Phase 0 — E2E harness + characterization tests pinning E2–E6
-- [ ] Phase 1 — AddProblemDetails + UseExceptionHandler (global RFC 7807 net)
-- [ ] Phase 2 — id/literal/type parsing → 400
-- [ ] Phase 3 — missing edge / degree getters → 404 (WebException tests migrated)
-- [ ] Phase 4 — path contract: compile-fail→400, missing endpoint→404, unknown algo→400, no-path→200
-- [ ] Phase 5 — bounded `maxElements` (clamp + negative→400)
-- [ ] Phase 6 — `[ProducesResponseType]`/return-type reconciliation + UploadPlugin guard
-- [ ] Phase 7 — AdminController test suite
-- [ ] Measure & document
+- [x] Phase 0 — `ApiErrorContractTest` pins the controller-level behaviours (E2–E7). (The tests assert
+  the FIXED behaviour directly; the E1 global net is a Program.cs pipeline concern exercised by the
+  existing WebApplicationFactory-based OpenAPI E2E test.)
+- [x] Phase 1 — `AddProblemDetails()` + `UseExceptionHandler()` (non-dev) + `UseStatusCodePages()`.
+- [x] Phase 2 — id parsing → 400 (property/remove mutations + degree getters take `int` route params);
+  literal/type parsing → 400 via `TryResolveType`/`TryConvertLiteral` (scans + AddProperty).
+- [x] Phase 3 — missing edge → 404 (`ActionResult<int>` + `NotFound`); degree getters → 404-vs-200/0
+  (`ActionResult<uint>`); the two `WebException` tests migrated to assert 404.
+- [~] Phase 4 — **partial.** Compile-fail → 400 landed with `path-filter-arity-fix`; missing-endpoint →
+  404 and unknown-algorithm → 400 are **deferred** (an existing test treats a nonexistent-vertex query
+  as 200-empty; flipping to 404 is an explicit behaviour call left for a focused follow-up).
+- [x] Phase 5 — `GetGraph` clamps `maxElements` to `[0, MaxPageSize]` (negative → empty page). The
+  negative → 400 variant was dropped to keep `GetGraph` returning `Graph` (avoids wide, low-value test
+  churn); the DoS clamp — the load-bearing part — is in place.
+- [x] Phase 6 — return-type reconciliation for the touched getters/scans + `UploadPlugin` guard
+  (`Assimilate` failure / null stream → 400, success → `NoContent`).
+- [ ] Phase 7 — **DEFERRED.** A net-new `AdminControllerTest` covering the full admin surface; the
+  surface is otherwise unchanged (no regression) and `UploadPlugin`'s guard is covered by
+  `ApiErrorContractTest`.
+- [x] Measure & document — full suite green (433 passing).
 
 ## Decision / revisit condition
 

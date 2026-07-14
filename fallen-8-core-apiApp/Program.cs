@@ -201,6 +201,12 @@ namespace NoSQL.GraphDB.App
                 options.JsonSerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default);
             });
 
+            // Global error envelope (feature api-error-contract E1): any unhandled fault, and any bare
+            // status result, is rendered as an RFC 7807 application/problem+json response with the
+            // correct status - instead of the framework's empty 500. [ApiController] model-binding
+            // failures (a non-integer route id) also flow through this as a 400 ProblemDetails.
+            builder.Services.AddProblemDetails();
+
             var app = builder.Build();
 
             // Force the engine singleton to construct now (before the host starts) so an unanchored
@@ -228,7 +234,18 @@ namespace NoSQL.GraphDB.App
             {
                 app.MapOpenApi();
                 app.MapScalarApiReference();
+                // Development keeps the rich developer exception page (enabled by default) so dev
+                // diagnostics are not masked by the ProblemDetails handler below.
             }
+            else
+            {
+                // Outside Development, an unhandled exception becomes an application/problem+json 500
+                // with no stack leak (feature api-error-contract E1).
+                app.UseExceptionHandler();
+            }
+
+            // Render bare status-code results (e.g. a 404 with no body) as a problem+json body too.
+            app.UseStatusCodePages();
 
             app.UseHttpsRedirection();
 

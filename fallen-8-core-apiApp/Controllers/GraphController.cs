@@ -73,7 +73,31 @@ namespace NoSQL.GraphDB.App.Controllers
 
         private readonly GeneratedCodeCache _cache;
 
+        /// <summary>Upper bound on how many elements a single page read (<see cref="GetGraph"/>) returns,
+        /// so a request cannot materialize the whole graph (feature api-error-contract E6).</summary>
+        private const int MaxPageSize = 100_000;
+
         #endregion
+
+        /// <summary>
+        ///   Resolves a caller-supplied fully-qualified type name for value conversion (feature
+        ///   api-error-contract E3). A null/empty name means "use the raw value" (<paramref name="type"/>
+        ///   is <c>null</c>, returns <c>true</c>); a resolvable name returns its <see cref="Type"/>; a
+        ///   non-null but UNRESOLVABLE name returns <c>false</c> so the caller can answer 400 instead of
+        ///   letting <c>Type.GetType(name, throwOnError: true)</c> throw a <c>TypeLoadException</c> -> 500.
+        /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2057:Type.GetType", Justification = "User-supplied type names; trimming is disabled for this app.")]
+        private static bool TryResolveType(string fullQualifiedTypeName, out Type type)
+        {
+            if (string.IsNullOrEmpty(fullQualifiedTypeName))
+            {
+                type = null;
+                return true;
+            }
+
+            type = Type.GetType(fullQualifiedTypeName, throwOnError: false, ignoreCase: true);
+            return type != null;
+        }
 
         public GraphController(ILogger<GraphController> logger, IFallen8 fallen8)
         {
@@ -319,12 +343,17 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(Graph), StatusCodes.Status200OK)]
         public Graph GetGraph([FromQuery] int maxElements = 1000)
         {
+            // Bounded read (feature api-error-contract E6): clamp to [0, MaxPageSize] so a single
+            // request cannot materialize the whole graph (the old Take(int.MaxValue) DoS), and a
+            // negative maxElements yields an empty page instead of the old silent Take(negative).
+            var take = Math.Clamp(maxElements, 0, MaxPageSize);
+
             var result = new Graph();
 
-            var edges = _fallen8.GetAllEdges().Take(maxElements);
+            var edges = _fallen8.GetAllEdges().Take(take);
             result.Edges = edges.Select(_ => new Edge(_)).ToList();
 
-            var vertices = _fallen8.GetAllVertices().Take(maxElements);
+            var vertices = _fallen8.GetAllVertices().Take(take);
             result.Vertices = vertices.Select(_ => new Vertex(_)).ToList();
 
             return result;
@@ -341,7 +370,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Produces("application/json")]
         [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public int GetSourceVertexForEdge([FromRoute] Int32 edgeIdentifier)
+        public ActionResult<int> GetSourceVertexForEdge([FromRoute] Int32 edgeIdentifier)
         {
             EdgeModel edge;
             if (_fallen8.TryGetEdge(out edge, edgeIdentifier))
@@ -349,7 +378,9 @@ namespace NoSQL.GraphDB.App.Controllers
                 return edge.SourceVertex.Id;
             }
 
-            throw new WebException(String.Format("Could not find edge with id {0}.", edgeIdentifier));
+            // A missing edge is the documented 404, not a thrown WebException -> 500
+            // (feature api-error-contract E4).
+            return NotFound(String.Format("Could not find edge with id {0}.", edgeIdentifier));
         }
 
         /// <summary>
@@ -363,7 +394,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Produces("application/json")]
         [ProducesResponseType(typeof(int), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public int GetTargetVertexForEdge([FromRoute] Int32 edgeIdentifier)
+        public ActionResult<int> GetTargetVertexForEdge([FromRoute] Int32 edgeIdentifier)
         {
             EdgeModel edge;
             if (_fallen8.TryGetEdge(out edge, edgeIdentifier))
@@ -371,7 +402,9 @@ namespace NoSQL.GraphDB.App.Controllers
                 return edge.TargetVertex.Id;
             }
 
-            throw new WebException(String.Format("Could not find edge with id {0}.", edgeIdentifier));
+            // A missing edge is the documented 404, not a thrown WebException -> 500
+            // (feature api-error-contract E4).
+            return NotFound(String.Format("Could not find edge with id {0}.", edgeIdentifier));
         }
 
         /// <summary>
@@ -489,27 +522,55 @@ namespace NoSQL.GraphDB.App.Controllers
         [Produces("application/json")]
         [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public IEnumerable<int> GraphScan([FromRoute] String propertyId, [FromBody] ScanSpecification definition)
+        public ActionResult<IEnumerable<int>> GraphScan([FromRoute] String propertyId, [FromBody] ScanSpecification definition)
         {
-            #region initial checks
-
-            if (definition == null)
+            // A malformed scan spec (missing body/literal, unknown type name, or an unconvertible value)
+            // is a client error -> 400, not a thrown exception -> 500 (feature api-error-contract E3).
+            if (definition == null || definition.Literal == null)
             {
-                throw new ArgumentNullException("definition");
+                return BadRequest("A scan specification with a literal is required.");
             }
 
-            #endregion
-
-            IComparable value = definition.Literal.FullQualifiedTypeName == null
-                ? definition.Literal.Value
-                : (IComparable)Convert.ChangeType(definition.Literal.Value,
-                                                         Type.GetType(definition.Literal.FullQualifiedTypeName, true,
-                                                                      true));
+            if (!TryConvertLiteral(definition.Literal, out var value, out var error))
+            {
+                return BadRequest(error);
+            }
 
             List<AGraphElementModel> graphElements;
             return _fallen8.GraphScan(out graphElements, propertyId, value, definition.Operator)
-                       ? CreateResult(graphElements, definition.ResultType)
-                       : Enumerable.Empty<Int32>();
+                       ? new ActionResult<IEnumerable<int>>(CreateResult(graphElements, definition.ResultType))
+                       : new ActionResult<IEnumerable<int>>(Enumerable.Empty<Int32>());
+        }
+
+        /// <summary>
+        ///   Converts a <see cref="LiteralSpecification"/> to an <see cref="IComparable"/> for a scan,
+        ///   returning <c>false</c> with a client-facing <paramref name="error"/> for an unknown type
+        ///   name or an unconvertible value (feature api-error-contract E3) instead of throwing.
+        /// </summary>
+        private static bool TryConvertLiteral(LiteralSpecification literal, out IComparable value, out string error)
+        {
+            value = null;
+            error = null;
+
+            if (!TryResolveType(literal.FullQualifiedTypeName, out var targetType))
+            {
+                error = String.Format("Unknown type name '{0}'.", literal.FullQualifiedTypeName);
+                return false;
+            }
+
+            try
+            {
+                value = targetType == null
+                    ? literal.Value
+                    : (IComparable)Convert.ChangeType(literal.Value, targetType);
+                return true;
+            }
+            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
+            {
+                error = String.Format("The literal value could not be converted to '{0}': {1}",
+                    literal.FullQualifiedTypeName, ex.Message);
+                return false;
+            }
         }
 
         /// <summary>
@@ -538,27 +599,22 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public IEnumerable<int> IndexScan([FromBody] IndexScanSpecification definition)
+        public ActionResult<IEnumerable<int>> IndexScan([FromBody] IndexScanSpecification definition)
         {
-            #region initial checks
-
-            if (definition == null)
+            if (definition == null || definition.Literal == null)
             {
-                throw new ArgumentNullException("definition");
+                return BadRequest("An index scan specification with a literal is required.");
             }
 
-            #endregion
-
-            IComparable value = definition.Literal.FullQualifiedTypeName == null
-                ? definition.Literal.Value
-                : (IComparable)Convert.ChangeType(definition.Literal.Value,
-                                                         Type.GetType(definition.Literal.FullQualifiedTypeName, true,
-                                                                      true));
+            if (!TryConvertLiteral(definition.Literal, out var value, out var error))
+            {
+                return BadRequest(error);
+            }
 
             IReadOnlyList<AGraphElementModel> graphElements;
             return _fallen8.IndexScan(out graphElements, definition.IndexId, value, definition.Operator)
-                       ? CreateResult(graphElements, definition.ResultType)
-                       : Enumerable.Empty<Int32>();
+                       ? new ActionResult<IEnumerable<int>>(CreateResult(graphElements, definition.ResultType))
+                       : new ActionResult<IEnumerable<int>>(Enumerable.Empty<Int32>());
         }
 
         /// <summary>
@@ -586,28 +642,36 @@ namespace NoSQL.GraphDB.App.Controllers
         [Produces("application/json")]
         [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public IEnumerable<int> RangeIndexScan([FromBody] RangeIndexScanSpecification definition)
+        public ActionResult<IEnumerable<int>> RangeIndexScan([FromBody] RangeIndexScanSpecification definition)
         {
-            #region initial checks
-
             if (definition == null)
             {
-                throw new ArgumentNullException("definition");
+                return BadRequest("A range scan specification is required.");
             }
 
-            #endregion
+            // Guarded type resolution + conversion of both limits (feature api-error-contract E3).
+            if (!TryResolveType(definition.FullQualifiedTypeName, out var limitType))
+            {
+                return BadRequest(String.Format("Unknown type name '{0}'.", definition.FullQualifiedTypeName));
+            }
 
-            var left = (IComparable)Convert.ChangeType(definition.LeftLimit,
-                                                        Type.GetType(definition.FullQualifiedTypeName, true, true));
-
-            var right = (IComparable)Convert.ChangeType(definition.RightLimit,
-                                                         Type.GetType(definition.FullQualifiedTypeName, true, true));
+            IComparable left, right;
+            try
+            {
+                left = (IComparable)Convert.ChangeType(definition.LeftLimit, limitType ?? typeof(string));
+                right = (IComparable)Convert.ChangeType(definition.RightLimit, limitType ?? typeof(string));
+            }
+            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
+            {
+                return BadRequest(String.Format("A range limit could not be converted to '{0}': {1}",
+                    definition.FullQualifiedTypeName, ex.Message));
+            }
 
             IReadOnlyList<AGraphElementModel> graphElements;
             return _fallen8.RangeIndexScan(out graphElements, definition.IndexId, left, right, definition.IncludeLeft,
                                            definition.IncludeRight)
-                       ? CreateResult(graphElements, definition.ResultType)
-                       : Enumerable.Empty<Int32>();
+                       ? new ActionResult<IEnumerable<int>>(CreateResult(graphElements, definition.ResultType))
+                       : new ActionResult<IEnumerable<int>>(Enumerable.Empty<Int32>());
         }
 
         /// <summary>
@@ -731,14 +795,36 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> AddProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition, [FromQuery] bool waitForCompletion = false)
+        public async Task<IActionResult> AddProperty([FromRoute] int graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition, [FromQuery] bool waitForCompletion = false)
         {
-            var graphElementId = Convert.ToInt32(graphElementIdentifier);
+            // A non-integer graphElementIdentifier now fails route binding -> 400 ProblemDetails
+            // (feature api-error-contract E2), instead of Convert.ToInt32 throwing FormatException -> 500.
+            if (definition == null)
+            {
+                return BadRequest("A property specification body is required.");
+            }
+
+            var graphElementId = graphElementIdentifier;
             var propertyId = propertyIdString;
 
-            var property = Convert.ChangeType(
-                definition.PropertyValue,
-                Type.GetType(definition.FullQualifiedTypeName, true, true));
+            // Guarded type resolution (E3): an unknown type name is a 400, not a thrown TypeLoadException.
+            if (!TryResolveType(definition.FullQualifiedTypeName, out var targetType))
+            {
+                return BadRequest(String.Format("Unknown type name '{0}'.", definition.FullQualifiedTypeName));
+            }
+
+            object property;
+            try
+            {
+                property = targetType == null
+                    ? definition.PropertyValue
+                    : Convert.ChangeType(definition.PropertyValue, targetType);
+            }
+            catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
+            {
+                return BadRequest(String.Format("The property value could not be converted to '{0}': {1}",
+                    definition.FullQualifiedTypeName, ex.Message));
+            }
 
             AddPropertyTransaction tx = new AddPropertyTransaction()
             {
@@ -786,9 +872,10 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromQuery] bool waitForCompletion = false)
+        public async Task<IActionResult> TryRemoveProperty([FromRoute] int graphElementIdentifier, [FromRoute] string propertyIdString, [FromQuery] bool waitForCompletion = false)
         {
-            var graphElementId = Convert.ToInt32(graphElementIdentifier);
+            // A non-integer id fails route binding -> 400 (feature api-error-contract E2).
+            var graphElementId = graphElementIdentifier;
             var propertyId = propertyIdString;
 
             RemovePropertyTransaction tx = new RemovePropertyTransaction()
@@ -832,9 +919,10 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> TryRemoveGraphElement([FromRoute] string graphElementIdentifier, [FromQuery] bool waitForCompletion = false)
+        public async Task<IActionResult> TryRemoveGraphElement([FromRoute] int graphElementIdentifier, [FromQuery] bool waitForCompletion = false)
         {
-            var graphElementId = Convert.ToInt32(graphElementIdentifier);
+            // A non-integer id fails route binding -> 400 (feature api-error-contract E2).
+            var graphElementId = graphElementIdentifier;
 
             RemoveGraphElementTransaction tx = new RemoveGraphElementTransaction()
             {
@@ -864,17 +952,21 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="vertexIdentifier">The ID of the vertex</param>
         /// <returns>The count of incoming edges</returns>
         /// <response code="200">Returns the count of incoming edges</response>
+        /// <response code="404">Vertex with the specified ID was not found</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/indegree")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(uint), StatusCodes.Status200OK)]
-        public uint GetInDegree([FromRoute] string vertexIdentifier)
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<uint> GetInDegree([FromRoute] int vertexIdentifier)
         {
+            // A missing vertex is a 404, not an ambiguous 0 that also means "zero edges" (feature
+            // api-error-contract E7); a non-integer id fails route binding -> 400 (E2).
             VertexModel vertex;
-            if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
+            if (_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
                 return vertex.GetInDegree();
             }
-            return 0;
+            return NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
         }
 
         /// <summary>
@@ -883,17 +975,19 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="vertexIdentifier">The ID of the vertex</param>
         /// <returns>The count of outgoing edges</returns>
         /// <response code="200">Returns the count of outgoing edges</response>
+        /// <response code="404">Vertex with the specified ID was not found</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/outdegree")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(uint), StatusCodes.Status200OK)]
-        public uint GetOutDegree([FromRoute] string vertexIdentifier)
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<uint> GetOutDegree([FromRoute] int vertexIdentifier)
         {
             VertexModel vertex;
-            if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
+            if (_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
                 return vertex.GetOutDegree();
             }
-            return 0;
+            return NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
         }
 
         /// <summary>
@@ -902,22 +996,26 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="vertexIdentifier">The ID of the vertex</param>
         /// <param name="edgePropertyIdentifier">The edge property identifier/type to count</param>
         /// <returns>The count of incoming edges matching the specified type</returns>
-        /// <response code="200">Returns the count of matching incoming edges</response>
+        /// <response code="200">Returns the count of matching incoming edges (0 if the vertex has no such edge group)</response>
+        /// <response code="404">Vertex with the specified ID was not found</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}/degree")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(uint), StatusCodes.Status200OK)]
-        public uint GetInEdgeDegree([FromRoute] string vertexIdentifier, [FromRoute] string edgePropertyIdentifier)
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<uint> GetInEdgeDegree([FromRoute] int vertexIdentifier, [FromRoute] string edgePropertyIdentifier)
         {
             VertexModel vertex;
-            if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
+            if (!_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
-                IReadOnlyList<EdgeModel> edges;
-                if (vertex.TryGetInEdge(out edges, edgePropertyIdentifier))
-                {
-                    return Convert.ToUInt32(edges.Count);
-                }
+                return NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
             }
-            return 0;
+
+            // A live vertex with no such edge group genuinely has degree 0 (200), distinct from a
+            // missing vertex (404) - feature api-error-contract E7.
+            IReadOnlyList<EdgeModel> edges;
+            return vertex.TryGetInEdge(out edges, edgePropertyIdentifier)
+                ? Convert.ToUInt32(edges.Count)
+                : 0u;
         }
 
         /// <summary>
@@ -926,22 +1024,24 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="vertexIdentifier">The ID of the vertex</param>
         /// <param name="edgePropertyIdentifier">The edge property identifier/type to count</param>
         /// <returns>The count of outgoing edges matching the specified type</returns>
-        /// <response code="200">Returns the count of matching outgoing edges</response>
+        /// <response code="200">Returns the count of matching outgoing edges (0 if the vertex has no such edge group)</response>
+        /// <response code="404">Vertex with the specified ID was not found</response>
         [HttpGet("/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}/degree")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(uint), StatusCodes.Status200OK)]
-        public uint GetOutEdgeDegree([FromRoute] string vertexIdentifier, [FromRoute] string edgePropertyIdentifier)
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<uint> GetOutEdgeDegree([FromRoute] int vertexIdentifier, [FromRoute] string edgePropertyIdentifier)
         {
             VertexModel vertex;
-            if (_fallen8.TryGetVertex(out vertex, Convert.ToInt32(vertexIdentifier)))
+            if (!_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
-                IReadOnlyList<EdgeModel> edges;
-                if (vertex.TryGetOutEdge(out edges, edgePropertyIdentifier))
-                {
-                    return Convert.ToUInt32(edges.Count);
-                }
+                return NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
             }
-            return 0;
+
+            IReadOnlyList<EdgeModel> edges;
+            return vertex.TryGetOutEdge(out edges, edgePropertyIdentifier)
+                ? Convert.ToUInt32(edges.Count)
+                : 0u;
         }
 
         /// <summary>

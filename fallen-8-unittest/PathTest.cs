@@ -162,8 +162,8 @@ namespace NoSQL.GraphDB.Tests
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
-            var trent = controller.GraphScan(NAME, TRENTSPEC).First();
-            var mallory = controller.GraphScan(NAME, MALLORYSPEC).First();
+            var trent = controller.GraphScan(NAME, TRENTSPEC).Value.First();
+            var mallory = controller.GraphScan(NAME, MALLORYSPEC).Value.First();
 
             // Act
             var result = controller.CalculateShortestPath(mallory, trent, null).Value;
@@ -185,8 +185,8 @@ namespace NoSQL.GraphDB.Tests
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
-            var bob = controller.GraphScan(NAME, BOBSPEC).First();
-            var alice = controller.GraphScan(NAME, ALICESPEC).First();
+            var bob = controller.GraphScan(NAME, BOBSPEC).Value.First();
+            var alice = controller.GraphScan(NAME, ALICESPEC).Value.First();
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 2, MaxResults = 2 };
 
             // Act
@@ -259,8 +259,8 @@ namespace NoSQL.GraphDB.Tests
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
-            var alice = controller.GraphScan(NAME, ALICESPEC).First();
-            var mallory = controller.GraphScan(NAME, MALLORYSPEC).First();
+            var alice = controller.GraphScan(NAME, ALICESPEC).Value.First();
+            var mallory = controller.GraphScan(NAME, MALLORYSPEC).Value.First();
 
             // Limit to just 1 result with max depth 3
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 3, MaxResults = 1 };
@@ -281,8 +281,8 @@ namespace NoSQL.GraphDB.Tests
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
-            var alice = controller.GraphScan(NAME, ALICESPEC).First();
-            var bob = controller.GraphScan(NAME, BOBSPEC).First();
+            var alice = controller.GraphScan(NAME, ALICESPEC).Value.First();
+            var bob = controller.GraphScan(NAME, BOBSPEC).Value.First();
 
             // Set max depth to 0, which should prevent any paths from being found
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 0, MaxResults = 10 };
@@ -304,8 +304,8 @@ namespace NoSQL.GraphDB.Tests
             TestGraphGenerator.GenerateSampleGraph(fallen8);
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
-            var alice = controller.GraphScan(NAME, ALICESPEC).First();
-            var eve = controller.GraphScan(NAME, EVESPEC).First();
+            var alice = controller.GraphScan(NAME, ALICESPEC).Value.First();
+            var eve = controller.GraphScan(NAME, EVESPEC).Value.First();
 
             // Allow larger depth to find more indirect paths
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 5, MaxResults = 5 };
