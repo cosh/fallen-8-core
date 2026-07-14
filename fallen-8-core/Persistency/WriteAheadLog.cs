@@ -100,6 +100,15 @@ namespace NoSQL.GraphDB.Core.Persistency
         private bool _valid;
 
         /// <summary>
+        ///   Sticky failure fence (feature crash-durability-hardening D1). Once an <see cref="Append" />
+        ///   fails, it is set and every subsequent <see cref="Append" /> is a no-op (it does not touch
+        ///   the file), so a torn frame is never followed by more frames that a later replay would
+        ///   silently drop. Cleared only by <see cref="ResetToSnapshot" /> (a successful Save re-writes
+        ///   the log fresh against the new snapshot - the sanctioned recovery from a degraded log).
+        /// </summary>
+        private bool _failed;
+
+        /// <summary>
         ///   Opens the log at <paramref name="path" />. An existing, well-formed log is adopted (its
         ///   header parsed and its entries left in place for replay); a missing log is created fresh
         ///   with a zero baseline and no snapshot pairing; an unparsable/corrupt existing header is
@@ -205,22 +214,93 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
+        ///   Whether the log builds upon (is paired with) a specific snapshot - i.e. it carries a
+        ///   non-empty pairing token and is waiting for that snapshot to be loaded before its entries
+        ///   replay. A fresh empty log and an unanchored log both have no token and are NOT anchored.
+        /// </summary>
+        internal bool IsAnchored
+        {
+            get { return _valid && !string.IsNullOrEmpty(_pairingToken); }
+        }
+
+        /// <summary>
+        ///   Whether the sticky failure fence has tripped (a prior <see cref="Append" /> failed). While
+        ///   set, the log is degraded: no further entries are written, and durability is restored only
+        ///   by a successful Save (<see cref="ResetToSnapshot" />). Feature crash-durability-hardening D1.
+        /// </summary>
+        internal bool HasFailed
+        {
+            get { return _failed; }
+        }
+
+        /// <summary>
         ///   Appends one framed entry (<c>[Int32 length][payload][UInt32 CRC-32]</c>) and fsyncs it.
-        ///   Runs only on the single writer thread, after the transaction has committed.
+        ///   Runs only on the single writer thread, after the transaction has committed. On any write
+        ///   failure it best-effort truncates the torn frame back to the pre-append length, trips the
+        ///   sticky failure fence (so no later frame is written after a torn one), logs a single Error,
+        ///   and rethrows. Once the fence has tripped, subsequent calls are a no-op (feature
+        ///   crash-durability-hardening D1).
         /// </summary>
         internal void Append(byte[] payload)
         {
+            if (_failed)
+            {
+                // The log is degraded (a prior append failed). Do not write - a frame after a torn one
+                // would be silently dropped on replay (which stops at the first bad frame). Durability
+                // is restored by the next successful Save.
+                return;
+            }
+
             var frame = new byte[4 + payload.Length + 4];
             BinaryPrimitives.WriteInt32LittleEndian(frame.AsSpan(0), payload.Length);
             Buffer.BlockCopy(payload, 0, frame, 4, payload.Length);
             var crc = Crc32.Compute(payload, 0, payload.Length);
             BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(4 + payload.Length), crc);
 
-            using (var fs = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read,
-                       Constants.BufferSize, FileOptions.None))
+            long preLength = -1;
+            try
             {
-                fs.Write(frame, 0, frame.Length);
-                fs.Flush(true);
+                using (var fs = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read,
+                           Constants.BufferSize, FileOptions.None))
+                {
+                    // In append mode the stream is positioned at end before the write, so Length is the
+                    // pre-append length - captured so a partial write can be truncated back.
+                    preLength = fs.Length;
+                    fs.Write(frame, 0, frame.Length);
+                    fs.Flush(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _failed = true;
+
+                // Best-effort: drop any partially written frame so the tail is not torn, then leave the
+                // fence tripped. A failure here is itself contained (the log is already degraded).
+                if (preLength >= 0)
+                {
+                    try
+                    {
+                        using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Write, FileShare.Read,
+                                   Constants.BufferSize, FileOptions.None))
+                        {
+                            if (fs.Length > preLength)
+                            {
+                                fs.SetLength(preLength);
+                                fs.Flush(true);
+                            }
+                        }
+                    }
+                    catch (Exception truncateEx)
+                    {
+                        _logger.LogError(truncateEx,
+                            "Could not truncate a torn frame in the write-ahead log at \"{Path}\" after an append failure.", _path);
+                    }
+                }
+
+                _logger.LogError(ex,
+                    "Appending to the write-ahead log at \"{Path}\" failed; the log is now DEGRADED - no further entries will be written and transactions committed since are not durable in the log until the next successful Save.",
+                    _path);
+                throw;
             }
         }
 
@@ -243,6 +323,10 @@ namespace NoSQL.GraphDB.Core.Persistency
             _baselineCurrentId = baselineCurrentId;
             _pairingToken = token;
             _valid = true;
+
+            // A successful Save re-wrote the log fresh against the new snapshot: clear the failure
+            // fence (the new snapshot is the durable baseline) - feature crash-durability-hardening D1.
+            _failed = false;
         }
 
         /// <summary>

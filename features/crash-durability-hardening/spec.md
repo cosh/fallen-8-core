@@ -1,12 +1,16 @@
 # Crash-Durability Hardening — Specification
 
-> **Status:** Planned (P1 durability) — from the 2026-07 principal-architect & performance review.
-> The WAL/checkpoint machinery is correct when every write succeeds but fails *silently* exactly when
-> it is needed: a partial append is masked, a failed load runs an unlogged compaction, a pre-load
-> mutation is logged against the wrong baseline, a replay failure either misapplies later entries or
-> escapes, and the rename commit points are durable in program order but not in storage order. This
-> theme makes every durability failure loud and recovery-safe and makes the commit-point renames
-> actually crash-durable.
+> **Status:** Implemented (D1–D4, D6, D7); **D5 deferred within the feature**. From the 2026-07
+> principal-architect & performance review. The WAL/checkpoint machinery was correct when every write
+> succeeded but failed *silently* when it was needed. Shipped: a sticky WAL-failure fence with a
+> per-transaction `Durable` signal (D1); a symmetric no-Trim on a failed load (D2); an
+> awaiting-paired-load fence (D3); fail-stop replay for core data entries with skip-and-continue for
+> subgraph entries (D4); recipe manifest written before the commit point and failing the save loudly
+> (D6); and the recipe-replay trust boundary documented (D7). **D5 (platform-specific crash-durable
+> renames + WAL-header identity pairing) is deferred**: it needs P/Invoke (`MoveFileEx` write-through /
+> POSIX directory fsync) whose crash-durability is not unit-testable in-process, plus a WAL
+> `FormatVersion` bump; the existing path-canonicalization pairing and the fsync-before-rename of file
+> contents stay in place. See the plan's Decision.
 
 This builds directly on the opt-in write-ahead log and hardened self-describing checkpoint that
 landed in [persistence-hardening/](../persistence-hardening/) (do not re-propose the WAL, the
