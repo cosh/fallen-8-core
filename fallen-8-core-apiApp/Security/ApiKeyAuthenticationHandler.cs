@@ -70,12 +70,32 @@ namespace NoSQL.GraphDB.App.Security
             }
 
             var headerName = String.IsNullOrWhiteSpace(_security.ApiKeyHeader) ? "X-Api-Key" : _security.ApiKeyHeader;
-            if (!Request.Headers.TryGetValue(headerName, out var provided) || provided.Count == 0)
+
+            String presented = null;
+            if (Request.Headers.TryGetValue(headerName, out var headerValues) && headerValues.Count > 0)
+            {
+                presented = headerValues.ToString();
+            }
+            else
+            {
+                // Fallback: the same key as an RFC 6750-shaped bearer token
+                // ("Authorization: Bearer <key>"). Today this compares against the static API key;
+                // the header shape is the seam where a token validator (OIDC/JWT, e.g. AWS Cognito)
+                // slots in later without changing clients (feature web-ui).
+                var authorization = Request.Headers.Authorization.ToString();
+                const String bearerPrefix = "Bearer ";
+                if (authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    presented = authorization.Substring(bearerPrefix.Length).Trim();
+                }
+            }
+
+            if (String.IsNullOrEmpty(presented))
             {
                 return Task.FromResult(AuthenticateResult.NoResult());
             }
 
-            if (!FixedTimeEquals(provided.ToString(), configuredKey))
+            if (!FixedTimeEquals(presented, configuredKey))
             {
                 return Task.FromResult(AuthenticateResult.Fail("Invalid API key."));
             }

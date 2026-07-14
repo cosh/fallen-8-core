@@ -421,8 +421,8 @@ fallen-8-web-ui/
   e2e/              # playwright
 ```
 
-Delivery (spec §11.3): branch `feature/web-ui`, delivered via PR. Commit messages and PR
-text are honest and concise and do not reference an AI assistant.
+Delivery (spec §11.3): all work on branch `feature/web-ui`, merged to `main` after
+review. Commit messages are honest and concise and do not reference an AI assistant.
 
 ---
 

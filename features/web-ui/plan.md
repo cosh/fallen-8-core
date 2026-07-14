@@ -44,6 +44,6 @@ Order follows spec §11.2. Each phase ships its tests.
     feasible, legible light/dark); error/empty/disconnected states hardened.
     *Tests:* scenarios 8 and 9.
 
-Delivery (spec §11.3): branch `feature/web-ui`, delivered via PR. Commit messages and PR
-text are honest and concise and do not reference an AI assistant. The full testing
-summary is in [design.md](./design.md) §10.
+Delivery (spec §11.3): all work on branch `feature/web-ui`, merged to `main` after
+review. Commit messages are honest and concise and do not reference an AI assistant. The
+full testing summary is in [design.md](./design.md) §10.

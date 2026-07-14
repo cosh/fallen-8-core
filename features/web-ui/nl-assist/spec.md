@@ -221,8 +221,8 @@ Extends parent scenario 10.
 1. This spec plus the parent design doc's §3.4 updated to reference it.
 2. Implementation in `fallen-8-web-ui/` under the delegate feature (parent §8 layout:
    `src/delegate/`), on branch `feature/web-ui` with the rest of the NL-assist work
-   (parent plan phase 9 for FR-26/G-6), delivered via PR. Commit messages and PR text are
-   honest and concise and do not reference an AI assistant.
+   (parent plan phase 9 for FR-26/G-6). Commit messages are honest and concise and do
+   not reference an AI assistant.
 
 ## 15. Reference files
 

@@ -249,6 +249,18 @@ namespace NoSQL.GraphDB.App
 
             app.UseHttpsRedirection();
 
+            // G-1 (feature web-ui): when a built SPA is present under wwwroot, serve it. A pure-API
+            // deployment (no wwwroot/index.html) is unchanged, including problem+json 404s for
+            // unknown paths. Cross-origin calls to OTHER instances stay governed by the CORS
+            // allow-list above (Fallen8:Security:AllowedCorsOrigins).
+            var spaIndexPresent = File.Exists(System.IO.Path.Combine(
+                app.Environment.ContentRootPath, "wwwroot", "index.html"));
+            if (spaIndexPresent)
+            {
+                app.UseDefaultFiles();
+                app.UseStaticFiles();
+            }
+
             app.UseCors();
             app.UseRateLimiter();
 
@@ -258,6 +270,13 @@ namespace NoSQL.GraphDB.App
             app.UseAuthorization();
 
             app.MapControllers();
+
+            if (spaIndexPresent)
+            {
+                // SPA fallback: any path no controller matched renders the app shell, so
+                // client-side routes survive a full-page reload.
+                app.MapFallbackToFile("index.html");
+            }
 
             app.Run();
         }
