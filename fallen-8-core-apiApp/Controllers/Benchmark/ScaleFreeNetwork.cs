@@ -140,7 +140,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// <returns>Benchmark results as a string</returns>
         public String Bench(int myIterations = 1000)
         {
-            ImmutableList<VertexModel> vertices = _f8.GetAllVertices();
+            IReadOnlyList<VertexModel> vertices = _f8.GetAllVertices();
             var tps = new List<double>();
             long edgeCount = 0;
             var sb = new StringBuilder();
@@ -183,7 +183,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// <param name="vertices"></param>
         /// <param name="vertexRange"></param>
         /// <returns></returns>
-        private static long CountAllEdgesParallelPartitioner(ImmutableList<VertexModel> vertices, Int32 vertexRange)
+        private static long CountAllEdgesParallelPartitioner(IReadOnlyList<VertexModel> vertices, Int32 vertexRange)
         {
             var lockObject = new object();
             var edgeCount = 0L;

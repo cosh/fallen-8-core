@@ -118,12 +118,12 @@ namespace NoSQL.GraphDB.Core
         public abstract bool TryGetGraphElement(out AGraphElementModel result, int id);
         public abstract bool TryGetEdge(out EdgeModel result, int id);
         public abstract bool TryGetVertex(out VertexModel result, int id);
-        public abstract ImmutableList<VertexModel> GetAllVertices(string interestingLabel = null);
-        public abstract ImmutableList<EdgeModel> GetAllEdges(string interestingLabel = null);
-        public abstract ImmutableList<AGraphElementModel> GetAllGraphElements(string interestingLabel = null);
+        public abstract IReadOnlyList<VertexModel> GetAllVertices(string interestingLabel = null);
+        public abstract IReadOnlyList<EdgeModel> GetAllEdges(string interestingLabel = null);
+        public abstract IReadOnlyList<AGraphElementModel> GetAllGraphElements(string interestingLabel = null);
         public abstract bool GraphScan(out List<AGraphElementModel> result, string propertyId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals, string interestingLabel = null);
-        public abstract bool IndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals);
-        public abstract bool RangeIndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true);
+        public abstract bool IndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals);
+        public abstract bool RangeIndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true);
         public abstract bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery);
         public abstract bool TryCalculateShortestPath(out List<Path> result, string plugin, ShortestPathDefinition definition);
         public abstract bool TryCalculateShortestPath<T>(out List<Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm;

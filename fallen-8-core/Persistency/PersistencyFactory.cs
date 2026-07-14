@@ -931,7 +931,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='range'> Range. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='pathToSavePoint'> Path to save point basis. </param>
-        private SidecarManifestEntry SaveBunch(Tuple<Int32, Int32> range, ImmutableList<AGraphElementModel> graphElements,
+        private SidecarManifestEntry SaveBunch(Tuple<Int32, Int32> range, IReadOnlyList<AGraphElementModel> graphElements,
                                         String pathToSavePoint)
         {
             var partitionFileName = pathToSavePoint + Constants.GraphElementsSaveString + range.Item1 + "_to_" + range.Item2;

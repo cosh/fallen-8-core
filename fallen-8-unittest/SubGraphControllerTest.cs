@@ -437,14 +437,14 @@ namespace NoSQL.GraphDB.Tests
             public bool TryGetGraphElement(out AGraphElementModel result, int id) => _inner.TryGetGraphElement(out result, id);
             public bool TryGetEdge(out EdgeModel result, int id) => _inner.TryGetEdge(out result, id);
             public bool TryGetVertex(out VertexModel result, int id) => _inner.TryGetVertex(out result, id);
-            public ImmutableList<VertexModel> GetAllVertices(string interestingLabel = null) => _inner.GetAllVertices(interestingLabel);
-            public ImmutableList<EdgeModel> GetAllEdges(string interestingLabel = null) => _inner.GetAllEdges(interestingLabel);
-            public ImmutableList<AGraphElementModel> GetAllGraphElements(string interestingLabel = null) => _inner.GetAllGraphElements(interestingLabel);
+            public IReadOnlyList<VertexModel> GetAllVertices(string interestingLabel = null) => _inner.GetAllVertices(interestingLabel);
+            public IReadOnlyList<EdgeModel> GetAllEdges(string interestingLabel = null) => _inner.GetAllEdges(interestingLabel);
+            public IReadOnlyList<AGraphElementModel> GetAllGraphElements(string interestingLabel = null) => _inner.GetAllGraphElements(interestingLabel);
             public bool GraphScan(out List<AGraphElementModel> result, string propertyId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals, string interestingLabel = null)
                 => _inner.GraphScan(out result, propertyId, literal, binOp, interestingLabel);
-            public bool IndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
+            public bool IndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
                 => _inner.IndexScan(out result, indexId, literal, binOp);
-            public bool RangeIndexScan(out ImmutableList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
+            public bool RangeIndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)
                 => _inner.RangeIndexScan(out result, indexId, leftLimit, rightLimit, includeLeft, includeRight);
             public bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery)
                 => _inner.FulltextIndexScan(out result, indexId, searchQuery);

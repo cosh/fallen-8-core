@@ -464,7 +464,7 @@ namespace NoSQL.GraphDB.Tests
             fallen8.EnqueueTransaction(vertexTx).WaitUntilFinished();
 
             // Capture a snapshot up front.
-            ImmutableList<VertexModel> snapshot = fallen8.GetAllVertices(VertexLabel);
+            IReadOnlyList<VertexModel> snapshot = fallen8.GetAllVertices(VertexLabel);
             int snapshotCount = snapshot.Count;
             Assert.AreEqual(initial, snapshotCount);
 

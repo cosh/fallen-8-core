@@ -640,7 +640,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                     break;
                 case EdgePattern ep:
                     {
-                        subgraph.GetAllEdges().ForEach(e =>
+                        foreach (var e in subgraph.GetAllEdges())
                         {
                             if (MatchesEdgePattern(e, ep, Direction.OutgoingEdge))
                             {
@@ -672,7 +672,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                                 validPaths.Add(pathOut);
                                 validPaths.Add(pathIn);
                             }
-                        });
+                        }
                     }
                     break;
                 default:

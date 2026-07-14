@@ -98,21 +98,21 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         /// <param name="interestingLabel">The interesting label</param>
         /// <returns>A list of vertices</returns>
-        ImmutableList<VertexModel> GetAllVertices(String interestingLabel = null);
+        IReadOnlyList<VertexModel> GetAllVertices(String interestingLabel = null);
 
         /// <summary>
         ///   Gets all edges
         /// </summary>
         /// <param name="interestingLabel">The interesting label</param>
         /// <returns>A list of edge</returns>
-        ImmutableList<EdgeModel> GetAllEdges(String interestingLabel = null);
+        IReadOnlyList<EdgeModel> GetAllEdges(String interestingLabel = null);
 
         /// <summary>
         ///   Gets all graph elements
         /// </summary>
         /// <param name="interestingLabel">The interesting label</param>
         /// <returns>A list of graph elements</returns>
-        ImmutableList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null);
+        IReadOnlyList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null);
 
         #region search
 
@@ -136,7 +136,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='indexId'> Index identifier. </param>
         /// <param name='literal'> Literal. </param>
         /// <param name='binOp'> Binary operator. </param>
-        Boolean IndexScan(out ImmutableList<AGraphElementModel> result, String indexId, IComparable literal,
+        Boolean IndexScan(out IReadOnlyList<AGraphElementModel> result, String indexId, IComparable literal,
                           BinaryOperator binOp = BinaryOperator.Equals);
 
         /// <summary>
@@ -149,7 +149,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name='rightLimit'> Right limit. </param>
         /// <param name='includeLeft'> Include left. </param>
         /// <param name='includeRight'> Include right. </param>
-        Boolean RangeIndexScan(out ImmutableList<AGraphElementModel> result, String indexId, IComparable leftLimit,
+        Boolean RangeIndexScan(out IReadOnlyList<AGraphElementModel> result, String indexId, IComparable leftLimit,
                                IComparable rightLimit, Boolean includeLeft = true, Boolean includeRight = true);
 
         /// <summary>

@@ -555,7 +555,7 @@ namespace NoSQL.GraphDB.App.Controllers
                                                          Type.GetType(definition.Literal.FullQualifiedTypeName, true,
                                                                       true));
 
-            ImmutableList<AGraphElementModel> graphElements;
+            IReadOnlyList<AGraphElementModel> graphElements;
             return _fallen8.IndexScan(out graphElements, definition.IndexId, value, definition.Operator)
                        ? CreateResult(graphElements, definition.ResultType)
                        : Enumerable.Empty<Int32>();
@@ -603,7 +603,7 @@ namespace NoSQL.GraphDB.App.Controllers
             var right = (IComparable)Convert.ChangeType(definition.RightLimit,
                                                          Type.GetType(definition.FullQualifiedTypeName, true, true));
 
-            ImmutableList<AGraphElementModel> graphElements;
+            IReadOnlyList<AGraphElementModel> graphElements;
             return _fallen8.RangeIndexScan(out graphElements, definition.IndexId, left, right, definition.IncludeLeft,
                                            definition.IncludeRight)
                        ? CreateResult(graphElements, definition.ResultType)
