@@ -1,8 +1,23 @@
 # Path Filter Arity Fix — Specification
 
-> **Status:** Planned — P1 functional bug, from the 2026-07 principal-architect & performance
-> review. The shipped default `/path` filters do not compile against their own delegate signatures,
-> so a `/path` query that carries a filter block silently returns "no paths"; reconcile the contract.
+> **Status:** Implemented — P1 functional bug, from the 2026-07 principal-architect & performance
+> review. The shipped default `/path` filters did not compile against their own delegate signatures,
+> so a `/path` query that carried a filter block silently returned "no paths"; the contract is now
+> reconciled.
+>
+> **Delivered on branch `feature/path-filter-arity-fix` (Option A — reconcile down to one-arg):** the
+> `PathFilterSpecification` `EdgeProperty`/`Edge` `[DefaultValue]`s, field initializers, and every
+> `<remarks>`/`<example>` snippet (plus the `PathSpecification` and `GraphController` request samples)
+> changed from `(p,d)`/`(e,d)` to the one-arg `(p)`/`(e)` that match `Delegates.EdgePropertyFilter`/
+> `EdgeFilter`; the vertex filter was already correct. `CalculateShortestPath` now returns
+> `ActionResult<List<PathREST>>` and returns `BadRequest(compilerMessage)` when a filter/cost fragment
+> fails to compile — the already-declared-but-unreachable `400` is now reachable and carries the Roslyn
+> diagnostics; a successful compile that finds no path still returns `200`-empty. `CodeGenerationHelper`
+> was left verbatim (the fix is in the fragment source of truth). Guarded by `PathFilterArityTest`
+> (the shipped defaults compile end-to-end and bind; a custom one-arg filter compiles; a malformed
+> fragment yields a compiler message; the controller returns the path with a default filter block and
+> `400` on a malformed one). The `MockPathTraverser`-based path/Dijkstra tests were migrated to read
+> `ActionResult<T>.Value`.
 
 ## 1. Problem / current state
 

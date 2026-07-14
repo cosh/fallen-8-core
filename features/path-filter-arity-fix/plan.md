@@ -68,11 +68,19 @@ Intent: close the loop honestly.
   `api-error-contract` (the 400 surfacing) from the issue/PR.
 
 ## Progress
-- [ ] Phase 0 — failing codegen + controller characterization tests (bug proven red)
-- [ ] Phase 1 — one-arg defaults + docs reconciled (Option A); codegen test green
-- [ ] Phase 2 — compile failure → 400 with diagnostics; genuine no-path stays 200-empty
-- [ ] Phase 3 — custom-filter + malformed-filter + default-filter regression tests; full suite green
-- [ ] Measure & document — PR note on the behaviour change; cross-links
+- [x] Phase 0 — the guardrail landed as `PathFilterArityTest`. Note: rather than committing a failing
+  red test first, the tests assert the FIXED behaviour directly (the fix landed in the same pass) —
+  they would have been red against the old two-arg defaults.
+- [x] Phase 1 — one-arg defaults + docs reconciled (Option A) in `PathFilterSpecification`,
+  `PathSpecification`, and the `GraphController` request sample; `CodeGenerationHelper` left verbatim.
+- [x] Phase 2 — `CalculateShortestPath` returns `ActionResult<List<PathREST>>`; a compile failure →
+  `BadRequest(compilerMessage)` (the declared 400 is now reachable); a genuine no-path stays 200-empty.
+- [x] Phase 3 — `PathFilterArityTest` (default compiles+binds, custom one-arg compiles+discriminates,
+  malformed → compiler message, controller returns the path with a default block and 400 on malformed);
+  the `MockPathTraverser` path/Dijkstra tests migrated to `ActionResult<T>.Value`. Full suite green.
+- [x] Measure & document — behaviour change noted (a caller who copied the old `(e,d)` docs now gets a
+  loud 400 instead of a silent 200-empty); no `formatVersion`/API-version bump (the 200 body shape is
+  unchanged; only the error path gained a real 400).
 
 ## Decision / revisit condition
 Option A (one-arg reconciliation) is chosen because no call site threads a `Direction` into the
