@@ -183,7 +183,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult Load([FromBody] LoadSpecification definition)
+        public async System.Threading.Tasks.Task<IActionResult> Load([FromBody] LoadSpecification definition)
         {
             _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", definition.StartServices));
 
@@ -192,7 +192,7 @@ namespace NoSQL.GraphDB.App.Controllers
             tx.StartServices = definition.StartServices;
 
             var transactionTask = _fallen8.EnqueueTransaction(tx);
-            transactionTask.WaitUntilFinished();
+            await transactionTask.Completion;
 
             // A rolled-back load must not be reported to the client as success (correctness-fixes B6).
             if (transactionTask.TransactionState == TransactionState.RolledBack)
@@ -229,7 +229,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult Save([FromBody] SaveSpecification definition)
+        public async System.Threading.Tasks.Task<IActionResult> Save([FromBody] SaveSpecification definition)
         {
             // Use provided path or fall back to default
             string savePath = !string.IsNullOrWhiteSpace(definition?.SaveGameLocation)
@@ -241,7 +241,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             SaveTransaction saveTx = new SaveTransaction() { Path = savePath, SavePartitions = savePartitions };
             var transactionTask = _fallen8.EnqueueTransaction(saveTx);
-            transactionTask.WaitUntilFinished();
+            await transactionTask.Completion;
 
             // A rolled-back save must not be reported to the client as success (correctness-fixes B6).
             if (transactionTask.TransactionState == TransactionState.RolledBack)

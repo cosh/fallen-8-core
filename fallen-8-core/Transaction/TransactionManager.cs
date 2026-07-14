@@ -43,7 +43,32 @@ namespace NoSQL.GraphDB.Core.Transaction
         ///   idle <c>Thread.Sleep(1)</c> spin, which imposed a ~1 ms per-transaction latency floor and
         ///   kept a thread busy-waiting even when the engine was idle.
         /// </summary>
-        private readonly BlockingCollection<Task> _transactions = new BlockingCollection<Task>();
+        private readonly BlockingCollection<WorkItem> _transactions = new BlockingCollection<WorkItem>();
+
+        /// <summary>Upper bound on how many transactions a single commit group buffers before it is
+        /// flushed, so a long backlog cannot grow the in-memory frame buffer without bound.</summary>
+        private const int MaxGroupSize = 4096;
+
+        /// <summary>
+        ///   One queued unit of work: the transaction, the completion source the writer completes AFTER
+        ///   the group fsync (so awaiting it observes the durable-before-ack point), the caller's
+        ///   <see cref="TransactionInformation"/>, and whether the transaction buffered a durable WAL
+        ///   frame (ANDed with the group flush result to set <see cref="TransactionInformation.Durable"/>).
+        /// </summary>
+        private sealed class WorkItem
+        {
+            public readonly ATransaction Tx;
+            public readonly TaskCompletionSource Completion;
+            public readonly TransactionInformation Info;
+            public bool BufferedDurable;
+
+            public WorkItem(ATransaction tx, TaskCompletionSource completion, TransactionInformation info)
+            {
+                Tx = tx;
+                Completion = completion;
+                Info = info;
+            }
+        }
 
         private readonly ConcurrentDictionary<String, TransactionInformation> transactionState = new ConcurrentDictionary<String, TransactionInformation>();
 
@@ -87,27 +112,119 @@ namespace NoSQL.GraphDB.Core.Transaction
         }
 
         /// <summary>
-        ///   The single-writer consume loop. Blocks on the queue and runs each transaction inline.
+        ///   The single-writer consume loop with GROUP COMMIT (feature write-path-throughput). It
+        ///   blocks for the first ready transaction, then greedily drains the rest of the currently
+        ///   queued work into one batch, executes each body in commit order on THIS thread (single
+        ///   writer) buffering its WAL frame without fsyncing, issues ONE fsync for the whole batch,
+        ///   and only THEN completes every transaction's completion source. Because completion moves
+        ///   strictly after the single fsync, no waiter observes a commit before its WAL entry is
+        ///   durable - the durable-before-ack contract is preserved, just amortised. A lone writer with
+        ///   an empty queue commits as a group of one and fsyncs immediately, so its latency is
+        ///   unchanged. A Save/Load is a hard batch boundary: the pending group is flushed and completed
+        ///   before it, and it commits as its own group, because it rewrites/replaces the WAL file.
         /// </summary>
         private void ConsumeLoop()
         {
-            // GetConsumingEnumerable blocks until an item is available and ends once the queue is
-            // both marked complete AND drained, so the loop exits cleanly on shutdown with no spin.
-            foreach (var transactionTask in _transactions.GetConsumingEnumerable())
+            foreach (var first in _transactions.GetConsumingEnumerable())
             {
+                var group = new List<WorkItem>();
+                var item = first;
+
                 try
                 {
-                    // Run the transaction body on THIS thread (single writer). ProcessTransaction
-                    // already contains every failure internally (it never rethrows), so the task
-                    // completes successfully and a waiting Task.Wait() returns cleanly. This guard is
-                    // a belt-and-suspenders so that no unforeseen fault can ever tear the writer down
-                    // (the same "the worker must survive a faulting transaction" contract as B6).
-                    transactionTask.RunSynchronously();
+                    while (true)
+                    {
+                        if (IsBatchBoundary(item.Tx))
+                        {
+                            // Finish the accumulated group (durable) BEFORE the boundary tx, so no
+                            // buffered frame straddles the Save/Load that rewrites/replaces the log.
+                            FlushAndCompleteGroup(group);
+                            group = new List<WorkItem>();
+
+                            ExecuteTransactionBody(item);
+                            FlushAndCompleteGroup(new List<WorkItem> { item });
+                        }
+                        else
+                        {
+                            ExecuteTransactionBody(item);
+                            group.Add(item);
+
+                            if (group.Count >= MaxGroupSize)
+                            {
+                                FlushAndCompleteGroup(group);
+                                group = new List<WorkItem>();
+                            }
+                        }
+
+                        // Drain the rest of the currently-ready work into this batch (non-blocking).
+                        if (!_transactions.TryTake(out item, 0))
+                        {
+                            break;
+                        }
+                    }
+
+                    FlushAndCompleteGroup(group);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "The transaction writer thread caught an unexpected exception while running a transaction; it keeps processing the queue.");
+                    // Belt-and-suspenders: ExecuteTransactionBody and FlushAndCompleteGroup are each
+                    // fully contained, so this should be unreachable. If an unforeseen fault does
+                    // escape, complete every still-pending group member so no waiter hangs, then keep
+                    // the writer alive (the B6 "the worker survives a faulting transaction" contract).
+                    _logger.LogError(ex, "The transaction writer thread caught an unexpected exception in the group-commit loop; completing pending transactions and continuing.");
+                    foreach (var pending in group)
+                    {
+                        pending.Completion.TrySetResult();
+                    }
                 }
+            }
+        }
+
+        /// <summary>Whether a transaction is a hard commit-group boundary (it rewrites/replaces the WAL
+        /// file, so no buffered frame may share its group). Save resets the log to the new snapshot;
+        /// Load may replay/re-anchor it.</summary>
+        private static bool IsBatchBoundary(ATransaction tx)
+        {
+            return tx is SaveTransaction || tx is LoadTransaction;
+        }
+
+        /// <summary>
+        ///   Flushes the current commit group's buffered WAL frames with ONE fsync, then completes
+        ///   every member's completion source (feature write-path-throughput). A committed member whose
+        ///   frame did not reach disk durably (the flush failed or the fence had tripped) has its
+        ///   <see cref="TransactionInformation.Durable"/> set false; it stays <c>Finished</c> (applied
+        ///   in memory). Completion happens strictly AFTER the fsync, preserving durable-before-ack.
+        /// </summary>
+        private void FlushAndCompleteGroup(List<WorkItem> group)
+        {
+            if (group == null || group.Count == 0)
+            {
+                return;
+            }
+
+            bool groupDurable;
+            try
+            {
+                groupDurable = _f8.FlushWal();
+            }
+            catch (Exception ex)
+            {
+                // FlushWal is contained (FlushGroup returns false on failure), so this is defensive.
+                _logger.LogError(ex, "The write-ahead-log group flush faulted unexpectedly; the group is treated as non-durable.");
+                groupDurable = false;
+            }
+
+            foreach (var item in group)
+            {
+                if (item.Info.TransactionState == TransactionState.Finished && !(item.BufferedDurable && groupDurable))
+                {
+                    // Committed in memory but not durable in the log (fence tripped / flush failed /
+                    // logging suspended). The degraded state is signalled via Durable, not Error
+                    // (feature crash-durability-hardening D1); a later Save re-establishes durability.
+                    item.Info.Durable = false;
+                }
+
+                item.Completion.TrySetResult();
             }
         }
 
@@ -125,17 +242,18 @@ namespace NoSQL.GraphDB.Core.Transaction
                                         });
         }
 
-        private void ProcessTransaction(Object transactionObj)
+        /// <summary>
+        ///   Executes ONE transaction body on the single writer thread: TryExecute, publish the
+        ///   terminal state, buffer its WAL frame (no fsync - the group flush does that), release the
+        ///   heavy input, and run auto-trim. It does NOT fsync and does NOT complete the transaction's
+        ///   completion source; the surrounding group-commit loop does both after the batch flush.
+        ///   Fully contained (never throws), so the writer survives any faulting transaction (B6).
+        /// </summary>
+        private void ExecuteTransactionBody(WorkItem item)
         {
-            ATransaction tx = (ATransaction)transactionObj;
-
-            var stopwatch = Stopwatch.StartNew();
+            var tx = item.Tx;
             var transactionType = tx.GetType().Name;
 
-            _logger.LogInformation("Starting execution of transaction {TransactionId} ({TransactionType})",
-                tx.TransactionId, transactionType);
-
-            //do some work
             bool succeeded;
             try
             {
@@ -145,55 +263,40 @@ namespace NoSQL.GraphDB.Core.Transaction
             {
                 // A faulting transaction must not tear down the single worker thread. Contain the
                 // failure, roll the transaction back and keep processing the queue.
-                stopwatch.Stop();
-                _logger.LogError(ex, "Transaction {TransactionId} ({TransactionType}) threw during execution and will be rolled back (execution time: {ElapsedMilliseconds}ms)",
-                    tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
+                _logger.LogError(ex, "Transaction {TransactionId} ({TransactionType}) threw during execution and will be rolled back.",
+                    tx.TransactionId, transactionType);
 
                 RollbackSafely(tx, transactionType);
 
                 // Keep the terminal state RolledBack (as for a clean TryExecute()==false), but ALSO
-                // record the fault on the same TransactionInformation instance the caller holds, so a
-                // waited-on caller can distinguish a genuine exception from a clean rollback. Set in
-                // place before the task completes so Task.Wait() publishes it (B6 follow-up).
+                // record the fault on the caller's TransactionInformation so a waited-on caller can
+                // distinguish a genuine exception from a clean rollback, and classify it as
+                // InternalError (mapped to 500). Set before the completion source is set in the group
+                // flush, so it is visible under the same happens-before (B6).
                 var faultedInfo = SetTransactionState(tx, TransactionState.RolledBack);
                 faultedInfo.Error = ex;
-
-                // An exception that escaped execution is, by definition, an unexpected internal
-                // fault: classify it as InternalError on the same instance, under the same
-                // happens-before as Error/TransactionState, so a waited-on caller maps it to a 500
-                // rather than a client-facing 4xx.
                 faultedInfo.FailureReason = TransactionFailureReason.InternalError;
 
-                // The rollback above has already run and the terminal state (with Error) is set, so
-                // the heavy input payload can be dropped now instead of lingering until Trim (M3).
-                // This releases ONLY the input; the TransactionInformation entry, its state and its
-                // Error stay in place and readable.
                 ReleaseInputsSafely(tx, transactionType);
                 return;
             }
 
             if (succeeded)
             {
-                stopwatch.Stop();
-                _logger.LogInformation("Transaction {TransactionId} ({TransactionType}) finished successfully in {ElapsedMilliseconds}ms",
-                    tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
-                var finishedInfo = SetTransactionState(tx, TransactionState.Finished);
+                SetTransactionState(tx, TransactionState.Finished);
 
-                // Write-ahead log (opt-in): append this committed transaction to the log and fsync it
-                // BEFORE the input is released (the definition is needed to serialize the entry) and
-                // before the task completes - so a committed transaction's entry is durable by the
-                // time its WaitUntilFinished() returns. A no-op when the WAL is disabled. Contained so
-                // a logging failure never faults the single worker (see below).
-                LogCommittedTransactionSafely(tx, finishedInfo, transactionType);
+                // Buffer this committed transaction's WAL frame (no fsync; the group flush fsyncs once
+                // for the whole batch). Records whether it buffered durably-so-far; the group flush
+                // result is ANDed with this to set Durable. A no-op when the WAL is disabled.
+                item.BufferedDurable = BufferCommittedTransactionSafely(tx, transactionType);
 
-                // Drop the heavy input payload now that the transaction is committed (M3). The
-                // captured created-models are intentionally kept for a waited-on caller to read.
+                // Drop the heavy input payload now that the transaction is committed (M3). The captured
+                // created-models are intentionally kept for a waited-on caller to read.
                 ReleaseInputsSafely(tx, transactionType);
 
                 // A committed element removal may have pushed the tombstone count over the
-                // auto-compaction threshold (M4). Checking here - after commit, on the single
-                // writer thread, and only for removal transactions (which hold no created-models) -
-                // keeps reclamation off the rollback-sensitive removal path.
+                // auto-compaction threshold (M4). Any auto-trim marker it logs is buffered in commit
+                // order with the surrounding group's frames.
                 if (tx.TriggersAutoTrim)
                 {
                     MaybeAutoTrimSafely(tx, transactionType);
@@ -201,47 +304,34 @@ namespace NoSQL.GraphDB.Core.Transaction
             }
             else
             {
-                stopwatch.Stop();
-                _logger.LogWarning("Transaction {TransactionId} ({TransactionType}) failed and will be rolled back (execution time: {ElapsedMilliseconds}ms)",
-                    tx.TransactionId, transactionType, stopwatch.ElapsedMilliseconds);
                 RollbackSafely(tx, transactionType);
                 var rolledBackInfo = SetTransactionState(tx, TransactionState.RolledBack);
-
-                // Publish WHY the transaction rolled back cleanly (default None) on the same
-                // instance the caller holds, set before the task completes so a WaitUntilFinished
-                // caller observes it under the same happens-before as the terminal state. A clean
-                // false with no recorded reason stays None (mapped as a generic internal failure).
                 rolledBackInfo.FailureReason = tx.FailureReason;
-
                 ReleaseInputsSafely(tx, transactionType);
             }
         }
 
-        private void LogCommittedTransactionSafely(ATransaction tx, TransactionInformation txInfo, String transactionType)
+        /// <summary>
+        ///   Buffers a committed transaction's WAL frame (feature write-path-throughput) and returns
+        ///   whether it is durable-so-far: <c>true</c> when buffered (or the WAL is disabled),
+        ///   <c>false</c> when logging is suspended/degraded (the fence has tripped, D1, or the log is
+        ///   anchored and awaiting its paired Load, D3). The final <see cref="TransactionInformation.Durable"/>
+        ///   is this ANDed with the group flush result. Never faults the worker.
+        /// </summary>
+        private bool BufferCommittedTransactionSafely(ATransaction tx, String transactionType)
         {
             try
             {
-                // LogCommittedTransaction returns whether the transaction is durable in the log. It is
-                // false (without throwing) when the log is in a degraded/suspended state - the failure
-                // fence has tripped (D1) or the log is anchored and awaiting its paired Load (D3) - so
-                // EVERY affected transaction is marked non-durable, not only the first failure.
-                var durable = _f8.LogCommittedTransaction(tx);
-                if (!durable)
-                {
-                    txInfo.Durable = false;
-                }
+                return _f8.LogCommittedTransaction(tx);
             }
             catch (Exception logEx)
             {
-                // A write-ahead-log append failure must never fault the single worker thread. The
-                // transaction is already applied in memory and stays committed (Finished); its
-                // durability is degraded (the entry may not have reached disk), which is recorded on
-                // the caller's TransactionInformation and logged loudly. A subsequent full Save
-                // re-establishes a durable baseline (feature crash-durability-hardening D1).
-                _logger.LogError(logEx, "Appending transaction {TransactionId} ({TransactionType}) to the write-ahead log failed; the transaction stays committed but is not durable in the log.",
+                // Buffering must never fault the single worker thread. The transaction is already
+                // applied in memory and stays committed (Finished); its log durability is degraded,
+                // signalled via Durable (set false by the group flush) rather than Error.
+                _logger.LogError(logEx, "Buffering transaction {TransactionId} ({TransactionType}) into the write-ahead log failed; the transaction stays committed but is not durable in the log.",
                     tx.TransactionId, transactionType);
-                txInfo.Error = logEx;
-                txInfo.Durable = false;
+                return false;
             }
         }
 
@@ -294,24 +384,27 @@ namespace NoSQL.GraphDB.Core.Transaction
             _logger.LogInformation("Adding transaction {TransactionId} ({TransactionType}) to queue",
                 tx.TransactionId, tx.GetType().Name);
 
-            var task = new Task(ProcessTransaction, tx);
+            // The writer completes this AFTER the group fsync (feature write-path-throughput).
+            // RunContinuationsAsynchronously so completing it on the writer thread never inlines an
+            // awaiter's continuation onto the writer (which would stall the single writer).
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            var txInfo = new TransactionInformation(task)
+            var txInfo = new TransactionInformation(completion.Task)
             {
                 Transaction = tx,
                 TransactionState = TransactionState.Enqueued
             };
 
-            // Register the TransactionInformation BEFORE handing the task to the consumer. The P2
-            // consumer wakes immediately (it blocks on the queue rather than polling lazily), so it
-            // can reach SetTransactionState before this method returns. Publishing the entry first
-            // means the worker's SetTransactionState takes its AddOrUpdate UPDATE path and mutates
-            // THIS exact instance, so a waited-on caller observes the terminal TransactionState and
-            // Error on the instance returned here (B6). The transaction id is a fresh GUID, so there
-            // is never a real collision; the indexer assignment simply publishes it unconditionally.
+            // Register the TransactionInformation BEFORE handing the work to the consumer. The consumer
+            // wakes immediately (it blocks on the queue rather than polling), so it can reach
+            // SetTransactionState before this method returns. Publishing the entry first means the
+            // worker's SetTransactionState takes its AddOrUpdate UPDATE path and mutates THIS exact
+            // instance, so a waited-on caller observes the terminal TransactionState/Error/Durable on
+            // the instance returned here (B6). The transaction id is a fresh GUID, so the indexer
+            // assignment simply publishes it unconditionally.
             transactionState[tx.TransactionId] = txInfo;
 
-            _transactions.Add(task);
+            _transactions.Add(new WorkItem(tx, completion, txInfo));
 
             return txInfo;
         }

@@ -92,13 +92,48 @@ Intent: quantify the win and record it against the deferral it relates to.
 - [ ] Note the outcome in [spec.md](./spec.md) §4 and cross-reference `persistence-hardening`
       (WAL amortised) and `crash-durability-hardening` (flush-failure contract).
 
+## Outcome (what shipped)
+- **Group commit (Phase 2).** `TransactionManager` drains the ready queue into a batch, executes each
+  body in commit order on the single writer (`ExecuteTransactionBody`) buffering its WAL frame via
+  `WriteAheadLog.AppendBuffered` (no fsync), issues ONE `FlushGroup` (open+write+fsync+close) for the
+  batch, and only THEN completes each transaction's `TaskCompletionSource` (`FlushAndCompleteGroup`) —
+  so completion is strictly after the fsync (durable-before-ack preserved). Save/Load are hard batch
+  boundaries (the pending group is flushed+completed first; each commits as a group of one) because
+  they rewrite/replace the WAL file. Per-tx `Durable` = buffered-ok AND group-flush-ok, integrating
+  the crash-durability-hardening D1 fence.
+- **Awaitable completion (Phase 3, partial).** `TransactionInformation.Completion` (a task backed by
+  the TCS, completed after the group fsync) and `WaitUntilFinished(TimeSpan)`. `GraphController`'s five
+  mutations `await Completion` (were `Task.FromResult`+blocking `Wait`); `AdminController.Load`/`Save`
+  are now async. The TCS uses `RunContinuationsAsynchronously` so completing on the writer never
+  inlines an awaiter's continuation onto the single writer.
+- **Measured (this box, WAL on, 20k single-element writes):** serial 788 writes/s → 32 producers
+  17,007 writes/s (**~21×**); serial per-commit latency floor unchanged.
+- Tests: `WritePathThroughputTest` (durable-before-ack for a member of a concurrently-drained group;
+  `Completion` awaits to the terminal state; `WaitUntilFinished(TimeSpan)`; 200 concurrent waited
+  writes all complete) + opt-in `WritePathThroughputBenchmark`. Full suite green: **394 passed, 15
+  skipped**.
+
+### Deferred within the feature
+- **Phase 1 (persistent append stream)** — kept the per-GROUP open+fsync+close instead of one handle
+  for the log's lifetime. This still amortises the fsync (the dominant cost) across the group, keeps
+  the crash-durability-hardening D1 failure-fence externally testable (the read-only-file injection
+  trips it at the group open), and avoids a handle lifecycle across `ResetToSnapshot`. The persistent
+  handle removes only the per-group open/close overhead — a smaller win with a real
+  lifecycle/testability cost; revisit if the per-group open shows up in a profile.
+- **Phase 4 (single-copy pooled encoding)** — the double copy is dominated by the (now amortised)
+  fsync; land later if it shows up.
+- **`SubGraphController.CreateSubGraph`/`DeleteSubGraph` async** — converting them changes signatures
+  that ~7 test files call synchronously; the endpoints are lower-frequency than graph mutations.
+  The hot graph-mutation and long-blocking admin-save/load paths (the main thread-pinning risk) are
+  converted. This is a mechanical, compiler-guided follow-up.
+
 ## Progress
-- [ ] Phase 0 — benchmark + durable-before-ack + request-thread characterization
-- [ ] Phase 1 — persistent append stream (no per-commit open/close)
-- [ ] Phase 2 — group commit (drain → execute → single fsync → complete)
-- [ ] Phase 3 — awaitable `Completion` + `WaitUntilFinished(TimeSpan)` + async controllers
-- [ ] Phase 4 — single-copy pooled entry encoding
-- [ ] Measure & document
+- [x] Phase 0 — benchmark + durable-before-ack + concurrent-waited-writes tests
+- [~] Phase 1 — persistent append stream — **deferred** (per-group open kept; see Decision)
+- [x] Phase 2 — group commit (drain → execute → single fsync → complete)
+- [x] Phase 3 — awaitable `Completion` + `WaitUntilFinished(TimeSpan)` + GraphController/Admin async (SubGraph async deferred)
+- [~] Phase 4 — single-copy pooled entry encoding — **deferred**
+- [x] Measure & document
 
 ## Decision / revisit condition
 - **`non-blocking-save` stays deferred and is NOT reopened.** The `SaveTransaction` continues to run

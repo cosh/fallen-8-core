@@ -122,7 +122,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public Task<IActionResult> AddVertex([FromBody] VertexSpecification definition, [FromQuery] bool waitForCompletion = false)
+        public async Task<IActionResult> AddVertex([FromBody] VertexSpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             #region initial checks
 
@@ -147,17 +147,17 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (waitForCompletion)
             {
-                transactionTask.WaitUntilFinished();
+                await transactionTask.Completion;
 
                 // The worker rolls a faulting transaction back (correctness-fixes B6). When the
                 // caller waited for the outcome, a rolled-back write must not be reported as success.
                 if (transactionTask.TransactionState == TransactionState.RolledBack)
                 {
-                    return Task.FromResult<IActionResult>(RolledBackResult(transactionTask.FailureReason));
+                    return RolledBackResult(transactionTask.FailureReason);
                 }
             }
 
-            return Task.FromResult<IActionResult>(Accepted());
+            return Accepted();
         }
 
         /// <summary>
@@ -237,7 +237,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public Task<IActionResult> AddEdge(EdgeSpecification definition, [FromQuery] bool waitForCompletion = false)
+        public async Task<IActionResult> AddEdge(EdgeSpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             #region initial checks
 
@@ -265,17 +265,17 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (waitForCompletion)
             {
-                transactionTask.WaitUntilFinished();
+                await transactionTask.Completion;
 
                 // The worker rolls a faulting transaction back (correctness-fixes B6). When the
                 // caller waited for the outcome, a rolled-back write must not be reported as success.
                 if (transactionTask.TransactionState == TransactionState.RolledBack)
                 {
-                    return Task.FromResult<IActionResult>(RolledBackResult(transactionTask.FailureReason));
+                    return RolledBackResult(transactionTask.FailureReason);
                 }
             }
 
-            return Task.FromResult<IActionResult>(Accepted());
+            return Accepted();
         }
 
         /// <summary>
@@ -731,7 +731,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public Task<IActionResult> AddProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition, [FromQuery] bool waitForCompletion = false)
+        public async Task<IActionResult> AddProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromBody] PropertySpecification definition, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
             var propertyId = propertyIdString;
@@ -754,17 +754,17 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (waitForCompletion)
             {
-                transactionTask.WaitUntilFinished();
+                await transactionTask.Completion;
 
                 // The worker rolls a faulting transaction back (correctness-fixes B6). When the
                 // caller waited for the outcome, a rolled-back write must not be reported as success.
                 if (transactionTask.TransactionState == TransactionState.RolledBack)
                 {
-                    return Task.FromResult<IActionResult>(RolledBackResult(transactionTask.FailureReason));
+                    return RolledBackResult(transactionTask.FailureReason);
                 }
             }
 
-            return Task.FromResult<IActionResult>(Accepted());
+            return Accepted();
 
         }
 
@@ -786,7 +786,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public Task<IActionResult> TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromQuery] bool waitForCompletion = false)
+        public async Task<IActionResult> TryRemoveProperty([FromRoute] string graphElementIdentifier, [FromRoute] string propertyIdString, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
             var propertyId = propertyIdString;
@@ -801,17 +801,17 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (waitForCompletion)
             {
-                transactionTask.WaitUntilFinished();
+                await transactionTask.Completion;
 
                 // The worker rolls a faulting transaction back (correctness-fixes B6). When the
                 // caller waited for the outcome, a rolled-back write must not be reported as success.
                 if (transactionTask.TransactionState == TransactionState.RolledBack)
                 {
-                    return Task.FromResult<IActionResult>(RolledBackResult(transactionTask.FailureReason));
+                    return RolledBackResult(transactionTask.FailureReason);
                 }
             }
 
-            return Task.FromResult<IActionResult>(Accepted());
+            return Accepted();
 
         }
 
@@ -832,7 +832,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public Task<IActionResult> TryRemoveGraphElement([FromRoute] string graphElementIdentifier, [FromQuery] bool waitForCompletion = false)
+        public async Task<IActionResult> TryRemoveGraphElement([FromRoute] string graphElementIdentifier, [FromQuery] bool waitForCompletion = false)
         {
             var graphElementId = Convert.ToInt32(graphElementIdentifier);
 
@@ -845,17 +845,17 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (waitForCompletion)
             {
-                transactionTask.WaitUntilFinished();
+                await transactionTask.Completion;
 
                 // The worker rolls a faulting transaction back (correctness-fixes B6). When the
                 // caller waited for the outcome, a rolled-back write must not be reported as success.
                 if (transactionTask.TransactionState == TransactionState.RolledBack)
                 {
-                    return Task.FromResult<IActionResult>(RolledBackResult(transactionTask.FailureReason));
+                    return RolledBackResult(transactionTask.FailureReason);
                 }
             }
 
-            return Task.FromResult<IActionResult>(Accepted());
+            return Accepted();
         }
 
         /// <summary>

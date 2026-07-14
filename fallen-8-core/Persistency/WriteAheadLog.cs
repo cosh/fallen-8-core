@@ -109,6 +109,15 @@ namespace NoSQL.GraphDB.Core.Persistency
         private bool _failed;
 
         /// <summary>
+        ///   Frames buffered for the current commit group (feature write-path-throughput): each
+        ///   <see cref="AppendBuffered" /> adds one framed entry here without touching disk, and
+        ///   <see cref="FlushGroup" /> writes them ALL and fsyncs ONCE. Amortising the fsync across a
+        ///   drained batch is the throughput win; a lone commit (a group of one) still fsyncs
+        ///   immediately, so its latency is unchanged. Only ever touched on the single writer thread.
+        /// </summary>
+        private readonly List<byte[]> _pendingFrames = new List<byte[]>();
+
+        /// <summary>
         ///   Opens the log at <paramref name="path" />. An existing, well-formed log is adopted (its
         ///   header parsed and its entries left in place for replay); a missing log is created fresh
         ///   with a zero baseline and no snapshot pairing; an unparsable/corrupt existing header is
@@ -234,20 +243,17 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
-        ///   Appends one framed entry (<c>[Int32 length][payload][UInt32 CRC-32]</c>) and fsyncs it.
-        ///   Runs only on the single writer thread, after the transaction has committed. On any write
-        ///   failure it best-effort truncates the torn frame back to the pre-append length, trips the
-        ///   sticky failure fence (so no later frame is written after a torn one), logs a single Error,
-        ///   and rethrows. Once the fence has tripped, subsequent calls are a no-op (feature
-        ///   crash-durability-hardening D1).
+        ///   Buffers one framed entry (<c>[Int32 length][payload][UInt32 CRC-32]</c>) for the current
+        ///   commit group WITHOUT touching disk (feature write-path-throughput). Runs only on the single
+        ///   writer thread, after the transaction has committed. The bytes reach disk - and become
+        ///   durable - only when <see cref="FlushGroup" /> is called. A no-op once the failure fence has
+        ///   tripped (feature crash-durability-hardening D1): the transaction is then non-durable, which
+        ///   the caller records.
         /// </summary>
-        internal void Append(byte[] payload)
+        internal void AppendBuffered(byte[] payload)
         {
             if (_failed)
             {
-                // The log is degraded (a prior append failed). Do not write - a frame after a torn one
-                // would be silently dropped on replay (which stops at the first bad frame). Durability
-                // is restored by the next successful Save.
                 return;
             }
 
@@ -257,31 +263,53 @@ namespace NoSQL.GraphDB.Core.Persistency
             var crc = Crc32.Compute(payload, 0, payload.Length);
             BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(4 + payload.Length), crc);
 
-            long preLength = -1;
+            _pendingFrames.Add(frame);
+        }
+
+        /// <summary>
+        ///   Writes every frame buffered since the last flush and fsyncs them in ONE
+        ///   <c>Flush(true)</c> (feature write-path-throughput group commit), then clears the buffer.
+        ///   Returns whether the group is durable: <c>true</c> when the write+fsync succeeded (or there
+        ///   was nothing to flush and the fence is clear), <c>false</c> when the fence had already
+        ///   tripped or this flush failed. On failure it best-effort truncates the partially written
+        ///   group back to the pre-flush length, trips the sticky fence, logs one Error, and returns
+        ///   <c>false</c> (it does NOT throw - the caller marks the whole group non-durable and the
+        ///   worker survives; feature crash-durability-hardening D1). The single open+write+fsync+close
+        ///   per group (rather than per commit) is exactly what amortises the fsync.
+        /// </summary>
+        internal bool FlushGroup()
+        {
+            if (_pendingFrames.Count == 0)
+            {
+                return !_failed;
+            }
+
+            if (_failed)
+            {
+                _pendingFrames.Clear();
+                return false;
+            }
+
             try
             {
                 using (var fs = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read,
                            Constants.BufferSize, FileOptions.None))
                 {
                     // In append mode the stream is positioned at end before the write, so Length is the
-                    // pre-append length - captured so a partial write can be truncated back.
-                    preLength = fs.Length;
-                    fs.Write(frame, 0, frame.Length);
-                    fs.Flush(true);
-                }
-            }
-            catch (Exception ex)
-            {
-                _failed = true;
-
-                // Best-effort: drop any partially written frame so the tail is not torn, then leave the
-                // fence tripped. A failure here is itself contained (the log is already degraded).
-                if (preLength >= 0)
-                {
+                    // pre-flush length - captured so a partially written group can be truncated back.
+                    var preLength = fs.Length;
                     try
                     {
-                        using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Write, FileShare.Read,
-                                   Constants.BufferSize, FileOptions.None))
+                        for (var i = 0; i < _pendingFrames.Count; i++)
+                        {
+                            fs.Write(_pendingFrames[i], 0, _pendingFrames[i].Length);
+                        }
+                        fs.Flush(true);
+                    }
+                    catch
+                    {
+                        // Best-effort: drop the partially written group so the tail is not torn.
+                        try
                         {
                             if (fs.Length > preLength)
                             {
@@ -289,18 +317,25 @@ namespace NoSQL.GraphDB.Core.Persistency
                                 fs.Flush(true);
                             }
                         }
-                    }
-                    catch (Exception truncateEx)
-                    {
-                        _logger.LogError(truncateEx,
-                            "Could not truncate a torn frame in the write-ahead log at \"{Path}\" after an append failure.", _path);
+                        catch
+                        {
+                            // Contained: the log is already being marked degraded below.
+                        }
+                        throw;
                     }
                 }
 
+                _pendingFrames.Clear();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _failed = true;
+                _pendingFrames.Clear();
                 _logger.LogError(ex,
-                    "Appending to the write-ahead log at \"{Path}\" failed; the log is now DEGRADED - no further entries will be written and transactions committed since are not durable in the log until the next successful Save.",
+                    "Flushing the write-ahead-log commit group at \"{Path}\" failed; the log is now DEGRADED - the transactions in this group are not durable in the log until the next successful Save.",
                     _path);
-                throw;
+                return false;
             }
         }
 
@@ -318,6 +353,10 @@ namespace NoSQL.GraphDB.Core.Persistency
         {
             // Store the CANONICAL path (not the raw save/load path as-passed) so the on-disk pairing
             // token is stable across file-system-equivalent forms of the same snapshot path.
+            // Any frames buffered but not yet flushed are superseded by the snapshot being anchored to
+            // (Save is a group boundary, so in practice the buffer is already empty; clear defensively).
+            _pendingFrames.Clear();
+
             var token = NormalizePathToken(snapshotPath);
             WriteHeader(baselineCurrentId, token, useTempAndRename: true);
             _baselineCurrentId = baselineCurrentId;

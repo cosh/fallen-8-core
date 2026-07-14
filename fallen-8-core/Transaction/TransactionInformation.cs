@@ -95,12 +95,32 @@ namespace NoSQL.GraphDB.Core.Transaction
             _txTask = txTask;
         }
 
+        /// <summary>
+        /// A task that completes when this transaction reaches its terminal state AND (with the WAL
+        /// enabled) its commit group has been fsynced - i.e. the durable-before-ack point (feature
+        /// write-path-throughput). <c>await</c>ing it registers a continuation instead of blocking, so
+        /// a waiting ASP.NET request releases its thread-pool thread rather than pinning it for the
+        /// whole queue latency. Never <c>null</c>: a transaction created without a backing task
+        /// (defensive) returns an already-completed task.
+        /// </summary>
+        public Task Completion => _txTask ?? Task.CompletedTask;
+
         public void WaitUntilFinished()
         {
             if (_txTask != null)
             {
                 _txTask.Wait();
             }
+        }
+
+        /// <summary>
+        /// Waits up to <paramref name="timeout"/> for the transaction to finish. Returns <c>true</c>
+        /// if it finished within the budget, <c>false</c> on a deadline miss (feature
+        /// write-path-throughput). Does not throw on timeout.
+        /// </summary>
+        public Boolean WaitUntilFinished(TimeSpan timeout)
+        {
+            return _txTask == null || _txTask.Wait(timeout);
         }
     }
 }

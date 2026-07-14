@@ -1698,8 +1698,24 @@ namespace NoSQL.GraphDB.Core
                 return true;
             }
 
-            wal.Append(WalTransactionCodec.SerializeEntry(type, tx));
+            // Buffer the frame for the current commit group (feature write-path-throughput); it becomes
+            // durable when the manager calls FlushWal after the batch. Returning true here means
+            // "buffered"; the caller ANDs it with FlushWal's result for the final durability.
+            wal.AppendBuffered(WalTransactionCodec.SerializeEntry(type, tx));
             return true;
+        }
+
+        /// <summary>
+        ///   Flushes the current write-ahead-log commit group with a single fsync and returns whether
+        ///   the group is durable (feature write-path-throughput). Called by the transaction manager
+        ///   once per drained batch, AFTER every transaction body in the batch has buffered its frame
+        ///   and BEFORE their completion signals are set - so the durable-before-ack contract holds,
+        ///   just amortised. Returns true when the WAL is disabled (durability is via the snapshot).
+        /// </summary>
+        internal bool FlushWal()
+        {
+            var wal = _wal;
+            return wal == null || wal.FlushGroup();
         }
 
         /// <summary>
@@ -1715,7 +1731,9 @@ namespace NoSQL.GraphDB.Core
                 return;
             }
 
-            wal.Append(WalTransactionCodec.SerializeEntry(type, null));
+            // Buffer the marker in commit order with the surrounding group; it is flushed with them
+            // (feature write-path-throughput).
+            wal.AppendBuffered(WalTransactionCodec.SerializeEntry(type, null));
         }
 
         /// <summary>

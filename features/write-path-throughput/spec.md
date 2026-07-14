@@ -1,9 +1,15 @@
 # Write-Path Throughput — Specification
 
-> **Status:** Planned (P2 performance) — from the 2026-07 principal-architect & performance review.
-> Amortise the write-ahead-log fsync with group commit and free request threads with an awaitable
-> transaction completion, so write throughput and thread-pool health stop being capped by
-> one-fsync-per-commit and by synchronous `Task.Wait` on the request thread.
+> **Status:** Implemented (group commit + awaitable completion). From the 2026-07 principal-architect
+> & performance review. The WAL fsync is amortised across a drained commit group and request threads
+> are freed by an awaitable completion. Measured on this box (WAL on, 20k single-element writes):
+> **serial 788 writes/s → 32 concurrent producers 17,007 writes/s (~21×)**, with the serial per-commit
+> latency floor unchanged (a group of one still fsyncs immediately). **Deferred within the feature:**
+> (a) the persistent append handle (kept the per-group open+fsync+close so the D1 failure-fence stays
+> externally testable and there is no handle lifecycle across `ResetToSnapshot`); (d) the single-copy
+> pooled entry encoding; and the async conversion of `SubGraphController.CreateSubGraph`/`DeleteSubGraph`
+> (large test-signature migration, lower-frequency endpoints) — `GraphController`'s five mutations and
+> `AdminController.Load`/`Save` are converted. See the plan's Decision.
 
 ## 1. Problem / current state
 
