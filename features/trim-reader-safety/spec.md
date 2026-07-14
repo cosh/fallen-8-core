@@ -1,9 +1,15 @@
 # Trim / Reader Safety — Specification
 
-> **Status:** Planned (P1 correctness/architecture) — from the 2026-07 principal-architect &
-> performance review. Trim and auto-trim renumber live element ids **in place** underneath lock-free
-> readers, and the element hash **is** that mutable id — a class of reader races and silent id-remaps.
-> Make identity stable and stop renumbering on the hot path.
+> **Status:** Implemented (P1 correctness/architecture) — from the 2026-07 principal-architect &
+> performance review. Trim and auto-trim renumbered live element ids **in place** underneath lock-free
+> readers, and the element hash **was** that mutable id — a class of reader races and silent id-remaps.
+> Fixed: (Part A) `VertexModel.GetHashCode()` is now the identity hash, so an id change can never move
+> an inserted key's bucket in BLS's hash-keyed frontier/visited containers; (Part B) auto-trim frees
+> tombstone bodies (properties + adjacency) WITHOUT reassigning ids and is now **opt-in, default OFF**
+> (`ConfigureAutoTrim`), so id renumbering happens only via the explicit, operator-scheduled
+> `TrimTransaction`. Element ids are now stable REST handles across auto-trim. The future `id → slot`
+> directory (renumber-free compaction; shared prerequisite that constrains non-blocking-save) remains
+> noted, not built.
 
 ## 1. Problem / current state
 

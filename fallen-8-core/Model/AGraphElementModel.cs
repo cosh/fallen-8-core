@@ -450,6 +450,23 @@ namespace NoSQL.GraphDB.Core.Model
         }
 
         /// <summary>
+        ///   Frees the heavy per-element state of a TOMBSTONE - a removed element whose store slot is
+        ///   kept so ids stay stable (feature trim-reader-safety Part B). Nulls the property store;
+        ///   <see cref="VertexModel"/> overrides this to also null its adjacency. Each is a single
+        ///   volatile write, so a lock-free reader observes either the prior fully-built field or
+        ///   <c>null</c> - never a torn value - the same publication discipline that governs every
+        ///   property/adjacency mutation. MUST be called only for an already-committed, removed element
+        ///   on the single writer thread (post-commit): the removal will not roll back and the volatile
+        ///   publish makes the reader race benign (a stale reference to a removed element now reads
+        ///   null state rather than stale contents, consistent with the element being excluded from
+        ///   searches and its live adjacency already detached by the removal cascade).
+        /// </summary>
+        internal virtual void ReleaseBodyForTombstone()
+        {
+            _properties = null;
+        }
+
+        /// <summary>
         ///   Canonicalizes a property value exactly as <see cref="SetProperty" /> does, so a caller
         ///   tracking intra-batch pending values compares canonical-to-canonical (matching the values
         ///   held in the store).

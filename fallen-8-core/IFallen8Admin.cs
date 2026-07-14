@@ -76,5 +76,14 @@ namespace NoSQL.GraphDB.Core
         }
 
         void SetId(Guid id);
+
+        /// <summary>
+        ///   Enables or disables the automatic post-removal tombstone reclamation and sets the
+        ///   tombstone threshold that triggers it (feature trim-reader-safety). Auto-trim frees a
+        ///   removed element's heavy body (properties + adjacency) WITHOUT reassigning any element id,
+        ///   so element ids stay stable REST handles; it is OFF by default. Id renumbering / slot
+        ///   compaction remains the job of the explicit <c>TrimTransaction</c>.
+        /// </summary>
+        void ConfigureAutoTrim(bool enabled, int tombstoneThreshold);
     }
 }

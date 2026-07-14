@@ -28,6 +28,15 @@ using System;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
+    /// <summary>
+    ///   Compacts the master store, dropping tombstone/empty slots and REASSIGNING every surviving
+    ///   element's <c>Id</c> to its new dense index. This is the ONLY id-renumbering path (automatic
+    ///   reclamation does not renumber - feature trim-reader-safety): element ids are otherwise stable
+    ///   handles. Because it renumbers, a caller or REST client holding element ids across an explicit
+    ///   Trim is remapped to different elements, so schedule it knowingly and not concurrently with
+    ///   readers/clients that hold ids. In-flight readers on the previous snapshot keep a consistent
+    ///   old-id-space view; only ids captured before and resolved after the Trim are affected.
+    /// </summary>
     public class TrimTransaction : ATransaction
     {
         internal override void Cleanup()

@@ -1620,6 +1620,8 @@ namespace NoSQL.GraphDB.Core
             IndexFactory.DeleteAllIndices();
             VertexCount = 0;
             EdgeCount = 0;
+            // A full reset clears every tombstone, so the auto-trim body-free bookkeeping starts fresh.
+            _freedTombstoneCount = 0;
             // Reclaim the intern table on a full reset: its entries are only referenced by the
             // graph elements being discarded here, so a reset should release them too. (It is
             // deliberately NOT cleared on Trim, where interned strings are still referenced by the
@@ -2332,48 +2334,102 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Tombstone count (soft-deleted or load-gap slots) at or above which a committed
-        ///   removal triggers an automatic compaction (finding M4). Removal is a soft delete: a
-        ///   removed element keeps its full body (properties + adjacency) until a <c>Trim</c>
-        ///   rebuilds the store without it. Under sustained add/remove churn those tombstones would
-        ///   otherwise grow unboundedly. Auto-trim reuses the existing <see cref="Trim_internal" />
-        ///   (which is rollback-agnostic and safe for lock-free readers), so it never frees a field
-        ///   on the removal path itself. The default is deliberately conservative so ordinary
-        ///   workloads and the test suite never trigger it (and it never surprises callers with an
-        ///   id reassignment); it is a field rather than a const so a soak test can lower it.
+        ///   Whether the automatic, post-removal tombstone reclamation is enabled (feature
+        ///   trim-reader-safety Part B). Default OFF: auto-trim NO LONGER renumbers ids (that silent,
+        ///   no-client-action id reassignment was the P1 reader/REST-handle hazard). When enabled, it
+        ///   frees tombstone bodies (properties + adjacency) WITHOUT reassigning any id or removing any
+        ///   slot; id renumbering is reserved for the explicit, operator-scheduled <c>TrimTransaction</c>.
+        /// </summary>
+        internal bool _autoTrimEnabled = false;
+
+        /// <summary>
+        ///   Tombstone count (soft-deleted or load-gap slots) whose growth since the last reclamation
+        ///   triggers an automatic body-free pass, when auto-trim is enabled (feature trim-reader-safety
+        ///   Part B). A field (not a const) so a soak test can lower it.
         /// </summary>
         internal int _autoTrimTombstoneThreshold = 100_000;
 
         /// <summary>
-        ///   Considers an automatic compaction after a committed element removal (finding M4).
-        ///   Runs ONLY on the single transaction-worker thread, after the removal has committed
-        ///   (never inside <c>TryExecute</c>, so a rolled-back removal - which restores adjacency
-        ///   and counts - is never affected). The live counts are maintained, so the tombstone
-        ///   estimate is O(1). When the store is compacted, removed elements are dropped entirely,
-        ///   reclaiming their properties and adjacency and bounding memory under churn.
+        ///   Tombstone slots already body-freed by a prior auto-trim pass. Because free-fields keeps the
+        ///   slot (no id reassignment, <c>Count</c> unchanged), the raw tombstone count stays high after
+        ///   a pass; triggering on <c>tombstones - _freedTombstoneCount</c> so a pass fires only once per
+        ///   <see cref="_autoTrimTombstoneThreshold"/> NEWLY accumulated tombstones, not on every removal.
+        ///   Reset when the id space is rebuilt (<see cref="Trim_internal"/> / <see cref="TabulaRasa_internal"/>).
+        /// </summary>
+        private int _freedTombstoneCount;
+
+        /// <summary>
+        ///   Enables or disables the automatic post-removal tombstone reclamation and sets its
+        ///   threshold (feature trim-reader-safety). Auto-trim frees tombstone bodies WITHOUT
+        ///   reassigning ids; it is off by default. A non-positive threshold is clamped to 1.
+        /// </summary>
+        public override void ConfigureAutoTrim(bool enabled, int tombstoneThreshold)
+        {
+            _autoTrimEnabled = enabled;
+            _autoTrimTombstoneThreshold = Math.Max(1, tombstoneThreshold);
+        }
+
+        /// <summary>
+        ///   Considers automatic tombstone reclamation after a committed element removal (feature
+        ///   trim-reader-safety Part B; formerly finding M4). Runs ONLY on the single transaction-worker
+        ///   thread, after the removal has committed. When enabled and enough NEW tombstones have
+        ///   accumulated, it frees each tombstone's heavy body (properties + adjacency) via
+        ///   <see cref="AGraphElementModel.ReleaseBodyForTombstone"/> - a per-field volatile write, safe
+        ///   for lock-free readers - while KEEPING the slot, so no id is reassigned and the id space is
+        ///   unchanged. Because it changes no id space, it emits NO WAL <c>Trim</c> marker (replay
+        ///   reconstructs the identical id space without one). Off by default.
         /// </summary>
         internal void MaybeAutoTrim()
         {
+            if (!_autoTrimEnabled)
+            {
+                return;
+            }
+
             var snap = _snapshot;
-            // Live elements are counted in VertexCount + EdgeCount; the remainder of the published
-            // slots are tombstones (removed) or load gaps. Both are what a Trim would reclaim.
+            // Live elements are counted in VertexCount + EdgeCount; the remainder of the published slots
+            // are tombstones (removed) or load gaps. Trigger only on tombstones accumulated SINCE the
+            // last body-free pass (free-fields keeps slots, so the raw count does not fall).
             int tombstones = snap.Count - VertexCount - EdgeCount;
 
-            if (tombstones >= _autoTrimTombstoneThreshold)
+            if (tombstones - _freedTombstoneCount >= _autoTrimTombstoneThreshold)
             {
-                _logger.LogInformation("Auto-trim: {Tombstones} reclaimable slots >= threshold {Threshold}; compacting the master store.",
-                    tombstones, _autoTrimTombstoneThreshold);
-                Trim_internal();
-
-                // An auto-trim reassigns ids just as an explicit Trim transaction does; log a Trim
-                // marker so a subsequent recovery replays it at the same point in commit order and
-                // reproduces the exact id reassignment (keeping later logged ids resolvable).
-                LogWriteAheadLogMarker(Persistency.WalEntryType.Trim);
+                _logger.LogInformation("Auto-trim: {New} newly reclaimable tombstone(s) >= threshold {Threshold}; freeing their bodies (ids unchanged).",
+                    tombstones - _freedTombstoneCount, _autoTrimTombstoneThreshold);
+                ReleaseTombstoneBodies(snap);
+                _freedTombstoneCount = tombstones;
             }
         }
 
         /// <summary>
-        ///   Trims the Fallen-8 by removing null entries and compacting IDs.
+        ///   Frees the heavy body of every removed (tombstone) slot in the published snapshot, keeping
+        ///   the slot so ids stay stable (feature trim-reader-safety Part B). Idempotent (nulling an
+        ///   already-freed field is a no-op) and reader-safe (each release is a per-field volatile
+        ///   publish). Runs on the single writer thread.
+        /// </summary>
+        private void ReleaseTombstoneBodies(Snapshot snap)
+        {
+            var segments = snap.Segments;
+            int count = snap.Count;
+            for (int i = 0; i < count; i++)
+            {
+                var graphElement = segments[i >> SegmentShift][i & SegmentMask];
+                if (graphElement != null && graphElement._removed)
+                {
+                    graphElement.ReleaseBodyForTombstone();
+                }
+            }
+        }
+
+        /// <summary>
+        ///   Trims the Fallen-8 by removing null/tombstone entries and compacting the id space. This
+        ///   REASSIGNS every surviving element's <c>Id</c> to its new dense index, so it must be invoked
+        ///   only knowingly, via the explicit <c>TrimTransaction</c> - NOT automatically (feature
+        ///   trim-reader-safety): a caller or reader holding an element id across this call is remapped
+        ///   to a different element. In-flight readers holding the PREVIOUS snapshot keep a fully
+        ///   consistent old-id-space view (the previous segments are never mutated), but any id captured
+        ///   before the trim and resolved after it points at a different element. Automatic reclamation
+        ///   uses the renumber-free <see cref="MaybeAutoTrim"/> instead.
         /// </summary>
         internal void Trim_internal()
         {
@@ -2408,6 +2464,10 @@ namespace NoSQL.GraphDB.Core
             // Count and the previous segments are never mutated by this rebuild.
             _currentId = compacted.Length;
             _snapshot = BuildSnapshotFromDenseArray(compacted, compacted.Length);
+
+            // The compaction removed every tombstone slot, so the auto-trim body-free bookkeeping
+            // (feature trim-reader-safety) starts fresh against the new, tombstone-free id space.
+            _freedTombstoneCount = 0;
 
             // Trim transaction manager
             _txManager.Trim();

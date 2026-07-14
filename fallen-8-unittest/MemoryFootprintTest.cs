@@ -56,12 +56,12 @@ namespace NoSQL.GraphDB.Tests
             _loggerFactory = TestLoggerFactory.Create();
         }
 
-        private static void SetAutoTrimThreshold(Fallen8 fallen8, int threshold)
+        // Auto-trim is now OFF by default and, when on, frees tombstone bodies WITHOUT reassigning ids
+        // (feature trim-reader-safety Part B). Enable it and set a low threshold via the public admin
+        // surface so the soak tests exercise the reclamation.
+        private static void EnableAutoTrim(Fallen8 fallen8, int threshold)
         {
-            var field = typeof(Fallen8).GetField("_autoTrimTombstoneThreshold",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            Assert.IsNotNull(field, "The internal auto-trim threshold field must exist.");
-            field.SetValue(fallen8, threshold);
+            fallen8.ConfigureAutoTrim(true, threshold);
         }
 
         /// <summary>
@@ -99,74 +99,60 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void AutoTrim_UnderRepeatedAddRemoveChurn_KeepsStoreBounded()
+        public void AutoTrim_UnderRepeatedAddRemoveChurn_KeepsLiveIdsStable()
         {
+            // Feature trim-reader-safety Part B: auto-trim now frees tombstone BODIES without ever
+            // reassigning an id. So under heavy churn a long-lived element keeps its id (and stays
+            // queryable) even though many auto-trim passes fire. The slot Count grows (tombstone slots
+            // are kept, by design - id == index); the dominant per-tombstone memory (properties +
+            // adjacency) is what is reclaimed, measured in the opt-in benchmark rather than asserted
+            // as a flaky in-process GC bound here.
             var fallen8 = new Fallen8(_loggerFactory);
 
             const int threshold = 4000;
             const int batch = 1000;
             const int iterations = 40;
-            SetAutoTrimThreshold(fallen8, threshold);
+            EnableAutoTrim(fallen8, threshold);
+
+            // A long-lived vertex created up front; its id must never change across the churn.
+            var anchorTx = new CreateVerticesTransaction();
+            anchorTx.AddVertex(1u, "anchor", new Dictionary<string, object> { { "name", "anchor" } });
+            fallen8.EnqueueTransaction(anchorTx).WaitUntilFinished();
+            int anchorId = anchorTx.GetCreatedVertices().Single().Id;
 
             long totalChurned = 0;
-            int maxCount = 0;
-
             for (int it = 0; it < iterations; it++)
             {
                 var ids = CreateBatch(fallen8, batch);
                 totalChurned += ids.Count;
 
-                // Peak store size for this iteration is observed right after the batch is appended.
-                maxCount = Math.Max(maxCount, SnapshotCount(fallen8));
-
                 var removeTx = new RemoveGraphElementsTransaction { GraphElementIds = ids };
                 var removeInfo = fallen8.EnqueueTransaction(removeTx);
                 removeInfo.WaitUntilFinished();
-
-                // Assert on the held TransactionInformation, not GetTransactionState(txId): a
-                // churn-triggered auto-compaction runs Trim, which (like an explicit TrimTransaction)
-                // evicts finished transactions from the state map, so the by-id lookup may already
-                // read NotExist. The caller's own handle still reports the terminal state.
                 Assert.AreEqual(TransactionState.Finished, removeInfo.TransactionState,
                     "Each churn removal must commit cleanly.");
             }
 
-            // Bounded growth: although far more elements were churned than the threshold, the store
-            // never grew past roughly one threshold plus one in-flight batch. Without M4's auto-trim
-            // the store would hold one tombstone per churned element (totalChurned slots).
             Assert.IsTrue(totalChurned > threshold * 4,
-                "Sanity: the workload must churn far more than the threshold so the bound is meaningful.");
-            Assert.IsTrue(maxCount <= threshold + batch,
-                string.Format("The store must stay bounded (<= {0}); observed peak {1} against {2} churned elements.",
-                    threshold + batch, maxCount, totalChurned));
+                "Sanity: the workload must churn far more than the threshold so auto-trim fires repeatedly.");
 
-            // And after churn, everything removed is gone and the store has been compacted well
-            // below the total churned count.
-            Assert.AreEqual(0, fallen8.VertexCount, "Every churned vertex was removed.");
-            Assert.IsTrue(SnapshotCount(fallen8) <= threshold + batch,
-                "The final store size must be bounded, not proportional to the total churned.");
+            // The anchor is the only live vertex, and its id is UNCHANGED - auto-trim never renumbered.
+            Assert.AreEqual(1, fallen8.VertexCount, "Only the anchor remains live after the churn.");
+            VertexModel anchor;
+            Assert.IsTrue(fallen8.TryGetVertex(out anchor, anchorId),
+                "The long-lived vertex must still resolve by its ORIGINAL id after heavy auto-trim churn.");
+            Assert.AreEqual(anchorId, anchor.Id, "Auto-trim must never reassign a surviving element's id.");
+            Assert.IsTrue(anchor.TryGetProperty(out string anchorName, "name") && anchorName == "anchor",
+                "The long-lived vertex's own body must be intact (only tombstones are freed).");
         }
 
         [TestMethod]
-        public void AutoTrim_AfterCompaction_GraphRemainsQueryableAndConsistent()
+        public void AutoTrim_FreesTombstones_GraphRemainsQueryableWithStableIds()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            SetAutoTrimThreshold(fallen8, 2000);
+            EnableAutoTrim(fallen8, 2000);
 
-            // Churn enough to force at least one auto-compaction.
-            for (int it = 0; it < 10; it++)
-            {
-                var ids = CreateBatch(fallen8, 500);
-                var removeTx = new RemoveGraphElementsTransaction { GraphElementIds = ids };
-                fallen8.EnqueueTransaction(removeTx).WaitUntilFinished();
-            }
-
-            Assert.AreEqual(0, fallen8.VertexCount, "All churned vertices removed.");
-            Assert.IsTrue(SnapshotCount(fallen8) <= 2000 + 500, "Store bounded after churn.");
-
-            // The graph must be fully usable after auto-compaction: create a small connected graph
-            // and verify the elements resolve and adjacency is intact (ids were reassigned by the
-            // compaction, exactly as an explicit Trim does).
+            // Build a small connected graph FIRST and capture its ids.
             var vtx = new CreateVerticesTransaction();
             vtx.AddVertex(1u, "person", new Dictionary<string, object> { { "name", "Alice" } });
             vtx.AddVertex(1u, "person", new Dictionary<string, object> { { "name", "Bob" } });
@@ -179,37 +165,44 @@ namespace NoSQL.GraphDB.Tests
             etx.AddEdge(aliceId, "knows", bobId, 1u, "knows");
             fallen8.EnqueueTransaction(etx).WaitUntilFinished();
 
+            // Now churn enough to fire several auto-trim body-free passes AROUND the live graph.
+            for (int it = 0; it < 10; it++)
+            {
+                var ids = CreateBatch(fallen8, 500);
+                fallen8.EnqueueTransaction(new RemoveGraphElementsTransaction { GraphElementIds = ids }).WaitUntilFinished();
+            }
+
+            // The original graph is untouched: same ids, properties and adjacency (auto-trim froze
+            // only the churned tombstones, never renumbered Alice/Bob).
             Assert.AreEqual(2, fallen8.VertexCount);
             Assert.AreEqual(1, fallen8.EdgeCount);
 
             VertexModel alice;
-            Assert.IsTrue(fallen8.TryGetVertex(out alice, aliceId), "Alice must resolve after auto-compaction.");
-            string name;
-            Assert.IsTrue(alice.TryGetProperty(out name, "name"));
-            Assert.AreEqual("Alice", name, "Property fidelity must survive auto-compaction.");
-            Assert.AreEqual(1u, alice.GetOutDegree(), "Adjacency must survive auto-compaction.");
+            Assert.IsTrue(fallen8.TryGetVertex(out alice, aliceId), "Alice must still resolve by her original id after auto-trim.");
+            Assert.AreEqual(aliceId, alice.Id);
+            Assert.IsTrue(alice.TryGetProperty(out string name, "name"));
+            Assert.AreEqual("Alice", name, "Property fidelity of a live element must survive auto-trim.");
+            Assert.AreEqual(1u, alice.GetOutDegree(), "Adjacency of a live element must survive auto-trim.");
         }
 
         [TestMethod]
-        public void AutoTrim_BelowThreshold_DoesNotReassignIds()
+        public void AutoTrim_OffByDefault_DoesNotReassignIds()
         {
-            // With the conservative default threshold, a small number of removals must NOT trigger a
-            // compaction: ids stay stable, so ordinary workloads see no surprising reassignment.
+            // Auto-trim is OFF by default (feature trim-reader-safety), so ids are never reassigned by
+            // any automatic path - ordinary workloads see no surprising reassignment.
             var fallen8 = new Fallen8(_loggerFactory);
 
             var ids = CreateBatch(fallen8, 10);
             int survivorId = ids[ids.Count - 1];
 
-            // Remove the first few; well under the (default, high) threshold.
             var removeTx = new RemoveGraphElementsTransaction { GraphElementIds = ids.Take(5).ToList() };
             fallen8.EnqueueTransaction(removeTx).WaitUntilFinished();
 
             Assert.AreEqual(5, fallen8.VertexCount, "Five of ten vertices remain.");
 
-            // The surviving vertex keeps its original id (no auto-compaction happened).
             VertexModel survivor;
             Assert.IsTrue(fallen8.TryGetVertex(out survivor, survivorId),
-                "A surviving vertex must keep its id when the tombstone count is below the threshold.");
+                "A surviving vertex must keep its id (auto-trim is off by default; nothing renumbers).");
             Assert.AreEqual(survivorId, survivor.Id);
         }
 
