@@ -103,7 +103,7 @@ Intent: stored queries survive Save/Load and crash+replay, symmetrically.
 
 ## Progress
 
-- [ ] Phase 0 — engine library + transactions + registration REST surface
+- [x] Phase 0 — engine library + transactions + registration REST surface
 - [ ] Phase 1 — `storedQuery` invocation on `/path` and `/subgraph`
 - [ ] Phase 2 — request-shape-aware kill-switch gate + full matrix tests
 - [ ] Phase 3 — snapshot manifest + WAL entries 14/15 + replay

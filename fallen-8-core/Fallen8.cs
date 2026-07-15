@@ -40,6 +40,7 @@ using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -133,6 +134,23 @@ namespace NoSQL.GraphDB.Core
         ///   hosting layer (for example the REST API).
         /// </summary>
         public override ISubGraphRecipeCompiler SubGraphRecipeCompiler
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The stored query library (feature stored-query-library).
+        /// </summary>
+        public override StoredQueryLibrary StoredQueries
+        {
+            get; internal set;
+        }
+
+        /// <summary>
+        ///   The compiler used to (re)build stored query artifacts from their persisted source.
+        ///   Null unless set by the hosting layer (for example the REST API).
+        /// </summary>
+        public override IStoredQueryCompiler StoredQueryCompiler
         {
             get; set;
         }
@@ -271,6 +289,7 @@ namespace NoSQL.GraphDB.Core
             _snapshot = EmptySnapshot;
             ServiceFactory = new ServiceFactory(this, serviceLogger);
             SubGraphFactory = new SubGraphFactory(this, subGraphLogger, _pluginCache);
+            StoredQueries = new StoredQueryLibrary(loggerfactory.CreateLogger<StoredQueryLibrary>());
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
             _persistencyFactory = new PersistencyFactory(persistencyLogger);
@@ -2286,6 +2305,9 @@ namespace NoSQL.GraphDB.Core
 
             SubGraphFactory.DeleteAllSubGraphs();
             SubGraphFactory = null;
+
+            StoredQueries.Clear();
+            StoredQueries = null;
         }
 
         #region private helper methods
