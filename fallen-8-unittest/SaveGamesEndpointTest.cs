@@ -159,7 +159,7 @@ namespace NoSQL.GraphDB.Tests
                 await client.PutAsync("/vertex?waitForCompletion=true",
                     new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
                 var save = await client.PutAsync("/save?waitForCompletion=true",
-                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "database.f8s").Replace("\\", "\\\\") + "\"}",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                         Encoding.UTF8, "application/json"));
                 var entry = JsonSerializer.Deserialize<SaveGameDto>(await save.Content.ReadAsStringAsync(), _json);
                 checkpointPath = entry.Location;
@@ -205,7 +205,7 @@ namespace NoSQL.GraphDB.Tests
             await client.PutAsync("/vertex?waitForCompletion=true",
                 new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
             var save = await client.PutAsync("/save?waitForCompletion=true",
-                new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "database.f8s").Replace("\\", "\\\\") + "\"}",
+                new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                     Encoding.UTF8, "application/json"));
             var entry = JsonSerializer.Deserialize<SaveGameDto>(await save.Content.ReadAsStringAsync(), _json);
 
@@ -228,7 +228,7 @@ namespace NoSQL.GraphDB.Tests
                 await ca.PutAsync("/vertex?waitForCompletion=true",
                     new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
                 await ca.PutAsync("/save?waitForCompletion=true",
-                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "database.f8s").Replace("\\", "\\\\") + "\"}",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                         Encoding.UTF8, "application/json"));
             }
             Assert.IsTrue(Directory.GetFiles(_storageDir).Length > 0, "Checkpoint files exist on disk.");
@@ -250,6 +250,50 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Startup_AdoptsNewerOrphanCheckpoint_FromCrashWindow()
+        {
+            // Simulate the crash window (a save completed on disk but its registry entry was never
+            // written): save twice, then remove the NEWER entry from the registry while keeping its
+            // files. The registry's newest is now the older/smaller save, but a newer checkpoint sits
+            // on disk. Boot must adopt the newer on-disk checkpoint, not revert to the stale entry.
+            string olderId;
+            using (var a = new Factory(_storageDir, _metaDir, isVolatile: false))
+            using (var ca = a.CreateClient())
+            {
+                await ca.PutAsync("/vertex?waitForCompletion=true",
+                    new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
+                var save1 = await ca.PutAsync("/save?waitForCompletion=true",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
+                        Encoding.UTF8, "application/json"));
+                olderId = JsonSerializer.Deserialize<SaveGameDto>(await save1.Content.ReadAsStringAsync(), _json).Id;
+
+                // Newer save with an extra vertex -> a newer checkpoint on disk.
+                await Task.Delay(1500);
+                await ca.PutAsync("/vertex?waitForCompletion=true",
+                    new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
+                var save2 = await ca.PutAsync("/save?waitForCompletion=true",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
+                        Encoding.UTF8, "application/json"));
+                var newerId = JsonSerializer.Deserialize<SaveGameDto>(await save2.Content.ReadAsStringAsync(), _json).Id;
+
+                // Remove the newer entry but KEEP its files (deleteFiles=false) - the crash-window state.
+                var del = await ca.DeleteAsync("/savegames/" + newerId + "?deleteFiles=false");
+                Assert.AreEqual(HttpStatusCode.NoContent, del.StatusCode);
+            }
+
+            using var b = new Factory(_storageDir, _metaDir, isVolatile: false);
+            using var cb = b.CreateClient();
+            var count = (await cb.GetStringAsync("/vertex/count")).Trim();
+            Assert.AreEqual("2", count,
+                "Boot must adopt the newer on-disk checkpoint (2 vertices), not revert to the older registered entry (1).");
+
+            // The adopted orphan was registered, so it is now the newest and the older entry still exists.
+            var list = JsonSerializer.Deserialize<List<SaveGameDto>>(await cb.GetStringAsync("/savegames"), _json);
+            Assert.IsTrue(list.Count >= 2, "The adopted orphan is registered alongside the older entry.");
+            Assert.IsTrue(list.Exists(s => s.Id == olderId), "The older entry is retained.");
+        }
+
+        [TestMethod]
         public async Task Startup_WithRegistry_LoadsNewest()
         {
             // Host A: create 1 vertex, save (registered). Registry + checkpoint now describe 1 vertex.
@@ -259,7 +303,7 @@ namespace NoSQL.GraphDB.Tests
                 await ca.PutAsync("/vertex?waitForCompletion=true",
                     new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
                 await ca.PutAsync("/save?waitForCompletion=true",
-                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "database.f8s").Replace("\\", "\\\\") + "\"}",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                         Encoding.UTF8, "application/json"));
             }
 

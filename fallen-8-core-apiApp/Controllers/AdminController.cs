@@ -273,8 +273,22 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             // Record the successful save in the registry and return the entry (feature save-games FR-4).
-            var entry = _saveGames.Register(_fallen8, saveTx.ActualPath, "api");
-            return Ok(entry);
+            // The checkpoint is already physically written; a registry failure must NOT turn a
+            // successful save into a 500. Fall back to a best-effort entry describing the save.
+            try
+            {
+                return Ok(_saveGames.Register(_fallen8, saveTx.ActualPath, "api"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "The save to \"{Path}\" succeeded but could not be registered in the save-game registry.", saveTx.ActualPath);
+                return Ok(new SaveGameREST
+                {
+                    SavedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                    Trigger = "api",
+                    Location = saveTx.ActualPath,
+                });
+            }
         }
 
         /// <summary>

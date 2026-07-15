@@ -190,5 +190,51 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(_registry.Delete(entry.Id, deleteFiles: true));
             Assert.IsFalse(File.Exists(path), "The primary checkpoint file is deleted when deleteFiles is true.");
         }
+
+        [TestMethod]
+        public void DeleteWithFiles_DoesNotTouchAVersionedSiblingsFiles()
+        {
+            // Two saves to the SAME base path: the first is "database.f8s" (bare), the second is
+            // "database.f8s#<stamp>" (versioned). The bare name is a textual prefix of the versioned
+            // one, so a naive prefix glob would delete the sibling's files. It must not.
+            var basePath = Path.Combine(_dataDir, "database.f8s");
+            var tx1 = new SaveTransaction { Path = basePath };
+            _fallen8.EnqueueTransaction(tx1).WaitUntilFinished();
+            var first = _registry.Register(_fallen8, tx1.ActualPath, "api");
+
+            _fallen8.EnqueueTransaction(new CreateVerticesTransaction().AddVertex(0)).WaitUntilFinished();
+            var tx2 = new SaveTransaction { Path = basePath };
+            _fallen8.EnqueueTransaction(tx2).WaitUntilFinished();
+            var second = _registry.Register(_fallen8, tx2.ActualPath, "api");
+
+            Assert.AreNotEqual(first.Location, second.Location, "The second save must be versioned.");
+            StringAssert.StartsWith(Path.GetFileName(second.Location), Path.GetFileName(first.Location),
+                "This test only matters when the bare name is a prefix of the versioned sibling.");
+            Assert.IsTrue(File.Exists(second.Location));
+
+            // Delete the FIRST (bare) entry with its files; the versioned sibling must survive.
+            Assert.IsTrue(_registry.Delete(first.Id, deleteFiles: true));
+            Assert.IsFalse(File.Exists(first.Location), "The deleted entry's own primary file is gone.");
+            Assert.IsTrue(File.Exists(second.Location),
+                "The versioned sibling's files must NOT be deleted by the prefix-named neighbor.");
+        }
+
+        [TestMethod]
+        public void MeasureFiles_DoesNotCountAVersionedSiblingsFiles()
+        {
+            var basePath = Path.Combine(_dataDir, "database.f8s");
+            var tx1 = new SaveTransaction { Path = basePath };
+            _fallen8.EnqueueTransaction(tx1).WaitUntilFinished();
+
+            var beforeSibling = _registry.MeasureFiles(tx1.ActualPath);
+
+            // A later versioned save to the same base must not inflate the bare entry's measurement.
+            var tx2 = new SaveTransaction { Path = basePath };
+            _fallen8.EnqueueTransaction(tx2).WaitUntilFinished();
+
+            var afterSibling = _registry.MeasureFiles(tx1.ActualPath);
+            Assert.AreEqual(beforeSibling.FileCount, afterSibling.FileCount,
+                "Measuring the bare entry must ignore the versioned sibling's files.");
+        }
     }
 }

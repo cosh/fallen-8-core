@@ -74,9 +74,10 @@ F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true docker compose up --build
 Every `PUT /save` (and the clean-shutdown save) is recorded in a persistent registry at
 `<deployment>/metadata/savegames.json` with KPIs and file facts; the "Save games" screen
 in F8 Studio lists, loads, and deletes them. **Startup is registry-driven:** on boot the
-engine loads the newest registered save game, or starts empty when the registry is empty —
-a checkpoint file sitting in the storage directory is no longer auto-loaded just because
-it is there. To adopt a pre-existing checkpoint after upgrading, load it once via
+engine loads the newest registered save game; when the registry is empty it does not load
+any checkpoint (a file sitting in the storage directory is no longer auto-loaded just
+because it is there) — it keeps whatever the write-ahead log replayed at construction,
+which for a fresh deployment is an empty graph. To adopt a pre-existing checkpoint after upgrading, load it once via
 `PUT /load` (or the Save games screen); it is then registered permanently. See
 [features/save-games/spec.md](features/save-games/spec.md).
 

@@ -24,11 +24,13 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
@@ -56,7 +58,29 @@ namespace NoSQL.GraphDB.App.Services
 
         private readonly Fallen8MetadataOptions _options;
         private readonly ILogger<SaveGameRegistry> _logger;
-        private readonly Object _gate = new Object();
+
+        // Per-file lock, keyed by the absolute registry path, so that multiple registry instances
+        // pointing at the SAME file within one process (e.g. overlapping hosts during a rolling
+        // restart or in tests) serialize their read/modify/write instead of racing on the file.
+        private static readonly ConcurrentDictionary<String, Object> _fileGates =
+            new ConcurrentDictionary<String, Object>(StringComparer.OrdinalIgnoreCase);
+
+        private Object Gate => _fileGates.GetOrAdd(NormalizedPath, _ => new Object());
+
+        private String NormalizedPath
+        {
+            get
+            {
+                try
+                {
+                    return Path.GetFullPath(RegistryPath);
+                }
+                catch
+                {
+                    return RegistryPath;
+                }
+            }
+        }
 
         private static readonly JsonSerializerOptions _json = new JsonSerializerOptions
         {
@@ -80,7 +104,7 @@ namespace NoSQL.GraphDB.App.Services
         /// </summary>
         public SaveGameRegistryDocument Load()
         {
-            lock (_gate)
+            lock (Gate)
             {
                 return LoadUnlocked();
             }
@@ -99,7 +123,7 @@ namespace NoSQL.GraphDB.App.Services
             String text;
             try
             {
-                text = File.ReadAllText(path);
+                text = ReadAllTextShared(path);
             }
             catch (Exception ex)
             {
@@ -123,6 +147,28 @@ namespace NoSQL.GraphDB.App.Services
                     "The Fallen-8 save-game registry at \"" + path + "\" is corrupt (invalid JSON); " +
                     "startup/registry access is aborted so a bad registry is never silently overwritten. " +
                     "Fix or remove the file and retry.", ex);
+            }
+        }
+
+        /// <summary>
+        ///   Reads a file opened with <see cref="FileShare.ReadWrite" /> and retries briefly on an
+        ///   IOException, so a read that races the atomic replace window (or a lingering handle from
+        ///   an overlapping host) succeeds rather than throwing.
+        /// </summary>
+        private static String ReadAllTextShared(String path)
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var reader = new StreamReader(fs);
+                    return reader.ReadToEnd();
+                }
+                catch (IOException) when (attempt < 5)
+                {
+                    Thread.Sleep(25);
+                }
             }
         }
 
@@ -164,14 +210,16 @@ namespace NoSQL.GraphDB.App.Services
             };
 
             var indexFactory = fallen8.IndexFactory;
-            if (indexFactory?.Indices != null)
+            if (indexFactory != null)
             {
-                foreach (var kv in indexFactory.Indices)
+                // Read a read-locked snapshot (id -> plugin type); iterating IndexFactory.Indices
+                // directly races a concurrent create/delete on a request thread.
+                foreach (var kv in indexFactory.GetIndexPluginTypesSnapshot())
                 {
                     kpis.Indices.Add(new SaveGameIndexREST
                     {
                         IndexId = kv.Key,
-                        PluginType = kv.Value?.PluginName ?? kv.Value?.GetType().Name,
+                        PluginType = kv.Value,
                     });
                 }
             }
@@ -205,16 +253,9 @@ namespace NoSQL.GraphDB.App.Services
         /// </summary>
         public (Int32 FileCount, Int64 TotalBytes) MeasureFiles(String location)
         {
-            var directory = Path.GetDirectoryName(location);
-            var prefix = Path.GetFileName(location);
-            if (String.IsNullOrEmpty(directory) || String.IsNullOrEmpty(prefix) || !Directory.Exists(directory))
-            {
-                return (0, 0);
-            }
-
             Int32 count = 0;
             Int64 bytes = 0;
-            foreach (var file in Directory.EnumerateFiles(directory, prefix + "*"))
+            foreach (var file in EnumerateOwnFiles(location))
             {
                 count++;
                 try
@@ -229,6 +270,34 @@ namespace NoSQL.GraphDB.App.Services
             return (count, bytes);
         }
 
+        /// <summary>
+        ///   The files that make up EXACTLY this save game: the primary checkpoint file plus its
+        ///   sidecars (named <c>&lt;primary&gt;_graphElements_…</c>, <c>_index_…</c>, <c>_service_…</c>,
+        ///   <c>_subgraph…</c> - all suffixes begin with '_'). A later save to the same base path is
+        ///   versioned with the '#' separator (<c>&lt;primary&gt;#&lt;stamp&gt;</c>), so a bare-named
+        ///   primary is a TEXTUAL prefix of its versioned siblings; matching only the exact name or a
+        ///   '_'-suffixed sidecar excludes those siblings, so measuring/deleting one save game never
+        ///   touches another's files.
+        /// </summary>
+        private static IEnumerable<String> EnumerateOwnFiles(String location)
+        {
+            var directory = Path.GetDirectoryName(location);
+            var primary = Path.GetFileName(location);
+            if (String.IsNullOrEmpty(directory) || String.IsNullOrEmpty(primary) || !Directory.Exists(directory))
+            {
+                yield break;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(directory, primary + "*"))
+            {
+                var name = Path.GetFileName(file);
+                if (name == primary || name.StartsWith(primary + "_", StringComparison.Ordinal))
+                {
+                    yield return file;
+                }
+            }
+        }
+
         #endregion
 
         #region registration + lifecycle
@@ -239,7 +308,7 @@ namespace NoSQL.GraphDB.App.Services
         /// </summary>
         public SaveGameREST Register(IFallen8 fallen8, String location, String trigger)
         {
-            lock (_gate)
+            lock (Gate)
             {
                 var document = LoadUnlocked();
                 var entry = BuildEntry(fallen8, location, trigger, DateTime.UtcNow);
@@ -257,7 +326,7 @@ namespace NoSQL.GraphDB.App.Services
         /// </summary>
         public SaveGameREST RegisterImportIfUnknown(IFallen8 fallen8, String location)
         {
-            lock (_gate)
+            lock (Gate)
             {
                 var document = LoadUnlocked();
                 var full = SafeFullPath(location);
@@ -278,7 +347,7 @@ namespace NoSQL.GraphDB.App.Services
         /// <summary>All entries, newest first (by savedAt).</summary>
         public List<SaveGameREST> GetAll()
         {
-            lock (_gate)
+            lock (Gate)
             {
                 return LoadUnlocked().SaveGames
                     .OrderByDescending(s => s.SavedAt, StringComparer.Ordinal)
@@ -288,7 +357,7 @@ namespace NoSQL.GraphDB.App.Services
 
         public SaveGameREST GetById(String id)
         {
-            lock (_gate)
+            lock (Gate)
             {
                 return LoadUnlocked().SaveGames.FirstOrDefault(s => s.Id == id);
             }
@@ -297,7 +366,7 @@ namespace NoSQL.GraphDB.App.Services
         /// <summary>The entry with the newest savedAt, or null when the registry is empty (FR-8).</summary>
         public SaveGameREST Newest()
         {
-            lock (_gate)
+            lock (Gate)
             {
                 return LoadUnlocked().SaveGames
                     .OrderByDescending(s => s.SavedAt, StringComparer.Ordinal)
@@ -311,7 +380,7 @@ namespace NoSQL.GraphDB.App.Services
         /// </summary>
         public Boolean Delete(String id, Boolean deleteFiles)
         {
-            lock (_gate)
+            lock (Gate)
             {
                 var document = LoadUnlocked();
                 var entry = document.SaveGames.FirstOrDefault(s => s.Id == id);
@@ -334,13 +403,8 @@ namespace NoSQL.GraphDB.App.Services
 
         private void DeleteFiles(String location)
         {
-            var directory = Path.GetDirectoryName(location);
-            var prefix = Path.GetFileName(location);
-            if (String.IsNullOrEmpty(directory) || String.IsNullOrEmpty(prefix) || !Directory.Exists(directory))
-            {
-                return;
-            }
-            foreach (var file in Directory.EnumerateFiles(directory, prefix + "*").ToList())
+            // Only this save game's own files (never a '#'-versioned sibling's) - see EnumerateOwnFiles.
+            foreach (var file in EnumerateOwnFiles(location).ToList())
             {
                 try
                 {

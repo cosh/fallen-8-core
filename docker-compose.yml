@@ -17,6 +17,10 @@ services:
   fallen8:
     build: .
     restart: unless-stopped
+    # Give the clean-shutdown checkpoint time to write + register before SIGKILL (compose's
+    # default grace is 10s; a large graph's save can take longer). If it is still killed,
+    # committed writes are recovered from the WAL on the next boot.
+    stop_grace_period: 60s
     ports:
       # Host port is configurable (F8_PORT) so the environment does not collide with
       # something already on 8080; the container always listens on 8080.
