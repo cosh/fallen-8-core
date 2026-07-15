@@ -107,9 +107,9 @@ as a follow-up if the review prefers to gate the server side first.
 
 ## Progress
 
-- [ ] Phase 0 — event model + writer-side capture/publish hook
-- [ ] Phase 1 — dispatcher, sequencing, ring buffer, filters, backpressure
-- [ ] Phase 2 — SSE endpoint, filter grammar, config, auth surface
+- [x] Phase 0 — event model + writer-side capture/publish hook
+- [x] Phase 1 — dispatcher, sequencing, ring buffer, filters, backpressure
+- [x] Phase 2 — SSE endpoint, filter grammar, config, auth surface
 - [ ] Phase 3 — throughput benchmark + docs
 - [ ] Phase 4 — Studio live mode
 - [ ] Phase 5 — council gate, merge + move to done/

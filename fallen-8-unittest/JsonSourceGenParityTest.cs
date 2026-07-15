@@ -504,6 +504,23 @@ namespace NoSQL.GraphDB.Tests
                 }, "PathSpecification"),
                 (new PathFilterSpecification(), "PathFilterSpecification"),
                 (new PathCostSpecification(), "PathCostSpecification"),
+                (new ChangeEventREST
+                {
+                    Seq = 4712,
+                    Ts = new DateTime(2026, 7, 15, 12, 34, 56, 789, DateTimeKind.Utc),
+                    Kind = "propertySet",
+                    Element = "vertex",
+                    Id = 42,
+                    Label = "person",
+                    Key = "name"
+                }, "ChangeEventREST"),
+                (new ChangeEventREST
+                {
+                    Seq = 4713,
+                    Ts = new DateTime(2026, 7, 15, 12, 34, 56, 789, DateTimeKind.Utc),
+                    Kind = "resync",
+                    Reason = "trim"
+                }, "ChangeEventREST (resync, null-omitting fields)"),
                 (new StoredQuerySpecification
                 {
                     Name = "adults-shortest",
