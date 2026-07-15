@@ -2579,7 +2579,7 @@
             }
           },
           "400": {
-            "description": "Invalid path specification",
+            "description": "Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2601,7 +2601,7 @@
             }
           },
           "403": {
-            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)",
+            "description": "The request carries inline filter/cost fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery - or carrying no fragments at all - are NOT gated by that switch.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2612,7 +2612,18 @@
             }
           },
           "404": {
-            "description": "Source or target vertex not found",
+            "description": "Source or target vertex not found, or no stored query with the referenced name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name})",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3229,6 +3240,308 @@
         }
       }
     },
+    "/storedquery": {
+      "post": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Registers a stored query: validates and compiles the specification, then publishes it under a unique name.",
+        "description": "Exactly one of \"path\" / \"subGraph\" must be present and must match \"kind\". The code\r\nfragments are compiled ONCE here, with the same bounds as the inline endpoints; a\r\ncompile failure rejects the registration with the compiler diagnostics. Entries are\r\nimmutable: to change one, delete and re-register.\r\n\r\nSample request:\r\n\r\n    POST /storedquery\r\n    {\r\n       \"name\": \"adults-shortest\",\r\n       \"kind\": \"Path\",\r\n       \"description\": \"age&gt;30 vertices, weight-by-distance\",\r\n       \"path\": {\r\n         \"filter\": { \"vertexFilter\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\" },\r\n         \"cost\":   { \"edgeCost\": \"return (e) =&gt; 1.0;\" }\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The stored query specification (name, kind, and the matching path/subGraph block)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/StoredQuerySpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/StoredQuerySpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The stored query was compiled and registered",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredQuerySummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The specification was malformed (name/kind/block), or a fragment failed to compile (the body carries the compiler diagnostics)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) - registration introduces code and is always gated",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A stored query with the same name already exists, or the library quota (Fallen8:StoredQueries:MaxCount) was reached",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The registration transaction faulted with an internal error",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Lists all registered stored queries.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the stored query summaries",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StoredQuerySummaryREST"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/storedquery/{name}": {
+      "get": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Gets the full definition of a stored query, including its source specification.",
+        "description": "The response includes the stored specification JSON (the registration request's\r\npath/subGraph block), which also covers manual migration between instances, and - for\r\na Failed entry - the recompile diagnostics.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The stored query name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the stored query detail",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredQueryDetailREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No stored query with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Deletes (deregisters) a stored query.",
+        "description": "Deletion drops the pinned compiled artifact so its collectible load context can unload\r\nonce in-flight invocations finish. NOT gated by the dynamic-code switch: removal\r\ncompiles nothing and must stay possible while the switch is off.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The stored query name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The stored query was deleted"
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No stored query with the given name exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The removal transaction was rolled back and did not complete"
+          }
+        }
+      }
+    },
     "/subgraph": {
       "put": {
         "tags": [
@@ -3300,7 +3613,7 @@
             }
           },
           "403": {
-            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)",
+            "description": "The request carries inline filter/pattern fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery are NOT gated by that switch.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3311,7 +3624,7 @@
             }
           },
           "400": {
-            "description": "The specification was invalid, the pattern was structurally invalid, or a filter failed to compile",
+            "description": "The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3322,7 +3635,7 @@
             }
           },
           "404": {
-            "description": "The source subgraph named by fromSubGraph does not exist",
+            "description": "The source subgraph named by fromSubGraph does not exist, or no stored query with the referenced name exists",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3333,7 +3646,7 @@
             }
           },
           "409": {
-            "description": "A subgraph with the same name already exists, or a resource quota (subgraph count or materialized-element ceiling) was exceeded",
+            "description": "A subgraph with the same name already exists, a resource quota (subgraph count or materialized-element ceiling) was exceeded, or the referenced stored query is not invocable (its recompile on load failed)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -4618,6 +4931,14 @@
           "cost": {
             "description": "Cost function specifications for weighting paths",
             "$ref": "#/components/schemas/PathCostSpecification"
+          },
+          "storedQuery": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The name of a registered stored query of kind `Path` to use instead of inline\r\nPathFilterSpecification PathSpecification.Filter/PathCostSpecification PathSpecification.Cost fragments (feature stored-query-library).\r\nMutually exclusive with them (400 when mixed). A stored-query request compiles\r\nnothing and works with dynamic code execution disabled; the numeric bounds and\r\nstring PathSpecification.PathAlgorithmName stay per-request.",
+            "example": "adults-shortest"
           }
         },
         "description": "Specification for finding paths between vertices in the graph",
@@ -5319,6 +5640,205 @@
           ]
         }
       },
+      "StoredPathQueryBlock": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "description": "Filtering criteria for elements to include in path calculations.",
+            "$ref": "#/components/schemas/PathFilterSpecification"
+          },
+          "cost": {
+            "description": "Cost function specifications for weighting paths.",
+            "$ref": "#/components/schemas/PathCostSpecification"
+          }
+        },
+        "description": "The stored form of a path query: the `filter`/`cost` blocks of a\r\nPathSpecification. The numeric bounds (`maxDepth`, `maxResults`,\r\n`maxPathWeight`) and the algorithm name stay per-request."
+      },
+      "StoredQueryDetailREST": {
+        "type": "object",
+        "properties": {
+          "specificationJson": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored specification document (JSON text): the registration request's\r\n`path` / `subGraph` block exactly as stored."
+          },
+          "compileDiagnostics": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The compiler diagnostics of a failed rehydration recompile; null unless\r\nstring StoredQuerySummaryREST.CompileState is `Failed`."
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query name.",
+            "example": "adults-shortest"
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query kind (`Path` or `SubGraph`).",
+            "example": "Path"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The optional description."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "When the query was registered (UTC).",
+            "format": "date-time"
+          },
+          "compileState": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The compile state: `Compiled` (invocable), `Failed` (a rehydration\r\nrecompile failed - see the detail response's diagnostics; invoking returns 409), or\r\n`SourceOnly` (loaded without a compiler).",
+            "example": "Compiled"
+          }
+        },
+        "description": "Full detail of a registered stored query, INCLUDING its source specification - the\r\nlibrary is transparent to its operator (and `GET` covers manual migration between\r\ninstances)."
+      },
+      "StoredQuerySpecification": {
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The unique name to register the query under. Restricted to\r\n`^[A-Za-z0-9_-]{1,128}$` (always a safe URL path segment); compared\r\ncase-sensitively.",
+            "example": "adults-shortest"
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query kind: `Path` (a filter/cost set for `POST /path`) or\r\n`SubGraph` (a pattern template for `PUT /subgraph`).",
+            "example": "Path"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "An optional human-readable description.",
+            "example": "age&gt;30 vertices, weight-by-distance"
+          },
+          "path": {
+            "description": "The path filter/cost block (required iff string StoredQuerySpecification.Kind is `Path`).",
+            "$ref": "#/components/schemas/StoredPathQueryBlock"
+          },
+          "subGraph": {
+            "description": "The subgraph pattern template block (required iff string StoredQuerySpecification.Kind is\r\n`SubGraph`). The subgraph instance name and additional information stay\r\nper-request on `PUT /subgraph` and are not part of the stored template.",
+            "$ref": "#/components/schemas/StoredSubGraphQueryBlock"
+          }
+        },
+        "description": "Specification for registering a stored query (feature stored-query-library): a named,\r\nvalidated, pre-compiled query definition that the path/subgraph endpoints can afterwards\r\nreference by name - including when dynamic code execution is disabled.",
+        "example": {
+          "name": "adults-shortest",
+          "kind": "Path",
+          "description": "age&gt;30 vertices, weight-by-distance",
+          "path": {
+            "filter": {
+              "vertexFilter": "return (v) =&gt; v.TryGetProperty(out int age, \"age\") &amp;&amp; age &gt; 30;"
+            },
+            "cost": {
+              "edgeCost": "return (e) =&gt; 1.0;"
+            }
+          }
+        }
+      },
+      "StoredQuerySummaryREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query name.",
+            "example": "adults-shortest"
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query kind (`Path` or `SubGraph`).",
+            "example": "Path"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The optional description."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "When the query was registered (UTC).",
+            "format": "date-time"
+          },
+          "compileState": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The compile state: `Compiled` (invocable), `Failed` (a rehydration\r\nrecompile failed - see the detail response's diagnostics; invoking returns 409), or\r\n`SourceOnly` (loaded without a compiler).",
+            "example": "Compiled"
+          }
+        },
+        "description": "Summary of a registered stored query (list/detail responses)."
+      },
+      "StoredSubGraphQueryBlock": {
+        "type": "object",
+        "properties": {
+          "vertexFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional pre-filter selecting which vertices are copied into the subgraph\r\n(a C# fragment receiving an `AGraphElementModel`).",
+            "example": "return (ge) =&gt; ge.Label == \"person\";"
+          },
+          "edgeFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional pre-filter selecting which edges are copied into the subgraph\r\n(a C# fragment receiving an `AGraphElementModel`).",
+            "example": "return (ge) =&gt; ge.Label == \"knows\";"
+          },
+          "patterns": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PatternSpecification"
+            },
+            "description": "Ordered pattern sequence describing the paths to keep (see\r\nList&lt;PatternSpecification&gt; SubGraphSpecification.Patterns)."
+          }
+        },
+        "description": "The stored form of a subgraph query: a SubGraphSpecification WITHOUT the\r\nper-instance `name`/`additionalInformation` fields."
+      },
       "Stream": {
         "type": "string",
         "format": "binary"
@@ -5372,6 +5892,14 @@
               "$ref": "#/components/schemas/PatternSpecification"
             },
             "description": "Ordered pattern sequence describing the paths to keep. Should alternate\r\nvertex ↔ edge and start with a vertex pattern. Empty means \"no pruning\"."
+          },
+          "storedQuery": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The name of a registered stored query of kind `SubGraph` to instantiate instead\r\nof inline string SubGraphSpecification.VertexFilter/string SubGraphSpecification.EdgeFilter/List&lt;PatternSpecification&gt; SubGraphSpecification.Patterns\r\nfragments (feature stored-query-library). Mutually exclusive with them (400 when\r\nmixed); string SubGraphSpecification.Name (and optional Dictionary&lt;string, string&gt; SubGraphSpecification.AdditionalInformation) stay\r\nrequired per instance. A stored-query request compiles nothing and works with\r\ndynamic code execution disabled.",
+            "example": "person-net"
           }
         },
         "description": "Specification for creating a subgraph by pattern matching against the graph.",
@@ -5681,6 +6209,9 @@
     },
     {
       "name": "SaveGames"
+    },
+    {
+      "name": "StoredQueries"
     },
     {
       "name": "SubGraph"

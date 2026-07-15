@@ -29,6 +29,7 @@ using System.IO;
 using System.Text.Json;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
+using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -85,6 +86,9 @@ namespace NoSQL.GraphDB.Core.Persistency
                     return true;
 
                 case RemoveSubGraphTransaction _: type = WalEntryType.RemoveSubGraph; return true;
+
+                case RegisterStoredQueryTransaction _: type = WalEntryType.RegisterStoredQuery; return true;
+                case RemoveStoredQueryTransaction _: type = WalEntryType.RemoveStoredQuery; return true;
 
                 default: type = default; return false;
             }
@@ -190,6 +194,22 @@ namespace NoSQL.GraphDB.Core.Persistency
                         writer.WriteOptimized(((RemoveSubGraphTransaction)tx).SubGraphName ?? String.Empty);
                         break;
 
+                    case WalEntryType.RegisterStoredQuery:
+                        {
+                            // The whole definition (name, kind, source, metadata) round-trips as
+                            // JSON via the SAME source-gen serialization the snapshot manifest
+                            // uses, so Save and WAL agree byte-for-byte on what a stored query is.
+                            var register = (RegisterStoredQueryTransaction)tx;
+                            var json = JsonSerializer.Serialize(
+                                register.Entry.Definition, CoreJsonContext.Default.StoredQueryDefinition);
+                            writer.WriteOptimized(json);
+                            break;
+                        }
+
+                    case WalEntryType.RemoveStoredQuery:
+                        writer.WriteOptimized(((RemoveStoredQueryTransaction)tx).Name ?? String.Empty);
+                        break;
+
                     case WalEntryType.Trim:
                     case WalEntryType.TabulaRasa:
                         // Markers: the type byte is the whole payload.
@@ -289,16 +309,56 @@ namespace NoSQL.GraphDB.Core.Persistency
                 case WalEntryType.RemoveSubGraph:
                     return new RemoveSubGraphTransaction { SubGraphName = reader.ReadOptimizedString() };
 
+                case WalEntryType.RemoveStoredQuery:
+                    return new RemoveStoredQueryTransaction { Name = reader.ReadOptimizedString() };
+
                 case WalEntryType.Trim:
                 case WalEntryType.TabulaRasa:
                 case WalEntryType.CreateSubGraph:
-                    // Trim/TabulaRasa carry no payload; CreateSubGraph needs the (engine-external)
-                    // recipe compiler, so the replay loop decodes it via TryDecodeSubGraphCreate and
-                    // drives the compile + create itself rather than re-executing a ready transaction.
+                case WalEntryType.RegisterStoredQuery:
+                    // Trim/TabulaRasa carry no payload; CreateSubGraph/RegisterStoredQuery need the
+                    // (engine-external) compilers, so the replay loop decodes them via
+                    // TryDecodeSubGraphCreate/TryDecodeStoredQueryRegister and drives the compile +
+                    // re-execute itself rather than re-executing a ready transaction.
                     return null;
 
                 default:
                     throw new InvalidDataException("Unknown WAL entry type " + (byte)type);
+            }
+        }
+
+        /// <summary>
+        ///   Decodes a <see cref="WalEntryType.RegisterStoredQuery" /> entry into the persisted
+        ///   definition. Returns false (never throws) when the payload is not a stored-query
+        ///   registration entry or its definition JSON cannot be parsed, so a single
+        ///   unusable-but-CRC-valid entry is skipped on replay rather than halting recovery - each
+        ///   entry has its own payload so skipping one cannot corrupt the next.
+        /// </summary>
+        internal static bool TryDecodeStoredQueryRegister(byte[] payload, out StoredQueryDefinition definition)
+        {
+            definition = null;
+
+            try
+            {
+                var reader = new SerializationReader(new MemoryStream(payload, writable: false));
+                if ((WalEntryType)reader.ReadByte() != WalEntryType.RegisterStoredQuery)
+                {
+                    return false;
+                }
+
+                var json = reader.ReadOptimizedString();
+                if (string.IsNullOrEmpty(json))
+                {
+                    return false;
+                }
+
+                definition = JsonSerializer.Deserialize(json, CoreJsonContext.Default.StoredQueryDefinition);
+                return definition != null;
+            }
+            catch
+            {
+                definition = null;
+                return false;
             }
         }
 
