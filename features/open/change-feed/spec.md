@@ -167,13 +167,15 @@ Mapping from the write surface (the same operations the WAL logs, `WalEntryType`
 
 | Transaction | Events |
 |---|---|
-| `CreateVertexTransaction` / `CreateVerticesTransaction` | `vertexCreated` per vertex; `edgeCreated` per edge the batch also creates |
+| `CreateVertexTransaction` / `CreateVerticesTransaction` | `vertexCreated` per vertex (the batch transaction creates vertices only) |
 | `CreateEdgeTransaction` / `CreateEdgesTransaction` | `edgeCreated` per edge |
-| `AddPropertyTransaction` / `AddPropertiesTransaction` | `propertySet` per (element, key) |
-| `RemovePropertyTransaction` | `propertyRemoved` |
-| `RemoveGraphElementTransaction` / `RemoveGraphElementsTransaction` | `vertexRemoved` / `edgeRemoved` per element (edges removed by cascade included) |
-| `CreateSubGraphTransaction` / `RemoveSubGraphTransaction` | the underlying element events (created/removed elements), not a subgraph-level event |
-| `TrimTransaction` / auto-trim | `resync` (`reason: "trim"`) — ids are reassigned; every client-held id is invalid |
+| `AddPropertyTransaction` / `AddPropertiesTransaction` | `propertySet` per APPLIED (element, key) — a no-op target emits nothing |
+| `RemovePropertyTransaction` | `propertyRemoved` iff a property was actually removed |
+| `RemoveGraphElementTransaction` / `RemoveGraphElementsTransaction` | `vertexRemoved` / `edgeRemoved` per element actually removed (edges removed by cascade included, deduplicated) |
+| `CreateSubGraphTransaction` / `RemoveSubGraphTransaction` | nothing — a subgraph is derived state materialized in its OWN standalone graph instance; the main graph is not mutated |
+| `RegisterStoredQueryTransaction` / `RemoveStoredQueryTransaction` | nothing (library state, not graph state) |
+| `TrimTransaction` | `resync` (`reason: "trim"`) — ids are reassigned; every client-held id is invalid |
+| auto-trim | nothing — automatic reclamation is renumber-free (trim-reader-safety): it frees the bodies of already-removed elements without any observable change |
 | `TabulaRasaTransaction` | `resync` (`reason: "tabulaRasa"`) |
 | `LoadTransaction` | `resync` (`reason: "load"`) — state was replaced wholesale |
 | `SaveTransaction` | nothing (no graph mutation) |

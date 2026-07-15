@@ -75,5 +75,14 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             return true;
         }
+
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            if (_edgeCreated != null)
+            {
+                builder.EdgeCreated(_edgeCreated.Id, _edgeCreated.Label,
+                    _edgeCreated.SourceVertex.Id, _edgeCreated.TargetVertex.Id);
+            }
+        }
     }
 }

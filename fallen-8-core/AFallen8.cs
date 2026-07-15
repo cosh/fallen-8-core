@@ -94,6 +94,14 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Gets the change feed, or null when the engine carries none (feature change-feed).
+        /// </summary>
+        public abstract ChangeFeed.ChangeFeedDispatcher ChangeFeed
+        {
+            get; internal set;
+        }
+
+        /// <summary>
         ///   Gets or sets the compiler used to (re)build stored query artifacts from their
         ///   persisted source.
         /// </summary>

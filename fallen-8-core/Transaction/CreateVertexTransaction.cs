@@ -65,5 +65,13 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             return VertexCreated != null;
         }
+
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            if (VertexCreated != null)
+            {
+                builder.VertexCreated(VertexCreated.Id, VertexCreated.Label);
+            }
+        }
     }
 }

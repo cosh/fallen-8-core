@@ -1,6 +1,6 @@
-﻿// MIT License
+// MIT License
 //
-// TabulaRasaTransaction.cs
+// ChangeFeedOptions.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -23,32 +23,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using NoSQL.GraphDB.Core.Model;
 using System;
 
-namespace NoSQL.GraphDB.Core.Transaction
+namespace NoSQL.GraphDB.Core.ChangeFeed
 {
-    public class TabulaRasaTransaction : ATransaction
+    /// <summary>
+    ///   Opt-in options for the engine's change feed (feature change-feed), mirroring the
+    ///   <see cref="WriteAheadLogOptions"/> pattern: an engine constructed WITHOUT these options
+    ///   carries no feed and the write path pays only a null check.
+    /// </summary>
+    public sealed class ChangeFeedOptions
     {
-        internal override void Cleanup()
-        {
-            //NOOP
-        }
+        /// <summary>Ring-buffer capacity (events) for <c>?since=</c> catch-up. Default 8192.</summary>
+        public Int32 BufferSize { get; set; } = 8192;
 
-        internal override void Rollback(Fallen8 f8)
-        {
-            //NOP
-        }
+        /// <summary>Per-subscriber bounded queue capacity (events). Default 1024.</summary>
+        public Int32 SubscriberQueueSize { get; set; } = 1024;
 
-        internal override Boolean TryExecute(Fallen8 f8)
-        {
-            f8.TabulaRasa_internal();
-            return true;
-        }
-
-        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
-        {
-            builder.Resync(ChangeFeed.ChangeFeedDispatcher.ResyncReasonTabulaRasa);
-        }
+        /// <summary>Maximum concurrent subscribers; a subscribe beyond it is rejected. Default 32.</summary>
+        public Int32 MaxSubscribers { get; set; } = 32;
     }
 }
