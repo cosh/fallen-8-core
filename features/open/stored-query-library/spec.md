@@ -189,15 +189,21 @@ Today `POST /path` and `PUT /subgraph` carry an endpoint-level
 endpoint regardless of request shape. That is too coarse once a request can be code-free. The
 gate becomes **request-shape-aware**:
 
-- Both endpoints keep `[Authorize]` (authentication unchanged) and drop the endpoint-level
-  capability policy. Inside the action, iff the request carries **any inline fragment** (a
+- Both endpoints drop the endpoint-level capability policy; authentication is unchanged
+  because the global fallback policy (api-security-boundary) governs attribute-less actions
+  exactly as it governs every other endpoint — when a key is configured, an anonymous request
+  is 401 before the action runs; without a key the endpoints stay open, as before. (As built,
+  no `[Authorize]` attribute remains on the endpoints: adding a bare one would have *changed*
+  the no-key posture, since the default policy demands an authenticated user even when the
+  fallback is absent.) Inside the action, iff the request carries **any inline fragment** (a
   non-blank filter/cost string, or any subgraph filter/pattern fragment), the capability is
   checked imperatively via `IAuthorizationService.AuthorizeAsync` against the same
   `DynamicCapabilityRequirement` — failure returns the same 403 the policy produces today.
 - A request that references only a `storedQuery` — or carries no fragments at all — passes
   without the capability. (Deliberate contract fix: a filterless path search stops requiring
-  the dynamic-code switch; it never compiles anything. This makes the mcp-server spec's
-  read-tier `f8_find_paths` assumption true.)
+  the dynamic-code switch; it compiles no *user-supplied* code — the first such request still
+  compiles the server-generated default traverser, zero user input, cached thereafter. This
+  makes the mcp-server spec's read-tier `f8_find_paths` assumption true.)
 - `POST /storedquery` (registration) keeps the **declarative** endpoint-level policy, the
   sensitive rate-limit policy, and the 1 MiB body cap — it is dynamic-code surface exactly like
   `POST /delegates/validate`.

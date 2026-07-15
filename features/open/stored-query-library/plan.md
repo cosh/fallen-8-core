@@ -108,7 +108,37 @@ Intent: stored queries survive Save/Load and crash+replay, symmetrically.
 - [x] Phase 2 — request-shape-aware kill-switch gate + full matrix tests
 - [x] Phase 3 — snapshot manifest + WAL entries 14/15 + replay
 - [x] Phase 4 — READMEs, doc pointers, OpenAPI snapshot
-- [ ] Phase 5 — council gate, merge, move to done/
+- [x] Phase 5 — council gate, merge, move to done/
+
+## Council outcome (2026-07-15)
+
+Three parallel reviews (correctness/concurrency, regressions/invariants, scope/spec-fidelity):
+**3× APPROVE, zero blocker/major findings.** Minor findings fixed on the branch before merge:
+
+- WAL replay now bypasses the registration quota (`RegisterStoredQueryTransaction.BypassQuota`):
+  a replayed registration was quota-checked at its original commit, and recovery can run before
+  the configured ceiling is applied — re-enforcing a default ceiling could silently drop
+  committed operator state.
+- The 201 response body uses the controller's own entry reference instead of re-reading
+  `tx.Entry` (a concurrent Trim could null it via `Cleanup`).
+- Both stored-query transactions release their entry references at completion
+  (`ReleaseAfterCompletion`), so deleting a stored query genuinely unpins its compiled artifact
+  immediately — pinned by the unload test now passing WITHOUT forcing a Trim.
+- Kind parsing accepts only the literal names (`Enum.TryParse` also accepted numeric strings).
+- `/path`'s storedQuery-vs-inline mutual-exclusion trigger harmonized with `/subgraph`'s
+  (actual non-blank fragments, not object presence).
+- Spec §3.3 updated to the as-built authentication mechanism (fallback policy; no endpoint
+  `[Authorize]` attribute — a bare one would have changed the no-key posture) and the honest
+  "compiles no user-supplied code" wording for filterless requests.
+- Fixed a stacked XML doc comment in `WalTransactionCodec`.
+- New tests: composed delete-template → Save/Load subgraph survival, corrupt-manifest
+  error-log assertion, torn trailing WAL register entry, decoder never-throws probe,
+  remove-then-re-register replay, case-sensitive name coexistence, numeric-kind rejection,
+  switch-ON pipeline rows for stored-subgraph invocation and list/get/delete.
+
+Accepted without a test (noted honestly): a fault-injection test forcing the stored-query
+manifest write to fail mid-Save (the versioned save path is not predictable from outside;
+the D6 discipline is code-identical to the reviewed subgraph-recipe path).
 
 ## Decision / revisit conditions
 

@@ -1212,8 +1212,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 {
                     // Stored-query invocation (feature stored-query-library): resolve the name to
                     // its pinned, pre-compiled traverser - nothing is compiled and the inline
-                    // caches are never consulted. Mutually exclusive with inline fragments.
-                    if (definition.Filter != null || definition.Cost != null)
+                    // caches are never consulted. Mutually exclusive with inline fragments; the
+                    // trigger is actual code (a non-blank fragment), matching the capability gate
+                    // and the /subgraph endpoint's semantics.
+                    if (CarriesInlineCode(definition))
                     {
                         return BadRequest("'storedQuery' is mutually exclusive with inline 'filter'/'cost' fragments.");
                     }

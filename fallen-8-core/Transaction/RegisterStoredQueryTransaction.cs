@@ -40,9 +40,25 @@ namespace NoSQL.GraphDB.Core.Transaction
     {
         /// <summary>
         ///   The fully-built entry to register: definition + pre-compiled artifact (or a
-        ///   rehydration state on the load/replay paths).
+        ///   rehydration state on the load/replay paths). Released at completion (see
+        ///   <see cref="ReleaseAfterCompletion"/>) - a caller that needs the entry after
+        ///   <c>WaitUntilFinished()</c> keeps its own reference to what it constructed.
         /// </summary>
         public StoredQueryEntry Entry
+        {
+            get;
+            set;
+        }
+
+        /// <summary>
+        ///   When set, the library's registration ceiling is not enforced. ONLY for write-ahead-log
+        ///   replay (<c>Fallen8.ReplayStoredQueryRegister</c>): a replayed registration was already
+        ///   accepted - and quota-checked - when it originally committed, and recovery may run
+        ///   before the operator's configured ceiling is applied (the WAL-enabled constructor
+        ///   replays an unanchored log during construction), so re-enforcing a possibly-default
+        ///   ceiling at recovery could silently drop committed operator state.
+        /// </summary>
+        internal Boolean BypassQuota
         {
             get;
             set;
@@ -55,6 +71,19 @@ namespace NoSQL.GraphDB.Core.Transaction
         /// Cleans up the transaction resources.
         /// </summary>
         internal override void Cleanup()
+        {
+            Entry = null;
+        }
+
+        /// <summary>
+        ///   Drops the entry reference once the transaction is terminal, so the transaction
+        ///   manager's bookkeeping never pins a compiled artifact (and its collectible load
+        ///   context) beyond the library's own lifetime decisions - a registered entry is
+        ///   strongly referenced by the library itself, and after a later delete only the library
+        ///   drop should matter, not retention bookkeeping. Runs AFTER rollback and after the WAL
+        ///   frame was buffered (both use the entry), per the manager's ordering.
+        /// </summary>
+        internal override void ReleaseAfterCompletion()
         {
             Entry = null;
         }
@@ -84,7 +113,7 @@ namespace NoSQL.GraphDB.Core.Transaction
                 return false;
             }
 
-            if (!f8.StoredQueries.TryRegister(Entry, out var reason))
+            if (!f8.StoredQueries.TryRegister(Entry, out var reason, enforceQuota: !BypassQuota))
             {
                 FailureReason = reason;
                 return false;

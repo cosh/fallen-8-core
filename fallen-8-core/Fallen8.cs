@@ -2189,7 +2189,11 @@ namespace NoSQL.GraphDB.Core
             {
                 var tx = new RegisterStoredQueryTransaction
                 {
-                    Entry = BuildRehydratedStoredQueryEntry(definition)
+                    Entry = BuildRehydratedStoredQueryEntry(definition),
+                    // A replayed registration was already quota-checked at its original commit;
+                    // recovery may run before the operator's configured ceiling is applied, so
+                    // re-enforcing here could silently drop committed operator state.
+                    BypassQuota = true
                 };
 
                 if (!tx.TryExecute(this))

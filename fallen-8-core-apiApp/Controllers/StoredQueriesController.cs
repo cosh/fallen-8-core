@@ -144,10 +144,19 @@ namespace NoSQL.GraphDB.App.Controllers
                     specification.Name, StoredQueryLibrary.MaxNameLength));
             }
 
-            if (!Enum.TryParse<StoredQueryKind>(specification.Kind, ignoreCase: false, out var kind))
+            // Strict literal names only (Enum.TryParse would also accept numeric strings).
+            StoredQueryKind kind;
+            switch (specification.Kind)
             {
-                return BadRequest(String.Format(
-                    "'{0}' is not a valid stored query kind. Expected 'Path' or 'SubGraph'.", specification.Kind));
+                case "Path":
+                    kind = StoredQueryKind.Path;
+                    break;
+                case "SubGraph":
+                    kind = StoredQueryKind.SubGraph;
+                    break;
+                default:
+                    return BadRequest(String.Format(
+                        "'{0}' is not a valid stored query kind. Expected 'Path' or 'SubGraph'.", specification.Kind));
             }
 
             // Exactly one block, matching the declared kind.
@@ -188,10 +197,10 @@ namespace NoSQL.GraphDB.App.Controllers
                     return BadRequest(compileError);
                 }
 
-                var tx = new RegisterStoredQueryTransaction
-                {
-                    Entry = new StoredQueryEntry(definition, StoredQueryCompileState.Compiled, artifact)
-                };
+                // Keep the constructed entry in a local: the transaction releases its own
+                // reference at completion, so re-reading tx.Entry here would race that release.
+                var entry = new StoredQueryEntry(definition, StoredQueryCompileState.Compiled, artifact);
+                var tx = new RegisterStoredQueryTransaction { Entry = entry };
                 var txInfo = _fallen8.EnqueueTransaction(tx);
                 txInfo.WaitUntilFinished();
 
@@ -201,7 +210,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
 
                 return Created("/storedquery/" + Uri.EscapeDataString(specification.Name),
-                    StoredQuerySummaryREST.FromEntry(tx.Entry));
+                    StoredQuerySummaryREST.FromEntry(entry));
             }
             catch (Exception ex)
             {

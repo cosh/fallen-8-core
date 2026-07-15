@@ -59,6 +59,18 @@ namespace NoSQL.GraphDB.Core.Transaction
         }
 
         /// <summary>
+        ///   Drops the removed entry once the transaction is terminal (nothing reads it after
+        ///   completion; rollback - which restores it - runs before the terminal state), so a
+        ///   deleted stored query's compiled artifact is not kept alive by transaction-manager
+        ///   bookkeeping until the next Trim: the delete itself unpins, and the collectible load
+        ///   context can unload as soon as in-flight invocations finish.
+        /// </summary>
+        internal override void ReleaseAfterCompletion()
+        {
+            _removedEntry = null;
+        }
+
+        /// <summary>
         /// Rolls back the transaction by restoring the removed entry.
         /// </summary>
         /// <param name="f8">The Fallen8 instance.</param>

@@ -174,6 +174,61 @@ namespace NoSQL.GraphDB.Tests
 
         private const string BadSourceBlock = "{\"filter\":{\"vertexFilter\":\"return (v) => v.NoSuchMember == 42;\"}}";
 
+        private static ILoggerFactory CapturingFactory(CapturingLoggerProvider provider)
+        {
+            return LoggerFactory.Create(builder =>
+            {
+                builder.SetMinimumLevel(LogLevel.Trace);
+                builder.AddProvider(provider);
+            });
+        }
+
+        /// <summary>Records emitted log entries so a test can assert a specific error fired.</summary>
+        private sealed class CapturingLoggerProvider : ILoggerProvider
+        {
+            private readonly object _gate = new object();
+            private readonly List<(LogLevel Level, string Message)> _entries = new List<(LogLevel, string)>();
+
+            public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
+
+            public void Dispose() { }
+
+            public IReadOnlyList<(LogLevel Level, string Message)> Entries
+            {
+                get
+                {
+                    lock (_gate)
+                    {
+                        return _entries.ToList();
+                    }
+                }
+            }
+
+            private void Record(LogLevel level, string message)
+            {
+                lock (_gate)
+                {
+                    _entries.Add((level, message));
+                }
+            }
+
+            private sealed class CapturingLogger : ILogger
+            {
+                private readonly CapturingLoggerProvider _owner;
+                public CapturingLogger(CapturingLoggerProvider owner) => _owner = owner;
+                public IDisposable BeginScope<TState>(TState state) => NullScope.Instance;
+                public bool IsEnabled(LogLevel logLevel) => true;
+                public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception,
+                    Func<TState, Exception, string> formatter) => _owner.Record(logLevel, formatter(state, exception));
+            }
+
+            private sealed class NullScope : IDisposable
+            {
+                public static readonly NullScope Instance = new NullScope();
+                public void Dispose() { }
+            }
+        }
+
         #endregion
 
         #region snapshot manifest round-trip
@@ -323,6 +378,75 @@ namespace NoSQL.GraphDB.Tests
             target.Dispose();
         }
 
+        [TestMethod]
+        public void SubGraphFromDeletedStoredQuery_SurvivesSaveLoad()
+        {
+            // The composed decoupling scenario (spec section 4): instantiate a subgraph from a
+            // stored template, DELETE the stored query, then Save + Load into a fresh engine -
+            // the subgraph must rehydrate from its materialized recipe with no stored query left.
+            var source = NewEngine();
+            source.SubGraphRecipeCompiler = new RecipeSubGraphCompiler();
+
+            var creationDate = 1u;
+            var verticesTx = new CreateVerticesTransaction();
+            verticesTx.AddVertex(creationDate, "person", new Dictionary<string, object> { { "name", "Alice" } });
+            verticesTx.AddVertex(creationDate, "person", new Dictionary<string, object> { { "name", "Bob" } });
+            source.EnqueueTransaction(verticesTx).WaitUntilFinished();
+
+            RegisterSubGraphQueryViaController(source, "doomed-template");
+            var subGraphController = new SubGraphController(_loggerFactory.CreateLogger<SubGraphController>(), source);
+            var created = subGraphController.CreateSubGraph(new SubGraphSpecification
+            {
+                Name = "outlives-its-template",
+                StoredQuery = "doomed-template"
+            });
+            Assert.AreEqual(201, ((ObjectResult)created).StatusCode);
+
+            Assert.AreEqual(204, ((StatusCodeResult)Controller(source).DeleteStoredQuery("doomed-template")).StatusCode);
+            var actualPath = Save(source, SavePath);
+            source.Dispose();
+
+            var target = NewEngine();
+            target.SubGraphRecipeCompiler = new RecipeSubGraphCompiler();
+            Load(target, actualPath);
+
+            Assert.AreEqual(0, target.StoredQueries.Count, "the deleted stored query must not resurrect");
+            Assert.IsTrue(target.SubGraphFactory.TryGetSubGraph(out var survivor, "outlives-its-template"),
+                "the subgraph must rehydrate from its materialized recipe after its template was deleted");
+            Assert.AreEqual(2, survivor.SubGraph.VertexCount);
+            Assert.IsTrue(target.SubGraphFactory.TryRecalculateSubGraph("outlives-its-template"),
+                "the rehydrated subgraph must stay recalculable");
+
+            target.Dispose();
+        }
+
+        [TestMethod]
+        public void CorruptManifest_LogsAnError()
+        {
+            // The "loud" half of the corrupt-manifest contract: an error-level log entry naming
+            // the manifest, not a silent empty library.
+            var source = NewEngine();
+            RegisterPathQueryViaController(source, "will-be-corrupted-loudly");
+            var actualPath = Save(source, SavePath);
+            source.Dispose();
+
+            File.WriteAllText(actualPath + "_storedqueries", "{ not valid json !!", Encoding.UTF8);
+
+            var capture = new CapturingLoggerProvider();
+            var target = new Fallen8(CapturingFactory(capture))
+            {
+                StoredQueryCompiler = new StoredQueryCompiler()
+            };
+            Load(target, actualPath);
+
+            Assert.AreEqual(0, target.StoredQueries.Count);
+            Assert.IsTrue(capture.Entries.Any(e => e.Level == LogLevel.Error && e.Message.Contains("stored query manifest")),
+                "a corrupt manifest must produce an error-level log entry naming the manifest; got: " +
+                string.Join(" | ", capture.Entries.Where(e => e.Level >= LogLevel.Warning).Select(e => e.Message)));
+
+            target.Dispose();
+        }
+
         #endregion
 
         #region WAL replay
@@ -413,6 +537,72 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void Wal_RemoveThenReRegisterSameName_ReplaysToTheReRegisteredEntry()
+        {
+            var engine = NewEngineWithWal();
+            RegisterPathQueryViaController(engine, "recycled-name", vertexFilter: "return (v) => v.Label == \"first\";");
+            Assert.AreEqual(204, ((StatusCodeResult)Controller(engine).DeleteStoredQuery("recycled-name")).StatusCode);
+            RegisterPathQueryViaController(engine, "recycled-name", vertexFilter: "return (v) => v.Label == \"second\";");
+            // Simulated crash.
+
+            var recovered = NewEngineWithWal();
+
+            Assert.AreEqual(1, recovered.StoredQueries.Count);
+            Assert.IsTrue(recovered.StoredQueries.TryGet(out var entry, "recycled-name"));
+            Assert.AreEqual(StoredQueryCompileState.Compiled, entry.CompileState);
+            StringAssert.Contains(entry.Definition.SpecificationJson, "second",
+                "commit-order replay must end on the RE-registered definition, not the removed one");
+
+            recovered.Dispose();
+        }
+
+        [TestMethod]
+        public void Wal_TornTrailingRegisterEntry_IsIgnored_EarlierEntriesRecover()
+        {
+            var engine = NewEngineWithWal();
+            RegisterPathQueryViaController(engine, "complete-entry");
+            RegisterPathQueryViaController(engine, "torn-entry"); // last frame in the log
+            engine.Dispose(); // close the WAL handle so the file can be truncated
+
+            using (var fs = new FileStream(WalPath, FileMode.Open, FileAccess.Write))
+            {
+                fs.SetLength(fs.Length - 5); // tear the trailing CRC of the last entry
+            }
+
+            var recovered = NewEngineWithWal();
+
+            Assert.IsTrue(recovered.StoredQueries.TryGet(out var complete, "complete-entry"),
+                "the complete earlier entry must recover");
+            Assert.AreEqual(StoredQueryCompileState.Compiled, complete.CompileState);
+            Assert.IsFalse(recovered.StoredQueries.TryGet(out _, "torn-entry"),
+                "the torn trailing entry is ignored, never half-applied");
+
+            recovered.Dispose();
+        }
+
+        [TestMethod]
+        public void TryDecodeStoredQueryRegister_NeverThrows_OnGarbage()
+        {
+            // The never-throws contract of the replay decoder, exercised directly.
+            Assert.IsFalse(WalDecodeProbe(Array.Empty<byte>()));
+            Assert.IsFalse(WalDecodeProbe(new byte[] { 13 }));                    // wrong entry type
+            Assert.IsFalse(WalDecodeProbe(new byte[] { 14 }));                    // type byte, no payload
+            Assert.IsFalse(WalDecodeProbe(new byte[] { 14, 0xFF, 0xFF, 0xFF })); // garbage payload
+        }
+
+        private static bool WalDecodeProbe(byte[] payload)
+        {
+            // The codec is internal to the engine assembly (no InternalsVisibleTo), and the WAL
+            // framing layer never delivers arbitrary payloads in-process, so the decoder's
+            // never-throws contract is probed via reflection.
+            var codec = typeof(Fallen8).Assembly.GetType("NoSQL.GraphDB.Core.Persistency.WalTransactionCodec");
+            var method = codec.GetMethod("TryDecodeStoredQueryRegister",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var args = new object[] { payload, null };
+            return (bool)method.Invoke(null, args);
+        }
+
+        [TestMethod]
         public void Wal_SaveResetsTheLog_AndTheManifestCarriesTheLibrary()
         {
             // Save-WAL symmetry: after a Save, recovery composes manifest + (empty) log to the
@@ -449,15 +639,9 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private void DeleteAndReleaseBookkeeping(Fallen8 engine, string name)
+        private void Delete(Fallen8 engine, string name)
         {
             Assert.AreEqual(204, ((StatusCodeResult)Controller(engine).DeleteStoredQuery(name)).StatusCode);
-
-            // The register/remove transactions retain entry references in the manager's
-            // bookkeeping until it trims; force that so the only question left is whether the
-            // LIBRARY leaked a reference.
-            var trim = new TrimTransaction();
-            engine.EnqueueTransaction(trim).WaitUntilFinished();
         }
 
         [TestMethod]
@@ -468,7 +652,10 @@ namespace NoSQL.GraphDB.Tests
             var artifactTypeRef = RegisterAndWeaklyReferenceArtifact(engine, "unload-probe");
             Assert.IsTrue(artifactTypeRef.IsAlive, "the pinned artifact is alive while registered");
 
-            DeleteAndReleaseBookkeeping(engine, "unload-probe");
+            // Delete ALONE must unpin: the register/remove transactions release their entry
+            // references at completion (council finding), so no Trim is needed for the
+            // collectible context to become unreachable.
+            Delete(engine, "unload-probe");
 
             for (int i = 0; i < 15 && artifactTypeRef.IsAlive; i++)
             {

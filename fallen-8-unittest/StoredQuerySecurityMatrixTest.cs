@@ -181,6 +181,25 @@ namespace NoSQL.GraphDB.Tests
 
             using var inlineSubGraph = await client.PutAsync("/subgraph", Json(InlineSubGraphBody));
             Assert.AreEqual(HttpStatusCode.Created, inlineSubGraph.StatusCode);
+
+            // The stored-subgraph and list/get/delete rows of the matrix, switch-ON column.
+            const string registerSubGraph =
+                "{\"name\":\"matrix-subgraph\",\"kind\":\"SubGraph\",\"subGraph\":{\"vertexFilter\":\"return (ge) => true;\"}}";
+            using var registerSg = await client.PostAsync("/storedquery", Json(registerSubGraph));
+            Assert.AreEqual(HttpStatusCode.Created, registerSg.StatusCode);
+
+            using var storedSubGraph = await client.PutAsync("/subgraph",
+                Json("{\"name\":\"sg-on\",\"storedQuery\":\"matrix-subgraph\"}"));
+            Assert.AreEqual(HttpStatusCode.Created, storedSubGraph.StatusCode);
+
+            using var list = await client.GetAsync("/storedquery");
+            Assert.AreEqual(HttpStatusCode.OK, list.StatusCode);
+
+            using var get = await client.GetAsync("/storedquery/matrix-subgraph");
+            Assert.AreEqual(HttpStatusCode.OK, get.StatusCode);
+
+            using var delete = await client.DeleteAsync("/storedquery/matrix-subgraph");
+            Assert.AreEqual(HttpStatusCode.NoContent, delete.StatusCode);
         }
 
         #endregion

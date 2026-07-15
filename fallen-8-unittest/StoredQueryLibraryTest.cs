@@ -319,6 +319,29 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void Register_NamesDifferingOnlyInCase_CoexistAsDistinctEntries()
+        {
+            // Names compare ordinally (case-sensitively) per the spec.
+            Assert.AreEqual(201, StatusCodeOf(_controller.RegisterStoredQuery(ValidPathSpecification("Case-Test"))));
+            Assert.AreEqual(201, StatusCodeOf(_controller.RegisterStoredQuery(ValidPathSpecification("case-test"))));
+
+            Assert.AreEqual(2, _fallen8.StoredQueries.Count);
+            Assert.IsTrue(_fallen8.StoredQueries.TryGet(out _, "Case-Test"));
+            Assert.IsTrue(_fallen8.StoredQueries.TryGet(out _, "case-test"));
+            Assert.IsFalse(_fallen8.StoredQueries.TryGet(out _, "CASE-TEST"));
+        }
+
+        [TestMethod]
+        public void Register_NumericKindString_Returns400()
+        {
+            // Only the literal names are valid; Enum.TryParse-style numeric strings are rejected.
+            var spec = ValidPathSpecification("numeric-kind");
+            spec.Kind = "0";
+
+            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)));
+        }
+
+        [TestMethod]
         public void Register_DuplicateName_AcrossKinds_Returns409()
         {
             Assert.AreEqual(201, StatusCodeOf(_controller.RegisterStoredQuery(ValidPathSpecification("same-name"))));

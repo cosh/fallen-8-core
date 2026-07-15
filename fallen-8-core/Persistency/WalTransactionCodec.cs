@@ -328,14 +328,6 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
-        ///   Decodes a <see cref="WalEntryType.CreateSubGraph" /> entry into the persisted recipe and
-        ///   the source subgraph name (empty for a root subgraph). Returns false (never throws) when
-        ///   the payload is not a create-subgraph entry or its recipe JSON cannot be parsed, so a
-        ///   single unusable-but-CRC-valid subgraph entry is skipped on replay rather than halting
-        ///   recovery - subgraphs are rebuildable derived state, and each entry has its own payload so
-        ///   skipping one cannot corrupt the next.
-        /// </summary>
-        /// <summary>
         ///   Decodes a <see cref="WalEntryType.RegisterStoredQuery" /> entry into the persisted
         ///   definition. Returns false (never throws) when the payload is not a stored-query
         ///   registration entry or its definition JSON cannot be parsed, so a single
@@ -370,6 +362,14 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
+        /// <summary>
+        ///   Decodes a <see cref="WalEntryType.CreateSubGraph" /> entry into the persisted recipe and
+        ///   the source subgraph name (empty for a root subgraph). Returns false (never throws) when
+        ///   the payload is not a create-subgraph entry or its recipe JSON cannot be parsed, so a
+        ///   single unusable-but-CRC-valid subgraph entry is skipped on replay rather than halting
+        ///   recovery - subgraphs are rebuildable derived state, and each entry has its own payload so
+        ///   skipping one cannot corrupt the next.
+        /// </summary>
         internal static bool TryDecodeSubGraphCreate(byte[] payload, out SubGraphRecipe recipe, out string sourceSubGraphName)
         {
             recipe = null;

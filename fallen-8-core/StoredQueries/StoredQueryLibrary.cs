@@ -171,8 +171,11 @@ namespace NoSQL.GraphDB.Core.StoredQueries
         ///   <see cref="TransactionFailureReason.InvalidInput"/>, a duplicate to
         ///   <see cref="TransactionFailureReason.Conflict"/>, and a breach of
         ///   <see cref="MaxCount"/> to <see cref="TransactionFailureReason.QuotaExceeded"/>.
+        ///   <paramref name="enforceQuota"/> is false ONLY on write-ahead-log replay, which
+        ///   re-applies registrations that were already quota-checked at their original commit
+        ///   (see <c>RegisterStoredQueryTransaction.BypassQuota</c>).
         /// </summary>
-        internal bool TryRegister(StoredQueryEntry entry, out TransactionFailureReason reason)
+        internal bool TryRegister(StoredQueryEntry entry, out TransactionFailureReason reason, bool enforceQuota = true)
         {
             reason = TransactionFailureReason.None;
 
@@ -192,7 +195,7 @@ namespace NoSQL.GraphDB.Core.StoredQueries
                 return false;
             }
 
-            if (snap.Count >= _maxCount)
+            if (enforceQuota && snap.Count >= _maxCount)
             {
                 _logger.LogWarning(
                     "Cannot register stored query \"{Name}\": the maximum number of stored queries ({Max}) has been reached.",
