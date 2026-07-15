@@ -107,7 +107,7 @@ Intent: stored queries survive Save/Load and crash+replay, symmetrically.
 - [x] Phase 1 — `storedQuery` invocation on `/path` and `/subgraph`
 - [x] Phase 2 — request-shape-aware kill-switch gate + full matrix tests
 - [x] Phase 3 — snapshot manifest + WAL entries 14/15 + replay
-- [ ] Phase 4 — READMEs, doc pointers, OpenAPI snapshot
+- [x] Phase 4 — READMEs, doc pointers, OpenAPI snapshot
 - [ ] Phase 5 — council gate, merge, move to done/
 
 ## Decision / revisit conditions

@@ -46,6 +46,13 @@ dotnet run --project fallen-8-core-apiApp
   are compiled at runtime with Roslyn in `App/Helper/CodeGenerationHelper.cs` into the
   `Delegates.*` types in `fallen-8-core/Algorithms/Delegates.cs`, then cached in
   `GeneratedCodeCache`. When adding a new dynamic-filter endpoint, follow this pattern.
+- **Stored queries are the pre-compiled alternative.** `POST /storedquery` registers a named,
+  compile-validated path filter/cost set or subgraph template
+  (`fallen-8-core/StoredQueries/`, pinned artifacts, persisted by manifest + WAL); the path
+  and subgraph endpoints then accept `"storedQuery": "<name>"` instead of inline fragments.
+  Registration requires `EnableDynamicCodeExecution`; invocation by name does not (the gate
+  on those endpoints is request-shape-aware). Design docs are in
+  [features/open/stored-query-library/](features/open/stored-query-library/).
 - **Subgraph feature** lives in `fallen-8-core/Algorithms/SubGraph` (algorithm + pattern
   model) and `fallen-8-core/SubGraph/SubGraphFactory.cs` (registration, recalculation).
   Design docs are in [features/done/subgraph/](features/done/subgraph/).

@@ -111,7 +111,7 @@ annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`).
 | read | `f8_status` | `GET /status` |
 | read | `f8_get_vertex`, `f8_get_edge` | `GET /vertex/{id}`, `GET /edge/{id}` (+ adjacency lookups) |
 | read | `f8_scan_index`, `f8_fulltext_search`, `f8_range_scan` | the scan endpoints |
-| read | `f8_find_paths` | `POST /path/{from}/to/{to}` **without** filter fragments |
+| read | `f8_find_paths` | `POST /path/{from}/to/{to}` **without** filter fragments (works with the dynamic-code switch off — the request-shape-aware gate landed with [stored-query-library](../stored-query-library/); that feature's stored invocation is also a natural future tool tier below `code`) |
 | write | `f8_create_vertices`, `f8_create_edges` | the transaction endpoints (`waitForCompletion=true`) |
 | write | `f8_set_property`, `f8_remove_property`, `f8_remove_elements` | property/removal endpoints |
 | write | `f8_define_subgraph` | `PUT /subgraph`, **code-free recipes only** |

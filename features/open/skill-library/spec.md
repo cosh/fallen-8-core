@@ -9,7 +9,9 @@
 > format — that teach AI agents (Claude Code and other skill-capable runtimes) how to work
 > with a running Fallen-8. The alternative reading — a *server-side* library of stored,
 > reusable delegate/traversal definitions inside the engine (i.e. stored procedures) — is
-> explicitly **not** this feature; it would be a separate engine feature if wanted.
+> explicitly **not** this feature; that engine feature now exists as
+> [stored-query-library](../stored-query-library/) (skills should teach the
+> register-once/invoke-by-name flow where it fits).
 >
 > **Companion feature:** [mcp-server](../mcp-server/spec.md) gives agents the *tools*;
 > this library gives them the *procedural knowledge*. Neither blocks the other: the skills
