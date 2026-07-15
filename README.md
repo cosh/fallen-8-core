@@ -53,6 +53,8 @@ dotnet run --project fallen-8-core-apiApp
 # open http://localhost:5000
 ```
 
+To debug the whole stack (engine + API + UI) in VS Code, see [DEBUGGING.md](./DEBUGGING.md).
+
 Or the complete environment in Docker - engine, REST API, F8 Studio, and the NL-assist
 model backend (Ollama + the MIT default model, pulled on first start). The environment is
 managed **as one unit** via compose - do not start/stop individual containers:
