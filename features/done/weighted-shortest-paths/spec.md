@@ -12,11 +12,11 @@ them. Concretely, verified in the current tree:
 
 - `ShortestPathDefinition` carries `EdgeCost`, `VertexCost` (`Delegates.EdgeCost`/`VertexCost`,
   both `EdgeModel/VertexModel -> double`) and `MaxPathWeight`
-  ([ShortestPathDefinition.cs](../../fallen-8-core/Algorithms/Path/ShortestPathDefinition.cs)).
+  ([ShortestPathDefinition.cs](../../../fallen-8-core/Algorithms/Path/ShortestPathDefinition.cs)).
 - `PathElement` has `Weight` and `CalculateWeight(vertexCost, edgeCost)` (`= vertexCost(target) +
   edgeCost(edge)`); `Path` aggregates element weights into `Path.Weight`
-  ([PathElement.cs](../../fallen-8-core/Algorithms/Path/PathElement.cs),
-  [Path.cs](../../fallen-8-core/Algorithms/Path/Path.cs)).
+  ([PathElement.cs](../../../fallen-8-core/Algorithms/Path/PathElement.cs),
+  [Path.cs](../../../fallen-8-core/Algorithms/Path/Path.cs)).
 - The REST DTO `PathSpecification` carries `pathAlgorithmName`, `maxPathWeight`, and a
   `cost { vertexCost, edgeCost }` block; `CodeGenerationHelper.GeneratePathTraverser` compiles those
   cost fragments into `EdgeCost`/`VertexCost` delegates; `GraphController.CalculateShortestPath`

@@ -1,5 +1,5 @@
 {
-  "$comment": "Static IntelliSense model for delegate fragments (FR-22), hand-maintained against features/web-ui/spec.md §6.2 which mirrors fallen-8-core/Model/AGraphElementModel.cs, VertexModel.cs, EdgeModel.cs. Regeneration: update this file whenever those public surfaces change; the spec section is the review checklist. Only members a fragment can meaningfully touch are listed.",
+  "$comment": "Static IntelliSense model for delegate fragments (FR-22), hand-maintained against features/done/web-ui/spec.md §6.2 which mirrors fallen-8-core/Model/AGraphElementModel.cs, VertexModel.cs, EdgeModel.cs. Regeneration: update this file whenever those public surfaces change; the spec section is the review checklist. Only members a fragment can meaningfully touch are listed.",
   "types": {
     "AGraphElementModel": {
       "base": null,

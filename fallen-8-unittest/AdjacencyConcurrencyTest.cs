@@ -39,7 +39,7 @@ namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     /// Guardrail tests for the lock-free-reader / single-writer <b>adjacency</b> contract
-    /// (see features/adjacency-flattening). These encode the invariant that must never break:
+    /// (see features/done/adjacency-flattening). These encode the invariant that must never break:
     /// while the single TransactionManager thread appends/removes edges (which republish a
     /// vertex's out/in edge groups copy-on-write), concurrent readers that touch the adjacency
     /// - <c>OutEdges</c>/<c>InEdges</c>, <c>TryGetOut/InEdge</c>, <c>GetOut/InDegree</c>,

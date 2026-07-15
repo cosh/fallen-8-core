@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import openapi from "../../features/web-ui/openapi-v0.1.json";
+import openapi from "../../features/done/web-ui/openapi-v0.1.json";
 import * as endpoints from "../src/api/endpoints";
 import type { InstanceConfig } from "../src/instances/types";
 
 /**
  * Route/serialization correctness against the OpenAPI snapshot (spec §10 "UI unit"):
  * every request the client emits must match a path template + method in
- * features/web-ui/openapi-v0.1.json (routes are root-level - never /api/v0.1/), and
+ * features/done/web-ui/openapi-v0.1.json (routes are root-level - never /api/v0.1/), and
  * mutations must carry waitForCompletion=true (FR-21).
  *
  * /delegates/validate is added by this feature and not part of the captured snapshot,

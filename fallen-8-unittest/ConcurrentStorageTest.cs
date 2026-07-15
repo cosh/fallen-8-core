@@ -41,7 +41,7 @@ namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     /// Guardrail tests for the lock-free-reader / single-writer storage contract
-    /// (see features/core-storage-representation). These encode the invariant that must never
+    /// (see features/done/core-storage-representation). These encode the invariant that must never
     /// break: while the single TransactionManager thread appends/removes/trims graph elements,
     /// concurrent readers that capture a snapshot must NEVER observe a torn or half-published
     /// element, a null slot within the published range, an id != index element, nor throw an

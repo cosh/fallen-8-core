@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// Fallen-8 REST routes are root-level (see features/web-ui/spec.md §5). In dev the app is
+// Fallen-8 REST routes are root-level (see features/done/web-ui/spec.md §5). In dev the app is
 // served by Vite, so requests against the same-origin "local" instance (baseUrl "") are
 // proxied to a locally running fallen-8-core-apiApp. In production the SPA is served by the
 // apiApp itself (see Program.cs, gap G-1) and no proxy is involved.

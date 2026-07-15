@@ -8,7 +8,7 @@
 ## 1. Problem
 
 Each vertex holds **two** `ImmutableDictionary<string, ImmutableList<EdgeModel>>` — `OutEdges` and
-`InEdges` ([VertexModel.cs:45,50](../../fallen-8-core/Model/VertexModel.cs)). `ImmutableDictionary`
+`InEdges` ([VertexModel.cs:45,50](../../../fallen-8-core/Model/VertexModel.cs)). `ImmutableDictionary`
 is a hash-array-mapped trie (~100 B container overhead) and each `ImmutableList` is an AVL tree
 (~48 B/node on top of the payload). So each edge sits in a source-out list and a target-in list ≈
 **~96 B/edge** of tree-node overhead, and the two per-vertex dictionaries add **~200–400 B/vertex**.

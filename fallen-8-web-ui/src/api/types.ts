@@ -1,5 +1,5 @@
 /**
- * REST DTO shapes, mirroring features/web-ui/openapi-v0.1.json (camelCase on the wire).
+ * REST DTO shapes, mirroring features/done/web-ui/openapi-v0.1.json (camelCase on the wire).
  * The contract test (tests/api-contract.test.ts) asserts every route used by the client
  * exists in that OpenAPI snapshot with the method we call it with, so drift between these
  * hand-maintained shapes and the server surfaces loudly. Regenerate machine types with

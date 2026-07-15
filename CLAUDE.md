@@ -48,7 +48,7 @@ dotnet run --project fallen-8-core-apiApp
   `GeneratedCodeCache`. When adding a new dynamic-filter endpoint, follow this pattern.
 - **Subgraph feature** lives in `fallen-8-core/Algorithms/SubGraph` (algorithm + pattern
   model) and `fallen-8-core/SubGraph/SubGraphFactory.cs` (registration, recalculation).
-  Design docs are in [features/subgraph/](features/subgraph/).
+  Design docs are in [features/done/subgraph/](features/done/subgraph/).
 
 ## Conventions
 
@@ -64,11 +64,15 @@ dotnet run --project fallen-8-core-apiApp
 
 ## Feature workflow
 
+Feature docs are split by status: `features/open/<name>/` for work not yet implemented
+(spec/plan only), `features/done/<name>/` once it is implemented and merged. A new feature
+starts under `features/open/`; move its directory to `features/done/` when it lands.
+
 Every non-trivial feature follows the same lifecycle so work is visible and reviewable:
 
-1. **Spec & plan** — create `features/<name>/spec.md` and `features/<name>/plan.md`
+1. **Spec & plan** — create `features/open/<name>/spec.md` and `features/open/<name>/plan.md`
    describing the behaviour, contract, and phased implementation. (Optionally a `README.md`
-   with usage.) See [features/subgraph/](features/subgraph/) for the reference example.
+   with usage.) See [features/done/subgraph/](features/done/subgraph/) for the reference example.
 2. **GitHub issue** — open a feature-level issue so the work is tracked and visible on
    GitHub. Label it `feature`. Link the `features/<name>/` docs from the issue.
 3. **Feature branch** — branch from `main` as `feature/<name>`. Do not commit feature work

@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "gen:api": "openapi-typescript ../features/web-ui/openapi-v0.1.json -o src/api/openapi.d.ts"
+    "gen:api": "openapi-typescript ../features/done/web-ui/openapi-v0.1.json -o src/api/openapi.d.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

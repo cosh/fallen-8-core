@@ -1,7 +1,7 @@
 # NL-Assist Fine-Tuning Pipeline — Specification
 
 > **Status:** Draft, spec only (no implementation yet). Subordinate to
-> [features/web-ui/nl-assist/spec.md](../web-ui/nl-assist/spec.md); this feature produces a
+> [features/done/web-ui/nl-assist/spec.md](../../done/web-ui/nl-assist/spec.md); this feature produces a
 > **specialized model file** the NL assist can point at, without changing the browser →
 > model → validate flow that spec defines. Follow the feature workflow in the repository
 > root `CLAUDE.md`.
@@ -163,9 +163,9 @@ flowchart LR
 
 ## 9. Reference files
 
-- [features/web-ui/nl-assist/spec.md](../web-ui/nl-assist/spec.md) — the NL-assist runtime
+- [features/done/web-ui/nl-assist/spec.md](../../done/web-ui/nl-assist/spec.md) — the NL-assist runtime
   contract (prompt assembly, MIT-only posture, validation gate) this pipeline feeds.
-- [features/web-ui/spec.md](../web-ui/spec.md) §6.1/§6.2 — the delegate kinds and type
+- [features/done/web-ui/spec.md](../../done/web-ui/spec.md) §6.1/§6.2 — the delegate kinds and type
   surface the dataset is grounded in.
 - `fallen-8-web-ui/src/delegate/type-model.json`, `src/delegate/snippets.ts` — the
   in-repo artifacts the dataset generator derives from (drift source of truth).

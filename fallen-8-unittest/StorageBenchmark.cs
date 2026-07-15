@@ -39,7 +39,7 @@ namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     /// A lightweight, self-contained Stopwatch/GC harness for the master-store hot paths called
-    /// out in features/core-storage-representation: id lookup, single insert, bulk insert, full
+    /// out in features/done/core-storage-representation: id lookup, single insert, bulk insert, full
     /// scan and edge wire-up. It runs as a normal (fast) test so the numbers are always real and
     /// reproducible in this environment; BenchmarkDotNet is intentionally avoided because it needs
     /// a Release build + separate process and does not fit the in-suite guardrail model.
