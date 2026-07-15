@@ -37,6 +37,23 @@ are plugins; and the engine can checkpoint its state to disk.
 dotnet run --project fallen-8-core-apiApp
 ```
 
+With the F8 Studio web UI (built into the apiApp's wwwroot):
+
+```bash
+npm run install:ui && npm run build:apiapp
+dotnet run --project fallen-8-core-apiApp
+# open http://localhost:5000
+```
+
+Or the complete environment in Docker - engine, REST API, F8 Studio, and the NL-assist
+model backend (Ollama + the MIT default model, pulled on first start):
+
+```bash
+docker compose up --build
+# F8 Studio:        http://localhost:8080
+# NL-assist model:  http://localhost:11434 (configure in the delegate editor)
+```
+
 In the Development environment the API description and interactive reference are available at:
 
 - **OpenAPI document:** `https://localhost:5001/openapi/v0.1.json`

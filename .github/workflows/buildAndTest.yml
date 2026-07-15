@@ -1,28 +1,121 @@
-name: .NET
+name: build-and-test
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'feature/**' ]
   pull_request:
     branches: [ main ]
 
 jobs:
-  build:
-
+  backend:
+    name: engine + API (dotnet)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        dotnet-version: ['10.0.x']
-
     steps:
-    - uses: actions/checkout@v3
-    - name: Setup .NET SDK ${{ matrix.dotnet-version }}
-      uses: actions/setup-dotnet@v3
+    - uses: actions/checkout@v4
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: ${{ matrix.dotnet-version }}
+        dotnet-version: '10.0.x'
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
       run: dotnet build --no-restore
     - name: Test
       run: dotnet test --no-build --verbosity normal
+
+  ui:
+    name: F8 Studio (typecheck, unit, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fallen-8-web-ui
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: fallen-8-web-ui/package-lock.json
+    - name: Install dependencies
+      run: npm ci --no-fund --no-audit
+    - name: Typecheck
+      run: npx tsc -b
+    - name: Unit and component tests
+      run: npm test
+    - name: Production build
+      run: npm run build
+
+  e2e:
+    name: UX scenarios (Playwright vs live apiApp)
+    runs-on: ubuntu-latest
+    needs: [ backend, ui ]
+    defaults:
+      run:
+        working-directory: fallen-8-web-ui
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: fallen-8-web-ui/package-lock.json
+    - name: Install dependencies
+      run: npm ci --no-fund --no-audit
+    - name: Install Playwright browser
+      run: npx playwright install --with-deps chromium
+    - name: Run scenarios (builds the SPA into the apiApp and launches it)
+      run: npx playwright test
+      env:
+        CI: 'true'
+    - name: Upload traces on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-results
+        path: fallen-8-web-ui/test-results
+
+  docker:
+    name: all-in-one container (build + smoke test)
+    runs-on: ubuntu-latest
+    needs: [ backend, ui ]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Validate compose file
+      run: docker compose config -q
+    - name: Build image (engine + API + UI)
+      run: docker build -t fallen-8:ci .
+    - name: Smoke-test the container
+      run: |
+        docker run -d --name f8 -p 8080:8080 \
+          -e Fallen8__Durability__Volatile=true \
+          -e Fallen8__Security__ApiKey=ci-key \
+          -e Fallen8__Security__EnableDynamicCodeExecution=true \
+          fallen-8:ci
+        for i in $(seq 1 30); do
+          curl -sf http://localhost:8080/ > /dev/null && break
+          sleep 2
+        done
+        echo "--- SPA shell is served"
+        curl -sf http://localhost:8080/ | grep -qi "<!doctype html"
+        curl -sf http://localhost:8080/F8White.svg > /dev/null
+        echo "--- engine answers"
+        curl -sf -H "Authorization: Bearer ci-key" http://localhost:8080/status | grep -q vertexCount
+        echo "--- structured benchmark"
+        curl -sf -H "Authorization: Bearer ci-key" "http://localhost:8080/generate?nodeCount=50&edgeCount=2" > /dev/null
+        curl -sf -H "Authorization: Bearer ci-key" "http://localhost:8080/benchmark?iterations=2" | grep -q averageTps
+        echo "--- delegate validation compiles in-container"
+        curl -sf -X POST -H "Authorization: Bearer ci-key" -H "Content-Type: application/json" \
+          -d '{"delegateKind":"VertexFilter","fragment":"return (v) => v.Label == \"person\";"}' \
+          http://localhost:8080/delegates/validate | grep -q '"valid":true'
+    - name: Container logs
+      if: always()
+      run: docker logs f8 --tail 50 || true
+    - name: Cleanup
+      if: always()
+      run: docker rm -f f8 || true

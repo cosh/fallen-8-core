@@ -1,0 +1,48 @@
+# The complete F8 environment: engine + API + F8 Studio UI in one container, plus the
+# NL-assist model backend (official Ollama image with the MIT default model, phi4-mini).
+#
+# F8 itself bundles no model weights or runtime (nl-assist spec FR-26.2) - Ollama and the
+# weights are pulled ON THIS MACHINE from their upstream registries; their MIT licenses
+# bind the user running them.
+#
+#   docker compose up --build
+#   open http://localhost:8080          (F8 Studio, served by the apiApp)
+#   NL assist endpoint in the editor:   http://localhost:11434 (api kind: ollama)
+
+services:
+  fallen8:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Durable graph data on the named volume.
+      - Fallen8__Durability__StorageDirectory=/data
+      # Opt-in security posture; set a real key before exposing beyond localhost.
+      - Fallen8__Security__ApiKey=${F8_API_KEY:-}
+      - Fallen8__Security__EnableDynamicCodeExecution=${F8_ENABLE_DYNAMIC_CODE:-false}
+    volumes:
+      - f8-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    environment:
+      # The browser calls Ollama directly (nl-assist spec §4); allow the F8 origin.
+      - OLLAMA_ORIGINS=http://localhost:8080
+    volumes:
+      - ollama-models:/root/.ollama
+
+  # One-shot: pulls the MIT default model into the shared volume on first start.
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c", "sleep 3 && ollama pull phi4-mini"]
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+
+volumes:
+  f8-data:
+  ollama-models:

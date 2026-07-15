@@ -23,3 +23,14 @@
 **/values.dev.yaml
 LICENSE
 README.md
+.github
+.claude
+features
+!features/web-ui/openapi-v0.1.json
+fallen-8-unittest
+fallen-8-core-apiApp/wwwroot
+**/dist
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+**/*.log
