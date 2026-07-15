@@ -1,30 +1,44 @@
-# The complete F8 environment: engine + API + F8 Studio UI in one container, plus the
-# NL-assist model backend (official Ollama image with the MIT default model, phi4-mini).
+# The complete F8 environment as ONE unit: engine + API + F8 Studio UI in one container,
+# plus the NL-assist model backend (official Ollama image with the MIT default model,
+# phi4-mini). Manage the environment as a whole - not individual containers:
+#
+#   docker compose up -d --build     # start everything (npm run env:up)
+#   docker compose down              # stop everything; named volumes persist (npm run env:down)
+#   docker compose logs -f           # follow the whole environment (npm run env:logs)
 #
 # F8 itself bundles no model weights or runtime (nl-assist spec FR-26.2) - Ollama and the
 # weights are pulled ON THIS MACHINE from their upstream registries; their MIT licenses
 # bind the user running them.
 #
-#   docker compose up --build
-#   open http://localhost:8080          (F8 Studio, served by the apiApp)
-#   NL assist endpoint in the editor:   http://localhost:11434 (api kind: ollama)
+#   F8 Studio:  http://localhost:8080
+#   NL assist:  endpoint http://localhost:11434, api kind "ollama", model "phi4-mini"
 
 services:
   fallen8:
     build: .
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
-      # Durable graph data on the named volume.
+      # Durable graph data AND the save-game registry live on the named volume, so both
+      # survive container recreation together (feature save-games).
       - Fallen8__Durability__StorageDirectory=/data
+      - Fallen8__Metadata__Directory=/data/metadata
       # Opt-in security posture; set a real key before exposing beyond localhost.
       - Fallen8__Security__ApiKey=${F8_API_KEY:-}
       - Fallen8__Security__EnableDynamicCodeExecution=${F8_ENABLE_DYNAMIC_CODE:-false}
     volumes:
       - f8-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
 
   ollama:
     image: ollama/ollama:latest
+    restart: unless-stopped
     ports:
       - "11434:11434"
     environment:
@@ -32,22 +46,33 @@ services:
       - OLLAMA_ORIGINS=http://localhost:8080
     volumes:
       - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
-  # One-shot: pulls the MIT default model into the shared volume on first start.
-  # Retries until the Ollama daemon accepts connections (a cold image + slow disk can
-  # take well over a few seconds), so the advertised default model is reliably present.
+  # One-shot: pulls the MIT default model into the shared volume on first start. Waits for
+  # the healthy daemon, and still retries the pull itself (registry hiccups), so the
+  # advertised default model is reliably present after `up`.
   ollama-init:
     image: ollama/ollama:latest
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     restart: "no"
     entrypoint:
       - /bin/sh
       - -c
-      - "for i in $$(seq 1 60); do ollama pull phi4-mini && exit 0; echo 'waiting for ollama...'; sleep 3; done; echo 'ollama did not become ready; pull phi4-mini manually'; exit 1"
+      - "for i in $$(seq 1 20); do ollama pull phi4-mini && exit 0; echo 'pull failed, retrying...'; sleep 5; done; echo 'could not pull phi4-mini; pull it manually'; exit 1"
     environment:
       - OLLAMA_HOST=http://ollama:11434
 
 volumes:
+  # Explicit names keep the volumes stable regardless of the compose project name (and
+  # reuse an already-pulled model set from earlier setups).
   f8-data:
+    name: f8-data
   ollama-models:
+    name: f8-ollama-models

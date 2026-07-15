@@ -46,13 +46,20 @@ dotnet run --project fallen-8-core-apiApp
 ```
 
 Or the complete environment in Docker - engine, REST API, F8 Studio, and the NL-assist
-model backend (Ollama + the MIT default model, pulled on first start):
+model backend (Ollama + the MIT default model, pulled on first start). The environment is
+managed **as one unit** via compose - do not start/stop individual containers:
 
 ```bash
-docker compose up --build
+npm run env:up      # = docker compose up -d --build   (start everything)
+npm run env:down    # = docker compose down            (stop everything; data volumes persist)
+npm run env:logs    # follow all logs
+npm run env:status  # health of the whole environment
 # F8 Studio:        http://localhost:8080
 # NL-assist model:  http://localhost:11434 (configure in the delegate editor)
 ```
+
+Graph data and the save-game registry live on the `f8-data` volume, model weights on
+`f8-ollama-models` - both survive `env:down`/`env:up` cycles.
 
 The delegate editor's compile validation and NL assist run C# fragments through the
 server, which is off by default. To use them, start the container with an API key and the
