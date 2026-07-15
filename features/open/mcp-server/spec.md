@@ -136,9 +136,9 @@ applied — an agent must never act on an enqueued-but-unapplied write.
     default, everything else rejected.
   - Binds loopback unless `Mcp:AllowRemoteAccess=true` — the apiApp's posture flag, mirrored.
   - Session management per the SDK (session IDs are not auth — §3.4 is).
-- TLS termination for the MCP endpoint itself follows the same recipe as
-  [transport-encryption](../transport-encryption/spec.md): standard Kestrel config or a
-  fronting proxy; documented, not re-invented here.
+- TLS for the MCP endpoint itself is the deployment's job (project decision: no in-app TLS
+  feature): standard Kestrel certificate configuration or a fronting proxy (Caddy/Traefik),
+  covered by a docs recipe — not re-invented here.
 
 ### 3.4 Authentication phases (the "multiple phases" requirement)
 

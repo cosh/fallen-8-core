@@ -68,8 +68,8 @@ Intent: safe to put on a network you mostly trust.
 - [ ] `Mcp:Auth:Mode = None | StaticToken`; static bearer via `Authorization: Bearer`,
   constant-time compare, 401 otherwise; never logged.
 - [ ] Tests: missing/wrong/correct token; warning emitted per posture matrix.
-- [ ] Document TLS options for the MCP endpoint itself (Kestrel config or fronting proxy),
-  referencing the transport-encryption feature — no re-invention.
+- [ ] Document TLS options for the MCP endpoint itself (standard Kestrel certificate config
+  or a fronting proxy) — a deployment concern by project decision, no in-app machinery.
 
 ## Phase 4 — OAuth 2.1 resource server (auth phase C)
 
