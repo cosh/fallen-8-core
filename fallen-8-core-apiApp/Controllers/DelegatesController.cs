@@ -88,6 +88,13 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public ActionResult<DelegateValidationREST> ValidateDelegate([FromBody] ValidateDelegateSpecification specification)
         {
+            // A JSON `null` body binds to null (NRT is off, so MVC adds no implicit check);
+            // return 400 rather than dereferencing into a 500 (matches AddProperty).
+            if (specification == null)
+            {
+                return BadRequest("A validation specification body is required.");
+            }
+
             if (!DelegateValidationHelper.TryValidate(specification.DelegateKind, specification.Fragment, out var result))
             {
                 return BadRequest(String.Format("Unknown delegateKind '{0}'. Expected one of: {1}.",

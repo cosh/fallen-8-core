@@ -460,7 +460,13 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Uploads and registers a new plugin to the database */
+        /**
+         * Uploads and registers a new plugin to the database
+         * @description SECURITY: an uploaded plugin is loaded and executed IN-PROCESS WITH FULL TRUST - a trust
+         *     boundary, not a sandbox. Requires an authenticated caller AND
+         *     Fallen8:Security:EnableDynamicPluginLoading=true. The DLL is written to the configured,
+         *     isolated plugin directory, never next to the server binaries.
+         */
         put: {
             parameters: {
                 query?: {
@@ -488,6 +494,28 @@ export interface paths {
                 };
                 /** @description Invalid plugin data or incompatible plugin */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Dynamic plugin loading is disabled on this server (Fallen8:Security:EnableDynamicPluginLoading) */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -555,9 +583,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** Runs the edge-traversal benchmark and returns structured statistics */
         get: {
             parameters: {
                 query?: {
+                    /** @description Number of timed iterations (default 1000) */
                     iterations?: string;
                     "api-version"?: string;
                 };
@@ -569,13 +599,23 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description OK */
+                /** @description The benchmark statistics */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json; ver=0.1": string;
+                        "application/json; ver=0.1": components["schemas"]["BenchmarkResultREST"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Empty graph, non-positive or non-numeric iteration count */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
                         "application/json": unknown;
                     };
                 };
@@ -583,6 +623,115 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/delegates/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validates a single delegate fragment without executing it
+         * @description The fragment is wrapped and compiled exactly as the path (POST /path/{from}/to/{to})
+         *     and subgraph (PUT /subgraph) endpoints would wrap it, but nothing is emitted, loaded,
+         *     or executed - validation is side-effect free.
+         *
+         *     Diagnostic positions are already mapped back to the submitted fragment (1-based; line 1
+         *     is the fragment's first line), so an editor renders markers without further mapping.
+         *     A null/empty fragment is valid by definition (it means "match everything" / "no custom
+         *     cost"). Warnings are reported but do not make the fragment invalid.
+         *
+         *     The endpoint sits behind the same dynamic-code authorization gate as the query
+         *     endpoints: compilation is the expensive half of that surface, and validation is only
+         *     useful where fragment submission is possible at all.
+         *
+         *     Sample request:
+         *
+         *         POST /delegates/validate
+         *         {
+         *            "delegateKind": "VertexFilter",
+         *            "fragment": "return (v) =&gt; v.TryGetProperty(out int age, \"age\") &amp;&amp; age &gt; 30;"
+         *         }
+         */
+        post: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The delegate kind and the fragment to compile-check */
+            requestBody: {
+                content: {
+                    "application/json; ver=0.1": components["schemas"]["ValidateDelegateSpecification"];
+                    "application/*+json; ver=0.1": components["schemas"]["ValidateDelegateSpecification"];
+                };
+            };
+            responses: {
+                /** @description The validation result (also for invalid fragments - inspect "valid") */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["DelegateValidationREST"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Unknown delegateKind or malformed request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Authentication required but missing/invalid */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Rate limit for sensitive endpoints exceeded */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -932,7 +1081,7 @@ export interface paths {
                 };
                 path: {
                     /** @description The ID of the graph element to remove */
-                    graphElementIdentifier: string;
+                    graphElementIdentifier: number | string;
                 };
                 cookie?: never;
             };
@@ -1739,7 +1888,7 @@ export interface paths {
                 };
                 path: {
                     /** @description The ID of the graph element */
-                    graphElementIdentifier: string;
+                    graphElementIdentifier: number | string;
                     /** @description The ID/key of the property */
                     propertyIdString: string;
                 };
@@ -1799,7 +1948,7 @@ export interface paths {
                 };
                 path: {
                     /** @description The ID of the graph element */
-                    graphElementIdentifier: string;
+                    graphElementIdentifier: number | string;
                     /** @description The ID/key of the property to remove */
                     propertyIdString: string;
                 };
@@ -1857,7 +2006,7 @@ export interface paths {
                 };
                 path: {
                     /** @description The ID of the vertex */
-                    vertexIdentifier: string;
+                    vertexIdentifier: number | string;
                 };
                 cookie?: never;
             };
@@ -1870,6 +2019,16 @@ export interface paths {
                     };
                     content: {
                         "application/json; ver=0.1": number | string;
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Vertex with the specified ID was not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
                         "application/json": unknown;
                     };
                 };
@@ -1901,7 +2060,7 @@ export interface paths {
                 };
                 path: {
                     /** @description The ID of the vertex */
-                    vertexIdentifier: string;
+                    vertexIdentifier: number | string;
                 };
                 cookie?: never;
             };
@@ -1914,6 +2073,16 @@ export interface paths {
                     };
                     content: {
                         "application/json; ver=0.1": number | string;
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Vertex with the specified ID was not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
                         "application/json": unknown;
                     };
                 };
@@ -1945,7 +2114,7 @@ export interface paths {
                 };
                 path: {
                     /** @description The ID of the vertex */
-                    vertexIdentifier: string;
+                    vertexIdentifier: number | string;
                     /** @description The edge property identifier/type to count */
                     edgePropertyIdentifier: string;
                 };
@@ -1953,13 +2122,23 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Returns the count of matching incoming edges */
+                /** @description Returns the count of matching incoming edges (0 if the vertex has no such edge group) */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json; ver=0.1": number | string;
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Vertex with the specified ID was not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
                         "application/json": unknown;
                     };
                 };
@@ -1991,7 +2170,7 @@ export interface paths {
                 };
                 path: {
                     /** @description The ID of the vertex */
-                    vertexIdentifier: string;
+                    vertexIdentifier: number | string;
                     /** @description The edge property identifier/type to count */
                     edgePropertyIdentifier: string;
                 };
@@ -1999,13 +2178,23 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Returns the count of matching outgoing edges */
+                /** @description Returns the count of matching outgoing edges (0 if the vertex has no such edge group) */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json; ver=0.1": number | string;
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Vertex with the specified ID was not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
                         "application/json": unknown;
                     };
                 };
@@ -2056,8 +2245,8 @@ export interface paths {
          *            "maxResults": 10,
          *            "filter": {
          *              "vertexFilter": "return (v) =&gt; v.Label == \"Person\";",
-         *              "edgeFilter": "return (e,d) =&gt; e.Label == \"friendship\";",
-         *              "edgePropertyFilter": "return (p,d) =&gt; p == \"knows\";"
+         *              "edgeFilter": "return (e) =&gt; e.Label == \"friendship\";",
+         *              "edgePropertyFilter": "return (p) =&gt; p == \"knows\";"
          *            },
          *            "cost": {
          *              "vertexCost": "return (v) =&gt; v.TryGetProperty(out var age, \"age\") ? (double)age : 1.0;",
@@ -2101,6 +2290,26 @@ export interface paths {
                 };
                 /** @description Invalid path specification */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2571,6 +2780,26 @@ export interface paths {
                         "application/json": unknown;
                     };
                 };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
                 /** @description The source subgraph named by fromSubGraph does not exist */
                 404: {
                     headers: {
@@ -2864,7 +3093,71 @@ export interface components {
             /** @description The collection of properties (key-value pairs) associated with the graph element */
             properties?: null | components["schemas"]["PropertySpecification"][];
         };
+        /** @description Structured result of the edge-traversal benchmark (GET /benchmark) */
+        BenchmarkResultREST: {
+            /**
+             * Format: int32
+             * @description Number of timed iterations the statistics are computed over
+             */
+            iterations?: number | string;
+            /**
+             * Format: int64
+             * @description Edges traversed in a single iteration
+             */
+            edgesTraversed?: number | string;
+            /**
+             * Format: double
+             * @description Mean traversals per second across iterations
+             */
+            averageTps?: number | string;
+            /**
+             * Format: double
+             * @description Median traversals per second across iterations
+             */
+            medianTps?: number | string;
+            /**
+             * Format: double
+             * @description Standard deviation of the per-iteration TPS samples
+             */
+            standardDeviationTps?: number | string;
+        };
         BinaryOperator: number;
+        /** @description A single compiler diagnostic in fragment coordinates (feature web-ui, gap G-2) */
+        DelegateDiagnosticREST: {
+            /**
+             * Format: int32
+             * @description 1-based start line in fragment coordinates
+             */
+            line?: number | string;
+            /**
+             * Format: int32
+             * @description 1-based start column in fragment coordinates
+             */
+            column?: number | string;
+            /**
+             * Format: int32
+             * @description 1-based end line in fragment coordinates
+             */
+            endLine?: number | string;
+            /**
+             * Format: int32
+             * @description 1-based end column (exclusive) in fragment coordinates
+             */
+            endColumn?: number | string;
+            /** @description The diagnostic id, e.g. "CS1061" (or "F8LIMIT" for the size guard) */
+            id?: null | string;
+            /** @description The human-readable compiler message */
+            message?: null | string;
+            /** @description "error", "warning" or "info" */
+            severity?: null | string;
+        };
+        /** @description Result of compile-checking a delegate fragment (feature web-ui, gap G-2) */
+        DelegateValidationREST: {
+            /** @description True when the fragment compiles without errors (warnings do not block) */
+            valid?: boolean;
+            /** @description All non-hidden compiler diagnostics, in fragment coordinates */
+            diagnostics?: null | components["schemas"]["DelegateDiagnosticREST"][];
+        };
         Direction: number;
         /**
          * @description Represents an edge (relationship) between two vertices in the graph
@@ -3279,16 +3572,16 @@ export interface components {
         /**
          * @description Specification for filtering graph elements during path finding operations
          * @example {
-         *       "edgePropertyFilter": "return (p,d) =&gt; p == \"knows\";",
+         *       "edgePropertyFilter": "return (p) =&gt; p == \"knows\";",
          *       "vertexFilter": "return (v) =&gt; v.Label == \"person\";",
-         *       "edgeFilter": "return (e,d) =&gt; e.Label == \"friendship\";"
+         *       "edgeFilter": "return (e) =&gt; e.Label == \"friendship\";"
          *     }
          */
         PathFilterSpecification: {
             /**
              * @description Filter to apply on edge properties during path traversal
-             * @default return (p,d) => true;
-             * @example return (p,d) =&gt; p == "knows";
+             * @default return (p) => true;
+             * @example return (p) =&gt; p == "knows";
              */
             edgePropertyFilter: null | string;
             /**
@@ -3299,8 +3592,8 @@ export interface components {
             vertexFilter: null | string;
             /**
              * @description Filter to apply on edges during path traversal
-             * @default return (e,d) => true;
-             * @example return (e,d) =&gt; e.Label == "friendship";
+             * @default return (e) => true;
+             * @example return (e) =&gt; e.Label == "friendship";
              */
             edgeFilter: null | string;
         };
@@ -3348,9 +3641,9 @@ export interface components {
          *       "maxResults": 10,
          *       "maxPathWeight": 100,
          *       "filter": {
-         *         "edgePropertyFilter": "return (p,d) =&gt; true;",
+         *         "edgePropertyFilter": "return (p) =&gt; true;",
          *         "vertexFilter": "return (v) =&gt; true;",
-         *         "edgeFilter": "return (e,d) =&gt; true;"
+         *         "edgeFilter": "return (e) =&gt; true;"
          *       },
          *       "cost": {
          *         "vertexCost": "return (v) =&gt; 1.0;",
@@ -3832,6 +4125,26 @@ export interface components {
             additionalInformation?: null | {
                 [key: string]: string;
             };
+        };
+        /**
+         * @description Request to compile-check a single delegate fragment (feature web-ui, gap G-2)
+         * @example {
+         *       "delegateKind": "VertexFilter",
+         *       "fragment": "return (v) =&gt; v.Label == \"person\";"
+         *     }
+         */
+        ValidateDelegateSpecification: {
+            /**
+             * @description The delegate kind the fragment must compile against
+             * @default VertexFilter
+             * @example VertexFilter
+             */
+            delegateKind: null | string;
+            /**
+             * @description The C# fragment to validate: a method body returning a lambda
+             * @example return (v) =&gt; v.Label == "person";
+             */
+            fragment?: null | string;
         };
         /**
          * @description Represents a vertex (node) in the graph with its properties and connected edges

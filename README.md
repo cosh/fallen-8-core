@@ -54,6 +54,14 @@ docker compose up --build
 # NL-assist model:  http://localhost:11434 (configure in the delegate editor)
 ```
 
+The delegate editor's compile validation and NL assist run C# fragments through the
+server, which is off by default. To use them, start the container with an API key and the
+dynamic-code capability enabled, then register the instance in Studio with that key:
+
+```bash
+F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true docker compose up --build
+```
+
 In the Development environment the API description and interactive reference are available at:
 
 - **OpenAPI document:** `https://localhost:5001/openapi/v0.1.json`

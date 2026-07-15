@@ -34,12 +34,17 @@ services:
       - ollama-models:/root/.ollama
 
   # One-shot: pulls the MIT default model into the shared volume on first start.
+  # Retries until the Ollama daemon accepts connections (a cold image + slow disk can
+  # take well over a few seconds), so the advertised default model is reliably present.
   ollama-init:
     image: ollama/ollama:latest
     depends_on:
       - ollama
     restart: "no"
-    entrypoint: ["/bin/sh", "-c", "sleep 3 && ollama pull phi4-mini"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "for i in $$(seq 1 60); do ollama pull phi4-mini && exit 0; echo 'waiting for ollama...'; sleep 3; done; echo 'ollama did not become ready; pull phi4-mini manually'; exit 1"
     environment:
       - OLLAMA_HOST=http://ollama:11434
 

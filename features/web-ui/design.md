@@ -382,9 +382,12 @@ Only two, both flagged in-scope by the spec gaps:
 - **G-1 hosting + CORS.** Serve the built SPA as static files from the apiApp (one
   deployable, same-origin for the "home" instance) with SPA fallback routing. Add a
   configurable CORS policy because multi-instance requires the app served by instance A to
-  call B and C cross-origin. **Default:** allow any origin in Development; an explicit
-  configured allow-list in Production, read from `appsettings`. Dev may additionally use a
-  Vite proxy for the active instance; that is the implementer's choice.
+  call B and C cross-origin. **As implemented:** the apiApp reuses the security feature's
+  single default-deny CORS policy in *all* environments — cross-origin is allowed only for
+  the origins in `Fallen8:Security:AllowedCorsOrigins` (never a wildcard). In development
+  the SPA instead talks to its "home" instance through the Vite proxy (same-origin), so no
+  CORS entry is needed for local work; add origins only for additional cross-origin
+  instances.
 - **G-2 `POST /delegates/validate`.** Contract and behavior in §3.3. MSTest coverage per
   spec §10.
 

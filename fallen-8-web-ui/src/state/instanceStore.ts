@@ -1,6 +1,6 @@
 import { create, type UseBoundStore, type StoreApi } from "zustand";
 import { persist } from "zustand/middleware";
-import type { EdgeREST, PathREST, VertexREST } from "../api/types";
+import type { CanvasEdgeInput, PathREST, VertexREST } from "../api/types";
 
 /**
  * Per-instance workspace state (FR-1c), via a memoized store factory. Each instance id
@@ -64,7 +64,7 @@ export interface WorkspaceState {
   resultSets: ResultSet[];
   pathDraft: PathDraft;
 
-  mergeIntoCanvas: (vertices: VertexREST[], edges: EdgeREST[]) => void;
+  mergeIntoCanvas: (vertices: VertexREST[], edges: CanvasEdgeInput[]) => void;
   removeFromCanvas: (kind: "node" | "edge", id: number) => void;
   clearCanvas: () => void;
   setPathOverlay: (path: PathREST | null) => void;
@@ -104,7 +104,7 @@ function createWorkspaceStore(instanceId: string) {
                 source: e.sourceVertex,
                 target: e.targetVertex,
                 edgePropertyId: e.edgePropertyId ?? null,
-                label: e.label ?? null,
+                label: e.label ?? e.edgePropertyId ?? null,
               };
             }
             return { canvasNodes, canvasEdges };

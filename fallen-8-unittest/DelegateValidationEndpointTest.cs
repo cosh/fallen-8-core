@@ -372,6 +372,18 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
         }
 
+        [TestMethod]
+        public async Task NullBody_Returns400_NotServerError()
+        {
+            using var factory = new ValidationFactory();
+            using var client = Client(factory);
+
+            var response = await client.PostAsync("/delegates/validate",
+                new StringContent("null", Encoding.UTF8, "application/json"));
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
         #endregion
 
         #region security posture

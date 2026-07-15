@@ -45,7 +45,7 @@ export function ElementTable({
               <td className="table-cell">{element.label ?? "—"}</td>
               <td className="table-cell text-fg-dim">
                 {isEdge(element)
-                  ? `${element.sourceVertex} → ${element.targetVertex} (${element.edgePropertyId ?? "?"})`
+                  ? `${element.sourceVertex} → ${element.targetVertex}`
                   : "—"}
               </td>
               <td className="table-cell text-fg-dim">

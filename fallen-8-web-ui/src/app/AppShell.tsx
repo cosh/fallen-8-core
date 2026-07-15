@@ -114,7 +114,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <main className="min-h-0 flex-1 overflow-auto p-4">
           {active ? (
-            children
+            // Key the screen subtree by instance id so switching instances REMOUNTS the
+            // active screen (FR-1c): component-local result sets (browser lookups, query
+            // hydrations, path results) are dropped rather than carried into another
+            // instance's context. Per-instance stores are already isolated; this closes
+            // the leak one layer above them.
+            <div key={active.id} className="h-full">
+              {children}
+            </div>
           ) : (
             <div className="text-fg-dim">
               No instance selected — register one on the Connect screen.

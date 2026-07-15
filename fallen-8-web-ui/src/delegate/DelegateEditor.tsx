@@ -31,7 +31,7 @@ setupMonaco();
 type ValidationState =
   | { phase: "idle" }
   | { phase: "validating" }
-  | { phase: "done"; result: DelegateValidationResult }
+  | { phase: "done"; fragment: string; result: DelegateValidationResult }
   | { phase: "gate"; status: number; message: string }
   | { phase: "error"; message: string };
 
@@ -65,10 +65,19 @@ export function DelegateEditor({
   const monacoRef = useRef<typeof Monaco | null>(null);
   const disposeProviders = useRef<(() => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // While the NL loop drives validation itself, the debounce must not fire and abort its
+  // in-flight /delegates/validate call (that would break the refine loop after one turn).
+  const nlDrivingRef = useRef(false);
 
   const isEmpty = fragment.trim() === "" || fragment.trim() === info.openingSnippet.trim();
+  // Commit is allowed only when the CURRENT fragment text is the one that passed
+  // validation (FR-25): editing after a VALID result re-blocks commit until the new text
+  // is validated, so unvalidated code can never reach the query endpoints.
   const canCommit =
-    isEmpty || (validation.phase === "done" && validation.result.valid);
+    isEmpty ||
+    (validation.phase === "done" &&
+      validation.result.valid &&
+      validation.fragment === fragment);
 
   const applyMarkers = useCallback((diagnostics: DelegateDiagnostic[]) => {
     const monaco = monacoRef.current;
@@ -88,7 +97,7 @@ export function DelegateEditor({
         const result = await validateDelegate(instance, delegateKind, code, controller.signal);
         if (controller.signal.aborted) return null;
         const final = result ?? { valid: false, diagnostics: [] };
-        setValidation({ phase: "done", result: final });
+        setValidation({ phase: "done", fragment: code, result: final });
         applyMarkers(final.diagnostics);
         return final;
       } catch (error) {
@@ -114,8 +123,10 @@ export function DelegateEditor({
     [instance, delegateKind, applyMarkers],
   );
 
-  // Debounced validate-as-you-type (FR-23).
+  // Debounced validate-as-you-type (FR-23). Skipped while the NL loop is driving
+  // validation directly, so it cannot abort the loop's in-flight request.
   useEffect(() => {
+    if (nlDrivingRef.current) return;
     if (isEmpty) {
       setValidation({ phase: "idle" });
       applyMarkers([]);
@@ -186,7 +197,7 @@ export function DelegateEditor({
               </div>
 
               <div className="border-line flex items-center gap-2 border-t px-3 py-2">
-                <ValidationBadge state={validation} isEmpty={isEmpty} />
+                <ValidationBadge state={validation} isEmpty={isEmpty} fragment={fragment} />
                 <button
                   type="button"
                   className="btn ml-auto"
@@ -238,6 +249,7 @@ export function DelegateEditor({
                 delegateKind={delegateKind}
                 onDraft={(code) => insertSnippet(code)}
                 validateDraft={runValidation}
+                drivingRef={nlDrivingRef}
               />
             </aside>
           </div>
@@ -250,12 +262,19 @@ export function DelegateEditor({
 function ValidationBadge({
   state,
   isEmpty,
+  fragment,
 }: {
   state: ValidationState;
   isEmpty: boolean;
+  fragment: string;
 }) {
   if (isEmpty) {
     return <span className="text-fg-faint text-[11px]">empty = match everything</span>;
+  }
+  // A "done" result for text the user has since edited is stale - report not-validated
+  // so the badge never claims VALID for uncommitted-safe text (matches the commit gate).
+  if (state.phase === "done" && state.fragment !== fragment) {
+    return <span className="text-fg-faint text-[11px]">edited — not validated</span>;
   }
   switch (state.phase) {
     case "idle":
@@ -294,10 +313,12 @@ function NlAssistPanel({
   delegateKind,
   onDraft,
   validateDraft,
+  drivingRef,
 }: {
   delegateKind: DelegateKind;
   onDraft: (code: string) => void;
   validateDraft: (code: string) => Promise<DelegateValidationResult | null>;
+  drivingRef: React.MutableRefObject<boolean>;
 }) {
   const { config, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
   const [intent, setIntent] = useState("");
@@ -316,6 +337,9 @@ function NlAssistPanel({
     setAttempts([]);
     const controller = new AbortController();
     abortRef.current = controller;
+    // Own validation for the duration of the loop so the editor's debounce cannot abort
+    // our in-flight /delegates/validate calls (nl-assist spec FR-26.7).
+    drivingRef.current = true;
 
     const prompt = buildGenerationPrompt(delegateKind, intent);
     const conversation: ChatTurn[] = initialMessages(prompt);
@@ -351,6 +375,7 @@ function NlAssistPanel({
         setError(e instanceof Error ? e.message : String(e));
       }
     } finally {
+      drivingRef.current = false;
       setBusy(null);
     }
   };

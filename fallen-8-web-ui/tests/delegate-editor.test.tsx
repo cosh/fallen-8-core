@@ -117,6 +117,25 @@ describe("delegate editor gating (FR-25)", () => {
     expect(screen.getByTestId("commit-fragment")).toBeEnabled();
   });
 
+  it("re-blocks commit when the fragment is edited after passing validation (FR-25)", async () => {
+    const user = userEvent.setup();
+    validateMock.mockResolvedValue(VALID);
+    renderEditor();
+
+    const editor = screen.getByTestId("mock-editor");
+    await user.clear(editor);
+    await user.type(editor, "return (v) => true;");
+    await waitFor(() => expect(screen.getByTestId("validation-valid")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    expect(screen.getByTestId("commit-fragment")).toBeEnabled();
+
+    // Append text: the prior VALID result no longer describes the current fragment, so
+    // commit must be blocked again immediately (before any re-validation resolves).
+    await user.type(editor, " // stale");
+    expect(screen.getByTestId("commit-fragment")).toBeDisabled();
+  });
+
   it("treats the untouched opening snippet as empty = match everything", () => {
     renderEditor();
     expect(screen.getByText(/empty = match everything/i)).toBeInTheDocument();

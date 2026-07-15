@@ -162,7 +162,10 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                 return false;
             }
 
-            Int32 range = ((vertices.Count / Environment.ProcessorCount) * 3) / 2;
+            // Clamp to >=1: with fewer vertices than logical CPUs the naive formula is 0,
+            // and Partitioner.Create(..., rangeSize: 0) throws. (A tiny graph on a
+            // many-core host, exercised by the tests and the docker smoke test.)
+            Int32 range = Math.Max(1, ((vertices.Count / Environment.ProcessorCount) * 3) / 2);
 
             for (var i = 0; i < myIterations; i++)
             {

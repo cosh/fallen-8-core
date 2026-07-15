@@ -117,6 +117,11 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       graphElementId: 1,
       key: { value: "k", fullQualifiedTypeName: "System.String" },
     });
+    await endpoints.removeIndexKey(instance, "i", {
+      propertyId: "k",
+      propertyValue: "v",
+      fullQualifiedTypeName: "System.String",
+    });
     await endpoints.removeFromIndex(instance, "i", 1);
     await endpoints.deleteIndex(instance, "i");
     await endpoints.findPaths(instance, 1, 2, {

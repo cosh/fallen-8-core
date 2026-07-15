@@ -148,7 +148,6 @@ function ElementDetail({ element }: { element: VertexREST | EdgeREST }) {
           <div>
             <span className="text-fg-faint">endpoints </span>
             <InspectLink id={edge.sourceVertex} /> → <InspectLink id={edge.targetVertex} />
-            <span className="text-fg-dim"> via {edge.edgePropertyId ?? "?"}</span>
           </div>
         )}
         <table className="w-full">

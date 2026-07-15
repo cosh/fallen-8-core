@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:5599/"
+      "url": "http://127.0.0.1:5077/"
     }
   ],
   "paths": {
@@ -445,6 +445,7 @@
           "Admin"
         ],
         "summary": "Uploads and registers a new plugin to the database",
+        "description": "SECURITY: an uploaded plugin is loaded and executed IN-PROCESS WITH FULL TRUST - a trust\r\nboundary, not a sandbox. Requires an authenticated caller AND\r\nFallen8:Security:EnableDynamicPluginLoading=true. The DLL is written to the configured,\r\nisolated plugin directory, never next to the server binaries.",
         "parameters": [
           {
             "name": "api-version",
@@ -478,6 +479,46 @@
           },
           "400": {
             "description": "Invalid plugin data or incompatible plugin",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Dynamic plugin loading is disabled on this server (Fallen8:Security:EnableDynamicPluginLoading)",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -554,10 +595,12 @@
         "tags": [
           "Benchmark"
         ],
+        "summary": "Runs the edge-traversal benchmark and returns structured statistics",
         "parameters": [
           {
             "name": "iterations",
             "in": "query",
+            "description": "Number of timed iterations (default 1000)",
             "schema": {
               "type": "string"
             }
@@ -579,11 +622,120 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "The benchmark statistics",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/BenchmarkResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Empty graph, non-positive or non-numeric iteration count",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/delegates/validate": {
+      "post": {
+        "tags": [
+          "Delegates"
+        ],
+        "summary": "Validates a single delegate fragment without executing it",
+        "description": "The fragment is wrapped and compiled exactly as the path (POST /path/{from}/to/{to})\r\nand subgraph (PUT /subgraph) endpoints would wrap it, but nothing is emitted, loaded,\r\nor executed - validation is side-effect free.\r\n\r\nDiagnostic positions are already mapped back to the submitted fragment (1-based; line 1\r\nis the fragment's first line), so an editor renders markers without further mapping.\r\nA null/empty fragment is valid by definition (it means \"match everything\" / \"no custom\r\ncost\"). Warnings are reported but do not make the fragment invalid.\r\n\r\nThe endpoint sits behind the same dynamic-code authorization gate as the query\r\nendpoints: compilation is the expensive half of that surface, and validation is only\r\nuseful where fragment submission is possible at all.\r\n\r\nSample request:\r\n\r\n    POST /delegates/validate\r\n    {\r\n       \"delegateKind\": \"VertexFilter\",\r\n       \"fragment\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\"\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The delegate kind and the fragment to compile-check",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateDelegateSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateDelegateSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The validation result (also for invalid fragments - inspect \"valid\")",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DelegateValidationREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Unknown delegateKind or malformed request",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "Authentication required but missing/invalid",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "Rate limit for sensitive endpoints exceeded",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -951,7 +1103,12 @@
             "description": "The ID of the graph element to remove",
             "required": true,
             "schema": {
-              "type": "string"
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
             }
           },
           {
@@ -1883,7 +2040,12 @@
             "description": "The ID of the graph element",
             "required": true,
             "schema": {
-              "type": "string"
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
             }
           },
           {
@@ -1977,7 +2139,12 @@
             "description": "The ID of the graph element",
             "required": true,
             "schema": {
-              "type": "string"
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
             }
           },
           {
@@ -2056,7 +2223,12 @@
             "description": "The ID of the vertex",
             "required": true,
             "schema": {
-              "type": "string"
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
             }
           },
           {
@@ -2090,6 +2262,17 @@
               },
               "application/json": { }
             }
+          },
+          "404": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
           }
         }
       }
@@ -2107,7 +2290,12 @@
             "description": "The ID of the vertex",
             "required": true,
             "schema": {
-              "type": "string"
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
             }
           },
           {
@@ -2141,6 +2329,17 @@
               },
               "application/json": { }
             }
+          },
+          "404": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
           }
         }
       }
@@ -2158,7 +2357,12 @@
             "description": "The ID of the vertex",
             "required": true,
             "schema": {
-              "type": "string"
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
             }
           },
           {
@@ -2187,7 +2391,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Returns the count of matching incoming edges",
+            "description": "Returns the count of matching incoming edges (0 if the vertex has no such edge group)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2197,6 +2401,17 @@
                     "string"
                   ],
                   "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -2218,7 +2433,12 @@
             "description": "The ID of the vertex",
             "required": true,
             "schema": {
-              "type": "string"
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
             }
           },
           {
@@ -2247,7 +2467,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Returns the count of matching outgoing edges",
+            "description": "Returns the count of matching outgoing edges (0 if the vertex has no such edge group)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2257,6 +2477,17 @@
                     "string"
                   ],
                   "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -2271,7 +2502,7 @@
           "Graph"
         ],
         "summary": "Calculates the shortest path between two vertices in the graph",
-        "description": "The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.\r\n\r\nSelect the algorithm via \"pathAlgorithmName\". \"BLS\" is a hop-count (unweighted) shortest\r\npath that ignores the \"cost\" block (\"totalWeight\" is 0), whereas \"DIJKSTRA\" is a weighted\r\nshortest path that honours the \"cost\" block and \"maxPathWeight\" (and returns the K\r\nleast-weight loop-free paths when \"maxResults\" &gt; 1).\r\n\r\nIMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a \"return\" statement.\r\nThese are compiled at runtime into delegate methods.\r\n\r\nCorrect format for filter expressions:\r\n- \"return (parameter) =&gt; boolean_expression;\"\r\n\r\nCorrect format for cost expressions:\r\n- \"return (parameter) =&gt; numeric_expression;\"\r\n\r\nSample request:\r\n\r\n    POST /path/1/to/5\r\n    {\r\n       \"pathAlgorithmName\": \"BLS\",\r\n       \"maxDepth\": 5,\r\n       \"maxPathWeight\": 100.0,\r\n       \"maxResults\": 10,\r\n       \"filter\": {\r\n         \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"Person\\\";\",\r\n         \"edgeFilter\": \"return (e,d) =&gt; e.Label == \\\"friendship\\\";\",\r\n         \"edgePropertyFilter\": \"return (p,d) =&gt; p == \\\"knows\\\";\"\r\n       },\r\n       \"cost\": {\r\n         \"vertexCost\": \"return (v) =&gt; v.TryGetProperty(out var age, \\\"age\\\") ? (double)age : 1.0;\",\r\n         \"edgeCost\": \"return (e) =&gt; e.TryGetProperty(out var weight, \\\"weight\\\") ? (double)weight : 1.0;\"\r\n       }\r\n    }",
+        "description": "The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.\r\n\r\nSelect the algorithm via \"pathAlgorithmName\". \"BLS\" is a hop-count (unweighted) shortest\r\npath that ignores the \"cost\" block (\"totalWeight\" is 0), whereas \"DIJKSTRA\" is a weighted\r\nshortest path that honours the \"cost\" block and \"maxPathWeight\" (and returns the K\r\nleast-weight loop-free paths when \"maxResults\" &gt; 1).\r\n\r\nIMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a \"return\" statement.\r\nThese are compiled at runtime into delegate methods.\r\n\r\nCorrect format for filter expressions:\r\n- \"return (parameter) =&gt; boolean_expression;\"\r\n\r\nCorrect format for cost expressions:\r\n- \"return (parameter) =&gt; numeric_expression;\"\r\n\r\nSample request:\r\n\r\n    POST /path/1/to/5\r\n    {\r\n       \"pathAlgorithmName\": \"BLS\",\r\n       \"maxDepth\": 5,\r\n       \"maxPathWeight\": 100.0,\r\n       \"maxResults\": 10,\r\n       \"filter\": {\r\n         \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"Person\\\";\",\r\n         \"edgeFilter\": \"return (e) =&gt; e.Label == \\\"friendship\\\";\",\r\n         \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\"\r\n       },\r\n       \"cost\": {\r\n         \"vertexCost\": \"return (v) =&gt; v.TryGetProperty(out var age, \\\"age\\\") ? (double)age : 1.0;\",\r\n         \"edgeCost\": \"return (e) =&gt; e.TryGetProperty(out var weight, \\\"weight\\\") ? (double)weight : 1.0;\"\r\n       }\r\n    }",
         "parameters": [
           {
             "name": "from",
@@ -2349,6 +2580,28 @@
           },
           "400": {
             "description": "Invalid path specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2800,6 +3053,28 @@
               "application/json": { }
             }
           },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "400": {
             "description": "The specification was invalid, the pattern was structurally invalid, or a filter failed to compile",
             "content": {
@@ -3192,8 +3467,142 @@
         },
         "description": "Abstract base class for all graph elements (vertices and edges)"
       },
+      "BenchmarkResultREST": {
+        "type": "object",
+        "properties": {
+          "iterations": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Number of timed iterations the statistics are computed over",
+            "format": "int32"
+          },
+          "edgesTraversed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Edges traversed in a single iteration",
+            "format": "int64"
+          },
+          "averageTps": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Mean traversals per second across iterations",
+            "format": "double"
+          },
+          "medianTps": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Median traversals per second across iterations",
+            "format": "double"
+          },
+          "standardDeviationTps": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Standard deviation of the per-iteration TPS samples",
+            "format": "double"
+          }
+        },
+        "description": "Structured result of the edge-traversal benchmark (GET /benchmark)"
+      },
       "BinaryOperator": {
         "type": "integer"
+      },
+      "DelegateDiagnosticREST": {
+        "type": "object",
+        "properties": {
+          "line": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "1-based start line in fragment coordinates",
+            "format": "int32"
+          },
+          "column": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "1-based start column in fragment coordinates",
+            "format": "int32"
+          },
+          "endLine": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "1-based end line in fragment coordinates",
+            "format": "int32"
+          },
+          "endColumn": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "1-based end column (exclusive) in fragment coordinates",
+            "format": "int32"
+          },
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The diagnostic id, e.g. \"CS1061\" (or \"F8LIMIT\" for the size guard)"
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The human-readable compiler message"
+          },
+          "severity": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "\"error\", \"warning\" or \"info\""
+          }
+        },
+        "description": "A single compiler diagnostic in fragment coordinates (feature web-ui, gap G-2)"
+      },
+      "DelegateValidationREST": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "description": "True when the fragment compiles without errors (warnings do not block)"
+          },
+          "diagnostics": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DelegateDiagnosticREST"
+            },
+            "description": "All non-hidden compiler diagnostics, in fragment coordinates"
+          }
+        },
+        "description": "Result of compile-checking a delegate fragment (feature web-ui, gap G-2)"
       },
       "Direction": {
         "type": "integer"
@@ -3836,8 +4245,8 @@
               "string"
             ],
             "description": "Filter to apply on edge properties during path traversal",
-            "default": "return (p,d) => true;",
-            "example": "return (p,d) =&gt; p == \"knows\";"
+            "default": "return (p) => true;",
+            "example": "return (p) =&gt; p == \"knows\";"
           },
           "vertexFilter": {
             "type": [
@@ -3854,15 +4263,15 @@
               "string"
             ],
             "description": "Filter to apply on edges during path traversal",
-            "default": "return (e,d) => true;",
-            "example": "return (e,d) =&gt; e.Label == \"friendship\";"
+            "default": "return (e) => true;",
+            "example": "return (e) =&gt; e.Label == \"friendship\";"
           }
         },
         "description": "Specification for filtering graph elements during path finding operations",
         "example": {
-          "edgePropertyFilter": "return (p,d) =&gt; p == \"knows\";",
+          "edgePropertyFilter": "return (p) =&gt; p == \"knows\";",
           "vertexFilter": "return (v) =&gt; v.Label == \"person\";",
-          "edgeFilter": "return (e,d) =&gt; e.Label == \"friendship\";"
+          "edgeFilter": "return (e) =&gt; e.Label == \"friendship\";"
         }
       },
       "PathREST": {
@@ -3983,9 +4392,9 @@
           "maxResults": 10,
           "maxPathWeight": 100.0,
           "filter": {
-            "edgePropertyFilter": "return (p,d) =&gt; true;",
+            "edgePropertyFilter": "return (p) =&gt; true;",
             "vertexFilter": "return (v) =&gt; true;",
-            "edgeFilter": "return (e,d) =&gt; true;"
+            "edgeFilter": "return (e) =&gt; true;"
           },
           "cost": {
             "vertexCost": "return (v) =&gt; 1.0;",
@@ -4668,6 +5077,36 @@
           }
         }
       },
+      "ValidateDelegateSpecification": {
+        "required": [
+          "delegateKind"
+        ],
+        "type": "object",
+        "properties": {
+          "delegateKind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The delegate kind the fragment must compile against",
+            "default": "VertexFilter",
+            "example": "VertexFilter"
+          },
+          "fragment": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The C# fragment to validate: a method body returning a lambda",
+            "example": "return (v) =&gt; v.Label == \"person\";"
+          }
+        },
+        "description": "Request to compile-check a single delegate fragment (feature web-ui, gap G-2)",
+        "example": {
+          "delegateKind": "VertexFilter",
+          "fragment": "return (v) =&gt; v.Label == \"person\";"
+        }
+      },
       "Vertex": {
         "required": [
           "id",
@@ -4840,6 +5279,9 @@
     },
     {
       "name": "Benchmark"
+    },
+    {
+      "name": "Delegates"
     },
     {
       "name": "Graph"

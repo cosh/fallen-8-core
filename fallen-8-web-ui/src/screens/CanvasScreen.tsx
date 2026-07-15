@@ -61,14 +61,30 @@ export function CanvasScreen() {
         getOutEdgeProperties(instance, vertexId).catch(() => []),
         getInEdgeProperties(instance, vertexId).catch(() => []),
       ]);
-      const edgeIdLists = await Promise.all([
-        ...(outProps ?? []).map((p) => getOutEdges(instance, vertexId, p).catch(() => [])),
-        ...(inProps ?? []).map((p) => getInEdges(instance, vertexId, p).catch(() => [])),
+      const perProperty = await Promise.all([
+        ...(outProps ?? []).map(async (p) => ({
+          property: p,
+          ids: (await getOutEdges(instance, vertexId, p).catch(() => [])) ?? [],
+        })),
+        ...(inProps ?? []).map(async (p) => ({
+          property: p,
+          ids: (await getInEdges(instance, vertexId, p).catch(() => [])) ?? [],
+        })),
       ]);
-      const edgeIds = [...new Set(edgeIdLists.flatMap((ids) => ids ?? []))].slice(0, 200);
+      // The REST Edge DTO has no property id, but the per-property listing does - carry it
+      // so expanded edges keep their labels on the canvas.
+      const edgePropertyById = new Map<number, string>();
+      for (const { property, ids } of perProperty) {
+        for (const edgeId of ids) {
+          if (!edgePropertyById.has(edgeId)) edgePropertyById.set(edgeId, property);
+        }
+      }
+      const edgeIds = [...edgePropertyById.keys()].slice(0, 200);
       const edges = (
         await Promise.all(edgeIds.map((id) => getEdge(instance, id).catch(() => null)))
-      ).filter((e): e is EdgeREST => e !== null);
+      )
+        .filter((e): e is EdgeREST => e !== null)
+        .map((e) => ({ ...e, edgePropertyId: edgePropertyById.get(e.id) ?? null }));
 
       const neighborIds = new Set<number>();
       for (const edge of edges) {

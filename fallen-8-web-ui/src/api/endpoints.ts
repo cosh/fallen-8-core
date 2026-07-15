@@ -107,11 +107,12 @@ export const getEdgePropertyDegree = (
     `/vertex/${id}/edges/${direction}/${encodeURIComponent(edgePropertyId)}/degree`,
   );
 
+// These return the endpoint vertex ID (an int), not the vertex object.
 export const getEdgeSource = (i: InstanceConfig, id: number) =>
-  apiRequest<VertexREST>(i, `/edge/${id}/source`);
+  apiRequest<number>(i, `/edge/${id}/source`);
 
 export const getEdgeTarget = (i: InstanceConfig, id: number) =>
-  apiRequest<VertexREST>(i, `/edge/${id}/target`);
+  apiRequest<number>(i, `/edge/${id}/target`);
 
 // ---- scans (FR-8) ----
 
@@ -148,11 +149,14 @@ export const addToIndex = (i: InstanceConfig, indexId: string, spec: IndexAddToS
     query: WAIT,
   });
 
-export const removeIndexKey = (i: InstanceConfig, indexId: string, key: unknown) =>
-  apiRequest<void>(i, `/index/${encodeURIComponent(indexId)}/key`, {
+export const removeIndexKey = (
+  i: InstanceConfig,
+  indexId: string,
+  key: PropertySpecification,
+) =>
+  apiRequest<boolean>(i, `/index/${encodeURIComponent(indexId)}/propertyValue`, {
     method: "DELETE",
     body: key,
-    query: WAIT,
   });
 
 export const removeFromIndex = (i: InstanceConfig, indexId: string, graphElementId: number) =>
