@@ -42,6 +42,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -429,6 +430,12 @@ namespace NoSQL.GraphDB.Tests
             {
                 get => _inner.SubGraphRecipeCompiler;
                 set => _inner.SubGraphRecipeCompiler = value;
+            }
+            public StoredQueryLibrary StoredQueries => _inner.StoredQueries;
+            public IStoredQueryCompiler StoredQueryCompiler
+            {
+                get => _inner.StoredQueryCompiler;
+                set => _inner.StoredQueryCompiler = value;
             }
             public ILoggerFactory LoggerFactory => _inner.LoggerFactory;
             public void SetId(Guid id) => _inner.SetId(id);

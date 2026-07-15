@@ -504,6 +504,48 @@ namespace NoSQL.GraphDB.Tests
                 }, "PathSpecification"),
                 (new PathFilterSpecification(), "PathFilterSpecification"),
                 (new PathCostSpecification(), "PathCostSpecification"),
+                (new StoredQuerySpecification
+                {
+                    Name = "adults-shortest",
+                    Kind = "Path",
+                    Description = "age>30 vertices",
+                    Path = new StoredPathQueryBlock
+                    {
+                        Filter = new PathFilterSpecification(),
+                        Cost = new PathCostSpecification()
+                    }
+                }, "StoredQuerySpecification"),
+                (new StoredPathQueryBlock
+                {
+                    Filter = new PathFilterSpecification(),
+                    Cost = new PathCostSpecification()
+                }, "StoredPathQueryBlock"),
+                (new StoredSubGraphQueryBlock
+                {
+                    VertexFilter = "return (ge) => ge.Label == \"person\";",
+                    EdgeFilter = "return (ge) => ge.Label == \"knows\";",
+                    Patterns = new List<PatternSpecification>
+                    {
+                        new PatternSpecification { Type = "Vertex", PatternName = "start" }
+                    }
+                }, "StoredSubGraphQueryBlock"),
+                (new StoredQuerySummaryREST
+                {
+                    Name = "adults-shortest",
+                    Kind = "Path",
+                    Description = "age>30 vertices",
+                    CreatedAt = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc),
+                    CompileState = "Compiled"
+                }, "StoredQuerySummaryREST"),
+                (new StoredQueryDetailREST
+                {
+                    Name = "person-net",
+                    Kind = "SubGraph",
+                    CreatedAt = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc),
+                    CompileState = "Failed",
+                    SpecificationJson = "{\"vertexFilter\":\"return (ge) => true;\"}",
+                    CompileDiagnostics = "ID: CS1002, Message: ; expected"
+                }, "StoredQueryDetailREST"),
                 (new LiteralSpecification { Value = "John Doe", FullQualifiedTypeName = "System.String" }, "LiteralSpecification"),
                 (new PluginSpecification
                 {

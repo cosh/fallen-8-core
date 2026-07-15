@@ -68,6 +68,19 @@ namespace NoSQL.GraphDB.Core.Persistency
         CreateSubGraph = 12,
 
         /// <summary>A subgraph removal. Payload: the subgraph name.</summary>
-        RemoveSubGraph = 13
+        RemoveSubGraph = 13,
+
+        /// <summary>
+        ///   A stored query registration (feature stored-query-library). Payload: the serialized
+        ///   <see cref="StoredQueries.StoredQueryDefinition"/> (JSON). Unlike subgraphs there is no
+        ///   unloggable case - a stored query IS its serializable source. Replayed by recompiling
+        ///   the definition (via the registered <c>IStoredQueryCompiler</c>) and re-executing the
+        ///   equivalent registration in commit order; a replay recompile failure keeps the entry as
+        ///   Failed rather than dropping it (operator-registered state, never silently lost).
+        /// </summary>
+        RegisterStoredQuery = 14,
+
+        /// <summary>A stored query removal (feature stored-query-library). Payload: the name.</summary>
+        RemoveStoredQuery = 15
     }
 }
