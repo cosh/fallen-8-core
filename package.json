@@ -7,6 +7,10 @@
     "dev": "npm run dev --prefix fallen-8-web-ui",
     "build:apiapp": "npm run build:apiapp --prefix fallen-8-web-ui",
     "test:ui": "npm run test --prefix fallen-8-web-ui",
-    "e2e": "npm run e2e --prefix fallen-8-web-ui"
+    "e2e": "npm run e2e --prefix fallen-8-web-ui",
+    "env:up": "docker compose up -d --build",
+    "env:down": "docker compose down",
+    "env:logs": "docker compose logs -f",
+    "env:status": "docker compose ps"
   }
 }

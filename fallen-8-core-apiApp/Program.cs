@@ -127,6 +127,12 @@ namespace NoSQL.GraphDB.App
                     new RecipeSubGraphCompiler());
             });
 
+            // Save-game metadata registry (feature save-games): the persistent historical record of
+            // checkpoints and the startup load authority.
+            builder.Services.Configure<Fallen8MetadataOptions>(
+                builder.Configuration.GetSection(Fallen8MetadataOptions.SectionName));
+            builder.Services.AddSingleton<SaveGameRegistry>();
+
             // Own the load-on-start / save-on-stop lifecycle around the existing Save/Load transactions.
             builder.Services.AddHostedService<DurabilityLifecycleService>();
 

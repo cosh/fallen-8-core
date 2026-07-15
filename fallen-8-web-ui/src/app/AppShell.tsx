@@ -8,6 +8,7 @@ import { getStatus } from "../api/endpoints";
 const NAV = [
   { to: "/", label: "Connect", icon: "◉" },
   { to: "/dashboard", label: "Dashboard", icon: "▦" },
+  { to: "/save-games", label: "Save games", icon: "⭯" },
   { to: "/browser", label: "Browser", icon: "☰" },
   { to: "/query", label: "Query", icon: "∴" },
   { to: "/path", label: "Path", icon: "↝" },

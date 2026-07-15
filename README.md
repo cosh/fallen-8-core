@@ -46,13 +46,20 @@ dotnet run --project fallen-8-core-apiApp
 ```
 
 Or the complete environment in Docker - engine, REST API, F8 Studio, and the NL-assist
-model backend (Ollama + the MIT default model, pulled on first start):
+model backend (Ollama + the MIT default model, pulled on first start). The environment is
+managed **as one unit** via compose - do not start/stop individual containers:
 
 ```bash
-docker compose up --build
+npm run env:up      # = docker compose up -d --build   (start everything)
+npm run env:down    # = docker compose down            (stop everything; data volumes persist)
+npm run env:logs    # follow all logs
+npm run env:status  # health of the whole environment
 # F8 Studio:        http://localhost:8080
 # NL-assist model:  http://localhost:11434 (configure in the delegate editor)
 ```
+
+Graph data and the save-game registry live on the `f8-data` volume, model weights on
+`f8-ollama-models` - both survive `env:down`/`env:up` cycles.
 
 The delegate editor's compile validation and NL assist run C# fragments through the
 server, which is off by default. To use them, start the container with an API key and the
@@ -61,6 +68,18 @@ dynamic-code capability enabled, then register the instance in Studio with that 
 ```bash
 F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true docker compose up --build
 ```
+
+### Save games (checkpoints)
+
+Every `PUT /save` (and the clean-shutdown save) is recorded in a persistent registry at
+`<deployment>/metadata/savegames.json` with KPIs and file facts; the "Save games" screen
+in F8 Studio lists, loads, and deletes them. **Startup is registry-driven:** on boot the
+engine loads the newest registered save game; when the registry is empty it does not load
+any checkpoint (a file sitting in the storage directory is no longer auto-loaded just
+because it is there) — it keeps whatever the write-ahead log replayed at construction,
+which for a fresh deployment is an empty graph. To adopt a pre-existing checkpoint after upgrading, load it once via
+`PUT /load` (or the Save games screen); it is then registered permanently. See
+[features/save-games/spec.md](features/save-games/spec.md).
 
 In the Development environment the API description and interactive reference are available at:
 

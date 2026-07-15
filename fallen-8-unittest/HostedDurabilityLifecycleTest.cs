@@ -49,27 +49,32 @@ namespace NoSQL.GraphDB.Tests
     public class HostedDurabilityLifecycleTest
     {
         private string _storageDir;
+        private string _metaDir;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _storageDir = Path.Combine(Path.GetTempPath(), "f8_hosted_" + Guid.NewGuid().ToString("N"));
+            _metaDir = Path.Combine(Path.GetTempPath(), "f8_hosted_meta_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_storageDir);
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
+            foreach (var dir in new[] { _storageDir, _metaDir })
             {
-                if (_storageDir != null && Directory.Exists(_storageDir))
+                try
                 {
-                    Directory.Delete(_storageDir, true);
+                    if (dir != null && Directory.Exists(dir))
+                    {
+                        Directory.Delete(dir, true);
+                    }
                 }
-            }
-            catch
-            {
-                // best-effort cleanup
+                catch
+                {
+                    // best-effort cleanup
+                }
             }
         }
 
@@ -98,6 +103,9 @@ namespace NoSQL.GraphDB.Tests
                 ["Fallen8:Durability:StorageDirectory"] = _storageDir,
                 ["Fallen8:Durability:Volatile"] = volatileMode ? "true" : "false",
                 ["Fallen8:Durability:SaveOnShutdown"] = saveOnShutdown ? "true" : "false",
+                // Isolate the save-game registry per test (as storage is isolated), so parallel
+                // test classes never collide on the default bin/metadata/savegames.json.
+                ["Fallen8:Metadata:Directory"] = _metaDir,
             });
         }
 

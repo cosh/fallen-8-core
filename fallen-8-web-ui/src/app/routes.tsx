@@ -7,6 +7,7 @@ import {
 import { AppShell } from "./AppShell";
 import { ConnectScreen } from "../screens/ConnectScreen";
 import { DashboardScreen } from "../screens/DashboardScreen";
+import { SaveGamesScreen } from "../screens/SaveGamesScreen";
 import { BrowserScreen } from "../screens/BrowserScreen";
 import { QueryScreen } from "../screens/QueryScreen";
 import { PathScreen } from "../screens/PathScreen";
@@ -31,6 +32,15 @@ const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/dashboard",
   component: DashboardScreen,
+});
+
+// NOTE: "/save-games" (hyphen) - the un-hyphenated path is the real GET /savegames API
+// route, which would win over the SPA fallback on a full-page load (same reason /subgraphs
+// is plural).
+const saveGamesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/save-games",
+  component: SaveGamesScreen,
 });
 
 const browserRoute = createRoute({
@@ -68,6 +78,7 @@ const canvasRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   connectRoute,
   dashboardRoute,
+  saveGamesRoute,
   browserRoute,
   queryRoute,
   pathRoute,

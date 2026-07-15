@@ -6,6 +6,34 @@
  * `npm run gen:api` when the snapshot changes.
  */
 
+/** Save-game registry (feature save-games). */
+export interface SaveGameIndex {
+  indexId: string;
+  pluginType: string | null;
+}
+
+export interface SaveGameKpis {
+  vertexCount: number;
+  edgeCount: number;
+  usedMemoryBytes: number;
+  indices: SaveGameIndex[];
+  availableIndexPlugins: string[];
+  availablePathPlugins: string[];
+  availableServicePlugins: string[];
+  subGraphs: string[];
+}
+
+export interface SaveGame {
+  id: string;
+  savedAt: string;
+  trigger: "api" | "shutdown" | "imported";
+  location: string;
+  fileCount: number;
+  totalBytes: number;
+  engineVersion: string | null;
+  kpis: SaveGameKpis;
+}
+
 /** GET /benchmark - structured edge-traversal statistics (TPS = traversals/second). */
 export interface BenchmarkResult {
   iterations: number;

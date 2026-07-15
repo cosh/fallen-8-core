@@ -189,7 +189,13 @@ namespace NoSQL.GraphDB.Tests
             var admin = new AdminController(
                 new UnitTestLogger<AdminController>(),
                 fallen8,
-                Options.Create(new Fallen8SecurityOptions()));
+                Options.Create(new Fallen8SecurityOptions()),
+                new NoSQL.GraphDB.App.Services.SaveGameRegistry(
+                    Options.Create(new NoSQL.GraphDB.App.Configuration.Fallen8MetadataOptions
+                    {
+                        Directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_meta_" + System.Guid.NewGuid().ToString("N"))
+                    }),
+                    new UnitTestLogger<NoSQL.GraphDB.App.Services.SaveGameRegistry>()));
 
             var result = admin.UploadPlugin(null);
             Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult), "A null plugin stream must be a 400.");

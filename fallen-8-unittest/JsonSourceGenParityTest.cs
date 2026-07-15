@@ -561,7 +561,50 @@ namespace NoSQL.GraphDB.Tests
                     AverageTps = 592134058.33,
                     MedianTps = 601225777.44,
                     StandardDeviationTps = 60311324.76
-                }, "BenchmarkResultREST")
+                }, "BenchmarkResultREST"),
+                (new SaveGameIndexREST { IndexId = "myIndex", PluginType = "DictionaryIndex" }, "SaveGameIndexREST"),
+                (new SaveGameKpisREST
+                {
+                    VertexCount = 1000,
+                    EdgeCount = 10000,
+                    UsedMemoryBytes = 282016350,
+                    Indices = new List<SaveGameIndexREST>
+                    {
+                        new SaveGameIndexREST { IndexId = "myIndex", PluginType = "DictionaryIndex" }
+                    },
+                    AvailableIndexPlugins = new List<string> { "DictionaryIndex" },
+                    AvailablePathPlugins = new List<string> { "BLS", "DIJKSTRA" },
+                    AvailableServicePlugins = new List<string>(),
+                    SubGraphs = new List<string> { "friends-of-trent" }
+                }, "SaveGameKpisREST"),
+                (new SaveGameREST
+                {
+                    Id = "sg-20260715-093012-4f2a",
+                    SavedAt = "2026-07-15T09:30:12.412Z",
+                    Trigger = "api",
+                    Location = "C:/Fallen8/database.f8s",
+                    FileCount = 9,
+                    TotalBytes = 73400320,
+                    EngineVersion = "0.9.3.0",
+                    Kpis = new SaveGameKpisREST { VertexCount = 1000, EdgeCount = 10000 }
+                }, "SaveGameREST"),
+                (new SaveGameRegistryDocument
+                {
+                    SchemaVersion = 1,
+                    SaveGames = new List<SaveGameREST>
+                    {
+                        new SaveGameREST
+                        {
+                            Id = "sg-20260715-093012-4f2a",
+                            SavedAt = "2026-07-15T09:30:12.412Z",
+                            Trigger = "api",
+                            Location = "C:/Fallen8/database.f8s",
+                            FileCount = 9,
+                            TotalBytes = 73400320,
+                            EngineVersion = "0.9.3.0"
+                        }
+                    }
+                }, "SaveGameRegistryDocument")
             };
         }
 

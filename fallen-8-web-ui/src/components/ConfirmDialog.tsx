@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 
 /**
  * Typed confirmation for destructive actions (FR-1d, FR-3): the dialog names the target
  * instance AND its endpoint, and the user must type the instance name to arm the action.
+ * Optional `extra` content renders above the typed-name field (e.g. a "delete files too"
+ * checkbox).
  */
 export function ConfirmDialog({
   open,
@@ -14,6 +16,7 @@ export function ConfirmDialog({
   confirmLabel,
   onConfirm,
   onCancel,
+  extra,
 }: {
   open: boolean;
   title: string;
@@ -23,6 +26,7 @@ export function ConfirmDialog({
   confirmLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  extra?: ReactNode;
 }) {
   const [typed, setTyped] = useState("");
   const armed = typed === instanceName;
@@ -46,6 +50,7 @@ export function ConfirmDialog({
             <strong className="text-fg">{instanceName}</strong>{" "}
             (<span className="break-all">{endpoint}</span>).
           </Dialog.Description>
+          {extra && <div className="mt-3">{extra}</div>}
           <label className="label mt-4" htmlFor="confirm-typed">
             type “{instanceName}” to confirm
           </label>

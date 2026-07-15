@@ -175,6 +175,34 @@ namespace NoSQL.GraphDB.Core.Index
         }
 
         /// <summary>
+        ///   Returns a point-in-time snapshot of the registered index ids paired with their plugin
+        ///   type name, copied under the read lock so it never observes a torn <see cref="Indices" />
+        ///   mid-mutation. Public so callers off the writer thread (e.g. the save-game registry's KPI
+        ///   capture) can enumerate index ids + types without racing a concurrent create/delete.
+        /// </summary>
+        public IReadOnlyList<KeyValuePair<String, String>> GetIndexPluginTypesSnapshot()
+        {
+            if (ReadResource())
+            {
+                try
+                {
+                    var result = new List<KeyValuePair<String, String>>(Indices.Count);
+                    foreach (var kv in Indices)
+                    {
+                        result.Add(new KeyValuePair<String, String>(kv.Key, kv.Value?.PluginName));
+                    }
+                    return result;
+                }
+                finally
+                {
+                    FinishReadResource();
+                }
+            }
+
+            throw new CollisionException();
+        }
+
+        /// <summary>
         ///   Tries the index of the get.
         /// </summary>
         /// <returns> <c>true</c> if the index was found; otherwise, <c>false</c> . </returns>

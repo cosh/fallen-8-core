@@ -244,7 +244,13 @@ namespace NoSQL.GraphDB.Tests
                 EnableDynamicPluginLoading = true,
             });
             var controller = new NoSQL.GraphDB.App.Controllers.AdminController(
-                loggerFactory.CreateLogger<NoSQL.GraphDB.App.Controllers.AdminController>(), engine, options);
+                loggerFactory.CreateLogger<NoSQL.GraphDB.App.Controllers.AdminController>(), engine, options,
+                new NoSQL.GraphDB.App.Services.SaveGameRegistry(
+                    Microsoft.Extensions.Options.Options.Create(new NoSQL.GraphDB.App.Configuration.Fallen8MetadataOptions
+                    {
+                        Directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_meta_" + System.Guid.NewGuid().ToString("N"))
+                    }),
+                    loggerFactory.CreateLogger<NoSQL.GraphDB.App.Services.SaveGameRegistry>()));
 
             var before = Directory.GetFiles(AppContext.BaseDirectory, "*.dll").Length;
             using (var dll = new MemoryStream(new byte[] { 1, 2, 3, 4, 5 }))

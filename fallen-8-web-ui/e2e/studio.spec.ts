@@ -188,6 +188,36 @@ test("scenario 7: subgraph lifecycle with empty-as-valid", async ({ page }) => {
   await expect(page.getByTestId("subgraph-message")).toContainText("Deleted");
 });
 
+test("save games: save now registers a row; load and delete demand typed confirmation", async ({
+  page,
+}) => {
+  await registerSecuredInstance(page, "savegametest");
+  // Ensure there is something to save.
+  await createVertex(page, "person");
+
+  await page.goto("/save-games");
+  await page.getByTestId("save-now").click();
+  await expect(page.getByTestId("savegame-message")).toContainText("Saved", { timeout: 20_000 });
+
+  const row = page.locator('[data-testid^="savegame-row-"]').first();
+  await expect(row).toBeVisible({ timeout: 20_000 });
+
+  // Load demands the typed instance name.
+  await row.getByRole("button", { name: "Load…" }).click();
+  const confirmLoad = page.getByTestId("confirm-action");
+  await expect(confirmLoad).toBeDisabled();
+  await page.getByTestId("confirm-typed").fill("savegametest");
+  await confirmLoad.click();
+  await expect(page.getByTestId("savegame-message")).toContainText("Loaded", { timeout: 20_000 });
+
+  // Delete demands the typed instance name; the files checkbox is available.
+  await page.locator('[data-testid^="savegame-row-"]').first().getByRole("button", { name: "Delete…" }).click();
+  await expect(page.getByTestId("delete-files-toggle")).toBeVisible();
+  await page.getByTestId("confirm-typed").fill("savegametest");
+  await page.getByTestId("confirm-action").click();
+  await expect(page.getByTestId("savegame-message")).toContainText("deleted", { timeout: 20_000 });
+});
+
 test("scenario 8: tabula rasa demands the typed instance name", async ({ page }) => {
   await registerSecuredInstance(page, "erasable");
   await page.goto("/dashboard");
