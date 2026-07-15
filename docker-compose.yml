@@ -18,7 +18,9 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # Host port is configurable (F8_PORT) so the environment does not collide with
+      # something already on 8080; the container always listens on 8080.
+      - "${F8_PORT:-8080}:8080"
     environment:
       # Durable graph data AND the save-game registry live on the named volume, so both
       # survive container recreation together (feature save-games).
@@ -42,8 +44,9 @@ services:
     ports:
       - "11434:11434"
     environment:
-      # The browser calls Ollama directly (nl-assist spec §4); allow the F8 origin.
-      - OLLAMA_ORIGINS=http://localhost:8080
+      # The browser calls Ollama directly (nl-assist spec §4); allow the F8 origin
+      # (keep in sync with F8_PORT).
+      - OLLAMA_ORIGINS=http://localhost:${F8_PORT:-8080}
     volumes:
       - ollama-models:/root/.ollama
     healthcheck:
