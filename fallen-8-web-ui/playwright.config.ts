@@ -10,12 +10,19 @@ import { defineConfig } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 90_000,
+  // Per-test ceiling. Kept modest so a misconfigured/unreachable backend fails fast
+  // instead of every test burning a 90s timeout (a whole-suite hang reads as "slow e2e"
+  // when it is really "backend not serving"). The nav/action timeouts below make the
+  // first goto in each test fail in ~15s rather than sitting until the per-test ceiling.
+  timeout: 45_000,
+  expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
   retries: 0,
   use: {
     baseURL: process.env.F8_UI_URL ?? "http://localhost:5000",
+    navigationTimeout: 15_000,
+    actionTimeout: 15_000,
     screenshot: "only-on-failure",
   },
   webServer: process.env.F8_UI_URL
