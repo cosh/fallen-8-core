@@ -1,0 +1,12 @@
+{
+  "name": "fallen-8-core-repo",
+  "private": true,
+  "description": "Root convenience scripts - the web UI lives in fallen-8-web-ui/",
+  "scripts": {
+    "install:ui": "npm install --prefix fallen-8-web-ui",
+    "dev": "npm run dev --prefix fallen-8-web-ui",
+    "build:apiapp": "npm run build:apiapp --prefix fallen-8-web-ui",
+    "test:ui": "npm run test --prefix fallen-8-web-ui",
+    "e2e": "npm run e2e --prefix fallen-8-web-ui"
+  }
+}

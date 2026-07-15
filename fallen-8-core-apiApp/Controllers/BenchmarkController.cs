@@ -25,9 +25,11 @@
 
 using System;
 using System.Diagnostics;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Controllers.Benchmark;
+using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Interfaces;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Serializer;
@@ -80,11 +82,35 @@ namespace NoSQL.GraphDB.App.Controllers
             return String.Format("It took {0}ms to create a Fallen-8 graph with {1} nodes and {2} edges per node.", sw.Elapsed.TotalMilliseconds, nodeCount, edgeCount);
         }
 
+        /// <summary>
+        /// Runs the edge-traversal benchmark and returns structured statistics
+        /// </summary>
+        /// <param name="iterations">Number of timed iterations (default 1000)</param>
+        /// <returns>Per-iteration TPS statistics (average, median, standard deviation)</returns>
+        /// <response code="200">The benchmark statistics</response>
+        /// <response code="400">Empty graph, non-positive or non-numeric iteration count</response>
         [HttpGet("/benchmark")]
         [Produces("application/json")]
-        public string Bench([FromQuery] string iterations)
+        [ProducesResponseType(typeof(BenchmarkResultREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public ActionResult<BenchmarkResultREST> Bench([FromQuery] string iterations)
         {
-            return _introProvider.Bench(Convert.ToInt32(iterations));
+            int iterationCount;
+            if (String.IsNullOrWhiteSpace(iterations))
+            {
+                iterationCount = 1000;
+            }
+            else if (!Int32.TryParse(iterations, out iterationCount))
+            {
+                return BadRequest(String.Format("'{0}' is not a valid iteration count.", iterations));
+            }
+
+            if (!_introProvider.TryBench(out var result, out var message, iterationCount))
+            {
+                return BadRequest(message);
+            }
+
+            return result;
         }
 
         #region not implemented

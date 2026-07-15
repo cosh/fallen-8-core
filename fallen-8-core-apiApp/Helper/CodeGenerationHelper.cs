@@ -80,7 +80,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
         ///   is the load-bearing guard (Roslyn's own cancellation is only cooperative). Generous
         ///   defaults: they bound abuse, not real fragments.
         /// </summary>
-        private const int MaxFilterFragmentLength = 100_000;
+        internal const int MaxFilterFragmentLength = 100_000;
         private const int MaxGeneratedSourceLength = 1_000_000;
 
         #endregion
@@ -298,6 +298,12 @@ namespace NoSQL.GraphDB.Core.App.Helper
         ///   and process-lifetime and reference no collectible context, so this is unload-safe.
         /// </summary>
         private static readonly MetadataReference[] _globalReferences = BuildGlobalReferences().ToArray();
+
+        /// <summary>
+        ///   The shared metadata references, for the side-effect-free validation compile in
+        ///   <see cref="DelegateValidationHelper"/> (feature web-ui, gap G-2).
+        /// </summary>
+        internal static MetadataReference[] GlobalReferences => _globalReferences;
 
         [UnconditionalSuppressMessage("SingleFile", "IL3000:Avoid accessing Assembly file path when publishing as a single file", Justification = "This method handles the single-file case by checking for empty Location and uses AppContext.BaseDirectory as fallback")]
         private static IEnumerable<MetadataReference> BuildGlobalReferences()

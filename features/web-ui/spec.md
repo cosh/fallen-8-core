@@ -374,9 +374,8 @@ documented UI fallback.
    IntelliSense → G-2 validation endpoint + diagnostics mapping → NL assist
    (FR-26/G-6) → subgraph studio → mutations/polish. Each phase names its tests.
 3. Implementation in `fallen-8-web-ui/` plus the G-1/G-2 backend changes in
-   `fallen-8-core-apiApp/`, on branch `feature/web-ui`, tracked by a GitHub issue
-   labeled `feature`, delivered via PR referencing the issue. Commit messages and PR
-   text are honest and concise and do not reference an AI assistant.
+   `fallen-8-core-apiApp/`, on branch `feature/web-ui`, merged to `main` after review.
+   Commit messages are honest and concise and do not reference an AI assistant.
 
 ## 12. Reference files
 
