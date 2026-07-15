@@ -62,11 +62,20 @@ Graph data and the save-game registry live on the `f8-data` volume, model weight
 `f8-ollama-models` - both survive `env:down`/`env:up` cycles.
 
 The delegate editor's compile validation and NL assist run C# fragments through the
-server, which is off by default. To use them, start the container with an API key and the
-dynamic-code capability enabled, then register the instance in Studio with that key:
+server. That surface is gated by a single capability flag that is **off by default**;
+turn it on to use the editor:
 
 ```bash
-F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true docker compose up --build
+F8_ENABLE_DYNAMIC_CODE=true docker compose up --build
+```
+
+Authentication is independent and all-or-nothing: set `F8_API_KEY` and the *entire*
+service requires that key (register the instance in Studio with it); leave it unset and
+the whole service — reads, mutations, and the code endpoints alike — is open, for a
+trusted network. The dynamic-code flag gates code execution either way.
+
+```bash
+F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true docker compose up --build   # secured + editor on
 ```
 
 ### Save games (checkpoints)

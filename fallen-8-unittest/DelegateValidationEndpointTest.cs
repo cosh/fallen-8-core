@@ -434,6 +434,35 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
+        [TestMethod]
+        public async Task NoKeyConfigured_CodeEnabled_ValidatesAnonymously()
+        {
+            // Uniform-auth posture: with no API key the whole service is open, so the delegate editor
+            // works anonymously exactly like the read endpoints - as long as dynamic code is enabled.
+            using var factory = new ValidationFactory(enableCode: true, withApiKey: false);
+            using var client = factory.CreateClient();
+
+            var result = await PostValidate(client, "VertexFilter", "return (v) => v.Label == \"person\";");
+
+            Assert.IsTrue(result.Valid);
+        }
+
+        [TestMethod]
+        public async Task NoKeyConfigured_CodeDisabled_IsDenied()
+        {
+            // The capability flag is the independent kill switch: even on a keyless (open) server,
+            // dynamic code OFF denies the RCE surface.
+            using var factory = new ValidationFactory(enableCode: false, withApiKey: false);
+            using var client = factory.CreateClient();
+
+            var response = await PostValidateRaw(client, "VertexFilter", "return (v) => true;");
+
+            Assert.IsFalse(response.IsSuccessStatusCode, "Dynamic code disabled must deny validation.");
+            Assert.IsTrue(
+                response.StatusCode == HttpStatusCode.Forbidden || response.StatusCode == HttpStatusCode.Unauthorized,
+                "Denial is 403 (capability off) or 401 (no credential); got " + response.StatusCode);
+        }
+
         #endregion
     }
 }

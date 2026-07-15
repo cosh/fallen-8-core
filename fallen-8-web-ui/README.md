@@ -39,9 +39,12 @@ header shape — add a new `auth.kind` in `src/instances/types.ts` and a token s
 no call site changes. Keys live in this browser's local storage and travel only to their
 own instance.
 
-Note: the delegate endpoints (`/path`, `/subgraph`, `/delegates/validate`) additionally
-require `Fallen8:Security:EnableDynamicCodeExecution=true` AND an authenticated caller —
-so an instance without an API key cannot use the delegate editor's validation.
+Note: the delegate endpoints (`/path`, `/subgraph`, `/delegates/validate`) require
+`Fallen8:Security:EnableDynamicCodeExecution=true` — that capability flag is the
+independent kill switch for the code-execution surface. Authentication is separate and
+all-or-nothing: if an API key is configured the whole service (including these endpoints)
+needs it, and if not, the whole service is open. So the delegate editor works on a keyless
+instance as long as dynamic code is enabled.
 
 ## NL assist (FR-26)
 
