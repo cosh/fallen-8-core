@@ -101,7 +101,7 @@ skills/
 | `fallen8-rest-api` | Operating the REST surface: auth header, versioning, the transaction idiom (`waitForCompletion` — never act on an unapplied write), scan vs. get, the problem+json error contract, rate-limit/413 behaviour. | OpenAPI snapshot + `api-error-contract` + `api-security-boundary` READMEs |
 | `fallen8-delegates` | Authoring the C# filter/cost fragments: the "return a lambda" shape, `TryGetProperty` idiom, the exact `VertexModel`/`EdgeModel`/`AGraphElementModel` members, the validate-before-use loop (`/delegates/validate`), the security posture (`EnableDynamicCodeExecution`, trusted-as-the-process honesty note). | NL-assist prompt contract (`features/done/web-ui/nl-assist/spec.md` §5) + `DelegateValidationHelper` |
 | `fallen8-subgraphs` | Subgraph recipes/patterns: defining, registering, recalculation semantics, quotas, code-free vs. code-bearing recipes. | `features/done/subgraph/` + `subgraph-quotas` |
-| `fallen8-operations` | Running F8: durability modes, save-games, WAL recovery, the security flags, docker/compose deployment, TLS posture (once `transport-encryption` lands). | `hosted-durability-lifecycle`, `save-games`, `api-security-boundary`, `transport-encryption` docs |
+| `fallen8-operations` | Running F8: durability modes, save-games, WAL recovery, the security flags, docker/compose deployment, TLS via a fronting proxy (deployment recipe — no in-app TLS by project decision). | `hosted-durability-lifecycle`, `save-games`, `api-security-boundary` docs |
 
 Each skill body leads with *when to reach for what* (decision guidance), shows 2–4 canonical
 request/response examples (curl + PowerShell), and links its references. Access-path phrasing

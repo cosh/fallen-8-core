@@ -50,8 +50,8 @@ Intent: complete the v1 catalog.
 - [ ] `fallen8-subgraphs`: recipes/patterns, registration, recalculation semantics, quotas,
   code-free vs. code-bearing recipes (and the double-gate posture for the latter).
 - [ ] `fallen8-operations`: durability modes, save-games, WAL recovery, security flags,
-  docker/compose deployment; TLS section referencing `transport-encryption` (kept honest —
-  written against whatever state that feature is in when this phase runs).
+  docker/compose deployment; TLS covered as a deployment recipe (fronting proxy /
+  standard Kestrel cert config) — no in-app TLS feature exists by project decision.
 - [ ] Cross-links between all five skills resolved per the one-job/no-duplication rule.
 
 ## Phase 3 — Packaging & install paths
