@@ -86,9 +86,16 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly String _pluginDirectory;
 
+        /// <summary>
+        /// The save-game metadata registry (feature save-games): records every save and auto-registers
+        /// an unknown checkpoint on load.
+        /// </summary>
+        private readonly Services.SaveGameRegistry _saveGames;
+
         #endregion
 
-        public AdminController(ILogger<AdminController> logger, IFallen8 fallen8, IOptions<Fallen8SecurityOptions> security)
+        public AdminController(ILogger<AdminController> logger, IFallen8 fallen8, IOptions<Fallen8SecurityOptions> security,
+            Services.SaveGameRegistry saveGames)
         {
             _logger = logger;
 
@@ -103,6 +110,8 @@ namespace NoSQL.GraphDB.App.Controllers
             _optimalNumberOfPartitions = Convert.ToInt32(Environment.ProcessorCount * 3 / 2);
 
             _pluginDirectory = (security?.Value ?? new Fallen8SecurityOptions()).ResolvePluginDirectory();
+
+            _saveGames = saveGames;
         }
 
         #region IDisposable Members
@@ -201,6 +210,17 @@ namespace NoSQL.GraphDB.App.Controllers
                     "The load transaction was rolled back; the database was not loaded.");
             }
 
+            // A checkpoint loaded from an arbitrary path that is not yet in the registry is recorded
+            // now (feature save-games FR-7), so the historical record captures manually-loaded saves.
+            try
+            {
+                _saveGames.RegisterImportIfUnknown(_fallen8, definition.SaveGameLocation);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "The loaded checkpoint could not be registered in the save-game registry.");
+            }
+
             return NoContent();
         }
 
@@ -208,7 +228,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Saves the current database state to a file
         /// </summary>
         /// <param name="definition">Save specification including file path and partition options (both optional)</param>
-        /// <returns>The path where the database was saved</returns>
+        /// <returns>The created save-game registry entry (including its path)</returns>
         /// <remarks>
         /// Sample request:
         ///
@@ -219,14 +239,16 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         ///
         /// Both parameters are optional. If not provided, defaults to the base directory with filename "Temp.f8s" and optimal partition count.
+        /// The save is recorded in the save-game registry (feature save-games); the response is the
+        /// created entry, whose "location" field is the path the database was saved to.
         /// </remarks>
-        /// <response code="200">Returns the path where the database was saved</response>
+        /// <response code="200">Returns the created save-game registry entry</response>
         /// <response code="400">Invalid save specification</response>
         /// <response code="500">The save transaction was rolled back and did not complete</response>
         [HttpPut("/save")]
         [Consumes("application/json")]
         [Produces("application/json")]
-        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(SaveGameREST), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async System.Threading.Tasks.Task<IActionResult> Save([FromBody] SaveSpecification definition)
@@ -250,7 +272,9 @@ namespace NoSQL.GraphDB.App.Controllers
                     "The save transaction was rolled back; the database was not saved.");
             }
 
-            return Ok(saveTx.ActualPath);
+            // Record the successful save in the registry and return the entry (feature save-games FR-4).
+            var entry = _saveGames.Register(_fallen8, saveTx.ActualPath, "api");
+            return Ok(entry);
         }
 
         /// <summary>

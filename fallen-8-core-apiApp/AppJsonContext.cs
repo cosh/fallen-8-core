@@ -87,6 +87,10 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(DelegateValidationREST))]
     [JsonSerializable(typeof(DelegateDiagnosticREST))]
     [JsonSerializable(typeof(BenchmarkResultREST))]
+    [JsonSerializable(typeof(SaveGameREST))]
+    [JsonSerializable(typeof(SaveGameKpisREST))]
+    [JsonSerializable(typeof(SaveGameIndexREST))]
+    [JsonSerializable(typeof(SaveGameRegistryDocument))]
     public sealed partial class AppJsonContext : JsonSerializerContext
     {
     }

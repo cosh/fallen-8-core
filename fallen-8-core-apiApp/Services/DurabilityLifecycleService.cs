@@ -47,13 +47,15 @@ namespace NoSQL.GraphDB.App.Services
     {
         private readonly IFallen8 _fallen8;
         private readonly Fallen8DurabilityOptions _options;
+        private readonly SaveGameRegistry _saveGames;
         private readonly ILogger<DurabilityLifecycleService> _logger;
 
         public DurabilityLifecycleService(IFallen8 fallen8, IOptions<Fallen8DurabilityOptions> options,
-            ILogger<DurabilityLifecycleService> logger)
+            SaveGameRegistry saveGames, ILogger<DurabilityLifecycleService> logger)
         {
             _fallen8 = fallen8;
             _options = options.Value;
+            _saveGames = saveGames;
             _logger = logger;
         }
 
@@ -68,34 +70,49 @@ namespace NoSQL.GraphDB.App.Services
 
             var storageDir = _options.ResolveStorageDirectory();
 
-            if (CheckpointDiscovery.TryFindLatestCheckpoint(storageDir, _options.CheckpointBaseName, out var checkpointPath))
+            // Registry-driven boot (feature save-games FR-8): the save-game registry - NOT directory
+            // discovery - decides what loads. An empty registry starts empty even if checkpoint files
+            // sit in the storage directory; otherwise the newest registered save game loads.
+            var newest = _saveGames.Newest();
+
+            if (newest == null)
             {
-                _logger.LogInformation("Loading the latest Fallen-8 checkpoint from \"{CheckpointPath}\".", checkpointPath);
-
-                var loadInfo = _fallen8.EnqueueTransaction(new LoadTransaction { Path = checkpointPath });
-                loadInfo.WaitUntilFinished();
-
-                if (loadInfo.TransactionState == TransactionState.RolledBack)
+                // Migration hint (FR-11): pre-registry deployments have checkpoint files but no metadata.
+                if (CheckpointDiscovery.TryFindLatestCheckpoint(storageDir, _options.CheckpointBaseName, out var orphan))
                 {
-                    // Fail startup loudly rather than silently serving an empty graph over a corrupt or
-                    // unloadable checkpoint (the atomic/clean-reject envelope already rejected it).
-                    throw new InvalidOperationException(
-                        "Fallen-8 failed to load the checkpoint at \"" + checkpointPath + "\"; startup is aborted so a corrupt " +
-                        "or unloadable save is never masked by an empty graph.", loadInfo.Error);
+                    _logger.LogWarning("Fallen-8 found checkpoint files (e.g. \"{Checkpoint}\") but the save-game registry " +
+                        "is empty, so startup begins EMPTY (registry-driven boot). To adopt an existing checkpoint, load it " +
+                        "once via PUT /load (or the Save games screen) - it is then registered permanently.", orphan);
+                }
+                else
+                {
+                    _logger.LogInformation("No registered save games; starting with the current in-memory state " +
+                        "({VertexCount} vertices, {EdgeCount} edges) - any unanchored WAL was replayed at construction.",
+                        _fallen8.VertexCount, _fallen8.EdgeCount);
                 }
 
-                _logger.LogInformation("Fallen-8 checkpoint loaded: {VertexCount} vertices, {EdgeCount} edges.",
-                    _fallen8.VertexCount, _fallen8.EdgeCount);
+                return Task.CompletedTask;
             }
-            else
+
+            _logger.LogInformation("Loading the newest registered save game {Id} from \"{Location}\" (saved {SavedAt}).",
+                newest.Id, newest.Location, newest.SavedAt);
+
+            var loadInfo = _fallen8.EnqueueTransaction(new LoadTransaction { Path = newest.Location });
+            loadInfo.WaitUntilFinished();
+
+            if (loadInfo.TransactionState == TransactionState.RolledBack)
             {
-                // No checkpoint. Any UNANCHORED write-ahead log was already replayed during construction
-                // (Fallen8.EnableWriteAheadLog), so a crash-before-first-save is still recovered; a truly
-                // empty storage directory just starts empty.
-                _logger.LogInformation("No Fallen-8 checkpoint found in \"{StorageDirectory}\"; starting with the " +
-                    "current in-memory state ({VertexCount} vertices, {EdgeCount} edges) - any unanchored WAL was replayed at construction.",
-                    storageDir, _fallen8.VertexCount, _fallen8.EdgeCount);
+                // Fail startup loudly (FR-9): a missing/corrupt newest save game is never masked by an
+                // empty graph, and we never silently fall back to an older entry (that would resurrect
+                // stale data). The operator restores the files or removes the entry (DELETE /savegames/{id}).
+                throw new InvalidOperationException(
+                    "Fallen-8 failed to load the newest registered save game \"" + newest.Id + "\" at \"" + newest.Location +
+                    "\"; startup is aborted. Restore its files, or remove the entry (DELETE /savegames/" + newest.Id +
+                    ") and restart to use the next-newest (or start empty).", loadInfo.Error);
             }
+
+            _logger.LogInformation("Fallen-8 save game loaded: {VertexCount} vertices, {EdgeCount} edges.",
+                _fallen8.VertexCount, _fallen8.EdgeCount);
 
             return Task.CompletedTask;
         }
@@ -115,7 +132,8 @@ namespace NoSQL.GraphDB.App.Services
             {
                 _logger.LogInformation("Saving the Fallen-8 checkpoint to \"{CheckpointPath}\" on shutdown.", checkpointPath);
 
-                var saveInfo = _fallen8.EnqueueTransaction(new SaveTransaction { Path = checkpointPath });
+                var saveTx = new SaveTransaction { Path = checkpointPath };
+                var saveInfo = _fallen8.EnqueueTransaction(saveTx);
                 saveInfo.WaitUntilFinished();
 
                 if (saveInfo.TransactionState == TransactionState.RolledBack)
@@ -128,6 +146,16 @@ namespace NoSQL.GraphDB.App.Services
                 }
                 else
                 {
+                    // Register the shutdown checkpoint so the next boot loads it (feature save-games FR-4).
+                    var actualPath = saveTx.ActualPath ?? checkpointPath;
+                    try
+                    {
+                        _saveGames.Register(_fallen8, actualPath, "shutdown");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "The Fallen-8 shutdown save completed but could not be registered in the save-game registry.");
+                    }
                     _logger.LogInformation("Fallen-8 shutdown save complete.");
                 }
             }
