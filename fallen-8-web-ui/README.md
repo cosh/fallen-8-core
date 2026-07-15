@@ -13,6 +13,9 @@ npm run dev          # Vite dev server; same-origin API calls proxy to http://lo
                      # dotnet run --project ../fallen-8-core-apiApp
 ```
 
+The repo root's package.json mirrors the common scripts, so `npm run build:apiapp`,
+`npm run dev`, `npm run test:ui`, and `npm run e2e` also work from the repository root.
+
 The registry's default "local" instance uses the app's own origin — in dev that means the
 Vite proxy; in production the apiApp that serves the SPA.
 
