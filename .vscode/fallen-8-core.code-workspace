@@ -12,27 +12,51 @@
     "editor.rulers": [120],
     "files.trimTrailingWhitespace": true,
     "files.insertFinalNewline": true,
-    "files.exclude": {
-      "**/.git": true,
-      "**/.vs": true,
-      "**/bin": true,
-      "**/obj": true,
-      "**/*.user": true
-    },
     "files.associations": {
       "*.cs": "csharp",
       "*.csproj": "xml",
       "*.f8s": "json"
     },
-    "search.exclude": {
-      "**/bin": true,
-      "**/obj": true
-    },
     "omnisharp.enableRoslynAnalyzers": true,
     "omnisharp.enableEditorConfigSupport": true,
     "dotnet-test-explorer.testProjectPath": "**/*unittest.csproj",
     "csharp.format.enable": true,
-    "csharp.semanticHighlighting.enabled": true
+    "csharp.semanticHighlighting.enabled": true,
+    "files.exclude": {
+      "**/.git": true,
+      "**/.vs": true,
+      "**/bin": true,
+      "**/obj": true,
+      "**/*.user": true,
+      "**/node_modules": true,
+      "**/fallen-8-web-ui/dist": true,
+      "**/fallen-8-core-apiApp/wwwroot": true,
+      "**/test-results": true,
+      "**/playwright-report": true
+    },
+    "search.exclude": {
+      "**/bin": true,
+      "**/obj": true,
+      "**/node_modules": true,
+      "**/fallen-8-web-ui/dist": true,
+      "**/fallen-8-core-apiApp/wwwroot": true,
+      "**/package-lock.json": true
+    },
+    "playwright.reuseBrowser": true,
+    "playwright.env": {
+      "F8_UI_URL": "http://localhost:5000"
+    },
+    "tailwindCSS.includeLanguages": {
+      "typescriptreact": "javascript"
+    },
+    "[typescript]": { "editor.tabSize": 2 },
+    "[typescriptreact]": { "editor.tabSize": 2 },
+    "[javascript]": { "editor.tabSize": 2 },
+    "[json]": { "editor.tabSize": 2 },
+    "[jsonc]": { "editor.tabSize": 2 },
+    "[css]": { "editor.tabSize": 2 },
+    "[html]": { "editor.tabSize": 2 },
+    "[yaml]": { "editor.tabSize": 2, "editor.insertSpaces": true }
   },
   "extensions": {
     "recommendations": [
@@ -43,7 +67,10 @@
       "streetsidesoftware.code-spell-checker",
       "visualstudioexptteam.vscodeintellicode",
       "ms-azuretools.vscode-docker",
-      "eamodio.gitlens"
+      "eamodio.gitlens",
+      "ms-playwright.playwright",
+      "bradlc.vscode-tailwindcss",
+      "redhat.vscode-yaml"
     ]
   },
   "launch": {
@@ -73,6 +100,33 @@
           "windows": {
             "command": "cmd.exe",
             "args": "/C start http://localhost:5000/scalar/v0.1"
+          }
+        }
+      },
+      {
+        "name": "F8 Studio (API + built UI)",
+        "type": "coreclr",
+        "request": "launch",
+        "preLaunchTask": "build-ui-into-api",
+        "program": "${workspaceFolder}/fallen-8-core-apiApp/bin/Debug/net10.0/fallen-8-core-apiApp.dll",
+        "args": [],
+        "cwd": "${workspaceFolder}/fallen-8-core-apiApp",
+        "stopAtEntry": false,
+        "serverReadyAction": {
+          "action": "openExternally",
+          "pattern": "\\bNow listening on:\\s+(http://\\S+)",
+          "uriFormat": "%s"
+        },
+        "env": {
+          "ASPNETCORE_ENVIRONMENT": "Development",
+          "ASPNETCORE_URLS": "http://localhost:5000"
+        },
+        "launchBrowser": {
+          "enabled": true,
+          "args": "http://localhost:5000",
+          "windows": {
+            "command": "cmd.exe",
+            "args": "/C start http://localhost:5000"
           }
         }
       },
@@ -317,6 +371,68 @@
           "showReuseMessage": true,
           "clear": true
         },
+        "problemMatcher": []
+      },
+      {
+        "label": "ui-install",
+        "type": "shell",
+        "command": "npm install",
+        "options": { "cwd": "${workspaceFolder}/fallen-8-web-ui" },
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "shared" },
+        "problemMatcher": []
+      },
+      {
+        "label": "ui-dev",
+        "type": "shell",
+        "command": "npm run dev",
+        "options": { "cwd": "${workspaceFolder}/fallen-8-web-ui" },
+        "isBackground": true,
+        "presentation": { "reveal": "always", "panel": "dedicated" },
+        "problemMatcher": []
+      },
+      {
+        "label": "ui-test",
+        "type": "shell",
+        "command": "npm test",
+        "options": { "cwd": "${workspaceFolder}/fallen-8-web-ui" },
+        "group": "test",
+        "presentation": { "reveal": "always", "panel": "shared" },
+        "problemMatcher": []
+      },
+      {
+        "label": "ui-e2e",
+        "type": "shell",
+        "command": "npm run e2e",
+        "options": { "cwd": "${workspaceFolder}/fallen-8-web-ui" },
+        "group": "test",
+        "presentation": { "reveal": "always", "panel": "shared" },
+        "problemMatcher": []
+      },
+      {
+        "label": "build-ui-into-api",
+        "dependsOrder": "sequence",
+        "dependsOn": ["ui-build-into-api", "build-api"],
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+        "problemMatcher": []
+      },
+      {
+        "label": "ui-build-into-api",
+        "type": "shell",
+        "command": "npm run build:apiapp",
+        "options": { "cwd": "${workspaceFolder}/fallen-8-web-ui" },
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "shared" },
+        "problemMatcher": []
+      },
+      {
+        "label": "docker-compose-up",
+        "type": "shell",
+        "command": "docker compose up --build",
+        "options": { "cwd": "${workspaceFolder}" },
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "dedicated" },
         "problemMatcher": []
       }
     ]
