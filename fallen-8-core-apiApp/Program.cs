@@ -152,22 +152,38 @@ namespace NoSQL.GraphDB.App
             builder.Services.AddSingleton<IAuthorizationHandler, DynamicCapabilityAuthorizationHandler>();
             builder.Services.AddAuthorization(o =>
             {
-                // When a key is configured, everything requires an authenticated caller unless it opts
-                // out with [AllowAnonymous]. With no key configured there is no credential to present,
-                // so the fallback is left open (dev posture; the dangerous surface is still gated).
-                if (!string.IsNullOrWhiteSpace(security.ApiKey))
+                // Authentication is all-or-nothing: when a key is configured EVERY endpoint requires it
+                // (this fallback, unless the action opts out with [AllowAnonymous]); when no key is
+                // configured the whole service is open - the same posture for reads, mutations, AND the
+                // code/plugin endpoints (dev / trusted-network mode).
+                var keyConfigured = !string.IsNullOrWhiteSpace(security.ApiKey);
+                if (keyConfigured)
                 {
                     o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
                 }
 
-                // The RCE gates require BOTH an authenticated caller AND the operator to have enabled
-                // the capability: anonymous -> 401, authenticated-but-disabled -> 403.
-                o.AddPolicy(Fallen8SecurityOptions.DynamicCodePolicy, p => p
-                    .RequireAuthenticatedUser()
-                    .AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicCodeExecution)));
-                o.AddPolicy(Fallen8SecurityOptions.DynamicPluginPolicy, p => p
-                    .RequireAuthenticatedUser()
-                    .AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicPluginLoading)));
+                // The dynamic code/plugin capability flags are the INDEPENDENT kill switch for the
+                // RCE surface, orthogonal to auth: the requirement is unmet when the flag is off
+                // (-> denied) regardless of whether a key is set. Auth is layered on the SAME way as
+                // every other endpoint - required only when a key is configured - so there is never a
+                // stranded state where the RCE endpoints reject a caller that every other endpoint
+                // would accept.
+                o.AddPolicy(Fallen8SecurityOptions.DynamicCodePolicy, p =>
+                {
+                    if (keyConfigured)
+                    {
+                        p.RequireAuthenticatedUser();
+                    }
+                    p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicCodeExecution));
+                });
+                o.AddPolicy(Fallen8SecurityOptions.DynamicPluginPolicy, p =>
+                {
+                    if (keyConfigured)
+                    {
+                        p.RequireAuthenticatedUser();
+                    }
+                    p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicPluginLoading));
+                });
             });
 
             // CORS: one named policy, default deny. Only the configured origins are allowed; never a

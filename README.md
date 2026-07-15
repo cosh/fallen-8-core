@@ -15,7 +15,9 @@ This is the .NET Core version of the original [fallen-8](https://github.com/cosh
 - **Path finding** with runtime-compiled filter and cost functions
 - **Subgraphs** — extract a pattern-matched subset of the graph as a standalone graph, recalculate it when the source changes, and persist it (see [Subgraphs](#subgraphs))
 - **Plugins** for indexes, algorithms and services
-- Checkpoint **persistency**
+- Checkpoint **persistency**, with a **save-game registry** that records every checkpoint and drives startup (see [Save games](#save-games-checkpoints))
+- **F8 Studio** — a browser UI for browsing, querying, visualizing, and authoring the C# delegate fragments, with an optional local **natural-language assist**
+- Ships as **one Docker unit** (engine + API + UI) via `docker compose`
 
 ### Sweet spots
 
@@ -27,9 +29,15 @@ This is the .NET Core version of the original [fallen-8](https://github.com/cosh
 
 The REST API app (`fallen-8-core-apiApp`) is a thin layer over the in-memory engine
 (`fallen-8-core`). All mutation flows through transactions; indices, algorithms and services
-are plugins; and the engine can checkpoint its state to disk.
+are plugins; and the engine checkpoints its state to disk. The API also serves **F8 Studio**
+(`fallen-8-web-ui`, a React SPA) as static files and exposes `POST /delegates/validate` so
+the delegate editor can compile-check fragments; the natural-language assist calls a
+**user-run model backend** (Ollama / llama.cpp) directly from the browser. A **save-game
+registry** (`metadata/savegames.json`) records every checkpoint and is the authority for
+what loads on startup. The whole stack ships as **one Docker unit** managed via
+`docker compose`.
 
-![Fallen-8 architecture: the REST API app sits on top of the engine, which holds the model and transactions, algorithms, indices, persistence and the plugin system.](./pics/architecture.svg)
+![Fallen-8 architecture: F8 Studio (browser SPA) and a user-run NL-assist model sit above the ASP.NET Core REST API, which is a thin layer over the in-memory engine (model and transactions, algorithms, indices, persistence, plugin system); a save-game registry records checkpoints and drives startup, and the whole stack ships as one Docker unit.](./pics/architecture.svg)
 
 ## Running it
 
@@ -44,6 +52,8 @@ npm run install:ui && npm run build:apiapp
 dotnet run --project fallen-8-core-apiApp
 # open http://localhost:5000
 ```
+
+To debug the whole stack (engine + API + UI) in VS Code, see [DEBUGGING.md](./DEBUGGING.md).
 
 Or the complete environment in Docker - engine, REST API, F8 Studio, and the NL-assist
 model backend (Ollama + the MIT default model, pulled on first start). The environment is
@@ -62,11 +72,20 @@ Graph data and the save-game registry live on the `f8-data` volume, model weight
 `f8-ollama-models` - both survive `env:down`/`env:up` cycles.
 
 The delegate editor's compile validation and NL assist run C# fragments through the
-server, which is off by default. To use them, start the container with an API key and the
-dynamic-code capability enabled, then register the instance in Studio with that key:
+server. That surface is gated by a single capability flag that is **off by default**;
+turn it on to use the editor:
 
 ```bash
-F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true docker compose up --build
+F8_ENABLE_DYNAMIC_CODE=true docker compose up --build
+```
+
+Authentication is independent and all-or-nothing: set `F8_API_KEY` and the *entire*
+service requires that key (register the instance in Studio with it); leave it unset and
+the whole service — reads, mutations, and the code endpoints alike — is open, for a
+trusted network. The dynamic-code flag gates code execution either way.
+
+```bash
+F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true docker compose up --build   # secured + editor on
 ```
 
 ### Save games (checkpoints)
