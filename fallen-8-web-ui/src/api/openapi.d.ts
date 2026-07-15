@@ -173,6 +173,8 @@ export interface paths {
          *         }
          *
          *     Both parameters are optional. If not provided, defaults to the base directory with filename "Temp.f8s" and optimal partition count.
+         *     The save is recorded in the save-game registry (feature save-games); the response is the
+         *     created entry, whose "location" field is the path the database was saved to.
          */
         put: {
             parameters: {
@@ -193,13 +195,13 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description Returns the path where the database was saved */
+                /** @description Returns the created save-game registry entry */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json; ver=0.1": string;
+                        "application/json; ver=0.1": components["schemas"]["SaveGameREST"];
                         "application/json": unknown;
                     };
                 };
@@ -2688,6 +2690,212 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/savegames": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists all registered save games, newest first */
+        get: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The registered save games */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["SaveGameREST"][];
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/savegames/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gets a single registered save game by id */
+        get: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path: {
+                    /** @description The save-game id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The save game */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["SaveGameREST"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description No save game with that id */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Removes a save game from the registry, optionally deleting its files */
+        delete: {
+            parameters: {
+                query?: {
+                    /** @description When true, also delete the checkpoint files on disk */
+                    deleteFiles?: boolean;
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path: {
+                    /** @description The save-game id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No save game with that id */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/savegames/{id}/load": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Loads a registered save game, replacing the current in-memory graph */
+        put: {
+            parameters: {
+                query?: {
+                    /** @description Wait for the load transaction to finish before responding */
+                    waitForCompletion?: boolean;
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path: {
+                    /** @description The save-game id */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Loaded (waited); returns the save game */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["SaveGameREST"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Load accepted (not waited) */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+                /** @description No save game with that id */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description The load transaction was rolled back */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/subgraph": {
         parameters: {
             query?: never;
@@ -3874,6 +4082,49 @@ export interface components {
          * @enum {unknown}
          */
         ResultTypeSpecification: "Vertices" | "Edges" | "Both";
+        /** @description An index present at save time: its id and the index plugin type (feature save-games). */
+        SaveGameIndexREST: {
+            indexId?: null | string;
+            pluginType?: null | string;
+        };
+        /** @description Cheap KPIs captured at save/import time - values the engine already has, no graph scan. */
+        SaveGameKpisREST: {
+            /** Format: int32 */
+            vertexCount?: number | string;
+            /** Format: int32 */
+            edgeCount?: number | string;
+            /** Format: int64 */
+            usedMemoryBytes?: number | string;
+            indices?: null | components["schemas"]["SaveGameIndexREST"][];
+            availableIndexPlugins?: null | string[];
+            availablePathPlugins?: null | string[];
+            availableServicePlugins?: null | string[];
+            subGraphs?: null | string[];
+        };
+        /** @description A registered save game (checkpoint) with its metadata (feature save-games). */
+        SaveGameREST: {
+            /** @description Stable id; sortable timestamp prefix + random suffix. The REST identifier. */
+            id?: null | string;
+            /** @description ISO-8601 UTC instant the save game was created (or the file's write time for imports). */
+            savedAt?: null | string;
+            /** @description How the entry was created: "api", "shutdown" or "imported". */
+            trigger?: null | string;
+            /** @description Absolute path of the primary checkpoint file. */
+            location?: null | string;
+            /**
+             * Format: int32
+             * @description Number of files belonging to this save game (checkpoint + partitions + sidecars).
+             */
+            fileCount?: number | string;
+            /**
+             * Format: int64
+             * @description Total size of those files in bytes at registration time.
+             */
+            totalBytes?: number | string;
+            /** @description The engine/assembly version that produced the entry. */
+            engineVersion?: null | string;
+            kpis?: components["schemas"]["SaveGameKpisREST"];
+        };
         /**
          * @description Specification for saving a Fallen-8 database to disk
          * @example {

@@ -5,6 +5,7 @@ import type {
   DelegateKind,
   DelegateValidationResult,
   EdgeREST,
+  SaveGame,
   EdgeSpecification,
   FulltextIndexScanSpecification,
   FulltextSearchResultREST,
@@ -39,10 +40,30 @@ export const getStatus = (i: InstanceConfig, signal?: AbortSignal) =>
   apiRequest<StatusREST>(i, "/status", { signal });
 
 export const saveGraph = (i: InstanceConfig, path?: string) =>
-  apiRequest<string>(i, "/save", {
+  apiRequest<SaveGame>(i, "/save", {
     method: "PUT",
     body: path ? { saveGameLocation: path } : {},
     query: WAIT,
+  });
+
+// ---- save games (feature save-games) ----
+
+export const listSaveGames = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<SaveGame[]>(i, "/savegames", { signal });
+
+export const getSaveGame = (i: InstanceConfig, id: string) =>
+  apiRequest<SaveGame>(i, `/savegames/${encodeURIComponent(id)}`);
+
+export const loadSaveGame = (i: InstanceConfig, id: string) =>
+  apiRequest<SaveGame>(i, `/savegames/${encodeURIComponent(id)}/load`, {
+    method: "PUT",
+    query: WAIT,
+  });
+
+export const deleteSaveGame = (i: InstanceConfig, id: string, deleteFiles: boolean) =>
+  apiRequest<void>(i, `/savegames/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    query: { deleteFiles },
   });
 
 export const loadGraph = (i: InstanceConfig, path: string, startServices = true) =>

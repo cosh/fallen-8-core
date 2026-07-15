@@ -62,6 +62,17 @@ dynamic-code capability enabled, then register the instance in Studio with that 
 F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true docker compose up --build
 ```
 
+### Save games (checkpoints)
+
+Every `PUT /save` (and the clean-shutdown save) is recorded in a persistent registry at
+`<deployment>/metadata/savegames.json` with KPIs and file facts; the "Save games" screen
+in F8 Studio lists, loads, and deletes them. **Startup is registry-driven:** on boot the
+engine loads the newest registered save game, or starts empty when the registry is empty —
+a checkpoint file sitting in the storage directory is no longer auto-loaded just because
+it is there. To adopt a pre-existing checkpoint after upgrading, load it once via
+`PUT /load` (or the Save games screen); it is then registered permanently. See
+[features/save-games/spec.md](features/save-games/spec.md).
+
 In the Development environment the API description and interactive reference are available at:
 
 - **OpenAPI document:** `https://localhost:5001/openapi/v0.1.json`

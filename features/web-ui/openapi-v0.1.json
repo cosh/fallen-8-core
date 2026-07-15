@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:5077/"
+      "url": "http://127.0.0.1:5078/"
     }
   ],
   "paths": {
@@ -151,7 +151,7 @@
           "Admin"
         ],
         "summary": "Saves the current database state to a file",
-        "description": "Sample request:\r\n\r\n    PUT /save\r\n    {\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\",\r\n       \"savePartitions\": 8\r\n    }\r\n\r\nBoth parameters are optional. If not provided, defaults to the base directory with filename \"Temp.f8s\" and optimal partition count.",
+        "description": "Sample request:\r\n\r\n    PUT /save\r\n    {\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\",\r\n       \"savePartitions\": 8\r\n    }\r\n\r\nBoth parameters are optional. If not provided, defaults to the base directory with filename \"Temp.f8s\" and optimal partition count.\r\nThe save is recorded in the save-game registry (feature save-games); the response is the\r\ncreated entry, whose \"location\" field is the path the database was saved to.",
         "parameters": [
           {
             "name": "api-version",
@@ -186,11 +186,11 @@
         },
         "responses": {
           "200": {
-            "description": "Returns the path where the database was saved",
+            "description": "Returns the created save-game registry entry",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/SaveGameREST"
                 }
               },
               "application/json": { }
@@ -2994,6 +2994,241 @@
         }
       }
     },
+    "/savegames": {
+      "get": {
+        "tags": [
+          "SaveGames"
+        ],
+        "summary": "Lists all registered save games, newest first",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The registered save games",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SaveGameREST"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/savegames/{id}": {
+      "get": {
+        "tags": [
+          "SaveGames"
+        ],
+        "summary": "Gets a single registered save game by id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The save-game id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The save game",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveGameREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "No save game with that id",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "SaveGames"
+        ],
+        "summary": "Removes a save game from the registry, optionally deleting its files",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The save-game id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deleteFiles",
+            "in": "query",
+            "description": "When true, also delete the checkpoint files on disk",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "404": {
+            "description": "No save game with that id",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/savegames/{id}/load": {
+      "put": {
+        "tags": [
+          "SaveGames"
+        ],
+        "summary": "Loads a registered save game, replacing the current in-memory graph",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The save-game id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "Wait for the load transaction to finish before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loaded (waited); returns the save game",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveGameREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "202": {
+            "description": "Load accepted (not waited)",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No save game with that id",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The load transaction was rolled back",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/subgraph": {
       "put": {
         "tags": [
@@ -4705,6 +4940,161 @@
         "description": "Specifies which types of graph elements to include in query results",
         "example": "Vertices"
       },
+      "SaveGameIndexREST": {
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pluginType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "An index present at save time: its id and the index plugin type (feature save-games)."
+      },
+      "SaveGameKpisREST": {
+        "type": "object",
+        "properties": {
+          "vertexCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "edgeCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "usedMemoryBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "indices": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SaveGameIndexREST"
+            }
+          },
+          "availableIndexPlugins": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "availablePathPlugins": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "availableServicePlugins": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "subGraphs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Cheap KPIs captured at save/import time - values the engine already has, no graph scan."
+      },
+      "SaveGameREST": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Stable id; sortable timestamp prefix + random suffix. The REST identifier."
+          },
+          "savedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "ISO-8601 UTC instant the save game was created (or the file's write time for imports)."
+          },
+          "trigger": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "How the entry was created: \"api\", \"shutdown\" or \"imported\"."
+          },
+          "location": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Absolute path of the primary checkpoint file."
+          },
+          "fileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Number of files belonging to this save game (checkpoint + partitions + sidecars).",
+            "format": "int32"
+          },
+          "totalBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Total size of those files in bytes at registration time.",
+            "format": "int64"
+          },
+          "engineVersion": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The engine/assembly version that produced the entry."
+          },
+          "kpis": {
+            "$ref": "#/components/schemas/SaveGameKpisREST"
+          }
+        },
+        "description": "A registered save game (checkpoint) with its metadata (feature save-games)."
+      },
       "SaveSpecification": {
         "type": "object",
         "properties": {
@@ -5288,6 +5678,9 @@
     },
     {
       "name": "SampleGraph"
+    },
+    {
+      "name": "SaveGames"
     },
     {
       "name": "SubGraph"

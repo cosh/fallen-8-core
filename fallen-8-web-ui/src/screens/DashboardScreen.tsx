@@ -65,7 +65,14 @@ export function DashboardScreen() {
 
   const save = useMutation({
     mutationFn: () => saveGraph(instance),
-    onSuccess: (path) => setLastMessage(`Saved to ${path ?? "(default location)"}`),
+    onSuccess: (entry) => {
+      setLastMessage(
+        entry
+          ? `Saved to ${entry.location} — registered as save game ${entry.id}. See the Save games screen.`
+          : "Saved.",
+      );
+      refresh();
+    },
   });
   const load = useMutation({
     mutationFn: () => loadGraph(instance, loadPath),

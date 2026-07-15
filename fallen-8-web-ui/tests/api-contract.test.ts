@@ -151,6 +151,10 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     await endpoints.removeProperty(instance, 1, "age");
     await endpoints.removeGraphElement(instance, 1);
     await endpoints.saveGraph(instance);
+    await endpoints.listSaveGames(instance);
+    await endpoints.getSaveGame(instance, "sg-1");
+    await endpoints.loadSaveGame(instance, "sg-1");
+    await endpoints.deleteSaveGame(instance, "sg-1", true);
     await endpoints.loadGraph(instance, "p");
     await endpoints.trimGraph(instance);
     await endpoints.tabulaRasa(instance);
