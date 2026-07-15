@@ -64,10 +64,75 @@ namespace NoSQL.GraphDB.App.Controllers
 
         #endregion
 
-        public SubGraphController(ILogger<SubGraphController> logger, IFallen8 fallen8)
+        /// <summary>
+        ///   The authorization service used for the request-shape-aware dynamic-code capability
+        ///   check on <see cref="CreateSubGraph"/> (feature stored-query-library). Null when the
+        ///   controller is constructed directly (unit tests) - the hosted pipeline always supplies
+        ///   it, and the pipeline-level matrix tests pin the real gate behaviour.
+        /// </summary>
+        private readonly IAuthorizationService _authorizationService;
+
+        public SubGraphController(ILogger<SubGraphController> logger, IFallen8 fallen8,
+            IAuthorizationService authorizationService = null)
         {
             _logger = logger;
             _fallen8 = fallen8;
+            _authorizationService = authorizationService;
+        }
+
+        /// <summary>
+        ///   Whether a subgraph request INTRODUCES code: any non-blank inline filter fragment on
+        ///   the specification itself or on any of its patterns. Only such a request requires the
+        ///   dynamic-code capability (feature stored-query-library); a storedQuery reference or a
+        ///   fragment-less pattern compiles no user-supplied code.
+        /// </summary>
+        private static bool CarriesInlineCode(SubGraphSpecification specification)
+        {
+            if (!String.IsNullOrWhiteSpace(specification.VertexFilter) ||
+                !String.IsNullOrWhiteSpace(specification.EdgeFilter))
+            {
+                return true;
+            }
+
+            if (specification.Patterns != null)
+            {
+                foreach (var pattern in specification.Patterns)
+                {
+                    if (pattern != null &&
+                        (!String.IsNullOrWhiteSpace(pattern.GraphElementFilter) ||
+                         !String.IsNullOrWhiteSpace(pattern.VertexFilter) ||
+                         !String.IsNullOrWhiteSpace(pattern.EdgeFilter) ||
+                         !String.IsNullOrWhiteSpace(pattern.EdgePropertyFilter)))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        ///   Imperative dynamic-code capability check: evaluates the SAME
+        ///   <see cref="Security.DynamicCapabilityRequirement"/> the declarative
+        ///   <c>DynamicCodePolicy</c> uses (one source of truth) and returns the same 403 shape on
+        ///   denial, or null when the capability is enabled. Null-service means direct construction
+        ///   (unit tests bypass the pipeline exactly as they bypassed the former endpoint-level
+        ///   policy); the hosted pipeline always supplies the service. The awaited handler is
+        ///   synchronous (an options check), so blocking here cannot deadlock.
+        /// </summary>
+        private IActionResult DenyUnlessDynamicCodeCapability()
+        {
+            if (_authorizationService == null)
+            {
+                return null;
+            }
+
+            var authorization = _authorizationService.AuthorizeAsync(User, null,
+                    new Security.DynamicCapabilityRequirement(Security.DynamicCapabilityRequirement.Capability.DynamicCodeExecution))
+                .GetAwaiter().GetResult();
+
+            return authorization.Succeeded ? null : Forbid();
         }
 
         /// <summary>
@@ -96,7 +161,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="201">The subgraph was created and registered. A syntactically-valid pattern that matches nothing yields a registered EMPTY subgraph (201), identically whether the source graph is empty or populated.</response>
         /// <response code="400">The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind</response>
         /// <response code="401">No valid credential was supplied</response>
-        /// <response code="403">Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)</response>
+        /// <response code="403">The request carries inline filter/pattern fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery are NOT gated by that switch.</response>
         /// <response code="404">The source subgraph named by fromSubGraph does not exist, or no stored query with the referenced name exists</response>
         /// <response code="409">A subgraph with the same name already exists, a resource quota (subgraph count or materialized-element ceiling) was exceeded, or the referenced stored query is not invocable (its recompile on load failed)</response>
         /// <response code="500">The create transaction faulted with an internal error</response>
@@ -107,12 +172,15 @@ namespace NoSQL.GraphDB.App.Controllers
         /// nothing is compiled per request. The created subgraph is self-contained - deleting the
         /// stored query later does not affect it.
         ///
-        /// SECURITY: the pattern filter fragments are compiled with Roslyn and executed IN-PROCESS
-        /// WITH FULL TRUST - a trust boundary, not a sandbox. Requires an authenticated caller AND
-        /// Fallen8:Security:EnableDynamicCodeExecution=true.
+        /// SECURITY: inline filter/pattern fragments are compiled with Roslyn and executed
+        /// IN-PROCESS WITH FULL TRUST - a trust boundary, not a sandbox. The dynamic-code gate is
+        /// REQUEST-SHAPE-AWARE (feature stored-query-library): only a request that INTRODUCES code
+        /// (any inline fragment) requires an authenticated caller AND
+        /// Fallen8:Security:EnableDynamicCodeExecution=true; instantiating an operator-registered
+        /// stored query does not need the switch. An invoked stored query still runs with full
+        /// trust: the library narrows who can introduce code, it is not a sandbox.
         /// </remarks>
         [HttpPut("/subgraph")]
-        [Authorize(Policy = Fallen8SecurityOptions.DynamicCodePolicy)]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [RequestSizeLimit(1_048_576)]
         [Consumes("application/json")]
@@ -129,6 +197,21 @@ namespace NoSQL.GraphDB.App.Controllers
             if (specification == null)
             {
                 return BadRequest("A subgraph specification is required.");
+            }
+
+            // Request-shape-aware dynamic-code gate (feature stored-query-library): only a request
+            // that INTRODUCES code - any inline filter/pattern fragment - requires the
+            // EnableDynamicCodeExecution capability. A storedQuery reference compiles no
+            // user-supplied code and passes with the switch off. Authentication itself is
+            // unchanged (the fallback policy applies as on every endpoint); this replaces the
+            // former endpoint-level DynamicCodePolicy.
+            if (CarriesInlineCode(specification))
+            {
+                var denied = DenyUnlessDynamicCodeCapability();
+                if (denied != null)
+                {
+                    return denied;
+                }
             }
 
             if (String.IsNullOrWhiteSpace(specification.Name))

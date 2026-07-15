@@ -99,13 +99,62 @@ namespace NoSQL.GraphDB.App.Controllers
             return AllowedLiteralTypes.TryResolve(fullQualifiedTypeName, out type);
         }
 
-        public GraphController(ILogger<GraphController> logger, IFallen8 fallen8)
+        /// <summary>
+        ///   The authorization service used for the request-shape-aware dynamic-code capability
+        ///   check on <see cref="CalculateShortestPath"/> (feature stored-query-library). Null when
+        ///   the controller is constructed directly (unit tests) - the hosted pipeline always
+        ///   supplies it, and the pipeline-level matrix tests pin the real gate behaviour.
+        /// </summary>
+        private readonly IAuthorizationService _authorizationService;
+
+        public GraphController(ILogger<GraphController> logger, IFallen8 fallen8,
+            IAuthorizationService authorizationService = null)
         {
             _logger = logger;
 
             _fallen8 = fallen8;
 
             _cache = new GeneratedCodeCache();
+
+            _authorizationService = authorizationService;
+        }
+
+        /// <summary>
+        ///   Whether a path request INTRODUCES code: any non-blank inline filter/cost fragment.
+        ///   Only such a request requires the dynamic-code capability (feature
+        ///   stored-query-library); a storedQuery reference or a fragment-less request compiles no
+        ///   user-supplied code.
+        /// </summary>
+        private static bool CarriesInlineCode(PathSpecification definition)
+        {
+            return !String.IsNullOrWhiteSpace(definition.Filter?.Vertex) ||
+                   !String.IsNullOrWhiteSpace(definition.Filter?.Edge) ||
+                   !String.IsNullOrWhiteSpace(definition.Filter?.EdgeProperty) ||
+                   !String.IsNullOrWhiteSpace(definition.Cost?.Vertex) ||
+                   !String.IsNullOrWhiteSpace(definition.Cost?.Edge);
+        }
+
+        /// <summary>
+        ///   Imperative dynamic-code capability check: evaluates the SAME
+        ///   <see cref="Security.DynamicCapabilityRequirement"/> the declarative
+        ///   <c>DynamicCodePolicy</c> uses (one source of truth) and returns the same 403 shape on
+        ///   denial, or null when the capability is enabled. Null-service means direct construction
+        ///   (unit tests bypass the pipeline exactly as they bypassed the former endpoint-level
+        ///   policy); the hosted pipeline always supplies the service. The awaited handler is
+        ///   synchronous (an options check), so blocking here cannot deadlock.
+        /// </summary>
+        private ActionResult DenyUnlessDynamicCodeCapability()
+        {
+            if (_authorizationService == null)
+            {
+                return null;
+            }
+
+            var authorization = _authorizationService.AuthorizeAsync(User, null,
+                    new Security.DynamicCapabilityRequirement(Security.DynamicCapabilityRequirement.Capability.DynamicCodeExecution))
+                .GetAwaiter().GetResult();
+
+            return authorization.Succeeded ? null : Forbid();
         }
 
         #region IDisposable Members
@@ -1092,7 +1141,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="200">Returns the found paths between the vertices</response>
         /// <response code="400">Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind</response>
         /// <response code="401">No valid credential was supplied</response>
-        /// <response code="403">Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)</response>
+        /// <response code="403">The request carries inline filter/cost fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery - or carrying no fragments at all - are NOT gated by that switch.</response>
         /// <response code="404">Source or target vertex not found, or no stored query with the referenced name exists</response>
         /// <response code="409">The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name})</response>
         /// <response code="413">The request body exceeds the code-endpoint size limit</response>
@@ -1103,13 +1152,16 @@ namespace NoSQL.GraphDB.App.Controllers
         /// artifact is used and nothing is compiled per request. The numeric bounds and
         /// "pathAlgorithmName" stay per-request either way.
         ///
-        /// SECURITY: the filter/cost fragments in the body are compiled with Roslyn and executed
-        /// IN-PROCESS WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone
-        /// permitted to reach it is trusted as the server process. It requires an authenticated caller
-        /// AND the operator to have set Fallen8:Security:EnableDynamicCodeExecution=true.
+        /// SECURITY: inline filter/cost fragments are compiled with Roslyn and executed IN-PROCESS
+        /// WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone permitted to
+        /// introduce code is trusted as the server process. The dynamic-code gate is
+        /// REQUEST-SHAPE-AWARE (feature stored-query-library): only a request that INTRODUCES code
+        /// (any inline fragment) requires Fallen8:Security:EnableDynamicCodeExecution=true; invoking
+        /// an operator-registered stored query - or a filterless search, which compiles no
+        /// user-supplied code - does not. An invoked stored query still runs with full trust: the
+        /// library narrows who can introduce code, it is not a sandbox.
         /// </remarks>
         [HttpPost("/path/{from}/to/{to}")]
-        [Authorize(Policy = Fallen8SecurityOptions.DynamicCodePolicy)]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [RequestSizeLimit(1_048_576)]
         [Produces("application/json")]
@@ -1130,6 +1182,22 @@ namespace NoSQL.GraphDB.App.Controllers
                 if (definition == null)
                 {
                     definition = new PathSpecification();
+                }
+
+                // Request-shape-aware dynamic-code gate (feature stored-query-library): only a
+                // request that INTRODUCES code - any inline filter/cost fragment - requires the
+                // EnableDynamicCodeExecution capability. A storedQuery reference or a filterless
+                // request compiles no user-supplied code and passes with the switch off.
+                // Authentication itself is unchanged (the fallback policy applies as on every
+                // endpoint); this replaces the former endpoint-level DynamicCodePolicy, which
+                // gated the whole endpoint regardless of request shape.
+                if (CarriesInlineCode(definition))
+                {
+                    var denied = DenyUnlessDynamicCodeCapability();
+                    if (denied != null)
+                    {
+                        return denied;
+                    }
                 }
 
                 // Special case - when MaxDepth is 0, no paths can be found
