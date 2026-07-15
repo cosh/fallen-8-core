@@ -325,6 +325,22 @@ and crash-recovery via the write-ahead log. See
 [features/stored-query-library/](features/done/stored-query-library/) for the full
 specification.
 
+## Live change feed
+
+`GET /changefeed` streams committed mutations as **Server-Sent Events** — in commit order,
+with declarative server-side filters (no code fragments, works with the dynamic-code switch
+off) and an in-memory catch-up buffer:
+
+```bash
+curl -N "http://localhost:5078/changefeed?kinds=vertexCreated,vertexRemoved&labels=person"
+```
+
+Events carry ids, labels and property keys — never property values. Whenever continuity is
+lost (slow consumer, restart, trim/load), the stream says so in-band with a `resync` event;
+the client recipe is always "fetch, then stream; on resync, re-fetch". See
+[features/change-feed/](features/open/change-feed/) for the event schema, filter grammar,
+and measured write-throughput non-regression.
+
 ## Additional information
 
 [Graph databases - Henning Rauch](http://www.slideshare.net/HenningRauch/graphdatabases)
