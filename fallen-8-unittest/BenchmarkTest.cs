@@ -50,11 +50,15 @@ namespace NoSQL.GraphDB.Tests
 
             // Act
             benchmark.CreateScaleFreeNetwork(1000, 10);
-            var result = benchmark.Bench(10);
+            var benchRan = benchmark.TryBench(out var result, out var message, 10);
 
             // Assert
             Assert.AreEqual(1000, fallen8.VertexCount, "Expected 1000 vertices in the scale free network");
             Assert.AreEqual(10000, fallen8.EdgeCount, "Expected 10000 edges in the scale free network");
+            Assert.IsTrue(benchRan, "Benchmark should run on a populated graph: " + message);
+            Assert.AreEqual(10, result.Iterations);
+            Assert.IsTrue(result.EdgesTraversed > 0, "The traversal must count edges");
+            Assert.IsTrue(result.AverageTps > 0, "Average TPS must be positive");
         }
     }
 }
