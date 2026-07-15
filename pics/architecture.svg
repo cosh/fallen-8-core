@@ -1,66 +1,117 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="Fallen-8 architecture: the API app talks to the engine, which holds transactions, indices, algorithms, plugins and persistence.">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640" font-family="Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="Fallen-8 architecture: the F8 Studio browser app and a user-run NL-assist model sit above the ASP.NET Core REST API, which is a thin layer over the in-memory graph engine; a save-game registry records checkpoints, and the whole thing ships as one Docker unit.">
   <style>
     .title { font-size: 20px; font-weight: 700; fill: #6E7681; }
     .layer { font-size: 13px; font-weight: 700; }
     .box   { font-size: 13px; font-weight: 600; }
-    .sub   { font-size: 12px; }
+    .sub   { font-size: 11.5px; }
     .note  { font-size: 11px; fill: #6E7681; }
+    .arrow { stroke: #6E7681; stroke-width: 1.6; fill: none; }
   </style>
+
+  <defs>
+    <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#6E7681"/>
+    </marker>
+  </defs>
 
   <text x="24" y="34" class="title">Fallen-8 &#8212; architecture</text>
 
-  <!-- API app layer -->
-  <rect x="24" y="52" width="852" height="118" rx="10" fill="#4C78A8"/>
-  <text x="40" y="76" class="layer" fill="#FFFFFF">fallen-8-core-apiApp &#8212; ASP.NET Core REST API (OpenAPI + Scalar)</text>
+  <!-- Browser layer: F8 Studio -->
+  <rect x="24" y="52" width="676" height="128" rx="10" fill="#7E57C2"/>
+  <text x="40" y="76" class="layer" fill="#FFFFFF">F8 Studio &#8212; fallen-8-web-ui (React SPA, served by the API app)</text>
   <g>
-    <rect x="40" y="88" width="180" height="66" rx="7" fill="#EAF1F8"/>
-    <text x="130" y="116" class="box" fill="#1B2733" text-anchor="middle">GraphController</text>
-    <text x="130" y="136" class="sub" fill="#3A4A5A" text-anchor="middle">vertices / edges / paths</text>
+    <rect x="40" y="88" width="300" height="76" rx="7" fill="#EFE9F8"/>
+    <text x="190" y="110" class="box" fill="#2A1F3D" text-anchor="middle">Screens</text>
+    <text x="190" y="130" class="sub" fill="#4A3A63" text-anchor="middle">Connect &#183; Dashboard &#183; Save games</text>
+    <text x="190" y="147" class="sub" fill="#4A3A63" text-anchor="middle">Browser &#183; Query &#183; Canvas &#183; Subgraph</text>
 
-    <rect x="232" y="88" width="180" height="66" rx="7" fill="#EAF1F8"/>
-    <text x="322" y="116" class="box" fill="#1B2733" text-anchor="middle">SubGraphController</text>
-    <text x="322" y="136" class="sub" fill="#3A4A5A" text-anchor="middle">subgraph CRUD + recalc</text>
-
-    <rect x="424" y="88" width="200" height="66" rx="7" fill="#EAF1F8"/>
-    <text x="524" y="116" class="box" fill="#1B2733" text-anchor="middle">AdminController</text>
-    <text x="524" y="136" class="sub" fill="#3A4A5A" text-anchor="middle">save / load / status</text>
-
-    <rect x="636" y="88" width="224" height="66" rx="7" fill="#EAF1F8"/>
-    <text x="748" y="112" class="box" fill="#1B2733" text-anchor="middle">CodeGenerationHelper</text>
-    <text x="748" y="132" class="sub" fill="#3A4A5A" text-anchor="middle">compiles C# filter fragments</text>
+    <rect x="356" y="88" width="328" height="76" rx="7" fill="#EFE9F8"/>
+    <text x="520" y="110" class="box" fill="#2A1F3D" text-anchor="middle">Delegate editor (Monaco + IntelliSense)</text>
+    <text x="520" y="130" class="sub" fill="#4A3A63" text-anchor="middle">authors C# filter/cost fragments;</text>
+    <text x="520" y="147" class="sub" fill="#4A3A63" text-anchor="middle">validate before submit; NL assist</text>
   </g>
 
-  <!-- arrow -->
-  <line x1="450" y1="170" x2="450" y2="200" stroke="#9AA4AE" stroke-width="2.5"/>
-  <polygon points="450,206 444,196 456,196" fill="#9AA4AE"/>
-  <text x="462" y="192" class="note">transactions / reads</text>
+  <!-- NL-assist model backend (external, user-run) -->
+  <rect x="716" y="52" width="220" height="128" rx="10" fill="#F7F7F7" stroke="#6E7681" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="826" y="76" class="box" fill="#3A4A5A" text-anchor="middle">NL-assist model</text>
+  <text x="826" y="98" class="sub" fill="#3A4A5A" text-anchor="middle">user-run, MIT:</text>
+  <text x="826" y="115" class="sub" fill="#3A4A5A" text-anchor="middle">Ollama / llama.cpp</text>
+  <text x="826" y="132" class="sub" fill="#3A4A5A" text-anchor="middle">(e.g. phi4-mini)</text>
+  <text x="826" y="156" class="note" text-anchor="middle">not bundled; browser</text>
+  <text x="826" y="170" class="note" text-anchor="middle">calls it directly</text>
+
+  <!-- browser -> model arrow -->
+  <path class="arrow" d="M684 126 L716 126" marker-end="url(#ah)"/>
+
+  <!-- browser -> API arrow -->
+  <path class="arrow" d="M362 180 L362 214" marker-end="url(#ah)"/>
+  <text x="372" y="200" class="note">HTTP REST per active instance (camelCase; waits for completion)</text>
+
+  <!-- API layer -->
+  <rect x="24" y="216" width="912" height="150" rx="10" fill="#4C78A8"/>
+  <text x="40" y="240" class="layer" fill="#FFFFFF">fallen-8-core-apiApp &#8212; ASP.NET Core REST API (OpenAPI + Scalar); serves the SPA; auth + CORS + rate limit</text>
+  <g>
+    <rect x="40" y="252" width="140" height="46" rx="7" fill="#EAF1F8"/>
+    <text x="110" y="280" class="box" fill="#1B2733" text-anchor="middle">GraphController</text>
+
+    <rect x="188" y="252" width="150" height="46" rx="7" fill="#EAF1F8"/>
+    <text x="263" y="280" class="box" fill="#1B2733" text-anchor="middle">SubGraphController</text>
+
+    <rect x="346" y="252" width="140" height="46" rx="7" fill="#EAF1F8"/>
+    <text x="416" y="280" class="box" fill="#1B2733" text-anchor="middle">AdminController</text>
+
+    <rect x="494" y="252" width="150" height="46" rx="7" fill="#EAF1F8"/>
+    <text x="569" y="274" class="box" fill="#1B2733" text-anchor="middle">SaveGamesController</text>
+    <text x="569" y="290" class="sub" fill="#3A4A5A" text-anchor="middle">checkpoint registry</text>
+
+    <rect x="652" y="252" width="140" height="46" rx="7" fill="#EAF1F8"/>
+    <text x="722" y="274" class="box" fill="#1B2733" text-anchor="middle">DelegatesController</text>
+    <text x="722" y="290" class="sub" fill="#3A4A5A" text-anchor="middle">/delegates/validate</text>
+
+    <rect x="800" y="252" width="120" height="46" rx="7" fill="#FBF0DA"/>
+    <text x="860" y="274" class="box" fill="#5A4413" text-anchor="middle">CodeGeneration</text>
+    <text x="860" y="290" class="sub" fill="#5A4413" text-anchor="middle">Roslyn compile</text>
+
+    <rect x="40" y="312" width="880" height="42" rx="7" fill="#3A5F87"/>
+    <text x="56" y="338" class="sub" fill="#FFFFFF">DurabilityLifecycleService &#8212; registry-driven boot (loads the newest save game) + clean-shutdown save</text>
+  </g>
+
+  <!-- editor -> validate arrow -->
+  <path class="arrow" d="M640 150 C 700 175, 722 190, 722 250" marker-end="url(#ah)"/>
+
+  <!-- API -> engine arrow -->
+  <path class="arrow" d="M362 366 L362 400" marker-end="url(#ah)"/>
+  <text x="372" y="386" class="note">transactions (mutations) / direct reads</text>
 
   <!-- Engine layer -->
-  <rect x="24" y="208" width="852" height="234" rx="10" fill="#59A14F"/>
-  <text x="40" y="232" class="layer" fill="#FFFFFF">fallen-8-core &#8212; in-memory graph engine</text>
+  <rect x="24" y="402" width="912" height="164" rx="10" fill="#549E3F"/>
+  <text x="40" y="426" class="layer" fill="#FFFFFF">fallen-8-core &#8212; in-memory graph engine (single-writer; WAL + checkpoints)</text>
+  <g>
+    <rect x="40" y="438" width="200" height="74" rx="7" fill="#E9F3E6"/>
+    <text x="140" y="464" class="box" fill="#1E3318" text-anchor="middle">Model &amp; Transactions</text>
+    <text x="140" y="483" class="sub" fill="#38512F" text-anchor="middle">vertices, edges, properties;</text>
+    <text x="140" y="499" class="sub" fill="#38512F" text-anchor="middle">all mutation is transactional</text>
 
-  <rect x="40" y="244" width="256" height="80" rx="7" fill="#ECF6EA"/>
-  <text x="168" y="272" class="box" fill="#18301A" text-anchor="middle">Model &amp; Transactions</text>
-  <text x="168" y="292" class="sub" fill="#2E4A2F" text-anchor="middle">vertices, edges, properties</text>
-  <text x="168" y="310" class="sub" fill="#2E4A2F" text-anchor="middle">all mutation is transactional</text>
+    <rect x="252" y="438" width="196" height="74" rx="7" fill="#E9F3E6"/>
+    <text x="350" y="464" class="box" fill="#1E3318" text-anchor="middle">Algorithms (plugins)</text>
+    <text x="350" y="483" class="sub" fill="#38512F" text-anchor="middle">path finding (BLS / Dijkstra);</text>
+    <text x="350" y="499" class="sub" fill="#38512F" text-anchor="middle">subgraph extraction + factory</text>
 
-  <rect x="308" y="244" width="256" height="80" rx="7" fill="#ECF6EA"/>
-  <text x="436" y="272" class="box" fill="#18301A" text-anchor="middle">Algorithms (plugins)</text>
-  <text x="436" y="292" class="sub" fill="#2E4A2F" text-anchor="middle">Path finding</text>
-  <text x="436" y="310" class="sub" fill="#2E4A2F" text-anchor="middle">SubGraph extraction + factory</text>
+    <rect x="460" y="438" width="196" height="74" rx="7" fill="#E9F3E6"/>
+    <text x="558" y="464" class="box" fill="#1E3318" text-anchor="middle">Indices (plugins)</text>
+    <text x="558" y="483" class="sub" fill="#38512F" text-anchor="middle">dictionary, range,</text>
+    <text x="558" y="499" class="sub" fill="#38512F" text-anchor="middle">fulltext, spatial (R-Tree)</text>
 
-  <rect x="576" y="244" width="284" height="80" rx="7" fill="#ECF6EA"/>
-  <text x="718" y="272" class="box" fill="#18301A" text-anchor="middle">Indices (plugins)</text>
-  <text x="718" y="292" class="sub" fill="#2E4A2F" text-anchor="middle">dictionary, range,</text>
-  <text x="718" y="310" class="sub" fill="#2E4A2F" text-anchor="middle">fulltext, spatial (R-Tree)</text>
+    <rect x="668" y="438" width="252" height="74" rx="7" fill="#E9F3E6"/>
+    <text x="794" y="464" class="box" fill="#1E3318" text-anchor="middle">Persistence &amp; plugin system</text>
+    <text x="794" y="483" class="sub" fill="#38512F" text-anchor="middle">checkpoint save/load (graph, indices,</text>
+    <text x="794" y="499" class="sub" fill="#38512F" text-anchor="middle">services, subgraph recipes); discovery</text>
 
-  <rect x="40" y="338" width="392" height="84" rx="7" fill="#ECF6EA"/>
-  <text x="236" y="366" class="box" fill="#18301A" text-anchor="middle">Persistence</text>
-  <text x="236" y="386" class="sub" fill="#2E4A2F" text-anchor="middle">checkpoint save / load of graph elements,</text>
-  <text x="236" y="404" class="sub" fill="#2E4A2F" text-anchor="middle">indices, services, and subgraph recipes</text>
+    <rect x="40" y="522" width="880" height="34" rx="7" fill="#3E7A2E"/>
+    <text x="56" y="544" class="sub" fill="#FFFFFF">Save-game registry &#8212; metadata/savegames.json: KPIs + file facts per checkpoint; the startup load authority</text>
+  </g>
 
-  <rect x="444" y="338" width="416" height="84" rx="7" fill="#ECF6EA"/>
-  <text x="652" y="366" class="box" fill="#18301A" text-anchor="middle">Plugin system</text>
-  <text x="652" y="386" class="sub" fill="#2E4A2F" text-anchor="middle">discovers indices, algorithms and services;</text>
-  <text x="652" y="404" class="sub" fill="#2E4A2F" text-anchor="middle">extend the engine without changing the core</text>
+  <!-- Docker footprint note -->
+  <text x="24" y="592" class="note">Packaged as one Docker unit (engine + API + F8 Studio) with the model backend, managed together via docker compose;</text>
+  <text x="24" y="608" class="note">graph data + save-game registry persist on a volume across restarts.</text>
 </svg>
