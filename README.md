@@ -322,7 +322,7 @@ queries keep working, so the code surface shrinks from "arbitrary C# per request
 operator-approved set. (Honesty note: a stored query still runs in-process with full trust;
 this narrows who can *introduce* code, it is not a sandbox.) Stored queries survive save/load
 and crash-recovery via the write-ahead log. See
-[features/stored-query-library/](features/open/stored-query-library/) for the full
+[features/stored-query-library/](features/done/stored-query-library/) for the full
 specification.
 
 ## Additional information

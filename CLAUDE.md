@@ -52,7 +52,7 @@ dotnet run --project fallen-8-core-apiApp
   and subgraph endpoints then accept `"storedQuery": "<name>"` instead of inline fragments.
   Registration requires `EnableDynamicCodeExecution`; invocation by name does not (the gate
   on those endpoints is request-shape-aware). Design docs are in
-  [features/open/stored-query-library/](features/open/stored-query-library/).
+  [features/done/stored-query-library/](features/done/stored-query-library/).
 - **Subgraph feature** lives in `fallen-8-core/Algorithms/SubGraph` (algorithm + pattern
   model) and `fallen-8-core/SubGraph/SubGraphFactory.cs` (registration, recalculation).
   Design docs are in [features/done/subgraph/](features/done/subgraph/).

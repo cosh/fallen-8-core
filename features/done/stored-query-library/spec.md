@@ -1,8 +1,7 @@
 # Stored Query Library — Specification
 
-> **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
-> repository root `CLAUDE.md`. Feature branch: `feature/stored-query-library` (branch-only
-> workflow — no GitHub issue/PR).
+> **Status:** Implemented and merged (branch `feature/stored-query-library`, council-approved
+> 2026-07-15; see [plan.md](./plan.md) for the phase record and council outcome).
 >
 > **Provenance:** [skill-library](../skill-library/spec.md) explicitly carved this out — its
 > header note reads *"a server-side library of stored, reusable delegate/traversal definitions
