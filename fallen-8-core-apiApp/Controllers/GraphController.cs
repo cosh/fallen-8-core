@@ -1090,13 +1090,19 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <response code="200">Returns the found paths between the vertices</response>
-        /// <response code="400">Invalid path specification</response>
+        /// <response code="400">Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)</response>
-        /// <response code="404">Source or target vertex not found</response>
+        /// <response code="404">Source or target vertex not found, or no stored query with the referenced name exists</response>
+        /// <response code="409">The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name})</response>
         /// <response code="413">The request body exceeds the code-endpoint size limit</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         /// <remarks>
+        /// Instead of inline fragments, the body may reference a registered stored query of kind
+        /// "Path" via "storedQuery" (mutually exclusive with "filter"/"cost"): the pre-compiled
+        /// artifact is used and nothing is compiled per request. The numeric bounds and
+        /// "pathAlgorithmName" stay per-request either way.
+        ///
         /// SECURITY: the filter/cost fragments in the body are compiled with Roslyn and executed
         /// IN-PROCESS WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone
         /// permitted to reach it is trusted as the server process. It requires an authenticated caller
@@ -1113,6 +1119,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<List<PathREST>> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {
             // Always initialize with empty list to avoid returning null
@@ -1133,9 +1140,26 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 IPathTraverser traverser = null;
 
+                if (!String.IsNullOrWhiteSpace(definition.StoredQuery))
+                {
+                    // Stored-query invocation (feature stored-query-library): resolve the name to
+                    // its pinned, pre-compiled traverser - nothing is compiled and the inline
+                    // caches are never consulted. Mutually exclusive with inline fragments.
+                    if (definition.Filter != null || definition.Cost != null)
+                    {
+                        return BadRequest("'storedQuery' is mutually exclusive with inline 'filter'/'cost' fragments.");
+                    }
+
+                    var resolutionError = StoredQueryResolver.TryResolvePathTraverser(_fallen8, definition.StoredQuery, out traverser);
+                    if (resolutionError != null)
+                    {
+                        // The resolver returns concrete ActionResult subclasses (404/400/409).
+                        return (ActionResult)resolutionError;
+                    }
+                }
                 // Cache lookup keys on (Filter, Cost) only (feature codegen-cache-keying), so requests
                 // that differ solely in a numeric bound / algorithm name reuse one compiled traverser.
-                if (!_cache.TryGetTraverser(definition, out traverser))
+                else if (!_cache.TryGetTraverser(definition, out traverser))
                 {
                     //Traverser was not cached
                     var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);

@@ -34,6 +34,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.App.Controllers.Model;
@@ -93,13 +94,19 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <param name="fromSubGraph">Optional name of an existing subgraph to source this one from (creates a nested subgraph). When omitted, the subgraph is sourced from the whole graph.</param>
         /// <response code="201">The subgraph was created and registered. A syntactically-valid pattern that matches nothing yields a registered EMPTY subgraph (201), identically whether the source graph is empty or populated.</response>
-        /// <response code="400">The specification was invalid, the pattern was structurally invalid, or a filter failed to compile</response>
+        /// <response code="400">The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)</response>
-        /// <response code="404">The source subgraph named by fromSubGraph does not exist</response>
-        /// <response code="409">A subgraph with the same name already exists, or a resource quota (subgraph count or materialized-element ceiling) was exceeded</response>
+        /// <response code="404">The source subgraph named by fromSubGraph does not exist, or no stored query with the referenced name exists</response>
+        /// <response code="409">A subgraph with the same name already exists, a resource quota (subgraph count or materialized-element ceiling) was exceeded, or the referenced stored query is not invocable (its recompile on load failed)</response>
         /// <response code="500">The create transaction faulted with an internal error</response>
         /// <remarks>
+        /// Instead of inline fragments, the body may reference a registered stored query of kind
+        /// "SubGraph" via "storedQuery" (mutually exclusive with "vertexFilter"/"edgeFilter"/
+        /// "patterns"): the stored template is instantiated under this request's "name" and
+        /// nothing is compiled per request. The created subgraph is self-contained - deleting the
+        /// stored query later does not affect it.
+        ///
         /// SECURITY: the pattern filter fragments are compiled with Roslyn and executed IN-PROCESS
         /// WITH FULL TRUST - a trust boundary, not a sandbox. Requires an authenticated caller AND
         /// Fallen8:Security:EnableDynamicCodeExecution=true.
@@ -149,10 +156,64 @@ namespace NoSQL.GraphDB.App.Controllers
                         "The maximum number of subgraphs ({0}) has been reached.", quota.MaxSubGraphCount));
                 }
 
-                var compileError = CodeGenerationHelper.TryGenerateSubGraphDefinition(specification, out SubGraphDefinition definition);
-                if (compileError != null)
+                SubGraphDefinition definition;
+                String specificationJson;
+
+                if (!String.IsNullOrWhiteSpace(specification.StoredQuery))
                 {
-                    return BadRequest(compileError);
+                    // Stored-query invocation (feature stored-query-library): instantiate the
+                    // stored template under the per-request instance name - nothing is compiled.
+                    // Mutually exclusive with inline fragments.
+                    if (!String.IsNullOrWhiteSpace(specification.VertexFilter) ||
+                        !String.IsNullOrWhiteSpace(specification.EdgeFilter) ||
+                        (specification.Patterns != null && specification.Patterns.Count > 0))
+                    {
+                        return BadRequest("'storedQuery' is mutually exclusive with inline 'vertexFilter'/'edgeFilter'/'patterns' fragments.");
+                    }
+
+                    var resolutionError = StoredQueryResolver.TryResolveSubGraphTemplate(
+                        _fallen8, specification.StoredQuery, out var template, out var templateBlock);
+                    if (resolutionError != null)
+                    {
+                        return resolutionError;
+                    }
+
+                    // The filter/pattern objects are shared with the pinned template: they are
+                    // immutable after compilation, so instances can share them safely. The
+                    // in-flight reference also keeps the template's collectible load context
+                    // alive if the stored query is deleted concurrently.
+                    definition = new SubGraphDefinition
+                    {
+                        Name = specification.Name,
+                        AdditionalInformation = specification.AdditionalInformation,
+                        VertexFilter = template.VertexFilter,
+                        EdgeFilter = template.EdgeFilter,
+                        Pattern = template.Pattern
+                    };
+
+                    // The persisted recipe is the MATERIALIZED full specification (template
+                    // fields + instance name), so the created subgraph's durability never
+                    // depends on the stored query's continued existence: deleting the stored
+                    // query later does not orphan this subgraph.
+                    var materialized = new SubGraphSpecification
+                    {
+                        Name = specification.Name,
+                        AdditionalInformation = specification.AdditionalInformation,
+                        VertexFilter = templateBlock.VertexFilter,
+                        EdgeFilter = templateBlock.EdgeFilter,
+                        Patterns = templateBlock.Patterns
+                    };
+                    specificationJson = JsonSerializer.Serialize(materialized, AppJsonContext.Default.SubGraphSpecification);
+                }
+                else
+                {
+                    var compileError = CodeGenerationHelper.TryGenerateSubGraphDefinition(specification, out definition);
+                    if (compileError != null)
+                    {
+                        return BadRequest(compileError);
+                    }
+
+                    specificationJson = JsonSerializer.Serialize(specification, AppJsonContext.Default.SubGraphSpecification);
                 }
 
                 // Pass the opaque specification text on the transaction so it attaches a persistable
@@ -165,7 +226,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 {
                     Definition = definition,
                     SourceSubGraphName = fromSubGraph,
-                    SpecificationJson = JsonSerializer.Serialize(specification, AppJsonContext.Default.SubGraphSpecification)
+                    SpecificationJson = specificationJson
                 };
                 var txInfo = _fallen8.EnqueueTransaction(tx);
                 txInfo.WaitUntilFinished();
