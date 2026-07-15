@@ -1,8 +1,8 @@
 # F8 Studio (`fallen-8-web-ui`)
 
 Browser frontend for one or more running Fallen-8 instances. Spec, design, and plan live
-in [features/web-ui/](../features/web-ui/); the NL-assist model backend is specified in
-[features/web-ui/nl-assist/spec.md](../features/web-ui/nl-assist/spec.md).
+in [features/done/web-ui/](../features/done/web-ui/); the NL-assist model backend is specified in
+[features/done/web-ui/nl-assist/spec.md](../features/done/web-ui/nl-assist/spec.md).
 
 ## Development
 
@@ -67,7 +67,7 @@ npm run e2e          # Playwright; builds the SPA into the apiApp and launches i
 ## Regeneration
 
 - `npm run gen:api` regenerates `src/api/openapi.d.ts` from the checked-in snapshot
-  `features/web-ui/openapi-v0.1.json` (refresh the snapshot from a Development apiApp at
+  `features/done/web-ui/openapi-v0.1.json` (refresh the snapshot from a Development apiApp at
   `/openapi/v0.1.json`). The contract test (`tests/api-contract.test.ts`) pins every
   client route against the snapshot.
 - `src/delegate/type-model.json` is hand-maintained against spec §6.2, which mirrors

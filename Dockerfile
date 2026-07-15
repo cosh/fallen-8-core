@@ -13,7 +13,7 @@ COPY fallen-8-web-ui/package.json fallen-8-web-ui/package-lock.json ./
 RUN npm ci --no-fund --no-audit
 COPY fallen-8-web-ui/ ./
 # The client contract test imports the OpenAPI snapshot relative to the repo layout.
-COPY features/web-ui/openapi-v0.1.json /src/features/web-ui/openapi-v0.1.json
+COPY features/done/web-ui/openapi-v0.1.json /src/features/done/web-ui/openapi-v0.1.json
 RUN npm run build
 
 # ---- API build ----

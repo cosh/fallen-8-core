@@ -130,7 +130,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
             // Bound the effective hop budget to min(MaxDepth, VertexCount - 1).
             //
-            // Correctness (see features/weighted-shortest-paths/spec.md §2): with non-negative
+            // Correctness (see features/done/weighted-shortest-paths/spec.md §2): with non-negative
             // (clamped) step costs the minimum-weight walk is achieved by a SIMPLE path, and this
             // algorithm only ever returns loop-free paths. A loop-free/simple path visits at most
             // VertexCount vertices, i.e. at most VertexCount - 1 edges. So capping the hop bound at

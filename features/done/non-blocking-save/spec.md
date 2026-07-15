@@ -22,7 +22,7 @@ writes the header (fsync + atomic rename). So the writer is held for the **entir
 serialize + disk I/O — and, because there is exactly one writer, every other mutating transaction
 enqueued during a save waits until the save completes. For a large graph this is a write-latency
 spike proportional to graph size. The code says so explicitly
-([`PersistencyFactory.cs`](../../fallen-8-core/Persistency/PersistencyFactory.cs) lines ~298–302:
+([`PersistencyFactory.cs`](../../../fallen-8-core/Persistency/PersistencyFactory.cs) lines ~298–302:
 "the file writing is NOT moved off the worker; see the P3 deferral note").
 
 **Why a correct fix is non-trivial.** The master-store *snapshot* (the segmented array) is immutable

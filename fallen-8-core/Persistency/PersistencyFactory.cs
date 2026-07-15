@@ -337,7 +337,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             // results below, so the whole save still completes - all bytes durably committed - before
             // the transaction returns. Single-writer and the blocking-but-correct save semantics are
             // therefore preserved (the file writing is NOT moved off the worker; see the P3 deferral
-            // note in features/persistence-hardening/plan.md).
+            // note in features/done/persistence-hardening/plan.md).
 
             #region graph elements
 

@@ -38,7 +38,7 @@ using NoSQL.GraphDB.Core.Transaction;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Pins the load-path-integrity fixes (features/load-path-integrity/):
+    /// Pins the load-path-integrity fixes (features/done/load-path-integrity/):
     /// L1 - cross-bunch edge rehydration is exactly correct under the parallel load (no torn/lost/
     /// duplicated fix-up); L2 - an oversized checkpoint segment fails the save loudly instead of
     /// silently writing a wrapped length that is unloadable; L3 - an absurd manifest count is

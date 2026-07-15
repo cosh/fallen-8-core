@@ -136,7 +136,7 @@ namespace NoSQL.GraphDB.Tests
 
         // ---- P6 (DEFERRED): quantify the current copy-on-extend reconstruction cost --------------
         //
-        // P6's parent-pointer rewrite was deferred (see features/engine-performance-followups/plan.md):
+        // P6's parent-pointer rewrite was deferred (see features/done/engine-performance-followups/plan.md):
         // the reconstruction's reversal seam makes a byte-identical rewrite high-risk, while the reward
         // is small. This benchmark measures the payoff AT STAKE - the current cost of copy-on-extend
         // reconstruction - so the "low reward" half of that trade-off rests on real numbers. It is NOT

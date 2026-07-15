@@ -4,7 +4,7 @@
 
 ## 1. Problem
 
-The top-level [README.md](../../README.md) is out of date and thin on visuals:
+The top-level [README.md](../../../README.md) is out of date and thin on visuals:
 
 - It documents the API via **Swagger** (`/swagger/index.html`) and shows
   `pics/swaggerDoc.png`, but the app migrated to **Scalar** (`/scalar/v0.1`, OpenAPI at

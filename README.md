@@ -98,7 +98,7 @@ any checkpoint (a file sitting in the storage directory is no longer auto-loaded
 because it is there) — it keeps whatever the write-ahead log replayed at construction,
 which for a fresh deployment is an empty graph. To adopt a pre-existing checkpoint after upgrading, load it once via
 `PUT /load` (or the Save games screen); it is then registered permanently. See
-[features/save-games/spec.md](features/save-games/spec.md).
+[features/save-games/spec.md](features/done/save-games/spec.md).
 
 In the Development environment the API description and interactive reference are available at:
 
@@ -294,7 +294,7 @@ PUT /subgraph
 ```
 
 Subgraphs can be listed, read, recalculated against their (possibly changed) source, deleted,
-and nested (a subgraph of a subgraph). See [features/subgraph/](features/subgraph/) for the
+and nested (a subgraph of a subgraph). See [features/subgraph/](features/done/subgraph/) for the
 full specification and REST reference.
 
 ## Additional information

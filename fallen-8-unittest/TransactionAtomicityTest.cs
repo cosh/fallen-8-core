@@ -38,7 +38,7 @@ using NoSQL.GraphDB.Core.Transaction;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Pins the transaction-atomicity contract (features/transaction-atomicity/): a transaction
+    /// Pins the transaction-atomicity contract (features/done/transaction-atomicity/): a transaction
     /// whose terminal state is RolledBack has ZERO observable effect. Covers the batch create
     /// (id-space corruption), batch property (partial update), and batch remove (partial removal)
     /// violations, the restored id == index invariant after every failure, and - with the WAL
