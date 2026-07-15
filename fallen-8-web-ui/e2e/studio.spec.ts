@@ -58,7 +58,9 @@ test("scenario 1: connect, dashboard, health, disconnected overview", async ({ p
   await expect(page.getByTestId("health-chip")).toHaveText("online");
 });
 
-test("scenario 2: one click generates the sample graph; counts update", async ({ page }) => {
+test("scenario 2: one click generates the sample graph; benchmark shows structured numbers", async ({
+  page,
+}) => {
   await registerSecuredInstance(page);
   await page.goto("/dashboard");
   await page.getByTestId("generate-sample").click();
@@ -69,6 +71,12 @@ test("scenario 2: one click generates the sample graph; counts update", async ({
       { timeout: 30_000 },
     )
     .toBeGreaterThan(0);
+
+  // Structured benchmark output rendered as stat tiles.
+  await page.getByTestId("run-benchmark").click();
+  await expect(page.getByTestId("benchmark-result")).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByTestId("stat-avg-tps")).not.toHaveText("—");
+  await expect(page.getByTestId("stat-edges-per-run")).not.toHaveText("0");
 });
 
 test("scenario 3+4: mutate, browse, scan, hydrate, canvas", async ({ page }) => {

@@ -6,6 +6,15 @@
  * `npm run gen:api` when the snapshot changes.
  */
 
+/** GET /benchmark - structured edge-traversal statistics (TPS = traversals/second). */
+export interface BenchmarkResult {
+  iterations: number;
+  edgesTraversed: number;
+  averageTps: number;
+  medianTps: number;
+  standardDeviationTps: number;
+}
+
 export interface StatusREST {
   vertexCount: number;
   edgeCount: number;

@@ -1,6 +1,7 @@
 import { apiRequest } from "./client";
 import type { InstanceConfig } from "../instances/types";
 import type {
+  BenchmarkResult,
   DelegateKind,
   DelegateValidationResult,
   EdgeREST,
@@ -61,7 +62,7 @@ export const generateSampleGraph = (i: InstanceConfig, nodeCount = 200, edgeCoun
   apiRequest<string>(i, "/generate", { query: { nodeCount, edgeCount } });
 
 export const runBenchmark = (i: InstanceConfig, iterations = 1000) =>
-  apiRequest<string>(i, "/benchmark", { query: { iterations } });
+  apiRequest<BenchmarkResult>(i, "/benchmark", { query: { iterations } });
 
 // ---- elements (FR-5/6/7) ----
 

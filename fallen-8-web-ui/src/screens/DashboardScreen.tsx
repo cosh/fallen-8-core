@@ -13,6 +13,7 @@ import {
 } from "../api/endpoints";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { formatCompact, formatExact } from "../lib/format";
 
 /**
  * Dashboard (FR-2/3/4): counts, memory, plugin lists from /status; admin actions with
@@ -93,13 +94,9 @@ export function DashboardScreen() {
   });
   const benchmark = useMutation({
     mutationFn: () => runBenchmark(instance),
-    onSuccess: (result) => {
-      setLastMessage(typeof result === "string" ? result : "Benchmark finished.");
-      refresh();
-    },
   });
 
-  const failed = [save, load, trim, erase, generate, benchmark].find((m) => m.isError);
+  const failed = [save, load, trim, erase, generate].find((m) => m.isError);
 
   if (status.isPending) {
     return <div className="text-fg-faint">Loading status…</div>;
@@ -148,12 +145,39 @@ export function DashboardScreen() {
           <button
             type="button"
             className="btn"
+            data-testid="run-benchmark"
             disabled={benchmark.isPending}
             onClick={() => benchmark.mutate()}
           >
             {benchmark.isPending ? "Running…" : "Run benchmark"}
           </button>
         </div>
+        {benchmark.data && (
+          <div
+            className="border-line grid grid-cols-2 gap-3 border-t p-3 md:grid-cols-4"
+            data-testid="benchmark-result"
+          >
+            <Stat
+              label="edges per run"
+              value={formatExact(benchmark.data.edgesTraversed)}
+            />
+            <Stat label="avg tps" value={formatCompact(benchmark.data.averageTps)} />
+            <Stat label="median tps" value={formatCompact(benchmark.data.medianTps)} />
+            <Stat
+              label="stddev tps"
+              value={formatCompact(benchmark.data.standardDeviationTps)}
+            />
+            <p className="text-fg-faint col-span-full text-[11px]">
+              {benchmark.data.iterations} iterations · exact average{" "}
+              {formatExact(benchmark.data.averageTps)} TPS
+            </p>
+          </div>
+        )}
+        {benchmark.isError && (
+          <div className="px-3 pb-3">
+            <ErrorBox error={benchmark.error} />
+          </div>
+        )}
       </section>
 
       <section className="panel">

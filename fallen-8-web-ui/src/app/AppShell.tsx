@@ -59,9 +59,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full">
       <nav className="border-line bg-panel flex w-16 shrink-0 flex-col items-center gap-1 border-r py-3">
-        <div className="text-accent mb-3 text-lg font-bold" title="F8 Studio">
-          F8
-        </div>
+        <img
+          src="/F8White.svg"
+          alt="F8 Studio"
+          title="F8 Studio"
+          className="mb-3 w-12"
+        />
         {NAV.map((item) => (
           <Link
             key={item.to}

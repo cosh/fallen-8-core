@@ -86,6 +86,7 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(ValidateDelegateSpecification))]
     [JsonSerializable(typeof(DelegateValidationREST))]
     [JsonSerializable(typeof(DelegateDiagnosticREST))]
+    [JsonSerializable(typeof(BenchmarkResultREST))]
     public sealed partial class AppJsonContext : JsonSerializerContext
     {
     }

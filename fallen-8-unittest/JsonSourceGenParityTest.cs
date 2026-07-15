@@ -553,7 +553,15 @@ namespace NoSQL.GraphDB.Tests
                     Id = "CS0103",
                     Message = "The name 'zzz' does not exist in the current context",
                     Severity = "error"
-                }, "DelegateDiagnosticREST")
+                }, "DelegateDiagnosticREST"),
+                (new BenchmarkResultREST
+                {
+                    Iterations = 10,
+                    EdgesTraversed = 10_001_000,
+                    AverageTps = 592134058.33,
+                    MedianTps = 601225777.44,
+                    StandardDeviationTps = 60311324.76
+                }, "BenchmarkResultREST")
             };
         }
 

@@ -32,6 +32,7 @@ using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Text;
 using System.Threading.Tasks;
+using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Model;
@@ -134,29 +135,31 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         }
 
         /// <summary>
-        /// Benchmark
+        /// Runs the edge-traversal benchmark and reports structured statistics.
         /// </summary>
-        /// <param name="myIterations">Number of iterations for the benchmark</param>
-        /// <returns>Benchmark results as a string</returns>
-        public String Bench(int myIterations = 1000)
+        /// <param name="result">The benchmark statistics, or null on failure</param>
+        /// <param name="message">The failure reason, or null on success</param>
+        /// <param name="myIterations">Number of timed iterations</param>
+        /// <returns>True when the benchmark ran</returns>
+        public Boolean TryBench(out BenchmarkResultREST result, out String message, int myIterations = 1000)
         {
+            result = null;
+            message = null;
+
             IReadOnlyList<VertexModel> vertices = _f8.GetAllVertices();
             var tps = new List<double>();
             long edgeCount = 0;
-            var sb = new StringBuilder();
 
-            // Handle edge case: no vertices
             if (vertices == null || vertices.Count == 0)
             {
-                sb.AppendLine("No vertices found in the graph.");
-                return sb.ToString();
+                message = "No vertices found in the graph.";
+                return false;
             }
 
-            // Handle edge case: zero or negative iterations
             if (myIterations <= 0)
             {
-                sb.AppendLine("Number of iterations must be greater than 0.");
-                return sb.ToString();
+                message = "Number of iterations must be greater than 0.";
+                return false;
             }
 
             Int32 range = ((vertices.Count / Environment.ProcessorCount) * 3) / 2;
@@ -172,9 +175,15 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                 tps.Add(edgeCount / sw.Elapsed.TotalSeconds);
             }
 
-            sb.AppendLine(String.Format("Traversed {0} edges. Average: {1}TPS Median: {2}TPS StandardDeviation {3}TPS ", edgeCount, Statistics.Average(tps), Statistics.Median(tps), Statistics.StandardDeviation(tps)));
-
-            return sb.ToString();
+            result = new BenchmarkResultREST
+            {
+                Iterations = myIterations,
+                EdgesTraversed = edgeCount,
+                AverageTps = Statistics.Average(tps),
+                MedianTps = Statistics.Median(tps),
+                StandardDeviationTps = Statistics.StandardDeviation(tps)
+            };
+            return true;
         }
 
         /// <summary>
