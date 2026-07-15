@@ -49,8 +49,13 @@ namespace NoSQL.GraphDB.Core.StoredQueries
             get; set;
         }
 
-        /// <summary>The kind of artifact this definition compiles into.</summary>
+        /// <summary>
+        ///   The kind of artifact this definition compiles into. Persisted as its NAME
+        ///   ("Path"/"SubGraph"), not its ordinal, so the on-disk manifest/WAL contract does not
+        ///   depend on enum member order.
+        /// </summary>
         [JsonPropertyName("kind")]
+        [JsonConverter(typeof(JsonStringEnumConverter<StoredQueryKind>))]
         public StoredQueryKind Kind
         {
             get; set;

@@ -120,7 +120,10 @@ namespace NoSQL.GraphDB.App
                 Fallen8 engine;
                 if (durability.Volatile)
                 {
-                    engine = new Fallen8(loggerFactory);
+                    engine = new Fallen8(loggerFactory)
+                    {
+                        StoredQueryCompiler = new StoredQueryCompiler()
+                    };
                 }
                 else
                 {
@@ -129,14 +132,16 @@ namespace NoSQL.GraphDB.App
                     var storageDirectory = durability.ResolveStorageDirectory();
                     Directory.CreateDirectory(storageDirectory);
 
+                    // Both compilers are supplied AT CONSTRUCTION: an unanchored WAL replays during
+                    // construction, so only compilers present then can recompile its CreateSubGraph /
+                    // RegisterStoredQuery entries.
                     engine = new Fallen8(loggerFactory,
                         new WriteAheadLogOptions(durability.ResolveWalPath()),
-                        new RecipeSubGraphCompiler());
+                        new RecipeSubGraphCompiler(),
+                        new StoredQueryCompiler());
                 }
 
-                // Stored query library: register the compile bridge (used to rehydrate persisted
-                // definitions on load) and apply the configured registration ceiling.
-                engine.StoredQueryCompiler = new StoredQueryCompiler();
+                // Stored query library: apply the configured registration ceiling.
                 engine.StoredQueries.MaxCount = storedQueryOptions.MaxCount;
 
                 return engine;

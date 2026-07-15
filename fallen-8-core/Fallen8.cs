@@ -322,12 +322,21 @@ namespace NoSQL.GraphDB.Core
         ///   subgraph entry encountered with no compiler registered is skipped with a warning.</para>
         /// </summary>
         public Fallen8(ILoggerFactory loggerfactory, WriteAheadLogOptions writeAheadLogOptions,
-            ISubGraphRecipeCompiler subGraphRecipeCompiler = null)
+            ISubGraphRecipeCompiler subGraphRecipeCompiler = null,
+            IStoredQueryCompiler storedQueryCompiler = null)
             : this(loggerfactory)
         {
             if (subGraphRecipeCompiler != null)
             {
                 SubGraphRecipeCompiler = subGraphRecipeCompiler;
+            }
+
+            // Registered BEFORE the log is opened for the same reason as the recipe compiler: an
+            // unanchored log's RegisterStoredQuery entries replay during construction, and only a
+            // compiler present then can recompile them (feature stored-query-library).
+            if (storedQueryCompiler != null)
+            {
+                StoredQueryCompiler = storedQueryCompiler;
             }
 
             if (writeAheadLogOptions != null && !String.IsNullOrWhiteSpace(writeAheadLogOptions.Path))
@@ -1927,10 +1936,12 @@ namespace NoSQL.GraphDB.Core
                         // Fail-stop for CORE DATA entries (feature crash-durability-hardening D4): a
                         // false return or a thrown exception is treated exactly like a decode failure -
                         // stop at the last good entry, because continuing would misapply every later
-                        // entry against a diverged id space. Subgraph entries are DERIVED state that
-                        // allocate no ids, so a RemoveSubGraph that fails skips-and-continues (like the
-                        // CreateSubGraph path below) rather than halting recovery.
-                        var isDerivedSubGraphEntry = type == Persistency.WalEntryType.RemoveSubGraph;
+                        // entry against a diverged id space. Subgraph and stored-query entries
+                        // allocate no ids (derived / library state), so a RemoveSubGraph or
+                        // RemoveStoredQuery that fails skips-and-continues (like the CreateSubGraph /
+                        // RegisterStoredQuery paths below) rather than halting recovery.
+                        var isDerivedSubGraphEntry = type == Persistency.WalEntryType.RemoveSubGraph ||
+                                                     type == Persistency.WalEntryType.RemoveStoredQuery;
                         bool applied;
                         try
                         {
@@ -1973,6 +1984,10 @@ namespace NoSQL.GraphDB.Core
                     else if (type == Persistency.WalEntryType.CreateSubGraph)
                     {
                         ReplaySubGraphCreate(payload);
+                    }
+                    else if (type == Persistency.WalEntryType.RegisterStoredQuery)
+                    {
+                        ReplayStoredQueryRegister(payload);
                     }
 
                     replayed++;
@@ -2073,6 +2088,122 @@ namespace NoSQL.GraphDB.Core
                 _logger.LogWarning(ex,
                     "Recovering logged subgraph \"{Name}\" threw during recovery; it is skipped and recovery continues with later entries.",
                     recipe.Name);
+            }
+        }
+
+        /// <summary>
+        ///   Builds the in-memory entry for a persisted stored query definition (feature
+        ///   stored-query-library): recompiles the source through the registered
+        ///   <see cref="StoredQueryCompiler" /> when one is present. Unlike subgraph recipes, a
+        ///   stored query is OPERATOR-REGISTERED state, not derived state - so a failure never
+        ///   drops the definition: a compile failure (or a compiler that throws, violating its Try
+        ///   contract) keeps the entry as <see cref="StoredQueryCompileState.Failed" /> with its
+        ///   diagnostics (visible via list/get, 409 on invoke, recoverable by delete+re-register),
+        ///   and a missing compiler keeps it as source-only. Loud, never silent loss.
+        /// </summary>
+        private StoredQueryEntry BuildRehydratedStoredQueryEntry(StoredQueryDefinition definition)
+        {
+            var compiler = StoredQueryCompiler;
+            if (compiler == null)
+            {
+                return new StoredQueryEntry(definition, StoredQueryCompileState.SourceOnly, null);
+            }
+
+            try
+            {
+                if (compiler.TryCompile(definition, out var artifact, out var error))
+                {
+                    return new StoredQueryEntry(definition, StoredQueryCompileState.Compiled, artifact);
+                }
+
+                _logger.LogError(
+                    "Stored query \"{Name}\" failed to recompile on load and is kept as Failed (delete + re-register to recover): {Error}",
+                    definition.Name, error);
+                return new StoredQueryEntry(definition, StoredQueryCompileState.Failed, null, error);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Recompiling stored query \"{Name}\" threw; it is kept as Failed (delete + re-register to recover).",
+                    definition.Name);
+                return new StoredQueryEntry(definition, StoredQueryCompileState.Failed, null, ex.Message);
+            }
+        }
+
+        /// <summary>
+        ///   Replaces the stored query library with the definitions of a loaded snapshot manifest,
+        ///   eagerly recompiling each via <see cref="BuildRehydratedStoredQueryEntry" />. Warns once
+        ///   when definitions exist but no compiler is registered (embedded engine use: entries load
+        ///   as source-only; there is no invocation surface without a hosting layer anyway).
+        /// </summary>
+        private void RehydrateStoredQueries(List<StoredQueryDefinition> definitions)
+        {
+            var entries = new List<StoredQueryEntry>(definitions.Count);
+
+            if (definitions.Count > 0 && StoredQueryCompiler == null)
+            {
+                _logger.LogWarning(
+                    "The savegame holds {Count} stored query definition(s) but no stored query compiler is registered; they are loaded as source-only. Register IFallen8.StoredQueryCompiler before load to recompile them.",
+                    definitions.Count);
+            }
+
+            foreach (var definition in definitions)
+            {
+                if (definition == null || !StoredQueryLibrary.IsValidName(definition.Name))
+                {
+                    _logger.LogError("A stored query definition in the manifest has an invalid name and was skipped.");
+                    continue;
+                }
+
+                entries.Add(BuildRehydratedStoredQueryEntry(definition));
+            }
+
+            StoredQueries.ReplaceAll(entries);
+
+            if (entries.Count > 0)
+            {
+                _logger.LogInformation("Rehydrated {Count} stored query definition(s).", entries.Count);
+            }
+        }
+
+        /// <summary>
+        ///   Replays one logged <see cref="Persistency.WalEntryType.RegisterStoredQuery" /> entry:
+        ///   decodes the persisted definition, recompiles it (keep-and-mark-Failed on failure, per
+        ///   <see cref="BuildRehydratedStoredQueryEntry" /> - operator state is never silently
+        ///   dropped) and re-executes the equivalent registration against the library as replayed so
+        ///   far, in commit order. An undecodable entry is warned and skipped so recovery continues;
+        ///   registrations allocate no element ids, so skipping one cannot perturb the surrounding
+        ///   replay's id-determinism. The D7 trust-boundary note on <see cref="ReplaySubGraphCreate" />
+        ///   applies identically: replay RECOMPILES persisted C# via Roslyn in-process, so the
+        ///   save/WAL directory is a trust boundary equivalent to the application binaries.
+        /// </summary>
+        private void ReplayStoredQueryRegister(byte[] payload)
+        {
+            if (!WalTransactionCodec.TryDecodeStoredQueryRegister(payload, out var definition))
+            {
+                _logger.LogWarning("A logged RegisterStoredQuery entry could not be decoded during recovery and was skipped.");
+                return;
+            }
+
+            try
+            {
+                var tx = new RegisterStoredQueryTransaction
+                {
+                    Entry = BuildRehydratedStoredQueryEntry(definition)
+                };
+
+                if (!tx.TryExecute(this))
+                {
+                    _logger.LogWarning(
+                        "Re-executing a logged RegisterStoredQuery transaction for \"{Name}\" during recovery returned false (reason {Reason}); it is skipped.",
+                        definition.Name, tx.FailureReason);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Recovering logged stored query \"{Name}\" threw during recovery; it is skipped and recovery continues with later entries.",
+                    definition.Name);
             }
         }
 
@@ -2179,6 +2310,11 @@ namespace NoSQL.GraphDB.Core
                 {
                     SubGraphFactory.RehydrateFromRecipes(recipes, SubGraphRecipeCompiler);
                 }
+
+                // Rehydrate the stored query library from its manifest (feature
+                // stored-query-library): the load REPLACES the library wholesale, exactly like the
+                // graph itself, BEFORE any WAL replay applies later Register/Remove entries on top.
+                RehydrateStoredQueries(_persistencyFactory.LoadStoredQueryDefinitions(path));
 
                 // WAL (spec P4/§5). When the WAL is enabled it OWNS the loaded snapshot's id-space
                 // handling: it deliberately does NOT run the closing compaction, so the in-memory id
