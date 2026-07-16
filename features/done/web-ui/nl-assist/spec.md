@@ -118,6 +118,11 @@ flowchart LR
 - FR-26.11 **Key isolation.** Any configured `apiKey` lives in local storage and is sent
   only to the configured model endpoint. It is never included in any request to a
   Fallen-8 instance (parent security posture).
+- FR-26.12 **No key on the built-in SLM path.** The built-in SLM setup (native Ollama,
+  default `phi4-mini`) never asks for an API key: the Ollama transport sends no
+  `Authorization` header at all, so the UI shows no key field for `apiKind: "ollama"` and
+  states that none is needed. Only OpenAI-compatible custom endpoints show the (optional)
+  key field.
 
 ## 6. Models and runtime (MIT-only)
 

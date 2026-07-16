@@ -58,6 +58,15 @@ export function isNlConfigured(config: NlAssistConfig): boolean {
   return config.endpoint.trim() !== "" && config.model.trim() !== "";
 }
 
+/**
+ * FR-26.12: the built-in SLM path (native Ollama, e.g. the recommended local phi4-mini)
+ * never authenticates - the Ollama transport sends no Authorization header at all. Only
+ * OpenAI-compatible custom endpoints can carry a key, so only they get the field.
+ */
+export function usesApiKey(config: NlAssistConfig): boolean {
+  return config.apiKind === "openai";
+}
+
 /** FR-26.10: loopback endpoints never show the privacy notice - nothing leaves. */
 export function isLoopbackEndpoint(endpoint: string): boolean {
   try {
