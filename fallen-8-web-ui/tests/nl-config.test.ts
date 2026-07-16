@@ -32,7 +32,7 @@ describe("loopback detection (FR-26.10)", () => {
 });
 
 describe("API key applicability (FR-26.12)", () => {
-  it("never applies to the built-in SLM path (native Ollama), regardless of endpoint", () => {
+  it("never applies to the Ollama kind, regardless of endpoint", () => {
     expect(usesApiKey(DEFAULT_NL_CONFIG)).toBe(false);
     expect(
       usesApiKey({ ...DEFAULT_NL_CONFIG, endpoint: "http://localhost:11434" }),

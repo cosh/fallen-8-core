@@ -118,11 +118,12 @@ flowchart LR
 - FR-26.11 **Key isolation.** Any configured `apiKey` lives in local storage and is sent
   only to the configured model endpoint. It is never included in any request to a
   Fallen-8 instance (parent security posture).
-- FR-26.12 **No key on the built-in SLM path.** The built-in SLM setup (native Ollama,
-  default `phi4-mini`) never asks for an API key: the Ollama transport sends no
-  `Authorization` header at all, so the UI shows no key field for `apiKind: "ollama"` and
-  states that none is needed. Only OpenAI-compatible custom endpoints show the (optional)
-  key field.
+- FR-26.12 **No key on the native Ollama path.** The UI shows the (optional) API key
+  field only for `apiKind: "openai"` (OpenAI-compatible custom endpoints). For
+  `apiKind: "ollama"` — including the default local setup of a separately installed
+  Ollama running `phi4-mini` (FR-26.2: nothing is bundled) — no key field is shown and
+  the UI states that none is needed: the Ollama transport sends no `Authorization`
+  header at all.
 
 ## 6. Models and runtime (MIT-only)
 
@@ -207,6 +208,9 @@ Extends parent scenario 10.
 6. With an API key configured, no request to any Fallen-8 instance contains that key.
 7. Each delegate kind's generation prompt contains the correct lambda shape, usings,
    reachable members, and matching few-shot examples for that kind.
+8. With the API kind set to Ollama (the default local setup), the configuration panel
+   shows no API key field and states none is needed; switching to an OpenAI-compatible
+   kind shows the optional key field.
 
 ## 13. Testing requirements
 
@@ -216,7 +220,8 @@ Extends parent scenario 10.
 - **UI component:** the refine loop with a mocked model returning invalid-then-valid (assert
   the diagnostics are fed back and the final draft validates); the retry-exhaustion path;
   disabled state with no endpoint; the FR-26.10 notice shown only for non-loopback
-  endpoints. All model calls mocked.
+  endpoints; the FR-26.12 key-field visibility (no field for the Ollama kind, optional
+  field for OpenAI-compatible). All model calls mocked.
 - **End-to-end:** scenario 1 runs where an MIT model backend (local Ollama with Phi-4-mini)
   is available in the test environment. The unconfigured half (scenario 4) is always
   testable without a backend.

@@ -453,7 +453,7 @@ function NlAssistPanel({
               </div>
             ) : (
               <p className="text-fg-faint text-[10px]" data-testid="nl-no-key-hint">
-                No API key — the built-in SLM (native Ollama, phi4-mini) never uses one.
+                No API key — Ollama endpoints never use one.
               </p>
             )}
             <p className="text-fg-faint text-[10px]">

@@ -59,8 +59,8 @@ export function isNlConfigured(config: NlAssistConfig): boolean {
 }
 
 /**
- * FR-26.12: the built-in SLM path (native Ollama, e.g. the recommended local phi4-mini)
- * never authenticates - the Ollama transport sends no Authorization header at all. Only
+ * FR-26.12: the native Ollama path (e.g. the default local phi4-mini setup) never
+ * authenticates - the Ollama transport sends no Authorization header at all. Only
  * OpenAI-compatible custom endpoints can carry a key, so only they get the field.
  */
 export function usesApiKey(config: NlAssistConfig): boolean {
