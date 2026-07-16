@@ -84,6 +84,7 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(SaveSpecification))]
     [JsonSerializable(typeof(ResultTypeSpecification))]
     [JsonSerializable(typeof(ChangeEventREST))]
+    [JsonSerializable(typeof(BulkImportResultREST))]
     [JsonSerializable(typeof(StoredQuerySpecification))]
     [JsonSerializable(typeof(StoredPathQueryBlock))]
     [JsonSerializable(typeof(StoredSubGraphQueryBlock))]
