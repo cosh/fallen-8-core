@@ -15,6 +15,7 @@ import {
   isLoopbackEndpoint,
   isNlConfigured,
   useNlAssist,
+  usesApiKey,
 } from "./nl/config";
 import { buildGenerationPrompt, buildRefinePrompt, extractFragment } from "./nl/prompt";
 import { chatWithModel, initialMessages, type ChatTurn } from "./nl/generate";
@@ -437,18 +438,24 @@ function NlAssistPanel({
                 />
               </div>
             </div>
-            <div>
-              <label className="label" htmlFor="nl-key">
-                api key (optional — sent only to the model endpoint)
-              </label>
-              <input
-                id="nl-key"
-                className="input"
-                type="password"
-                value={config.apiKey ?? ""}
-                onChange={(e) => setConfig({ apiKey: e.target.value || undefined })}
-              />
-            </div>
+            {usesApiKey(config) ? (
+              <div>
+                <label className="label" htmlFor="nl-key">
+                  api key (optional — sent only to the model endpoint)
+                </label>
+                <input
+                  id="nl-key"
+                  className="input"
+                  type="password"
+                  value={config.apiKey ?? ""}
+                  onChange={(e) => setConfig({ apiKey: e.target.value || undefined })}
+                />
+              </div>
+            ) : (
+              <p className="text-fg-faint text-[10px]" data-testid="nl-no-key-hint">
+                No API key — Ollama endpoints never use one.
+              </p>
+            )}
             <p className="text-fg-faint text-[10px]">
               Recommended: local Ollama with <code>phi4-mini</code> (MIT weights + MIT
               runtime). For browser access set <code>OLLAMA_ORIGINS</code> to this app's
