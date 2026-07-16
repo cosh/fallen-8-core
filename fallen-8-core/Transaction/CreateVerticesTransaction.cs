@@ -97,6 +97,19 @@ namespace NoSQL.GraphDB.Core.Transaction
                 : ImmutableList.CreateRange(_verticesCreated);
         }
 
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            if (_verticesCreated == null)
+            {
+                return;
+            }
+
+            foreach (var vertex in _verticesCreated)
+            {
+                builder.VertexCreated(vertex.Id, vertex.Label);
+            }
+        }
+
         internal override void ReleaseAfterCompletion()
         {
             // Drop the input definitions (and the property dictionaries they carry) as soon as the

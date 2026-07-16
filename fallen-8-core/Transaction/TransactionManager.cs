@@ -62,6 +62,11 @@ namespace NoSQL.GraphDB.Core.Transaction
             public readonly TransactionInformation Info;
             public bool BufferedDurable;
 
+            /// <summary>The committed transaction's change descriptor (feature change-feed), captured
+            /// at execute time (before the input payload is released) and published by the group
+            /// flush after the fsync. Null when the feed is off or the transaction changed nothing.</summary>
+            public ChangeFeed.ChangeDescriptor Changes;
+
             public WorkItem(ATransaction tx, TaskCompletionSource completion, TransactionInformation info)
             {
                 Tx = tx;
@@ -236,6 +241,35 @@ namespace NoSQL.GraphDB.Core.Transaction
                 groupDurable = false;
             }
 
+            // Publish the group's change descriptors (feature change-feed) strictly AFTER the group
+            // fsync - the durable-before-ack boundary - and BEFORE the completions fire, in commit
+            // order. Publish is a non-blocking channel TryWrite (a full inbox becomes a resync for
+            // everyone), contained like every other writer-side step. Note the feed mirrors
+            // COMMITTED state, not durability: a degraded flush (Durable=false) still publishes,
+            // because readers see the commit either way.
+            var feed = _f8.ChangeFeed;
+            if (feed != null)
+            {
+                foreach (var item in group)
+                {
+                    if (item.Changes != null)
+                    {
+                        try
+                        {
+                            feed.Publish(item.Changes);
+                        }
+                        catch (Exception publishEx)
+                        {
+                            // Publish never throws by contract; defensive containment regardless -
+                            // the feed must never fault the writer.
+                            _logger.LogError(publishEx, "Publishing a change descriptor to the change feed failed; the event is lost for subscribers.");
+                        }
+
+                        item.Changes = null;
+                    }
+                }
+            }
+
             foreach (var item in group)
             {
                 if (item.Info.TransactionState == TransactionState.Finished && !(item.BufferedDurable && groupDurable))
@@ -334,6 +368,11 @@ namespace NoSQL.GraphDB.Core.Transaction
                 // result is ANDed with this to set Durable. A no-op when the WAL is disabled.
                 item.BufferedDurable = BufferCommittedTransactionSafely(tx, transactionType);
 
+                // Capture the committed transaction's change descriptor (feature change-feed) while
+                // the transaction still holds its state - BEFORE ReleaseAfterCompletion drops the
+                // input payload. A null check when the feed is off; primitives only when it is on.
+                item.Changes = CaptureChangesSafely(tx, transactionType);
+
                 // Drop the heavy input payload now that the transaction is committed (M3). The captured
                 // created-models are intentionally kept for a waited-on caller to read.
                 ReleaseInputsSafely(tx, transactionType);
@@ -376,6 +415,33 @@ namespace NoSQL.GraphDB.Core.Transaction
                 _logger.LogError(logEx, "Buffering transaction {TransactionId} ({TransactionType}) into the write-ahead log failed; the transaction stays committed but is not durable in the log.",
                     tx.TransactionId, transactionType);
                 return false;
+            }
+        }
+
+        /// <summary>
+        ///   Captures a committed transaction's change descriptor for the feed (feature
+        ///   change-feed). A null check when the feed is off; primitives-only capture when on.
+        ///   Never faults the worker: a throwing DescribeChanges loses that transaction's events
+        ///   (logged), never the commit.
+        /// </summary>
+        private ChangeFeed.ChangeDescriptor CaptureChangesSafely(ATransaction tx, String transactionType)
+        {
+            if (_f8.ChangeFeed == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var builder = new ChangeFeed.ChangeDescriptor.Builder();
+                tx.DescribeChanges(_f8, builder);
+                return builder.BuildOrNull();
+            }
+            catch (Exception captureEx)
+            {
+                _logger.LogError(captureEx, "Capturing change-feed descriptors for transaction {TransactionId} ({TransactionType}) failed; its events are lost for subscribers.",
+                    tx.TransactionId, transactionType);
+                return null;
             }
         }
 

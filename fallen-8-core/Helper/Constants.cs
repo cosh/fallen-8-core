@@ -76,6 +76,12 @@ namespace NoSQL.GraphDB.Core.Helper
         public const string SubGraphManifestString = "_subgraphs";
 
         /// <summary>
+        ///   Suffix of the stored-query manifest sidecar written next to a save point
+        ///   (feature stored-query-library).
+        /// </summary>
+        public const string StoredQueryManifestString = "_storedqueries";
+
+        /// <summary>
         /// Suffix appended to a checkpoint file while it is being written to a temporary name, before
         /// it is fsync'd and atomically renamed into place (finding C2). A crash mid-write leaves only
         /// these throwaway files, never a half-written file under its final name.
