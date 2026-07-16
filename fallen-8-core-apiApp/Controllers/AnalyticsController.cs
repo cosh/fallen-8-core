@@ -544,19 +544,11 @@ namespace NoSQL.GraphDB.App.Controllers
                     "Analytics write-back for {Algorithm} under '{PropertyKey}' failed after {Chunks} applied chunks ({Written} vertices) - earlier chunks stay applied; re-run to complete (idempotent overwrite).",
                     algorithmName, propertyKey, chunks, verticesWritten);
 
-                var problem = new ProblemDetails
-                {
-                    Status = StatusCodes.Status500InternalServerError,
-                    Title = "Analytics write-back failed mid-way",
-                    Detail = String.Format(
+                return ProblemResults.Create(StatusCodes.Status500InternalServerError,
+                    "Analytics write-back failed mid-way",
+                    String.Format(
                         "A write-back chunk was rolled back after {0} chunks ({1} vertices) were applied. Earlier chunks stay applied (chunk-atomic, not run-atomic); re-running the write-back overwrites idempotently.",
-                        chunks, verticesWritten)
-                };
-                return new ObjectResult(problem)
-                {
-                    StatusCode = problem.Status,
-                    ContentTypes = { "application/problem+json" }
-                };
+                        chunks, verticesWritten));
             }
 
             writeBack = new WriteBackResultREST
@@ -572,36 +564,20 @@ namespace NoSQL.GraphDB.App.Controllers
 
         #region problem responses
 
-        private IActionResult Problem408()
+        private static IActionResult Problem408()
         {
-            var problem = new ProblemDetails
-            {
-                Status = StatusCodes.Status408RequestTimeout,
-                Title = "Analytics budget exhausted",
-                Detail = "The wall-clock budget (or cancellation) stopped the run before any usable result. Re-run with a larger timeBudgetSeconds, a narrower scope, or against a quieter graph."
-            };
-            return new ObjectResult(problem)
-            {
-                StatusCode = problem.Status,
-                ContentTypes = { "application/problem+json" }
-            };
+            return ProblemResults.Create(StatusCodes.Status408RequestTimeout,
+                "Analytics budget exhausted",
+                "The wall-clock budget (or cancellation) stopped the run before any usable result. Re-run with a larger timeBudgetSeconds, a narrower scope, or against a quieter graph.");
         }
 
         private IActionResult Problem429()
         {
-            var problem = new ProblemDetails
-            {
-                Status = StatusCodes.Status429TooManyRequests,
-                Title = "Analytics run slots exhausted",
-                Detail = String.Format(
+            return ProblemResults.Create(StatusCodes.Status429TooManyRequests,
+                "Analytics run slots exhausted",
+                String.Format(
                     "All {0} concurrent analytics run slot(s) are taken; retry when the running computation finishes (Fallen8:Analytics:MaxConcurrentRuns).",
-                    _options.MaxConcurrentRuns)
-            };
-            return new ObjectResult(problem)
-            {
-                StatusCode = problem.Status,
-                ContentTypes = { "application/problem+json" }
-            };
+                    _options.MaxConcurrentRuns));
         }
 
         #endregion

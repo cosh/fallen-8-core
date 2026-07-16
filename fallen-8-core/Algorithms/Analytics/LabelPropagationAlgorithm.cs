@@ -90,14 +90,15 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
 
                     counts.Clear();
                     var vertex = workspace.Vertices[i];
+                    var tally = new TallyVisitor { PreviousLabels = previous, Counts = counts };
 
                     if (direction != Direction.IncomingEdge)
                     {
-                        TallyNeighborLabels(vertex.GetRawOutEdges(), edgePropertyId, scope, previous, counts, neighborIsTarget: true);
+                        AnalyticsAdjacency.Visit(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope, ref tally);
                     }
                     if (direction != Direction.OutgoingEdge)
                     {
-                        TallyNeighborLabels(vertex.GetRawInEdges(), edgePropertyId, scope, previous, counts, neighborIsTarget: false);
+                        AnalyticsAdjacency.Visit(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope, ref tally);
                     }
 
                     if (counts.Count == 0)
@@ -162,40 +163,16 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             return true;
         }
 
-        private static void TallyNeighborLabels(EdgeAdjacency adjacency, String edgePropertyId,
-            Dictionary<Int32, Int32> scope, Int32[] previousLabels, Dictionary<Int32, Int32> counts,
-            Boolean neighborIsTarget)
+        /// <summary>Tallies each in-scope neighbour's previous-round label, via the shared walk.</summary>
+        private struct TallyVisitor : IInScopeNeighborVisitor
         {
-            if (adjacency == null)
+            public Int32[] PreviousLabels;
+            public Dictionary<Int32, Int32> Counts;
+
+            public void OnNeighbor(Int32 denseIndex)
             {
-                return;
-            }
-
-            foreach (var group in adjacency)
-            {
-                if (edgePropertyId != null && !String.Equals(group.Key, edgePropertyId, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                var segment = group.Value;
-                for (var e = 0; e < segment.Count; e++)
-                {
-                    var edge = segment.Array[segment.Offset + e];
-                    if (edge == null || edge._removed)
-                    {
-                        continue;
-                    }
-
-                    var neighbor = neighborIsTarget ? edge.TargetVertex : edge.SourceVertex;
-                    if (neighbor == null || !scope.TryGetValue(neighbor.Id, out var j))
-                    {
-                        continue;
-                    }
-
-                    var label = previousLabels[j];
-                    counts[label] = counts.TryGetValue(label, out var current) ? current + 1 : 1;
-                }
+                var label = PreviousLabels[denseIndex];
+                Counts[label] = Counts.TryGetValue(label, out var current) ? current + 1 : 1;
             }
         }
     }

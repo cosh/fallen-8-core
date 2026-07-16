@@ -73,12 +73,12 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
 
                 if (direction != Direction.IncomingEdge)
                 {
-                    degree += CountInScope(vertex.GetRawOutEdges(), edgePropertyId, scope, neighborIsTarget: true);
+                    degree += AnalyticsAdjacency.CountInScope(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope);
                 }
 
                 if (direction != Direction.OutgoingEdge)
                 {
-                    degree += CountInScope(vertex.GetRawInEdges(), edgePropertyId, scope, neighborIsTarget: false);
+                    degree += AnalyticsAdjacency.CountInScope(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope);
                 }
 
                 var score = (Double)degree;
@@ -106,43 +106,5 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             return true;
         }
 
-        /// <summary>Counts the adjacency's edges whose group passes the edge-property-id filter
-        /// and whose OTHER endpoint is in scope (induced-subgraph semantics; tombstoned edges
-        /// skipped).</summary>
-        private static Int64 CountInScope(EdgeAdjacency adjacency, String edgePropertyId,
-            Dictionary<Int32, Int32> scope, Boolean neighborIsTarget)
-        {
-            if (adjacency == null)
-            {
-                return 0;
-            }
-
-            var count = 0L;
-            foreach (var group in adjacency)
-            {
-                if (edgePropertyId != null && !String.Equals(group.Key, edgePropertyId, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                var segment = group.Value;
-                for (var e = 0; e < segment.Count; e++)
-                {
-                    var edge = segment.Array[segment.Offset + e];
-                    if (edge == null || edge._removed)
-                    {
-                        continue;
-                    }
-
-                    var neighbor = neighborIsTarget ? edge.TargetVertex : edge.SourceVertex;
-                    if (neighbor != null && scope.ContainsKey(neighbor.Id))
-                    {
-                        count++;
-                    }
-                }
-            }
-
-            return count;
-        }
     }
 }

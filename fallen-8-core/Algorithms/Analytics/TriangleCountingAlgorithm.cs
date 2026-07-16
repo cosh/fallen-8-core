@@ -69,8 +69,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
 
                 neighborSet.Clear();
                 var vertex = workspace.Vertices[i];
-                CollectNeighbors(vertex.GetRawOutEdges(), edgePropertyId, scope, i, neighborSet, neighborIsTarget: true);
-                CollectNeighbors(vertex.GetRawInEdges(), edgePropertyId, scope, i, neighborSet, neighborIsTarget: false);
+                var collector = new CollectVisitor { Self = i, NeighborSet = neighborSet };
+                AnalyticsAdjacency.Visit(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope, ref collector);
+                AnalyticsAdjacency.Visit(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope, ref collector);
 
                 var list = new Int32[neighborSet.Count];
                 neighborSet.CopyTo(list);
@@ -150,37 +151,18 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             return true;
         }
 
-        private static void CollectNeighbors(EdgeAdjacency adjacency, String edgePropertyId,
-            Dictionary<Int32, Int32> scope, Int32 self, HashSet<Int32> neighborSet, Boolean neighborIsTarget)
+        /// <summary>Collects distinct in-scope neighbours (the simple-graph reduction:
+        /// parallel edges deduplicate via the set, self-loops are dropped), via the shared walk.</summary>
+        private struct CollectVisitor : IInScopeNeighborVisitor
         {
-            if (adjacency == null)
+            public Int32 Self;
+            public HashSet<Int32> NeighborSet;
+
+            public void OnNeighbor(Int32 denseIndex)
             {
-                return;
-            }
-
-            foreach (var group in adjacency)
-            {
-                if (edgePropertyId != null && !String.Equals(group.Key, edgePropertyId, StringComparison.Ordinal))
+                if (denseIndex != Self)
                 {
-                    continue;
-                }
-
-                var segment = group.Value;
-                for (var e = 0; e < segment.Count; e++)
-                {
-                    var edge = segment.Array[segment.Offset + e];
-                    if (edge == null || edge._removed)
-                    {
-                        continue;
-                    }
-
-                    var neighbor = neighborIsTarget ? edge.TargetVertex : edge.SourceVertex;
-                    if (neighbor == null || !scope.TryGetValue(neighbor.Id, out var j) || j == self)
-                    {
-                        continue;
-                    }
-
-                    neighborSet.Add(j);
+                    NeighborSet.Add(denseIndex);
                 }
             }
         }

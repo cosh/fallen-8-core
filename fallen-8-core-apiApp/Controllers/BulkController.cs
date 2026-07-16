@@ -221,23 +221,18 @@ namespace NoSQL.GraphDB.App.Controllers
             return null;
         }
 
-        private IActionResult UnprocessableProperty(Int32 elementId, String propertyKey)
+        private static IActionResult UnprocessableProperty(Int32 elementId, String propertyKey)
         {
-            var problem = new ProblemDetails
-            {
-                Status = StatusCodes.Status422UnprocessableEntity,
-                Title = "Graph not exportable",
-                Detail = String.Format(
+            return ProblemResults.Create(StatusCodes.Status422UnprocessableEntity,
+                "Graph not exportable",
+                String.Format(
                     "Element {0} carries property '{1}' whose value is null or of a type outside the exportable allow-list; nothing was streamed.",
-                    elementId, propertyKey)
-            };
-            problem.Extensions["elementId"] = elementId;
-            problem.Extensions["propertyKey"] = propertyKey;
-            return new ObjectResult(problem)
-            {
-                StatusCode = problem.Status,
-                ContentTypes = { "application/problem+json" }
-            };
+                    elementId, propertyKey),
+                problem =>
+                {
+                    problem.Extensions["elementId"] = elementId;
+                    problem.Extensions["propertyKey"] = propertyKey;
+                });
         }
 
         #endregion
@@ -299,15 +294,11 @@ namespace NoSQL.GraphDB.App.Controllers
             // accepted for v1 (an import is an operator activity on a quiet instance).
             if (_fallen8.VertexCount != 0 || _fallen8.EdgeCount != 0)
             {
-                var problem = new ProblemDetails
-                {
-                    Status = StatusCodes.Status409Conflict,
-                    Title = "Import requires an empty graph",
-                    Detail = String.Format(
+                return ProblemResults.Create(StatusCodes.Status409Conflict,
+                    "Import requires an empty graph",
+                    String.Format(
                         "The graph holds {0} vertices and {1} edges. Run /tabularasa first or import into a fresh instance.",
-                        _fallen8.VertexCount, _fallen8.EdgeCount)
-                };
-                return new ObjectResult(problem) { StatusCode = problem.Status, ContentTypes = { "application/problem+json" } };
+                        _fallen8.VertexCount, _fallen8.EdgeCount));
             }
 
             var session = new ImportSession(_fallen8, _options);
@@ -326,16 +317,15 @@ namespace NoSQL.GraphDB.App.Controllers
                     bytesConsumed + buffer.Length > _options.MaxImportRequestBytes.Value)
                 {
                     reader.AdvanceTo(buffer.Start, buffer.End);
-                    var problem = new ProblemDetails
-                    {
-                        Status = StatusCodes.Status413PayloadTooLarge,
-                        Title = "Import body too large",
-                        Detail = String.Format("The request body exceeds the configured Fallen8:BulkIO:MaxImportRequestBytes ({0}).",
-                            _options.MaxImportRequestBytes.Value)
-                    };
-                    problem.Extensions["verticesCommitted"] = session.VerticesCreated;
-                    problem.Extensions["edgesCommitted"] = session.EdgesCreated;
-                    return new ObjectResult(problem) { StatusCode = problem.Status, ContentTypes = { "application/problem+json" } };
+                    return ProblemResults.Create(StatusCodes.Status413PayloadTooLarge,
+                        "Import body too large",
+                        String.Format("The request body exceeds the configured Fallen8:BulkIO:MaxImportRequestBytes ({0}).",
+                            _options.MaxImportRequestBytes.Value),
+                        problem =>
+                        {
+                            problem.Extensions["verticesCommitted"] = session.VerticesCreated;
+                            problem.Extensions["edgesCommitted"] = session.EdgesCreated;
+                        });
                 }
 
                 while (TryReadLine(ref buffer, out var line, out var lineBytesConsumed))
@@ -422,20 +412,15 @@ namespace NoSQL.GraphDB.App.Controllers
 
         private IActionResult ImportProblem(ImportError error, ImportSession session)
         {
-            var problem = new ProblemDetails
+            return ProblemResults.Create(error.Status, error.Title, error.Detail, problem =>
             {
-                Status = error.Status,
-                Title = error.Title,
-                Detail = error.Detail
-            };
-            if (error.LineNumber > 0)
-            {
-                problem.Extensions["lineNumber"] = error.LineNumber;
-            }
-            problem.Extensions["verticesCommitted"] = session.VerticesCreated;
-            problem.Extensions["edgesCommitted"] = session.EdgesCreated;
-
-            return new ObjectResult(problem) { StatusCode = problem.Status, ContentTypes = { "application/problem+json" } };
+                if (error.LineNumber > 0)
+                {
+                    problem.Extensions["lineNumber"] = error.LineNumber;
+                }
+                problem.Extensions["verticesCommitted"] = session.VerticesCreated;
+                problem.Extensions["edgesCommitted"] = session.EdgesCreated;
+            });
         }
 
         #endregion

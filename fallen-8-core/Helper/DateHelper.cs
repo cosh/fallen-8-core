@@ -45,12 +45,30 @@ namespace NoSQL.GraphDB.Core.Helper
         }
 
         /// <summary>
+        ///   Returns the CURRENT time as a creation-date stamp, on the same (deliberately
+        ///   local, see <see cref="GetModificationDate"/>) clock every other stamp in this
+        ///   helper uses. Callers needing "now" as a stamp go through here, so the clock
+        ///   convention lives in exactly one place (feature code-quality).
+        /// </summary>
+        public static UInt32 GetNowStamp()
+        {
+            return ConvertDateTime(DateTime.Now);
+        }
+
+        /// <summary>
         ///   Returns the modification date as a delta from the creation date representation
         /// </summary>
         /// <param name="creationDate"> The creation date representation </param>
         /// <returns> The modification date delta </returns>
         public static UInt32 GetModificationDate(UInt32 creationDate)
         {
+            // DELIBERATELY DateTime.Now (feature code-quality, allowlisted): timestamps here
+            // are seconds since a Kind-naive 1970 epoch, produced and consumed with the same
+            // local clock. Switching to UtcNow would shift the interpretation of every
+            // already-persisted date and can make (now - creation) NEGATIVE for freshly
+            // created elements in UTC+ timezones - a Convert.ToUInt32 overflow. Fixing the
+            // clock semantics is its own feature (revisit trigger: cross-timezone deployments
+            // of one savegame), not a mechanical cleanup.
             return ConvertDateTime(DateTime.Now) - creationDate;
         }
 

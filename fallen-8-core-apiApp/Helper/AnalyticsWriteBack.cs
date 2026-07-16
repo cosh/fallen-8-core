@@ -36,11 +36,11 @@ namespace NoSQL.GraphDB.App.Helper
     ///   nothing else - chunked <see cref="DelegateTransaction"/> bodies calling
     ///   <c>IFallen8WriterContext.SetProperty</c> on the single writer thread.
     ///
-    ///   <para>Each chunk (50 000 vertices) is atomic (the undo journal covers SetProperty); the
-    ///   whole write-back is NOT atomic across chunks - a mid-way failure leaves earlier chunks
-    ///   applied, remedied by re-running (idempotent overwrite). Chunking is the deliberate
-    ///   trade against a single multi-second delegate body stalling every other write.
-    ///   Durability is mode (a): snapshot-durable, not WAL-logged.</para>
+    ///   <para>Each chunk (50 000 vertices) is atomic; the whole write-back is NOT atomic
+    ///   across chunks - a mid-way failure leaves earlier chunks applied, remedied by
+    ///   re-running (idempotent overwrite). Atomicity and durability semantics (mode a:
+    ///   snapshot-durable, not WAL-logged) are <see cref="DelegateTransaction"/>'s contract -
+    ///   documented there, once.</para>
     /// </summary>
     internal static class AnalyticsWriteBack
     {

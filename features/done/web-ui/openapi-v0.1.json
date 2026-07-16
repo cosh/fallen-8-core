@@ -5087,7 +5087,7 @@
           },
           "writeBack": {
             "type": "boolean",
-            "description": "Opt-in: write each in-scope vertex's value as a property through the\r\n    sanctioned plugin write path (chunked DelegateTransactions). Durability is\r\n    snapshot-only (mode a): a WAL-only replay with no intervening save loses the\r\n    written properties - re-run to restore (idempotent overwrite).",
+            "description": "Opt-in: write each in-scope vertex's value as a property through chunked\r\n    plugin write transactions. Snapshot-durable only (a WAL-only replay loses the\r\n    properties; re-run to restore) - the mode-(a) contract of DelegateTransaction.",
             "example": false
           },
           "writeBackPropertyKey": {

@@ -858,12 +858,17 @@ namespace NoSQL.GraphDB.Core
             return newVertices;
         }
 
-        public override bool TryGetGraphElement(out AGraphElementModel result, int id)
+        /// <summary>
+        ///   THE live-element resolve (feature code-quality: one implementation instead of one
+        ///   per element type). Captures the published snapshot once (volatile acquire) so the
+        ///   bound check and the indexer operate on the same holder - a concurrent single-writer
+        ///   append or Trim can never make this read observe a Count that disagrees with the
+        ///   segments it indexes (no out-of-range, no torn/null slot within [0, Count)). The
+        ///   <c>as</c> cast makes a type mismatch (asking for a vertex at an edge id) a clean
+        ///   false, like a missing or tombstoned element.
+        /// </summary>
+        private bool TryGetLiveElement<T>(out T result, int id) where T : AGraphElementModel
         {
-            // Capture the published snapshot once (volatile acquire). The bound check and the
-            // indexer then operate on the same holder, so a concurrent single-writer append or
-            // Trim can never make this read observe a Count that disagrees with the segments it
-            // indexes (no out-of-range, no torn/null slot within [0, Count)).
             var snap = _snapshot;
 
             if (id < 0 || id >= snap.Count)
@@ -872,36 +877,23 @@ namespace NoSQL.GraphDB.Core
                 return false;
             }
 
-            result = snap.Segments[id >> SegmentShift][id & SegmentMask];
+            result = snap.Segments[id >> SegmentShift][id & SegmentMask] as T;
             return result != null && !result._removed;
+        }
+
+        public override bool TryGetGraphElement(out AGraphElementModel result, int id)
+        {
+            return TryGetLiveElement(out result, id);
         }
 
         public override bool TryGetEdge(out EdgeModel result, int id)
         {
-            var snap = _snapshot;
-
-            if (id < 0 || id >= snap.Count)
-            {
-                result = null;
-                return false;
-            }
-
-            result = snap.Segments[id >> SegmentShift][id & SegmentMask] as EdgeModel;
-            return result != null && !result._removed;
+            return TryGetLiveElement(out result, id);
         }
 
         public override bool TryGetVertex(out VertexModel result, int id)
         {
-            var snap = _snapshot;
-
-            if (id < 0 || id >= snap.Count)
-            {
-                result = null;
-                return false;
-            }
-
-            result = snap.Segments[id >> SegmentShift][id & SegmentMask] as VertexModel;
-            return result != null && !result._removed;
+            return TryGetLiveElement(out result, id);
         }
 
 
@@ -1228,23 +1220,8 @@ namespace NoSQL.GraphDB.Core
                 throw new ArgumentNullException(nameof(definition));
             }
 
-            IShortestPathAlgorithm algo = null;
-
-            Object cachedAlgo;
-            if (!_pluginCache.ShortestPath.TryGetValue(plugin, out cachedAlgo))
-            {
-                //Shortest path plugin was not cached
-                if (PluginFactory.TryFindPlugin(out algo, plugin))
-                {
-                    algo.Initialize(this, null);
-                    _pluginCache.AddShortestPath(algo);
-                }
-            }
-            else
-            {
-                algo = (IShortestPathAlgorithm)cachedAlgo;
-            }
-
+            var algo = ResolveCachedPlugin<IShortestPathAlgorithm>(
+                _pluginCache.ShortestPath, plugin, _pluginCache.AddShortestPath);
             if (algo != null)
             {
                 return algo.TryCalculateShortestPath(out result, definition);
@@ -1252,6 +1229,31 @@ namespace NoSQL.GraphDB.Core
 
             result = new List<Path>();
             return false;
+        }
+
+        /// <summary>
+        ///   THE resolve-initialize-cache flow for string-named algorithm plugins (feature
+        ///   code-quality: one implementation instead of one copy per plugin family). Cache
+        ///   hit returns the cached instance; otherwise the plugin is discovered via
+        ///   <see cref="PluginFactory"/>, initialized with this engine, registered, and
+        ///   returned. Null when no plugin carries the name.
+        /// </summary>
+        private T ResolveCachedPlugin<T>(Microsoft.Extensions.Caching.Memory.IMemoryCache cache,
+            string pluginName, Action<T> register) where T : class, Plugin.IPlugin
+        {
+            if (cache.TryGetValue(pluginName, out Object cached))
+            {
+                return (T)cached;
+            }
+
+            if (PluginFactory.TryFindPlugin<T>(out var plugin, pluginName))
+            {
+                plugin.Initialize(this, null);
+                register(plugin);
+                return plugin;
+            }
+
+            return null;
         }
 
         public override bool TryCalculateShortestPath<T>(
@@ -1302,23 +1304,8 @@ namespace NoSQL.GraphDB.Core
                 throw new ArgumentNullException(nameof(definition));
             }
 
-            Algorithms.Analytics.IGraphAnalyticsAlgorithm algo = null;
-
-            // The resolve-initialize-cache-invoke flow of TryCalculateShortestPath, on the
-            // third plugin family (feature graph-analytics).
-            if (!_pluginCache.Analytics.TryGetValue(algorithmName, out Object cachedAlgo))
-            {
-                if (PluginFactory.TryFindPlugin(out algo, algorithmName))
-                {
-                    algo.Initialize(this, null);
-                    _pluginCache.AddAnalytics(algo);
-                }
-            }
-            else
-            {
-                algo = (Algorithms.Analytics.IGraphAnalyticsAlgorithm)cachedAlgo;
-            }
-
+            var algo = ResolveCachedPlugin<Algorithms.Analytics.IGraphAnalyticsAlgorithm>(
+                _pluginCache.Analytics, algorithmName, _pluginCache.AddAnalytics);
             if (algo != null)
             {
                 return algo.TryRunAnalytics(out result, definition);

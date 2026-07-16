@@ -47,15 +47,28 @@ dotnet run --project fallen-8-core-apiApp
   `Delegates.*` types in `fallen-8-core/Algorithms/Delegates.cs`, then cached in
   `GeneratedCodeCache`. When adding a new dynamic-filter endpoint, follow this pattern.
 - **Stored queries are the pre-compiled alternative.** `POST /storedquery` registers a named,
-  compile-validated path filter/cost set or subgraph template
-  (`fallen-8-core/StoredQueries/`, pinned artifacts, persisted by manifest + WAL); the path
-  and subgraph endpoints then accept `"storedQuery": "<name>"` instead of inline fragments.
-  Registration requires `EnableDynamicCodeExecution`; invocation by name does not (the gate
-  on those endpoints is request-shape-aware). Design docs are in
-  [features/done/stored-query-library/](features/done/stored-query-library/).
+  compile-validated path filter/cost set or subgraph template; the path and subgraph
+  endpoints then accept `"storedQuery": "<name>"` instead of inline fragments. Registration
+  requires `EnableDynamicCodeExecution`; invocation by name does not — the full gating story
+  lives in [features/done/stored-query-library/](features/done/stored-query-library/).
 - **Subgraph feature** lives in `fallen-8-core/Algorithms/SubGraph` (algorithm + pattern
   model) and `fallen-8-core/SubGraph/SubGraphFactory.cs` (registration, recalculation).
   Design docs are in [features/done/subgraph/](features/done/subgraph/).
+
+## Quality gates (enforced, feature code-quality)
+
+- **Warnings are errors** (`Directory.Build.props`): fix the warning or `NoWarn` it with a
+  comment — never disable the gate. NuGet audit advisories (NU1901–NU1904) stay warnings.
+- **Convention tests** (`fallen-8-unittest/CodeQualityTest.cs`) fail the suite on: a missing
+  MIT header, `Console.Write*` in product code, `DateTime.Now` outside the documented
+  `DateHelper` allowlist, or a non-exact package version.
+- **OpenAPI snapshot**: regenerate with `pwsh scripts/update-openapi-snapshot.ps1` whenever
+  a controller's routes or XML docs change; the diff must stay additive.
+- **One home per explanation**: a concept is explained once — usually on the type that owns
+  the contract or in the feature README — and every other site is a one-line pointer. Do not
+  re-narrate a feature's story across call-site comments, controller remarks, the root
+  README and the feature README; the feature README is the LIVING doc (specs/plans are
+  historical records and are not rewritten).
 
 ## Conventions
 

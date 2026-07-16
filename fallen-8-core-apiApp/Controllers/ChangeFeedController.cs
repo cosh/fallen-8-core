@@ -44,13 +44,9 @@ namespace NoSQL.GraphDB.App.Controllers
 {
     /// <summary>
     ///   Streams committed graph mutations as Server-Sent Events (feature change-feed).
+    ///   The delivery contract is documented once, on the streaming action below (it feeds
+    ///   the OpenAPI operation); usage lives in features/done/change-feed/README.md.
     /// </summary>
-    /// <remarks>
-    ///   The delivery contract: in-order (commit order, ascending seq), at-most-once per
-    ///   connection, with an explicit <c>resync</c> event whenever continuity was lost - the
-    ///   client recipe is always "fetch what you care about, then stream; on resync, re-fetch".
-    ///   Event payloads carry ids, labels and property KEYS only, never property values.
-    /// </remarks>
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]
     [ApiVersion("0.1")]

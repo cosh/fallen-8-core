@@ -119,10 +119,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        /// <summary>Opt-in: write each in-scope vertex's value as a property through the
-        /// sanctioned plugin write path (chunked DelegateTransactions). Durability is
-        /// snapshot-only (mode a): a WAL-only replay with no intervening save loses the
-        /// written properties - re-run to restore (idempotent overwrite).</summary>
+        /// <summary>Opt-in: write each in-scope vertex's value as a property through chunked
+        /// plugin write transactions. Snapshot-durable only (a WAL-only replay loses the
+        /// properties; re-run to restore) - the mode-(a) contract of DelegateTransaction.</summary>
         /// <example>false</example>
         [JsonPropertyName("writeBack")]
         public Boolean WriteBack
