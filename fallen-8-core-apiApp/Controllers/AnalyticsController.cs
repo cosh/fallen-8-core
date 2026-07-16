@@ -79,7 +79,9 @@ namespace NoSQL.GraphDB.App.Controllers
             _logger = logger;
             _fallen8 = fallen8;
             _options = options?.Value ?? new Fallen8AnalyticsOptions();
-            _gate = gate ?? new AnalyticsRunGate(Options.Create(_options));
+            // The gate is STATEFUL (the 429 concurrency cap lives in its semaphore) - a
+            // per-request fallback instance would silently disable the cap, so fail fast.
+            _gate = gate ?? throw new ArgumentNullException(nameof(gate));
         }
 
         /// <summary>
@@ -203,8 +205,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// to page; the page ceiling is 10000 rows.
         /// </remarks>
         /// <response code="200">The membership page</response>
-        /// <response code="400">Invalid specification, a negative offset, or a score algorithm</response>
-        /// <response code="404">Unknown algorithm or a partition id the run did not produce</response>
+        /// <response code="400">Invalid specification, a negative offset, writeBack (not supported here), or a score algorithm</response>
+        /// <response code="404">Unknown algorithm or a partition id the run did not produce (including an empty scope)</response>
         /// <response code="408">The wall-clock budget exhausted with no usable result</response>
         /// <response code="429">All concurrent-run slots are taken</response>
         [HttpPost("/analytics/{algorithmName}/partition/{partitionId}")]
@@ -230,6 +232,13 @@ namespace NoSQL.GraphDB.App.Controllers
                 return BadRequest("offset must be non-negative.");
             }
 
+            if (definition.WriteBack)
+            {
+                // Silently ignoring the flag would let a client believe properties were
+                // written; write-back belongs to the run endpoint.
+                return BadRequest("writeBack is not supported on the partition-membership endpoint; run POST /analytics/{algorithmName} with writeBack instead.");
+            }
+
             if (!AlgorithmExists(algorithmName))
             {
                 return NotFound(String.Format("No analytics algorithm named '{0}'.", algorithmName));
@@ -249,9 +258,16 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (result.VertexPartitions.Count == 0)
                 {
-                    return BadRequest(String.Format(
-                        "'{0}' is not a partition algorithm (or the run produced no partitions); membership paging applies to WCC/LABELPROPAGATION.",
-                        algorithmName));
+                    if (result.VertexScores.Count > 0)
+                    {
+                        return BadRequest(String.Format(
+                            "'{0}' is not a partition algorithm; membership paging applies to WCC/LABELPROPAGATION.",
+                            algorithmName));
+                    }
+
+                    // A partition algorithm over an empty scope produced no partitions at all -
+                    // the requested partition does not exist, which is the documented 404.
+                    return NotFound(String.Format("The run produced no partition {0}.", partitionId));
                 }
 
                 var members = new List<Int32>();
@@ -336,7 +352,10 @@ namespace NoSQL.GraphDB.App.Controllers
                         definition.Direction));
             }
 
-            var timeBudgetSeconds = definition.TimeBudgetSeconds ?? _options.DefaultTimeBudgetSeconds;
+            // The configured default is clamped to the configured ceiling so a request that
+            // names NO budget can never fail the ceiling check for a value it never sent.
+            var timeBudgetSeconds = definition.TimeBudgetSeconds ??
+                Math.Min(_options.DefaultTimeBudgetSeconds, _options.MaxTimeBudgetSeconds);
             if (timeBudgetSeconds < 1 || timeBudgetSeconds > _options.MaxTimeBudgetSeconds)
             {
                 return BadRequest(String.Format("timeBudgetSeconds must be within [1, {0}].",
@@ -400,8 +419,18 @@ namespace NoSQL.GraphDB.App.Controllers
 
             foreach (var pair in result.Statistics)
             {
-                response.Statistics[pair.Key] = Convert.ToDouble(pair.Value,
-                    System.Globalization.CultureInfo.InvariantCulture);
+                // The plugin contract types statistics as Object; the built-ins are all numeric,
+                // but a third-party plugin's non-numeric statistic must not 500 the request -
+                // it is skipped (the REST projection is numeric by design).
+                try
+                {
+                    response.Statistics[pair.Key] = Convert.ToDouble(pair.Value,
+                        System.Globalization.CultureInfo.InvariantCulture);
+                }
+                catch (Exception ex) when (ex is FormatException || ex is InvalidCastException || ex is OverflowException)
+                {
+                    // skipped
+                }
             }
 
             if (result.VertexPartitions.Count > 0)

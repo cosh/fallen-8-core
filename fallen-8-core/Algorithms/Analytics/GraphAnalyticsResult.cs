@@ -99,7 +99,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             get;
         }
 
-        /// <summary>Completed iterations (single-pass algorithms report 1).</summary>
+        /// <summary>Completed iterations (single-pass algorithms report 1, or 0 over an
+        /// empty scope).</summary>
         public Int32 IterationsRun
         {
             get;

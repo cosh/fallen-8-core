@@ -698,6 +698,11 @@ namespace NoSQL.GraphDB.Tests
                         }
                     }
                 }, "SaveGameRegistryDocument"),
+                (new Dictionary<string, string>
+                {
+                    { "PAGERANK", "PageRank via power iteration" },
+                    { "WCC", "Weakly connected components" }
+                }, "Dictionary<String,String> (analytics algorithms listing)"),
                 (new AnalyticsSpecification
                 {
                     VertexLabel = "person",

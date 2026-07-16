@@ -105,12 +105,13 @@ public sealed class GraphAnalyticsDefinition
     // Scoping (all optional; null => whole graph)
     public String VertexLabel { get; set; }        // only vertices with this label participate
     public String EdgePropertyId { get; set; }     // only edges in this adjacency group are traversed
-    public Direction Direction { get; set; }       // per-algorithm meaning; see §3.3
+    public Direction? Direction { get; set; }      // per-algorithm meaning; null = the algorithm's default (§3.3)
 
     // Budgets (§3.4)
-    public Int32 MaxIterations { get; set; }       // iterative algorithms; per-algorithm default
-    public Double Epsilon { get; set; }            // convergence threshold (PageRank; L1 delta)
-    public TimeSpan TimeBudget { get; set; }       // wall-clock; default from AnalyticsOptions
+    public Int32 MaxIterations { get; set; }       // iterative algorithms; 0 = per-algorithm default
+    public Double Epsilon { get; set; }            // convergence threshold (PageRank; L1 delta); 0 = default
+    public TimeSpan TimeBudget { get; set; }       // wall-clock; zero = unbounded (embedded callers) -
+                                                   // the REST layer always applies the AnalyticsOptions default
     public CancellationToken CancellationToken { get; set; }
 
     // Algorithm-specific knobs, the plugin parameter convention (e.g. "DampingFactor" -> 0.85)
@@ -267,7 +268,7 @@ New `AnalyticsController` in `fallen-8-core-apiApp`, repo conventions throughout
 |---|---|---|
 | `/analytics/algorithms` | GET | Discovered `IGraphAnalyticsAlgorithm` plugins with descriptions (`PluginFactory.TryGetAvailablePluginsWithDescriptions`) — mirrors how path plugins are enumerable. |
 | `/analytics/{algorithmName}` | POST | Body: `AnalyticsSpecification` (scoping, budgets, algorithm parameters, `writeBack` flag + key override, `maxResults`). Runs synchronously under the budget; returns `AnalyticsResultREST`. |
-| `/analytics/{algorithmName}/partition/{partitionId}` | POST | Membership page for one partition of a fresh run (same body + `offset`) — partition algorithms only. |
+| `/analytics/{algorithmName}/partition/{partitionId}` | POST | Membership page for one partition of a fresh run (same body + `offset`) — partition algorithms only. `writeBack` is refused here (400, never silently ignored); a partition the run did not produce — including a partition algorithm over an empty scope — is a 404. |
 
 Status mapping (aligned with `api-error-contract` problem+json and the
 `dynamic-code-resource-limits` precedent): **200** result (including `converged=false` /
@@ -298,7 +299,10 @@ Hand-computable fixtures, pinned expected values, arrange/act/assert,
 - **WCC:** two disjoint chains ⇒ 2 components, ids = smallest member; direction ignored;
   singleton vertex is its own component.
 - **Label propagation:** two cliques joined by one bridge edge ⇒ 2 communities under the
-  pinned tie-break; a clique converges in one round; determinism pinned by running twice.
+  pinned tie-break, with the hand-derived round count asserted (under own-id seeding a clique
+  does NOT settle in one round — the two-triangles-plus-bridge fixture takes 3 changing
+  rounds plus the no-change round); an edgeless scope converges in one round; determinism
+  pinned by running twice.
 - **Degree:** a star (hub in/out/both counts vs leaves); parallel edges counted; self-loop
   contributes to both in and out.
 - **Triangles:** K4 ⇒ 4 triangles (per-vertex 3); a 4-cycle ⇒ 0; parallel edges deduplicated
@@ -321,9 +325,10 @@ Hand-computable fixtures, pinned expected values, arrange/act/assert,
 
 - All five algorithms return pinned, hand-verified results on the fixture graphs, over the
   flattened adjacency, honouring label/edge-property scoping and skipping removed elements.
-- `PluginFactory` discovers a third-party `IGraphAnalyticsAlgorithm` from an assimilated
-  assembly with **zero** factory changes; `PluginCache.Analytics` caches instances like the
-  other two families.
+- Discovery goes through the **unchanged, generic** `PluginFactory` machinery (pinned via the
+  five built-ins — the same mechanism that discovers every `IIndex`/path/subgraph plugin, so a
+  third-party `IGraphAnalyticsAlgorithm` in an assimilated assembly rides the existing path);
+  `PluginCache.Analytics` caches instances like the other two families.
 - Budgets behave as specified: iteration cap ⇒ usable partial (`Converged=false`); wall-clock
   exhaustion ⇒ partial-with-flag or `false`/408 per §3.4; a second concurrent run ⇒ 429.
 - Write-back lands through `DelegateTransaction` only (no other mutation path), chunk-atomic,

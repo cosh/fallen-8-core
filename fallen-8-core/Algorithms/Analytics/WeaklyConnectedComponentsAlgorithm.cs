@@ -135,7 +135,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
         }
 
         /// <summary>Union by smallest vertex id: the root with the larger id is attached under
-        /// the root with the smaller id, keeping component ids deterministic.</summary>
+        /// the root with the smaller id, keeping component ids deterministic. This is arbitrary
+        /// linking (not union-by-rank), so Find is amortized O(log n) with path halving instead
+        /// of inverse-Ackermann - the deliberate trade for deterministic smallest-id roots,
+        /// bounded like everything else by the run's time budget.</summary>
         private static void Union(Int32[] parent, Workspace workspace, Int32 a, Int32 b)
         {
             var rootA = Find(parent, a);

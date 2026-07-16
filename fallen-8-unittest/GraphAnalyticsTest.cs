@@ -341,6 +341,9 @@ namespace NoSQL.GraphDB.Tests
 
             var first = Run("LABELPROPAGATION");
             Assert.AreEqual(2, (Int32)first.Statistics["CommunityCount"]);
+            Assert.IsTrue(first.Converged);
+            Assert.AreEqual(4, first.IterationsRun,
+                "hand-derived under the pinned synchronous smallest-label rules: labels settle after round 3, round 4 detects no change");
 
             var community1 = first.VertexPartitions[clique1[0]];
             Assert.AreEqual(community1, first.VertexPartitions[clique1[1]]);
@@ -500,6 +503,123 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(_fallen8.TryRunAnalytics(out _, "PAGERANK",
                 new GraphAnalyticsDefinition { TimeBudget = TimeSpan.FromTicks(1) }),
                 "iterative too: the budget died before ONE completed pass");
+        }
+
+        [TestMethod]
+        public void LabelAndEdgePropertyScoping_LabelPropagationAndTriangles()
+        {
+            // A person triangle plus a robot vertex closing further triangles - out of scope.
+            var p = new[] { Vertex("person"), Vertex("person"), Vertex("person") };
+            var robot = Vertex("robot");
+            Edge(p[0], p[1]);
+            Edge(p[1], p[2]);
+            Edge(p[2], p[0]);
+            Edge(p[0], robot);
+            Edge(p[1], robot);
+
+            var scopedTriangles = Run("TRIANGLECOUNT", new GraphAnalyticsDefinition { VertexLabel = "person" });
+            Assert.AreEqual(1L, (Int64)scopedTriangles.Statistics["TriangleCount"],
+                "the p0-p1-robot triangle is invisible under the induced person scope");
+            Assert.IsFalse(scopedTriangles.VertexScores.ContainsKey(robot));
+
+            var unscopedTriangles = Run("TRIANGLECOUNT");
+            Assert.AreEqual(2L, (Int64)unscopedTriangles.Statistics["TriangleCount"],
+                "without the scope the robot closes a second triangle");
+
+            // Label propagation under label scoping: the robot bridge is invisible, so the
+            // person triangle forms one community of the three person vertices only.
+            var scopedLp = Run("LABELPROPAGATION", new GraphAnalyticsDefinition { VertexLabel = "person" });
+            Assert.AreEqual(3, scopedLp.VertexPartitions.Count);
+            Assert.IsFalse(scopedLp.VertexPartitions.ContainsKey(robot));
+            Assert.AreEqual(1, (Int32)scopedLp.Statistics["CommunityCount"]);
+
+            // Edge-property scoping: only the "strong" group is traversed. A strong TRIANGLE
+            // (a pair would oscillate under synchronous update - the two-vertex swap) plus a
+            // weak-attached fourth vertex.
+            var s = new[] { Vertex("s"), Vertex("s"), Vertex("s"), Vertex("s") };
+            Edge(s[0], s[1], "strong");
+            Edge(s[1], s[2], "strong");
+            Edge(s[2], s[0], "strong");
+            Edge(s[0], s[3], "weak");
+            var lpByEdgeProperty = Run("LABELPROPAGATION", new GraphAnalyticsDefinition
+            {
+                VertexLabel = "s",
+                EdgePropertyId = "strong"
+            });
+            Assert.AreEqual(2, (Int32)lpByEdgeProperty.Statistics["CommunityCount"],
+                "the strong triangle forms one community; s3's weak edge is out of scope, it keeps its own label");
+            Assert.AreEqual(s[3], lpByEdgeProperty.VertexPartitions[s[3]]);
+
+            var trianglesByEdgeProperty = Run("TRIANGLECOUNT", new GraphAnalyticsDefinition
+            {
+                VertexLabel = "person",
+                EdgePropertyId = "nope"
+            });
+            Assert.AreEqual(0L, (Int64)trianglesByEdgeProperty.Statistics["TriangleCount"],
+                "no edge group named 'nope' - no triangles");
+        }
+
+        [TestMethod]
+        public void Budget_ExhaustionAfterACompletedPass_ReturnsPartialWithFlag()
+        {
+            // A 100k chain: PageRank information propagates one hop per iteration, so the
+            // L1 delta stays positive for ~100k iterations - convergence inside a 200 ms
+            // budget is impossible, while the FIRST pass (one 100k-vertex sweep) finishes
+            // orders of magnitude faster. Deterministically: >= 1 completed pass, then the
+            // budget dies -> partial values with BudgetExhausted = true.
+            const int n = 100_000;
+            var verticesTx = new CreateVerticesTransaction();
+            for (var i = 0; i < n; i++)
+            {
+                verticesTx.AddVertex(1u, "chain");
+            }
+            _fallen8.EnqueueTransaction(verticesTx).WaitUntilFinished();
+
+            var edgesTx = new CreateEdgesTransaction();
+            for (var i = 0; i < n - 1; i++)
+            {
+                edgesTx.AddEdge(i, "next", i + 1, 1u);
+            }
+            _fallen8.EnqueueTransaction(edgesTx).WaitUntilFinished();
+
+            var pageRank = Run("PAGERANK", new GraphAnalyticsDefinition
+            {
+                MaxIterations = GraphAnalyticsDefinition.MaxIterationsCeiling,
+                Epsilon = Double.Epsilon,
+                TimeBudget = TimeSpan.FromMilliseconds(200)
+            });
+            Assert.IsTrue(pageRank.BudgetExhausted, "the budget died mid-run");
+            Assert.IsFalse(pageRank.Converged);
+            Assert.IsTrue(pageRank.IterationsRun >= 1, "at least one pass completed");
+            Assert.AreEqual(n, pageRank.VertexScores.Count, "the last completed pass's values are usable");
+
+            // Label propagation on the same chain: labels move one hop per round, ~n/2
+            // rounds to converge - the 200 ms budget dies first.
+            var lp = Run("LABELPROPAGATION", new GraphAnalyticsDefinition
+            {
+                MaxIterations = GraphAnalyticsDefinition.MaxIterationsCeiling,
+                TimeBudget = TimeSpan.FromMilliseconds(200)
+            });
+            Assert.IsTrue(lp.BudgetExhausted);
+            Assert.IsFalse(lp.Converged);
+            Assert.IsTrue(lp.IterationsRun >= 1);
+            Assert.AreEqual(n, lp.VertexPartitions.Count);
+        }
+
+        [TestMethod]
+        public void Budget_NearZero_LabelPropagationAndTriangles_ReturnFalse()
+        {
+            for (var i = 0; i < 50; i++)
+            {
+                Vertex();
+            }
+
+            Assert.IsFalse(_fallen8.TryRunAnalytics(out _, "LABELPROPAGATION",
+                new GraphAnalyticsDefinition { TimeBudget = TimeSpan.FromTicks(1) }),
+                "the budget died before one completed round");
+            Assert.IsFalse(_fallen8.TryRunAnalytics(out _, "TRIANGLECOUNT",
+                new GraphAnalyticsDefinition { TimeBudget = TimeSpan.FromTicks(1) }),
+                "single-pass: a partial triangle count is meaningless");
         }
 
         [TestMethod]

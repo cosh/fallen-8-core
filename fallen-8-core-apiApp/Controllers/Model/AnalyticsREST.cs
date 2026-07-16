@@ -194,7 +194,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        /// <summary>How many vertices received the property.</summary>
+        /// <summary>How many vertex writes the committed chunks carried. A vertex removed
+        /// concurrently between the run and its chunk is a silent no-op on the writer yet
+        /// still counted - the fuzzy-consistency story applies to write-back too.</summary>
         /// <example>2500000</example>
         [JsonPropertyName("verticesWritten")]
         public Int32 VerticesWritten

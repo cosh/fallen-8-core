@@ -240,6 +240,17 @@ namespace NoSQL.GraphDB.Tests
             {
                 Assert.AreEqual(HttpStatusCode.BadRequest, r.StatusCode, "negative offset");
             }
+            using (var r = await client.PostAsync("/analytics/WCC/partition/" + a1, Json("{\"writeBack\":true}")))
+            {
+                Assert.AreEqual(HttpStatusCode.BadRequest, r.StatusCode,
+                    "writeBack is refused here, never silently ignored");
+            }
+            using (var r = await client.PostAsync("/analytics/WCC/partition/" + a1,
+                Json("{\"vertexLabel\":\"no-such-label\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.NotFound, r.StatusCode,
+                    "a partition algorithm over an EMPTY scope produced no partitions - 404, not the score-algorithm 400");
+            }
         }
 
         [TestMethod]

@@ -47,7 +47,8 @@ Response (score algorithms return top-K best-first, ascending-id tie-break):
 
 Partition algorithms return `partitions` (partition id → size, largest first) instead;
 one partition's members come from the paging endpoint, which re-runs the same specification
-(runs are one-shot, no job store — deterministic for a quiescent graph):
+(runs are one-shot, no job store — deterministic for a quiescent graph). `writeBack` is
+refused on this endpoint (400) — write back from the run endpoint instead:
 
 ```bash
 curl -sf -X POST http://localhost:5000/analytics/WCC/partition/7 \

@@ -817,7 +817,7 @@
             }
           },
           "400": {
-            "description": "Invalid specification, a negative offset, or a score algorithm",
+            "description": "Invalid specification, a negative offset, writeBack (not supported here), or a score algorithm",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -837,7 +837,7 @@
             }
           },
           "404": {
-            "description": "Unknown algorithm or a partition id the run did not produce",
+            "description": "Unknown algorithm or a partition id the run did not produce (including an empty scope)",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -7565,7 +7565,7 @@
               "integer",
               "string"
             ],
-            "description": "How many vertices received the property.",
+            "description": "How many vertex writes the committed chunks carried. A vertex removed\r\n    concurrently between the run and its chunk is a silent no-op on the writer yet\r\n    still counted - the fuzzy-consistency story applies to write-back too.",
             "format": "int32",
             "example": 2500000
           },
