@@ -109,6 +109,10 @@ Each skill body leads with *when to reach for what* (decision guidance), shows 2
 request/response examples (curl + PowerShell), and links its references. Access-path phrasing
 is REST-first in v1; the MCP-alignment pass (§3.4) adds "via MCP use tool `f8_…`" mappings.
 
+> Follow-up: the landed [vector-index](../../done/vector-index/) feature's GraphRAG recipe
+> (kNN scan → traverse from the hits) belongs in `fallen8-graph-modeling` or a sixth
+> `fallen8-graphrag` skill when this catalog is authored.
+
 ### 3.3 CI enforcement (`SkillLibraryTest`, fallen-8-unittest)
 
 1. **Frontmatter contract:** every `skills/*/SKILL.md` parses (the frontmatter is a flat

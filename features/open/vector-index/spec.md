@@ -1,8 +1,7 @@
 # Vector Index — Specification
 
-> **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
-> repository root `CLAUDE.md`. Feature branch: `feature/vector-index` (branch-only workflow —
-> no GitHub issue/PR).
+> **Status:** Implemented on branch `feature/vector-index` (branch-only workflow — no GitHub
+> issue/PR); council gate pending. See [plan.md](./plan.md) for the phase record.
 >
 > **Companion features:** [mcp-server](../mcp-server/spec.md) and
 > [skill-library](../skill-library/spec.md) give agents the tools and the know-how to use

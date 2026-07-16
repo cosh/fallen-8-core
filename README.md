@@ -11,7 +11,7 @@ This is the .NET Core version of the original [fallen-8](https://github.com/cosh
 ### Key features
 
 - **Properties** on vertices and edges
-- **Indexes** on vertices and edges (dictionary, range, fulltext, spatial R-Tree)
+- **Indexes** on vertices and edges (dictionary, range, fulltext, spatial R-Tree, vector kNN)
 - **Path finding** with runtime-compiled filter and cost functions
 - **Subgraphs** — extract a pattern-matched subset of the graph as a standalone graph, recalculate it when the source changes, and persist it (see [Subgraphs](#subgraphs))
 - **Plugins** for indexes, algorithms and services
@@ -354,6 +354,22 @@ lost (slow consumer, restart, trim/load), the stream says so in-band with a `res
 the client recipe is always "fetch, then stream; on resync, re-fetch". See
 [features/change-feed/](features/done/change-feed/) for the event schema, filter grammar,
 and measured write-throughput non-regression.
+
+## Vector search (kNN over embeddings)
+
+A `VectorIndex` gives exact k-nearest-neighbour search over `float[]` embeddings — cosine,
+dot product, or L2, SIMD brute-force, deterministic ordering. Create it through the normal
+index surface, add vectors (explicitly or from a `float[]` element property), then query:
+
+```bash
+curl -sf -X POST http://localhost:5000/scan/index/vector \
+     -H "Content-Type: application/json" \
+     -d '{ "indexId": "embeddings", "query": [0.1, 0.2, 0.3], "k": 10, "label": "person" }'
+```
+
+Hits are graph elements, so the traversal surface takes over from there — the GraphRAG
+recipe (kNN → paths/subgraphs/properties), memory math, and measured latency live in
+[features/vector-index/](features/done/vector-index/).
 
 ## Additional information
 
