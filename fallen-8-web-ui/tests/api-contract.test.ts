@@ -177,6 +177,17 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       storedQuery: "q",
     });
     await endpoints.createSubGraph(instance, { name: "s", storedQuery: "q" });
+    await endpoints.scanVector(instance, {
+      indexId: "emb",
+      query: [0.1, 0.2],
+      k: 10,
+      kind: "vertex",
+      label: "person",
+    });
+    await endpoints.addVectorToIndex(instance, "emb", {
+      graphElementId: 1,
+      propertyId: "embedding",
+    });
 
     expect(recorded.length).toBeGreaterThan(30);
     for (const call of recorded) {

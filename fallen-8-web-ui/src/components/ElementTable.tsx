@@ -2,13 +2,21 @@ import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
 import { formatPropertyValue } from "../lib/literals";
 
-/** Hydrated element list as a table (FR-11 "open as table"). */
+/**
+ * Hydrated element list as a table (FR-11 "open as table"). `scores` adds the optional
+ * score column shared by the vector scan and analytics top-K (concept spec §9);
+ * `scoreHeader` names the metric so an L2 distance is never misread as a similarity.
+ */
 export function ElementTable({
   elements,
   onInspect,
+  scores,
+  scoreHeader = "score",
 }: {
   elements: (VertexREST | EdgeREST)[];
   onInspect?: (id: number) => void;
+  scores?: Map<number, number>;
+  scoreHeader?: string;
 }) {
   if (elements.length === 0) {
     return <div className="text-fg-faint p-3 text-[12px]">No elements.</div>;
@@ -19,6 +27,7 @@ export function ElementTable({
         <thead>
           <tr className="text-fg-faint">
             <th className="table-cell">id</th>
+            {scores && <th className="table-cell">{scoreHeader}</th>}
             <th className="table-cell">kind</th>
             <th className="table-cell">label</th>
             <th className="table-cell">endpoints</th>
@@ -41,6 +50,11 @@ export function ElementTable({
                   element.id
                 )}
               </td>
+              {scores && (
+                <td className="table-cell text-fg font-mono">
+                  {scores.has(element.id) ? scores.get(element.id)!.toFixed(4) : "—"}
+                </td>
+              )}
               <td className="table-cell">{isEdge(element) ? "edge" : "vertex"}</td>
               <td className="table-cell">{element.label ?? "—"}</td>
               <td className="table-cell text-fg-dim">

@@ -230,6 +230,36 @@ export interface PluginSpecification {
   pluginOptions?: Record<string, PropertySpecification>;
 }
 
+/**
+ * Vector index (feature vector-index; surfaced by studio-coverage). Scores are RAW —
+ * interpret via metric/higherIsBetter (L2: lower is better), never re-derive client-side.
+ */
+export interface VectorIndexScanSpecification {
+  indexId: string;
+  query: number[];
+  k: number;
+  kind?: "vertex" | "edge" | "any";
+  label?: string;
+}
+
+export interface VectorScoredElementREST {
+  graphElementId: number;
+  score: number;
+}
+
+export interface VectorSearchResultREST {
+  metric: string | null;
+  higherIsBetter: boolean;
+  results: VectorScoredElementREST[] | null;
+}
+
+/** Exactly one mode: explicit vector, or propertyId naming a float[] property. */
+export interface VectorIndexAddSpecification {
+  graphElementId: number;
+  vector?: number[];
+  propertyId?: string;
+}
+
 export interface IndexAddToSpecification {
   graphElementId: number;
   key: LiteralSpecification;

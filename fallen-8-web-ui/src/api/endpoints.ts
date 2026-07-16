@@ -26,6 +26,9 @@ import type {
   StoredQuerySummaryREST,
   SubGraphSpecification,
   SubGraphSummary,
+  VectorIndexAddSpecification,
+  VectorIndexScanSpecification,
+  VectorSearchResultREST,
   VertexREST,
   VertexSpecification,
 } from "./types";
@@ -168,6 +171,23 @@ export const scanFulltext = (i: InstanceConfig, spec: FulltextIndexScanSpecifica
 
 export const scanSpatial = (i: InstanceConfig, spec: SearchDistanceSpecification) =>
   apiRequest<number[]>(i, "/scan/index/spatial", { method: "POST", body: spec });
+
+export const scanVector = (i: InstanceConfig, spec: VectorIndexScanSpecification) =>
+  apiRequest<VectorSearchResultREST>(i, "/scan/index/vector", {
+    method: "POST",
+    body: spec,
+  });
+
+/** Single-element add/replace; bulk embedding ingestion is deliberately curl territory. */
+export const addVectorToIndex = (
+  i: InstanceConfig,
+  indexId: string,
+  spec: VectorIndexAddSpecification,
+) =>
+  apiRequest<boolean>(i, `/index/vector/${encodeURIComponent(indexId)}`, {
+    method: "PUT",
+    body: spec,
+  });
 
 // ---- index management (FR-10) ----
 
