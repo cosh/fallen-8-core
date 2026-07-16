@@ -65,6 +65,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>Lines buffered between response flushes on export.</summary>
         private const int ExportFlushEveryLines = 512;
 
+        /// <summary>Byte threshold that also triggers an export flush - property-heavy elements
+        /// must not grow the buffer unboundedly between the line-count flushes (the constant-
+        /// memory claim is a byte bound, not a line bound).</summary>
+        private const int ExportFlushBytes = 256 * 1024;
+
         #endregion
 
         public BulkController(ILogger<BulkController> logger, IFallen8 fallen8,
@@ -92,7 +97,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// are lock-free; a write committed during the export may or may not appear. The
         /// guarantee is internal consistency plus "everything committed before the export began
         /// is present" (subject to the label filters). For a point-in-time backup, quiesce writes
-        /// or use the save-game machinery.
+        /// or use the save-game machinery. The same contract covers a property that an
+        /// embedded/plugin writer adds DURING the stream: if it is not exportable it is omitted
+        /// from its element rather than aborting the response (the REST write path cannot create
+        /// such properties; the pre-stream 422 covers everything present at capture).
         /// </remarks>
         /// <response code="200">The NDJSON stream (application/x-ndjson)</response>
         /// <response code="401">No valid credential was supplied</response>
@@ -158,7 +166,7 @@ namespace NoSQL.GraphDB.App.Controllers
             foreach (var vertex in vertices)
             {
                 JsonlGraphFormat.WriteVertexLine(buffer, vertex);
-                if (++linesSinceFlush >= ExportFlushEveryLines)
+                if (++linesSinceFlush >= ExportFlushEveryLines || buffer.WrittenCount >= ExportFlushBytes)
                 {
                     await FlushBuffer(buffer, cancellation);
                     linesSinceFlush = 0;
@@ -173,7 +181,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
 
                 JsonlGraphFormat.WriteEdgeLine(buffer, edge);
-                if (++linesSinceFlush >= ExportFlushEveryLines)
+                if (++linesSinceFlush >= ExportFlushEveryLines || buffer.WrittenCount >= ExportFlushBytes)
                 {
                     await FlushBuffer(buffer, cancellation);
                     linesSinceFlush = 0;
@@ -252,6 +260,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// WAL-logged; the file is not one transaction) - the error body reports the committed
         /// counts, and because import requires an empty graph, recovery is always "/tabularasa,
         /// fix the line, retry".
+        ///
+        /// NOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real
+        /// Kestrel host may enforce it at the transport layer and answer 413 before this action's
+        /// own check runs - the status is the same, but the problem body with committed counts is
+        /// only guaranteed when the application-level check fires first.
         /// </remarks>
         /// <response code="200">The import completed; the body carries created counts</response>
         /// <response code="400">A line was invalid (malformed JSON, unknown fields, bad property
@@ -325,9 +338,9 @@ namespace NoSQL.GraphDB.App.Controllers
                     return new ObjectResult(problem) { StatusCode = problem.Status, ContentTypes = { "application/problem+json" } };
                 }
 
-                while (TryReadLine(ref buffer, out var line))
+                while (TryReadLine(ref buffer, out var line, out var lineBytesConsumed))
                 {
-                    bytesConsumed += line.Length + 1;
+                    bytesConsumed += lineBytesConsumed;
                     var error = await session.ProcessLineAsync(line);
                     if (error != null)
                     {
@@ -378,17 +391,21 @@ namespace NoSQL.GraphDB.App.Controllers
             });
         }
 
-        /// <summary>Slices the next '\n'-terminated line off the buffer (trailing '\r' trimmed).</summary>
-        private static bool TryReadLine(ref ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> line)
+        /// <summary>Slices the next '\n'-terminated line off the buffer (trailing '\r' trimmed).
+        /// <paramref name="bytesConsumed"/> reports the RAW bytes taken off the wire (line +
+        /// terminator, before the CR trim), so the body-cap accounting stays exact for CRLF files.</summary>
+        private static bool TryReadLine(ref ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> line, out long bytesConsumed)
         {
             var newline = buffer.PositionOf((byte)'\n');
             if (newline == null)
             {
                 line = default;
+                bytesConsumed = 0;
                 return false;
             }
 
             line = buffer.Slice(0, newline.Value);
+            bytesConsumed = line.Length + 1;
             buffer = buffer.Slice(buffer.GetPosition(1, newline.Value));
 
             if (line.Length > 0)
@@ -490,7 +507,11 @@ namespace NoSQL.GraphDB.App.Controllers
             private readonly List<VertexDefinition> _pendingVertices = new List<VertexDefinition>();
             private readonly List<Int32> _pendingVertexFileIds = new List<Int32>();
             private readonly List<EdgeDefinition> _pendingEdges = new List<EdgeDefinition>();
-            private long _pendingBatchLastLine;
+
+            /// <summary>Last file line of each pending batch, tracked separately so a rolled-back
+            /// edge batch never reports a vertex line's number.</summary>
+            private long _pendingVertexBatchLastLine;
+            private long _pendingEdgeBatchLastLine;
 
             /// <summary>File id → engine id. The only structure that grows with file size.</summary>
             private readonly Dictionary<Int32, Int32> _idMap = new Dictionary<Int32, Int32>();
@@ -555,7 +576,7 @@ namespace NoSQL.GraphDB.App.Controllers
                             Properties = parsed.Properties
                         });
                         _pendingVertexFileIds.Add(parsed.Id);
-                        _pendingBatchLastLine = LinesRead;
+                        _pendingVertexBatchLastLine = LinesRead;
 
                         if (_pendingVertices.Count >= _options.ImportBatchSize)
                         {
@@ -600,7 +621,7 @@ namespace NoSQL.GraphDB.App.Controllers
                             Label = parsed.Label,
                             Properties = parsed.Properties
                         });
-                        _pendingBatchLastLine = LinesRead;
+                        _pendingEdgeBatchLastLine = LinesRead;
 
                         if (_pendingEdges.Count >= _options.ImportBatchSize)
                         {
@@ -663,7 +684,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (info.TransactionState == TransactionState.RolledBack)
                 {
-                    return ImportError.Batch(_pendingBatchLastLine, info.FailureReason, "vertex");
+                    return ImportError.Batch(_pendingVertexBatchLastLine, info.FailureReason, "vertex");
                 }
 
                 var created = tx.GetCreatedVertices();
@@ -686,7 +707,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (info.TransactionState == TransactionState.RolledBack)
                 {
-                    return ImportError.Batch(_pendingBatchLastLine, info.FailureReason, "edge");
+                    return ImportError.Batch(_pendingEdgeBatchLastLine, info.FailureReason, "edge");
                 }
 
                 EdgesCreated += tx.GetCreatedEdges().Count;

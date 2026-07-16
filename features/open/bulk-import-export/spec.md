@@ -111,9 +111,13 @@ Field semantics:
   `modificationDate` is deliberately absent (non-goal above).
 - `properties` — an object mapping `propertyId` → `{"type": <name>, "value": <string>}`. This
   deliberately mirrors the existing REST write contract (`PropertySpecification`:
-  `fullQualifiedTypeName` + string `propertyValue`) so import converts values with the **same**
-  `AllowedLiteralTypes.Resolve` + `Convert.ChangeType` path `ServiceHelper.GenerateProperties`
-  already uses — no second conversion codebase. Values are invariant-culture strings using
+  `fullQualifiedTypeName` + string `propertyValue`). Type names resolve through
+  `AllowedLiteralTypes` and only it (the R3 guarantee); value PARSING is the format's own
+  per-type invariant-culture code in `JsonlGraphFormat` — the REST path's
+  `Convert.ChangeType` is culture-sensitive as called (interchange must not inherit the
+  server culture) and `TimeSpan`/`Guid`/`DateTimeOffset` are not `IConvertible` at all, so
+  the shared-path idea could not deliver the fidelity contract. Values are
+  invariant-culture strings using
   round-trip formats (`"R"` for `Single`/`Double`, `"O"` for `DateTime`/`DateTimeOffset`,
   `"c"` for `TimeSpan`, `"D"` for `Guid`; `Decimal`/integers via invariant `ToString`).
   Absent/empty `properties` ⇒ no properties.
@@ -123,7 +127,9 @@ value-exactly (`AGraphElementModel` `ValueEquals` semantics), *including* the CL
 typed string pair never suffers JSON number coercion (`Int64` precision, `Decimal` scale,
 `Single` vs `Double` are all preserved, unlike the existing `Vertex`/`Edge` DTOs, which
 flatten properties to raw JSON values). Anything outside the allow-list does not round-trip
-and is rejected at export time rather than silently degraded.
+and is rejected at export time rather than silently degraded — as are null property values
+and strings/chars containing unpaired surrogates (invalid UTF-16, which the JSON writer
+would otherwise silently replace with U+FFFD).
 
 **Why a meta line, and why no trailer.** The meta line carries the format version (the only
 evolution hook a one-object-per-line format has) and exact counts — export knows them up front

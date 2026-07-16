@@ -127,11 +127,15 @@ namespace NoSQL.GraphDB.App.Helper
                 json.WriteStartObject("properties");
                 foreach (var property in properties)
                 {
-                    // The caller's pre-stream validation guarantees this succeeds.
+                    // The caller's pre-stream validation covered everything present at capture.
+                    // A property that STILL fails here was added by a concurrent embedded/plugin
+                    // writer between the validation pass and this write pass; it is OMITTED -
+                    // consistent with the export's documented contract that a write committed
+                    // during the export may or may not appear - rather than aborting the
+                    // already-started response mid-stream.
                     if (!TryFormatValue(property.Value, out var typeName, out var formatted))
                     {
-                        throw new InvalidOperationException(String.Format(
-                            "Property '{0}' on element {1} escaped export pre-validation.", property.Key, element.Id));
+                        continue;
                     }
 
                     json.WriteStartObject(property.Key);
@@ -164,6 +168,17 @@ namespace NoSQL.GraphDB.App.Helper
                 return false;
             }
 
+            // Unpaired surrogates are invalid UTF-16: the JSON writer would substitute U+FFFD,
+            // silently breaking the round-trip. Reject them up front (422 at export) instead.
+            if (value is Char ch && Char.IsSurrogate(ch))
+            {
+                return false;
+            }
+            if (value is String str && !IsWellFormedUtf16(str))
+            {
+                return false;
+            }
+
             typeName = type.FullName;
             formatted = value switch
             {
@@ -180,6 +195,27 @@ namespace NoSQL.GraphDB.App.Helper
                 IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
                 _ => value.ToString()
             };
+            return true;
+        }
+
+        /// <summary>Whether every surrogate in the string is part of a valid pair.</summary>
+        private static bool IsWellFormedUtf16(String value)
+        {
+            for (var i = 0; i < value.Length; i++)
+            {
+                if (Char.IsHighSurrogate(value[i]))
+                {
+                    if (i + 1 >= value.Length || !Char.IsLowSurrogate(value[i + 1]))
+                    {
+                        return false;
+                    }
+                    i++;
+                }
+                else if (Char.IsLowSurrogate(value[i]))
+                {
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -228,6 +264,15 @@ namespace NoSQL.GraphDB.App.Helper
             {
                 var jsonReader = new Utf8JsonReader(line);
                 document = JsonDocument.ParseValue(ref jsonReader);
+
+                // Strict fail-fast: a line must be ONE JSON object and nothing else. ParseValue
+                // stops after the first value, so trailing content (e.g. two objects concatenated
+                // by a lost newline) would otherwise vanish silently - data loss, not tolerance.
+                if (jsonReader.Read())
+                {
+                    document.Dispose();
+                    return "malformed JSON: trailing content after the line's JSON object";
+                }
             }
             catch (JsonException ex)
             {
@@ -276,16 +321,33 @@ namespace NoSQL.GraphDB.App.Helper
             "type", "id", "label", "creationDate", "properties", "edgePropertyId", "source", "target"
         };
 
+        /// <summary>Strict-field check: every field allow-listed, no duplicates (a duplicate JSON
+        /// key silently resolves to the last occurrence otherwise). Returns an error or null.</summary>
+        private static String CheckFields(JsonElement root, HashSet<String> allowed, String lineKind)
+        {
+            var seen = new HashSet<String>(StringComparer.Ordinal);
+            foreach (var field in root.EnumerateObject())
+            {
+                if (!allowed.Contains(field.Name))
+                {
+                    return String.Format("unknown field '{0}' on a {1} line (strict v{2})", field.Name, lineKind, FormatVersion);
+                }
+                if (!seen.Add(field.Name))
+                {
+                    return String.Format("duplicate field '{0}' on a {1} line", field.Name, lineKind);
+                }
+            }
+            return null;
+        }
+
         private static String ParseMeta(JsonElement root, out ParsedLine parsed)
         {
             parsed = null;
 
-            foreach (var field in root.EnumerateObject())
+            var fieldError = CheckFields(root, _metaFields, "meta");
+            if (fieldError != null)
             {
-                if (!_metaFields.Contains(field.Name))
-                {
-                    return String.Format("unknown field '{0}' on a meta line (strict v{1})", field.Name, FormatVersion);
-                }
+                return fieldError;
             }
 
             if (!root.TryGetProperty("format", out var format) || format.ValueKind != JsonValueKind.String ||
@@ -332,13 +394,10 @@ namespace NoSQL.GraphDB.App.Helper
             parsed = null;
             var allowed = lineType == LineType.Vertex ? _vertexFields : _edgeFields;
 
-            foreach (var field in root.EnumerateObject())
+            var fieldError = CheckFields(root, allowed, lineType == LineType.Vertex ? "vertex" : "edge");
+            if (fieldError != null)
             {
-                if (!allowed.Contains(field.Name))
-                {
-                    return String.Format("unknown field '{0}' on a {1} line (strict v{2})",
-                        field.Name, lineType == LineType.Vertex ? "vertex" : "edge", FormatVersion);
-                }
+                return fieldError;
             }
 
             var result = new ParsedLine { Type = lineType };
@@ -401,7 +460,11 @@ namespace NoSQL.GraphDB.App.Helper
                         return error;
                     }
 
-                    (result.Properties ??= new Dictionary<String, Object>()).Add(property.Name, value);
+                    // A duplicate key inside the JSON object is legal JSON but ambiguous data.
+                    if (!(result.Properties ??= new Dictionary<String, Object>()).TryAdd(property.Name, value))
+                    {
+                        return String.Format("duplicate property key '{0}'", property.Name);
+                    }
                 }
             }
 

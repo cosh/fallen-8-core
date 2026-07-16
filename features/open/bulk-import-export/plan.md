@@ -41,8 +41,10 @@ Intent: an exported file loads into a fresh instance and the graphs are structur
   id map extended from `GetCreatedVertices()`/`GetCreatedEdges()` in definition order;
   flush-vertex-batch-on-first-edge so interleaved files work; edge endpoints resolved
   through the map.
-- [x] Property conversion through the existing `ServiceHelper.GenerateProperties` /
-  `AllowedLiteralTypes` path (no new conversion code).
+- [x] Property type resolution through `AllowedLiteralTypes` only; value parsing is the
+  format's own per-type invariant-culture code (the shared `Convert.ChangeType` path is
+  culture-sensitive and cannot convert `TimeSpan`/`Guid`/`DateTimeOffset` — deviation
+  recorded in spec §3.1).
 - [x] 200 summary body (`BulkImportResultREST`: `verticesCreated`, `edgesCreated`,
   `linesRead`).
 - [x] Tests: the **round-trip** (export → fresh instance → import → structural equality incl.
@@ -64,7 +66,10 @@ Intent: make the honest parts of the spec (§3.4/§3.5) enforced and tested, not
   `IHttpMaxRequestBodySizeFeature` carve-out from `MaxImportRequestBytes` (null = unlimited);
   413 pinned via `WebApplicationFactory` when a cap is configured.
 - [x] Posture tests through the pipeline: 401 without the configured API key on both
-  endpoints; content-type negotiation; sensitive-endpoint limits demonstrably unaffected.
+  endpoints; content-type negotiation (415 pinned). Sensitive-endpoint limits are
+  structurally unaffected (their `[RequestSizeLimit]` attributes are untouched and the
+  carve-out is a per-request feature on the import action only) — TestServer cannot
+  enforce size limits, so this is verified by inspection, not a test.
 - [x] Durability tests: WAL-enabled import → fresh engine replay reproduces the graph;
   mid-file failure after ≥ 1 committed batch leaves exactly the committed batches (state +
   replay agree, matching `transaction-atomicity` per-batch guarantees).
@@ -103,3 +108,29 @@ Intent: make the honest parts of the spec (§3.4/§3.5) enforced and tested, not
   1 MiB limit.
 - **No index/subgraph/save-game lines** — revisit when a real restore workflow shows
   re-creating them by hand is a burden; the `version` field is the extension mechanism.
+
+## Council outcome (2026-07-16)
+
+Three parallel reviews (correctness, regressions/invariants, spec-fidelity): **1× APPROVE,
+2× REQUEST-CHANGES — zero blockers.** Every finding fixed on the branch before merge:
+
+- **Duplicate property key on a line** now returns a 400 line error instead of escaping as an
+  `ArgumentException` 500; **trailing content after a line's JSON object** is rejected as
+  malformed instead of silently dropping the second object (both pinned by parser tests).
+- Duplicate top-level JSON keys are rejected (strict fields, no silent last-write-wins);
+  unpaired surrogates are refused at format time (422 at export) instead of silently becoming
+  U+FFFD — recorded in the spec's fidelity statement.
+- A property added by a concurrent embedded/plugin writer between the export's validation and
+  write passes is now OMITTED (the documented may-or-may-not-appear contract) instead of
+  aborting the response mid-stream; export flushes on a byte threshold too, restoring the
+  constant-memory claim for property-heavy elements; CRLF byte accounting made exact; the
+  vertex/edge pending batches track their last lines separately.
+- Spec §3.1 corrected to the as-built conversion path (own invariant per-type parser; the
+  claimed shared `Convert.ChangeType` path is culture-sensitive and cannot convert three of
+  the 18 types); Kestrel-vs-app-level 413 body-shape honesty note added to the endpoint docs.
+- New tests: mid-file failure under WAL with replay agreement (also observes batch-wise
+  commits), edgeLabel filter, exact pinned-format strings per type, HTTP-level malformed-line
+  problem body, 415 on wrong content type, round-trip edge properties/creation dates, the
+  strictness-hole regressions, and the rollback-reason mapping (pinned at unit level — an
+  engine-rolled-back batch is unreachable through the import path by construction, and
+  TestServer buffers request bodies so a mid-request race cannot be staged; noted honestly).

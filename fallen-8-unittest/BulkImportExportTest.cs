@@ -169,6 +169,44 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void PinnedFormats_ProduceExactlyTheDocumentedStrings()
+        {
+            // The on-disk version-1 contract: a self-consistent format CHANGE would still pass a
+            // round-trip test, silently breaking existing files - so the exact strings are pinned.
+            string Format(object value)
+            {
+                Assert.IsTrue(JsonlGraphFormat.TryFormatValue(value, out _, out var formatted));
+                return formatted;
+            }
+
+            Assert.AreEqual("0.30000000000000004", Format(0.30000000000000004d)); // Double "R"
+            Assert.AreEqual("0.1", Format(0.1f));                                  // Single "R"
+            Assert.AreEqual("NaN", Format(double.NaN));
+            Assert.AreEqual("-Infinity", Format(double.NegativeInfinity));
+            Assert.AreEqual("1.2300", Format(1.2300m));                            // Decimal scale
+            Assert.AreEqual("2026-07-15T12:34:56.7890000Z",
+                Format(new DateTime(2026, 7, 15, 12, 34, 56, 789, DateTimeKind.Utc)));   // "O"
+            Assert.AreEqual("2026-07-15T12:34:56.0000000+05:30",
+                Format(new DateTimeOffset(2026, 7, 15, 12, 34, 56, new TimeSpan(5, 30, 0)))); // "O"
+            Assert.AreEqual("1.02:03:04.0050000", Format(new TimeSpan(1, 2, 3, 4, 5)));  // "c"
+            Assert.AreEqual("0b1e4c2e-1111-2222-3333-444455556666",
+                Format(Guid.Parse("0b1e4c2e-1111-2222-3333-444455556666")));             // "D"
+            Assert.AreEqual("9007199254740993", Format(9007199254740993L));
+            Assert.AreEqual("true", Format(true));
+        }
+
+        [TestMethod]
+        public void UnpairedSurrogates_AreRejectedAtFormatTime()
+        {
+            // Invalid UTF-16 would be silently replaced with U+FFFD by the JSON writer, breaking
+            // the exact round-trip - so it is refused up front (a 422 at export).
+            Assert.IsFalse(JsonlGraphFormat.TryFormatValue('\ud800', out _, out _), "lone surrogate char");
+            Assert.IsFalse(JsonlGraphFormat.TryFormatValue("bad\ud800tail", out _, out _), "lone high surrogate in string");
+            Assert.IsFalse(JsonlGraphFormat.TryFormatValue("\udc00head", out _, out _), "lone low surrogate in string");
+            Assert.IsTrue(JsonlGraphFormat.TryFormatValue("ok 😀 pair", out _, out _), "a valid surrogate PAIR is fine");
+        }
+
+        [TestMethod]
         public void TryParseLine_RejectsTheDocumentedErrorShapes()
         {
             string Parse(string line)
@@ -188,6 +226,20 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(Parse("{\"type\":\"vertex\",\"id\":1,\"creationDate\":1,\"properties\":{\"x\":{\"type\":\"System.Int32\",\"value\":\"abc\"}}}"), "not a valid Int32");
             StringAssert.Contains(Parse("{\"type\":\"meta\",\"format\":\"fallen8-jsonl\",\"version\":2}"), "unsupported format version");
             StringAssert.Contains(Parse("{\"type\":\"meta\",\"format\":\"other\",\"version\":1}"), "'format'");
+
+            // Council findings: strictness holes that used to slip through.
+            StringAssert.Contains(
+                Parse("{\"type\":\"vertex\",\"id\":1,\"creationDate\":1} {\"type\":\"vertex\",\"id\":2,\"creationDate\":1}"),
+                "malformed JSON", "two objects on one line must never silently drop the second");
+            StringAssert.Contains(
+                Parse("{\"type\":\"vertex\",\"id\":1,\"creationDate\":1} 42"),
+                "malformed JSON", "any trailing content after the object is rejected");
+            StringAssert.Contains(
+                Parse("{\"type\":\"vertex\",\"id\":1,\"id\":2,\"creationDate\":1}"),
+                "duplicate field 'id'", "duplicate top-level keys must not silently last-write-win");
+            StringAssert.Contains(
+                Parse("{\"type\":\"vertex\",\"id\":1,\"creationDate\":1,\"properties\":{\"x\":{\"type\":\"System.Int32\",\"value\":\"1\"},\"x\":{\"type\":\"System.Int32\",\"value\":\"2\"}}}"),
+                "duplicate property key 'x'", "a duplicate property key is a 400, never a 500");
         }
 
         #endregion
@@ -211,7 +263,8 @@ namespace NoSQL.GraphDB.Tests
             var v = vtx.GetCreatedVertices();
 
             var etx = new CreateEdgesTransaction();
-            etx.AddEdge(v[0].Id, "knows", v[1].Id, 500u, "friendship");
+            etx.AddEdge(v[0].Id, "knows", v[1].Id, 500u, "friendship",
+                new Dictionary<string, object> { { "since", new DateTime(2024, 1, 15, 0, 0, 0, DateTimeKind.Utc) }, { "weight", 2.5d } });
             etx.AddEdge(v[0].Id, "self", v[0].Id, 500u, "loop");           // self-loop
             etx.AddEdge(v[1].Id, "works_at", v[2].Id, 500u, null);          // unlabeled edge
             etx.AddEdge(v[3].Id, "knows", v[1].Id, 500u, "friendship");     // shared endpoint
@@ -245,6 +298,11 @@ namespace NoSQL.GraphDB.Tests
             // Adjacency shape under the id map: the rich vertex has out-edges knows + self.
             Assert.IsTrue(importedRich.TryGetOutEdge(out var knows, "knows"));
             Assert.AreEqual("friendship", knows[0].Label);
+            Assert.AreEqual(500u, knows[0].CreationDate, "edge creation dates survive import");
+            Assert.IsTrue(knows[0].TryGetProperty<object>(out var since, "since"), "edge properties survive import");
+            Assert.AreEqual(new DateTime(2024, 1, 15, 0, 0, 0, DateTimeKind.Utc), since);
+            Assert.IsTrue(knows[0].TryGetProperty<object>(out var weight, "weight"));
+            Assert.AreEqual(2.5d, weight);
             Assert.IsTrue(importedRich.TryGetOutEdge(out var self, "self"));
             Assert.AreEqual(importedRich.Id, self[0].TargetVertex.Id, "the self-loop points at its own image");
 
@@ -302,6 +360,33 @@ namespace NoSQL.GraphDB.Tests
             using var import = await Import(targetClient, subset);
             Assert.AreEqual(HttpStatusCode.OK, import.StatusCode);
             Assert.AreEqual(1, EngineOf(target).VertexCount);
+        }
+
+        [TestMethod]
+        public async Task Export_EdgeLabelFilter_MapsToTheEngineScan()
+        {
+            using var factory = new BulkFactory();
+            var engine = EngineOf(factory);
+            var (a, b, _) = SeedSmallGraph(engine); // friendship edge
+            var extra = new CreateEdgesTransaction();
+            extra.AddEdge(a, "trusts", b, 1u, "trust");
+            engine.EnqueueTransaction(extra).WaitUntilFinished();
+
+            using var client = factory.CreateClient();
+            var exported = await client.GetStringAsync("/bulk/export?edgeLabel=trust");
+
+            var lines = ParseNdjson(exported);
+            Assert.AreEqual(1, lines[0].GetProperty("edgeCount").GetInt32(), "only the trust edge matches");
+            var edgeLine = lines.Single(l => l.GetProperty("type").GetString() == "edge");
+            Assert.AreEqual("trust", edgeLine.GetProperty("label").GetString());
+            Assert.AreEqual("trusts", edgeLine.GetProperty("edgePropertyId").GetString());
+
+            // ...and the filtered file imports.
+            using var target = new BulkFactory();
+            using var targetClient = target.CreateClient();
+            using var import = await Import(targetClient, exported);
+            Assert.AreEqual(HttpStatusCode.OK, import.StatusCode);
+            Assert.AreEqual(1, EngineOf(target).EdgeCount);
         }
 
         #endregion
@@ -449,6 +534,67 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Import_MalformedJsonLine_Is400ProblemJson_ThroughTheFullPipeline()
+        {
+            using var factory = new BulkFactory();
+            using var client = factory.CreateClient();
+            using var response = await Import(client,
+                "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\nnot json at all\n");
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.AreEqual("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+            var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+            Assert.AreEqual(2, problem.GetProperty("lineNumber").GetInt32());
+            StringAssert.Contains(problem.GetProperty("detail").GetString(), "malformed JSON");
+            Assert.IsTrue(problem.TryGetProperty("verticesCommitted", out _), "committed counts are always reported");
+        }
+
+        [TestMethod]
+        public async Task Import_WrongContentType_Is415()
+        {
+            using var factory = new BulkFactory();
+            using var client = factory.CreateClient();
+            using var response = await client.PostAsync("/bulk/import",
+                new StringContent("{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}", Encoding.UTF8, "application/json"));
+
+            Assert.AreEqual(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
+        }
+
+        [TestMethod]
+        public void ImportBatchRollback_MapsEveryFailureReasonToItsStatus()
+        {
+            // An engine-rolled-back batch is UNREACHABLE through the import path by construction
+            // (the id map pre-resolves edge endpoints before the engine sees them, and parsed
+            // vertex lines cannot produce an invalid batch), and TestServer buffers request
+            // bodies, so a mid-request race cannot be staged. The mapping itself - the piece
+            // that would rot - is pinned here via the private factory (reflection: no
+            // InternalsVisibleTo).
+            var importError = typeof(NoSQL.GraphDB.App.Controllers.BulkController)
+                .GetNestedType("ImportError", System.Reflection.BindingFlags.NonPublic);
+            var batch = importError.GetMethod("Batch",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var statusField = importError.GetField("Status", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var detailField = importError.GetField("Detail", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            (int Status, string Detail) Map(TransactionFailureReason reason)
+            {
+                var error = batch.Invoke(null, new object[] { 42L, reason, "edge" });
+                return ((int)statusField.GetValue(error), (string)detailField.GetValue(error));
+            }
+
+            Assert.AreEqual(400, Map(TransactionFailureReason.InvalidInput).Status);
+            Assert.AreEqual(400, Map(TransactionFailureReason.NotFound).Status);
+            Assert.AreEqual(409, Map(TransactionFailureReason.QuotaExceeded).Status);
+            Assert.AreEqual(409, Map(TransactionFailureReason.Conflict).Status);
+            Assert.AreEqual(500, Map(TransactionFailureReason.InternalError).Status);
+
+            var detail = Map(TransactionFailureReason.NotFound).Detail;
+            StringAssert.Contains(detail, "line 42");
+            StringAssert.Contains(detail, "NotFound");
+            StringAssert.Contains(detail, "remain committed");
+        }
+
+        [TestMethod]
         public async Task Import_NonEmptyGraph_Is409_WithNothingMutated()
         {
             using var factory = new BulkFactory();
@@ -488,6 +634,56 @@ namespace NoSQL.GraphDB.Tests
             var summary = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
             Assert.AreEqual(8, summary.GetProperty("verticesCreated").GetInt32());
             Assert.AreEqual(8, EngineOf(factory).VertexCount);
+        }
+
+        [TestMethod]
+        public async Task Import_MidFileFailureUnderWal_LeavesExactlyTheCommittedBatches_AndReplayAgrees()
+        {
+            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_bulkwalfail_" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(tempDir);
+            var walPath = System.IO.Path.Combine(tempDir, "bulkfail.wal");
+            try
+            {
+                using (var factory = new BulkFactory(new Dictionary<string, string>
+                {
+                    ["Fallen8:Durability:Volatile"] = "false",
+                    ["Fallen8:Durability:StorageDirectory"] = tempDir,
+                    ["Fallen8:Durability:WalPath"] = walPath,
+                    ["Fallen8:Durability:SaveOnShutdown"] = "false",
+                    ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(tempDir, "metadata"),
+                    ["Fallen8:BulkIO:ImportBatchSize"] = "2"
+                }))
+                {
+                    // 5 vertices at batch size 2: batches (v1,v2) and (v3,v4) commit; v5 is
+                    // pending and never flushed when line 6 fails - proving batch-wise commits
+                    // AND the honest partial-import contract in one scenario.
+                    const string file =
+                        "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
+                        "{\"type\":\"vertex\",\"id\":2,\"creationDate\":1}\n" +
+                        "{\"type\":\"vertex\",\"id\":3,\"creationDate\":1}\n" +
+                        "{\"type\":\"vertex\",\"id\":4,\"creationDate\":1}\n" +
+                        "{\"type\":\"vertex\",\"id\":5,\"creationDate\":1}\n" +
+                        "this is not json\n";
+
+                    using var client = factory.CreateClient();
+                    using var response = await Import(client, file);
+                    Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+                    var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+                    Assert.AreEqual(6, problem.GetProperty("lineNumber").GetInt32());
+                    Assert.AreEqual(4, problem.GetProperty("verticesCommitted").GetInt32(),
+                        "two full batches committed; the pending fifth vertex was never flushed");
+                    Assert.AreEqual(4, EngineOf(factory).VertexCount, "live state agrees with the report");
+                } // crash: no shutdown save - the WAL alone carries the committed batches
+
+                using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+                Assert.AreEqual(4, recovered.VertexCount,
+                    "WAL replay reproduces exactly the committed batches - state and replay agree");
+                Assert.AreEqual(0, recovered.EdgeCount);
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(tempDir, true); } catch { /* best effort */ }
+            }
         }
 
         [TestMethod]
