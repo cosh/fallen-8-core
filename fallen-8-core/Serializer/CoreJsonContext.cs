@@ -46,6 +46,8 @@ namespace NoSQL.GraphDB.Core.Serializer
     /// </remarks>
     [JsonSerializable(typeof(SubGraphRecipe))]
     [JsonSerializable(typeof(SubGraphRecipeManifest))]
+    [JsonSerializable(typeof(StoredQueries.StoredQueryDefinition))]
+    [JsonSerializable(typeof(StoredQueries.StoredQueryManifest))]
     [JsonSerializable(typeof(DelegateDescriptor))]
     internal sealed partial class CoreJsonContext : JsonSerializerContext
     {

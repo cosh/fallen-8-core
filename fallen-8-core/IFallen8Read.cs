@@ -161,6 +161,14 @@ namespace NoSQL.GraphDB.Core
         /// <param name='searchQuery'> GraphScan query. </param>
         Boolean FulltextIndexScan(out FulltextSearchResult result, String indexId, String searchQuery);
 
+        /// <summary>
+        ///   k-nearest-neighbour scan over a vector index (feature vector-index). Returns false
+        ///   for an unknown or non-vector index or invalid input (wrong query dimension, k out of
+        ///   bounds, zero-norm query under Cosine).
+        /// </summary>
+        Boolean VectorIndexScan(out Index.Vector.VectorSearchResult result, String indexId,
+            Single[] query, Int32 k, Index.Vector.VectorSearchConstraint constraint = null);
+
         #endregion
 
         #region calculations
@@ -188,6 +196,20 @@ namespace NoSQL.GraphDB.Core
             out List<Path> result,
             ShortestPathDefinition definition)
                 where T : IShortestPathAlgorithm;
+
+        /// <summary>
+        ///   Runs a whole-graph analytics algorithm plugin (feature graph-analytics), mirroring
+        ///   <see cref="TryCalculateShortestPath(out List{Path}, string, ShortestPathDefinition)"/>:
+        ///   resolve via PluginFactory, initialize, cache, invoke. Returns false for an unknown
+        ///   plugin, an invalid definition, or a run whose budget died before any usable result.
+        /// </summary>
+        /// <param name="result"> The analytics result (scores or partitions + run metadata). </param>
+        /// <param name="algorithmName"> The plugin name, e.g. "PAGERANK". </param>
+        /// <param name="definition"> Scoping, budgets and algorithm parameters. </param>
+        bool TryRunAnalytics(
+            out Algorithms.Analytics.GraphAnalyticsResult result,
+            string algorithmName,
+            Algorithms.Analytics.GraphAnalyticsDefinition definition);
 
         #endregion
     }

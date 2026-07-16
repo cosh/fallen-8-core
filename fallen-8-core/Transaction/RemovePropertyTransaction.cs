@@ -42,6 +42,10 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
+        /// <summary>Whether the property was actually removed (drives the change feed; a no-op
+        /// removal commits but reports nothing).</summary>
+        private Boolean _propertyRemoved;
+
         internal override void Cleanup()
         {
             //NOP
@@ -54,9 +58,17 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            f8.RemoveProperty_internal(GraphElementId, PropertyId);
+            _propertyRemoved = f8.RemoveProperty_internal(GraphElementId, PropertyId);
 
             return true;
+        }
+
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            if (_propertyRemoved && f8.TryDescribeElement(GraphElementId, out var elementType, out var label))
+            {
+                builder.PropertyRemoved(elementType, GraphElementId, label, PropertyId);
+            }
         }
     }
 }

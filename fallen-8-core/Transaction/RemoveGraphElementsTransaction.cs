@@ -54,6 +54,23 @@ namespace NoSQL.GraphDB.Core.Transaction
             f8.RestoreRemovedElements_private(_removedIds);
         }
 
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            // _removedIds holds exactly the REQUESTED ids this transaction actually removed;
+            // cascade-removed edges are expanded per removed vertex by the engine helper (they
+            // are never duplicated: an edge detaches from the other endpoint's containers when
+            // it is first removed).
+            if (_removedIds == null)
+            {
+                return;
+            }
+
+            foreach (var id in _removedIds)
+            {
+                f8.DescribeRemovedElement(id, builder);
+            }
+        }
+
         internal override Boolean TryExecute(Fallen8 f8)
         {
             // Range-check the whole batch before removing anything (an out-of-range id throws here,

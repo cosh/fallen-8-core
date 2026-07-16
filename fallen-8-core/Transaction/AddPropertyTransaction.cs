@@ -68,5 +68,23 @@ namespace NoSQL.GraphDB.Core.Transaction
             f8.SetPropertyWithUndo_internal(Definition.GraphElementId, Definition.PropertyId, Definition.Property, _undo);
             return true;
         }
+
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            // One undo entry exists per APPLIED set (a no-op target records none), so the feed
+            // reports exactly what changed. Only the id/key primitives are read - never the value.
+            if (_undo == null)
+            {
+                return;
+            }
+
+            foreach (var applied in _undo)
+            {
+                if (f8.TryDescribeElement(applied.GraphElementId, out var elementType, out var label))
+                {
+                    builder.PropertySet(elementType, applied.GraphElementId, label, applied.PropertyId);
+                }
+            }
+        }
     }
 }

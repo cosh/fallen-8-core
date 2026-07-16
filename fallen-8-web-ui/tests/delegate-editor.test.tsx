@@ -209,6 +209,23 @@ describe("NL assist (FR-26 / nl-assist spec)", () => {
     expect(screen.getByTestId("nl-generate")).toBeDisabled();
   });
 
+  it("asks for no API key for the Ollama kind, only for openai-compatible (FR-26.12)", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.click(screen.getByRole("button", { name: "configure" }));
+
+    // Default config is the Ollama kind (the default local phi4-mini setup): no key field.
+    expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("nl-no-key-hint")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("api"), "openai");
+    expect(screen.getByLabelText(/api key/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("nl-no-key-hint")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("api"), "ollama");
+    expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
+  });
+
   it("shows no leave-notice for loopback endpoints", () => {
     useNlAssist.setState({
       config: { ...DEFAULT_NL_CONFIG, endpoint: "http://localhost:11434", model: "m" },

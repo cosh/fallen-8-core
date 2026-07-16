@@ -36,6 +36,10 @@ namespace NoSQL.GraphDB.Core.Transaction
             set;
         }
 
+        /// <summary>Whether the element was actually removed by THIS transaction (drives the
+        /// change feed; removing a missing/already-removed element commits but reports nothing).</summary>
+        private Boolean _didRemove;
+
         internal override Boolean TriggersAutoTrim
         {
             get { return true; }
@@ -48,9 +52,17 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         internal override Boolean TryExecute(Fallen8 f8)
         {
-            f8.TryRemoveGraphElement_private(GraphElementId);
+            _didRemove = f8.TryRemoveGraphElement_private(GraphElementId);
 
             return true;
+        }
+
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            if (_didRemove)
+            {
+                f8.DescribeRemovedElement(GraphElementId, builder);
+            }
         }
 
         internal override void Cleanup()

@@ -148,6 +148,20 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
+        /// <summary>
+        ///   The name of a registered stored query of kind <c>Path</c> to use instead of inline
+        ///   <see cref="Filter"/>/<see cref="Cost"/> fragments (feature stored-query-library).
+        ///   Mutually exclusive with them (400 when mixed). A stored-query request compiles
+        ///   nothing and works with dynamic code execution disabled; the numeric bounds and
+        ///   <see cref="PathAlgorithmName"/> stay per-request.
+        /// </summary>
+        /// <example>adults-shortest</example>
+        [JsonPropertyName("storedQuery")]
+        public String StoredQuery
+        {
+            get; set;
+        }
+
         public override Boolean Equals(Object obj)
         {
             return Equals(obj as PathSpecification);
@@ -161,12 +175,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                    MaxResults == other.MaxResults &&
                    MaxPathWeight == other.MaxPathWeight &&
                    EqualityComparer<PathFilterSpecification>.Default.Equals(Filter, other.Filter) &&
-                   EqualityComparer<PathCostSpecification>.Default.Equals(Cost, other.Cost);
+                   EqualityComparer<PathCostSpecification>.Default.Equals(Cost, other.Cost) &&
+                   StoredQuery == other.StoredQuery;
         }
 
         public override Int32 GetHashCode()
         {
-            return HashCode.Combine(PathAlgorithmName, MaxDepth, MaxResults, MaxPathWeight, Filter, Cost);
+            return HashCode.Combine(PathAlgorithmName, MaxDepth, MaxResults, MaxPathWeight, Filter, Cost, StoredQuery);
         }
     }
 }

@@ -49,6 +49,7 @@ using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Spatial;
+using NoSQL.GraphDB.Core.Index.Vector;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Transaction;
@@ -99,13 +100,62 @@ namespace NoSQL.GraphDB.App.Controllers
             return AllowedLiteralTypes.TryResolve(fullQualifiedTypeName, out type);
         }
 
-        public GraphController(ILogger<GraphController> logger, IFallen8 fallen8)
+        /// <summary>
+        ///   The authorization service used for the request-shape-aware dynamic-code capability
+        ///   check on <see cref="CalculateShortestPath"/> (feature stored-query-library). Null when
+        ///   the controller is constructed directly (unit tests) - the hosted pipeline always
+        ///   supplies it, and the pipeline-level matrix tests pin the real gate behaviour.
+        /// </summary>
+        private readonly IAuthorizationService _authorizationService;
+
+        public GraphController(ILogger<GraphController> logger, IFallen8 fallen8,
+            IAuthorizationService authorizationService = null)
         {
             _logger = logger;
 
             _fallen8 = fallen8;
 
             _cache = new GeneratedCodeCache();
+
+            _authorizationService = authorizationService;
+        }
+
+        /// <summary>
+        ///   Whether a path request INTRODUCES code: any non-blank inline filter/cost fragment.
+        ///   Only such a request requires the dynamic-code capability (feature
+        ///   stored-query-library); a storedQuery reference or a fragment-less request compiles no
+        ///   user-supplied code.
+        /// </summary>
+        private static bool CarriesInlineCode(PathSpecification definition)
+        {
+            return !String.IsNullOrWhiteSpace(definition.Filter?.Vertex) ||
+                   !String.IsNullOrWhiteSpace(definition.Filter?.Edge) ||
+                   !String.IsNullOrWhiteSpace(definition.Filter?.EdgeProperty) ||
+                   !String.IsNullOrWhiteSpace(definition.Cost?.Vertex) ||
+                   !String.IsNullOrWhiteSpace(definition.Cost?.Edge);
+        }
+
+        /// <summary>
+        ///   Imperative dynamic-code capability check: evaluates the SAME
+        ///   <see cref="Security.DynamicCapabilityRequirement"/> the declarative
+        ///   <c>DynamicCodePolicy</c> uses (one source of truth) and returns the same 403 shape on
+        ///   denial, or null when the capability is enabled. Null-service means direct construction
+        ///   (unit tests bypass the pipeline exactly as they bypassed the former endpoint-level
+        ///   policy); the hosted pipeline always supplies the service. The awaited handler is
+        ///   synchronous (an options check), so blocking here cannot deadlock.
+        /// </summary>
+        private ActionResult DenyUnlessDynamicCodeCapability()
+        {
+            if (_authorizationService == null)
+            {
+                return null;
+            }
+
+            var authorization = _authorizationService.AuthorizeAsync(User, null,
+                    new Security.DynamicCapabilityRequirement(Security.DynamicCapabilityRequirement.Capability.DynamicCodeExecution))
+                .GetAwaiter().GetResult();
+
+            return authorization.Succeeded ? null : Forbid();
         }
 
         #region IDisposable Members
@@ -714,6 +764,204 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
+        /// Adds (or replaces) an element's embedding vector in a vector index
+        /// </summary>
+        /// <param name="indexId">The ID of the vector index</param>
+        /// <param name="definition">The element and its vector - explicit ("vector") or read from a float[] property ("propertyId")</param>
+        /// <returns>True when the vector was indexed</returns>
+        /// <remarks>
+        /// One vector per element: adding again replaces. The generic PUT /index/{indexId} add
+        /// path cannot express a float[] key, which is why the vector family has this typed
+        /// endpoint (like fulltext and spatial have theirs).
+        ///
+        /// Sample request (explicit mode):
+        ///
+        ///     PUT /index/vector/myEmbeddings
+        ///     {
+        ///        "graphElementId": 42,
+        ///        "vector": [0.12, -0.5, 0.33]
+        ///     }
+        ///
+        /// Sample request (property mode - reads the element's float[] property):
+        ///
+        ///     PUT /index/vector/myEmbeddings
+        ///     {
+        ///        "graphElementId": 42,
+        ///        "propertyId": "embedding"
+        ///     }
+        /// </remarks>
+        /// <response code="200">The vector was indexed (add-again replaced the previous vector)</response>
+        /// <response code="400">Not a vector index, neither/both modes supplied, wrong dimension, NaN/Infinity components, zero-norm vector under Cosine, or the named property is missing / not a float[]</response>
+        /// <response code="404">The index or the graph element does not exist</response>
+        [HttpPut("/index/vector/{indexId}")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public IActionResult AddToVectorIndex([FromRoute] String indexId, [FromBody] VectorIndexAddSpecification definition)
+        {
+            if (definition == null)
+            {
+                return BadRequest("A vector add specification is required.");
+            }
+
+            if (!_fallen8.IndexFactory.TryGetIndex(out var index, indexId))
+            {
+                return NotFound(String.Format("No index named '{0}'.", indexId));
+            }
+
+            if (!(index is IVectorIndex vectorIndex))
+            {
+                return BadRequest(String.Format("Index '{0}' is not a vector index.", indexId));
+            }
+
+            if (!_fallen8.TryGetGraphElement(out var element, definition.GraphElementId))
+            {
+                return NotFound(String.Format("Could not find graph element with id {0}.", definition.GraphElementId));
+            }
+
+            var hasVector = definition.Vector != null;
+            var hasProperty = !String.IsNullOrEmpty(definition.PropertyId);
+            if (hasVector == hasProperty)
+            {
+                return BadRequest("Exactly one of 'vector' / 'propertyId' must be supplied.");
+            }
+
+            Single[] vector;
+            if (hasVector)
+            {
+                vector = definition.Vector;
+            }
+            else
+            {
+                if (!element.TryGetProperty<Object>(out var propertyValue, definition.PropertyId))
+                {
+                    return BadRequest(String.Format("Element {0} carries no property '{1}'.",
+                        definition.GraphElementId, definition.PropertyId));
+                }
+
+                vector = propertyValue as Single[];
+                if (vector == null)
+                {
+                    return BadRequest(String.Format("Property '{0}' on element {1} is not a float[].",
+                        definition.PropertyId, definition.GraphElementId));
+                }
+            }
+
+            if (vector.Length != vectorIndex.Dimension)
+            {
+                return BadRequest(String.Format("The vector has dimension {0}; index '{1}' requires {2}.",
+                    vector.Length, indexId, vectorIndex.Dimension));
+            }
+
+            if (VectorIndex.HasNonFiniteComponent(vector))
+            {
+                return BadRequest("The vector contains NaN or Infinity components; only finite values can rank.");
+            }
+
+            if (vectorIndex.Metric == VectorDistanceMetric.Cosine && VectorIndex.IsZeroNorm(vector))
+            {
+                return BadRequest("A zero-norm vector cannot rank under the Cosine metric.");
+            }
+
+            vectorIndex.AddOrUpdate(vector, element);
+            return Ok(true);
+        }
+
+        /// <summary>
+        /// Finds the k nearest neighbours of a query vector in a vector index
+        /// </summary>
+        /// <param name="definition">The kNN query: index, query vector, k, optional kind/label constraints</param>
+        /// <returns>The hits best-first with raw scores, plus the metric and its direction</returns>
+        /// <remarks>
+        /// Exact brute-force kNN (SIMD): deterministic ordering - best score first, ties broken
+        /// by ascending element id. Constraints are applied BEFORE scoring, so the returned k are
+        /// k MATCHING elements. Removed elements never appear. The GraphRAG recipe: feed the
+        /// returned element ids into the existing traversal surface (POST /path, PUT /subgraph,
+        /// property reads) - similarity search lands ON the graph.
+        ///
+        /// Sample request:
+        ///
+        ///     POST /scan/index/vector
+        ///     {
+        ///        "indexId": "myEmbeddings",
+        ///        "query": [0.1, 0.2, 0.3],
+        ///        "k": 10,
+        ///        "kind": "vertex",
+        ///        "label": "person"
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns the k best-scoring matching elements (fewer when the corpus is smaller)</response>
+        /// <response code="400">Not a vector index, wrong query dimension, NaN/Infinity components, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value</response>
+        /// <response code="404">The index does not exist</response>
+        [HttpPost("/scan/index/vector")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(VectorSearchResultREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public IActionResult VectorIndexScan([FromBody] VectorIndexScanSpecification definition)
+        {
+            if (definition == null || definition.Query == null)
+            {
+                return BadRequest("A vector scan specification with a query vector is required.");
+            }
+
+            if (!_fallen8.IndexFactory.TryGetIndex(out var index, definition.IndexId))
+            {
+                return NotFound(String.Format("No index named '{0}'.", definition.IndexId));
+            }
+
+            if (!(index is IVectorIndex vectorIndex))
+            {
+                return BadRequest(String.Format("Index '{0}' is not a vector index.", definition.IndexId));
+            }
+
+            VectorSearchConstraint constraint = null;
+            if (!String.IsNullOrEmpty(definition.Kind) || definition.Label != null)
+            {
+                constraint = new VectorSearchConstraint { Label = definition.Label };
+                switch (definition.Kind)
+                {
+                    case null:
+                    case "":
+                    case "any":
+                        constraint.Kind = VectorSearchElementKind.Any;
+                        break;
+                    case "vertex":
+                        constraint.Kind = VectorSearchElementKind.Vertex;
+                        break;
+                    case "edge":
+                        constraint.Kind = VectorSearchElementKind.Edge;
+                        break;
+                    default:
+                        return BadRequest(String.Format("'{0}' is not a valid kind. Expected vertex, edge or any.", definition.Kind));
+                }
+            }
+
+            if (!vectorIndex.TryNearestNeighbors(out var result, definition.Query, definition.K, constraint))
+            {
+                return BadRequest(String.Format(
+                    "Invalid kNN query: the query must have dimension {0} with finite components, k must be within [1, {1}], and a Cosine query must not be zero-norm.",
+                    vectorIndex.Dimension, VectorIndex.MaxK));
+            }
+
+            var results = new List<VectorScoredElementREST>(result.Entries.Count);
+            foreach (var entry in result.Entries)
+            {
+                results.Add(new VectorScoredElementREST { GraphElementId = entry.Element.Id, Score = entry.Score });
+            }
+
+            return Ok(new VectorSearchResultREST
+            {
+                Metric = result.Metric.ToString(),
+                HigherIsBetter = result.HigherIsBetter,
+                Results = results
+            });
+        }
+
+        /// <summary>
         /// Performs a spatial distance search using a spatial index
         /// </summary>
         /// <param name="definition">Spatial search specification with index ID, reference element and distance</param>
@@ -1090,20 +1338,29 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <response code="200">Returns the found paths between the vertices</response>
-        /// <response code="400">Invalid path specification</response>
+        /// <response code="400">Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind</response>
         /// <response code="401">No valid credential was supplied</response>
-        /// <response code="403">Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)</response>
-        /// <response code="404">Source or target vertex not found</response>
+        /// <response code="403">The request carries inline filter/cost fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery - or carrying no fragments at all - are NOT gated by that switch.</response>
+        /// <response code="404">Source or target vertex not found, or no stored query with the referenced name exists</response>
+        /// <response code="409">The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name})</response>
         /// <response code="413">The request body exceeds the code-endpoint size limit</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         /// <remarks>
-        /// SECURITY: the filter/cost fragments in the body are compiled with Roslyn and executed
-        /// IN-PROCESS WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone
-        /// permitted to reach it is trusted as the server process. It requires an authenticated caller
-        /// AND the operator to have set Fallen8:Security:EnableDynamicCodeExecution=true.
+        /// Instead of inline fragments, the body may reference a registered stored query of kind
+        /// "Path" via "storedQuery" (mutually exclusive with "filter"/"cost"): the pre-compiled
+        /// artifact is used and nothing is compiled per request. The numeric bounds and
+        /// "pathAlgorithmName" stay per-request either way.
+        ///
+        /// SECURITY: inline filter/cost fragments are compiled with Roslyn and executed IN-PROCESS
+        /// WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone permitted to
+        /// introduce code is trusted as the server process. The dynamic-code gate is
+        /// REQUEST-SHAPE-AWARE (feature stored-query-library): only a request that INTRODUCES code
+        /// (any inline fragment) requires Fallen8:Security:EnableDynamicCodeExecution=true; invoking
+        /// an operator-registered stored query - or a filterless search, which compiles no
+        /// user-supplied code - does not. An invoked stored query still runs with full trust: the
+        /// library narrows who can introduce code, it is not a sandbox.
         /// </remarks>
         [HttpPost("/path/{from}/to/{to}")]
-        [Authorize(Policy = Fallen8SecurityOptions.DynamicCodePolicy)]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [RequestSizeLimit(1_048_576)]
         [Produces("application/json")]
@@ -1113,6 +1370,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<List<PathREST>> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {
             // Always initialize with empty list to avoid returning null
@@ -1125,6 +1383,22 @@ namespace NoSQL.GraphDB.App.Controllers
                     definition = new PathSpecification();
                 }
 
+                // Request-shape-aware dynamic-code gate (feature stored-query-library): only a
+                // request that INTRODUCES code - any inline filter/cost fragment - requires the
+                // EnableDynamicCodeExecution capability. A storedQuery reference or a filterless
+                // request compiles no user-supplied code and passes with the switch off.
+                // Authentication itself is unchanged (the fallback policy applies as on every
+                // endpoint); this replaces the former endpoint-level DynamicCodePolicy, which
+                // gated the whole endpoint regardless of request shape.
+                if (CarriesInlineCode(definition))
+                {
+                    var denied = DenyUnlessDynamicCodeCapability();
+                    if (denied != null)
+                    {
+                        return denied;
+                    }
+                }
+
                 // Special case - when MaxDepth is 0, no paths can be found
                 if (definition.MaxDepth <= 0)
                 {
@@ -1133,9 +1407,28 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 IPathTraverser traverser = null;
 
+                if (!String.IsNullOrWhiteSpace(definition.StoredQuery))
+                {
+                    // Stored-query invocation (feature stored-query-library): resolve the name to
+                    // its pinned, pre-compiled traverser - nothing is compiled and the inline
+                    // caches are never consulted. Mutually exclusive with inline fragments; the
+                    // trigger is actual code (a non-blank fragment), matching the capability gate
+                    // and the /subgraph endpoint's semantics.
+                    if (CarriesInlineCode(definition))
+                    {
+                        return BadRequest("'storedQuery' is mutually exclusive with inline 'filter'/'cost' fragments.");
+                    }
+
+                    var resolutionError = StoredQueryResolver.TryResolvePathTraverser(_fallen8, definition.StoredQuery, out traverser);
+                    if (resolutionError != null)
+                    {
+                        // The resolver returns concrete ActionResult subclasses (404/400/409).
+                        return (ActionResult)resolutionError;
+                    }
+                }
                 // Cache lookup keys on (Filter, Cost) only (feature codegen-cache-keying), so requests
                 // that differ solely in a numeric bound / algorithm name reuse one compiled traverser.
-                if (!_cache.TryGetTraverser(definition, out traverser))
+                else if (!_cache.TryGetTraverser(definition, out traverser))
                 {
                     //Traverser was not cached
                     var compilerMessage = CodeGenerationHelper.GeneratePathTraverser(out traverser, definition);

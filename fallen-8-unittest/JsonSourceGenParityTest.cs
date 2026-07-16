@@ -504,6 +504,99 @@ namespace NoSQL.GraphDB.Tests
                 }, "PathSpecification"),
                 (new PathFilterSpecification(), "PathFilterSpecification"),
                 (new PathCostSpecification(), "PathCostSpecification"),
+                (new VectorIndexAddSpecification
+                {
+                    GraphElementId = 42,
+                    Vector = new[] { 0.12f, -0.5f, 0.33f }
+                }, "VectorIndexAddSpecification (explicit mode)"),
+                (new VectorIndexAddSpecification
+                {
+                    GraphElementId = 42,
+                    PropertyId = "embedding"
+                }, "VectorIndexAddSpecification (property mode)"),
+                (new VectorIndexScanSpecification
+                {
+                    IndexId = "myEmbeddings",
+                    Query = new[] { 0.1f, 0.2f, 0.3f },
+                    K = 10,
+                    Kind = "vertex",
+                    Label = "person"
+                }, "VectorIndexScanSpecification"),
+                (new VectorSearchResultREST
+                {
+                    Metric = "Cosine",
+                    HigherIsBetter = true,
+                    Results = new List<VectorScoredElementREST>
+                    {
+                        new VectorScoredElementREST { GraphElementId = 7, Score = 0.93f }
+                    }
+                }, "VectorSearchResultREST"),
+                (new VectorScoredElementREST { GraphElementId = 7, Score = 0.93f }, "VectorScoredElementREST"),
+                (new BulkImportResultREST
+                {
+                    VerticesCreated = 10000,
+                    EdgesCreated = 25000,
+                    LinesRead = 35001
+                }, "BulkImportResultREST"),
+                (new ChangeEventREST
+                {
+                    Seq = 4712,
+                    Ts = new DateTime(2026, 7, 15, 12, 34, 56, 789, DateTimeKind.Utc),
+                    Kind = "propertySet",
+                    Element = "vertex",
+                    Id = 42,
+                    Label = "person",
+                    Key = "name"
+                }, "ChangeEventREST"),
+                (new ChangeEventREST
+                {
+                    Seq = 4713,
+                    Ts = new DateTime(2026, 7, 15, 12, 34, 56, 789, DateTimeKind.Utc),
+                    Kind = "resync",
+                    Reason = "trim"
+                }, "ChangeEventREST (resync, null-omitting fields)"),
+                (new StoredQuerySpecification
+                {
+                    Name = "adults-shortest",
+                    Kind = "Path",
+                    Description = "age>30 vertices",
+                    Path = new StoredPathQueryBlock
+                    {
+                        Filter = new PathFilterSpecification(),
+                        Cost = new PathCostSpecification()
+                    }
+                }, "StoredQuerySpecification"),
+                (new StoredPathQueryBlock
+                {
+                    Filter = new PathFilterSpecification(),
+                    Cost = new PathCostSpecification()
+                }, "StoredPathQueryBlock"),
+                (new StoredSubGraphQueryBlock
+                {
+                    VertexFilter = "return (ge) => ge.Label == \"person\";",
+                    EdgeFilter = "return (ge) => ge.Label == \"knows\";",
+                    Patterns = new List<PatternSpecification>
+                    {
+                        new PatternSpecification { Type = "Vertex", PatternName = "start" }
+                    }
+                }, "StoredSubGraphQueryBlock"),
+                (new StoredQuerySummaryREST
+                {
+                    Name = "adults-shortest",
+                    Kind = "Path",
+                    Description = "age>30 vertices",
+                    CreatedAt = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc),
+                    CompileState = "Compiled"
+                }, "StoredQuerySummaryREST"),
+                (new StoredQueryDetailREST
+                {
+                    Name = "person-net",
+                    Kind = "SubGraph",
+                    CreatedAt = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc),
+                    CompileState = "Failed",
+                    SpecificationJson = "{\"vertexFilter\":\"return (ge) => true;\"}",
+                    CompileDiagnostics = "ID: CS1002, Message: ; expected"
+                }, "StoredQueryDetailREST"),
                 (new LiteralSpecification { Value = "John Doe", FullQualifiedTypeName = "System.String" }, "LiteralSpecification"),
                 (new PluginSpecification
                 {
@@ -604,7 +697,64 @@ namespace NoSQL.GraphDB.Tests
                             EngineVersion = "0.9.3.0"
                         }
                     }
-                }, "SaveGameRegistryDocument")
+                }, "SaveGameRegistryDocument"),
+                (new Dictionary<string, string>
+                {
+                    { "PAGERANK", "PageRank via power iteration" },
+                    { "WCC", "Weakly connected components" }
+                }, "Dictionary<String,String> (analytics algorithms listing)"),
+                (new AnalyticsSpecification
+                {
+                    VertexLabel = "person",
+                    EdgePropertyId = "knows",
+                    Direction = "out",
+                    MaxIterations = 100,
+                    Epsilon = 1e-6,
+                    TimeBudgetSeconds = 30,
+                    Parameters = new Dictionary<string, double> { { "DampingFactor", 0.85 } },
+                    MaxResults = 10,
+                    WriteBack = true,
+                    WriteBackPropertyKey = "analytics.pagerank"
+                }, "AnalyticsSpecification"),
+                (new AnalyticsResultREST
+                {
+                    Algorithm = "PAGERANK",
+                    Converged = true,
+                    IterationsRun = 23,
+                    ElapsedMs = 184.2,
+                    BudgetExhausted = false,
+                    VertexCount = 4,
+                    Statistics = new Dictionary<string, double> { { "ComponentCount", 2d } },
+                    Results = new List<ScoredVertexREST>
+                    {
+                        new ScoredVertexREST { GraphElementId = 7, Score = 0.25 }
+                    },
+                    Partitions = new List<PartitionSummaryREST>
+                    {
+                        new PartitionSummaryREST { PartitionId = 0, Size = 42 }
+                    },
+                    WriteBack = new WriteBackResultREST
+                    {
+                        PropertyKey = "analytics.pagerank",
+                        VerticesWritten = 4,
+                        Chunks = 1
+                    }
+                }, "AnalyticsResultREST"),
+                (new ScoredVertexREST { GraphElementId = 7, Score = 0.25 }, "ScoredVertexREST"),
+                (new PartitionSummaryREST { PartitionId = 0, Size = 42 }, "PartitionSummaryREST"),
+                (new PartitionMembersREST
+                {
+                    PartitionId = 0,
+                    Size = 42,
+                    Offset = 10,
+                    Members = new List<int> { 10, 11, 12 }
+                }, "PartitionMembersREST"),
+                (new WriteBackResultREST
+                {
+                    PropertyKey = "analytics.wcc",
+                    VerticesWritten = 42,
+                    Chunks = 1
+                }, "WriteBackResultREST")
             };
         }
 

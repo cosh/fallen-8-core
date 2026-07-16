@@ -111,7 +111,7 @@ annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`).
 | read | `f8_status` | `GET /status` |
 | read | `f8_get_vertex`, `f8_get_edge` | `GET /vertex/{id}`, `GET /edge/{id}` (+ adjacency lookups) |
 | read | `f8_scan_index`, `f8_fulltext_search`, `f8_range_scan` | the scan endpoints |
-| read | `f8_find_paths` | `POST /path/{from}/to/{to}` **without** filter fragments |
+| read | `f8_find_paths` | `POST /path/{from}/to/{to}` **without** filter fragments (works with the dynamic-code switch off — the request-shape-aware gate landed with [stored-query-library](../../done/stored-query-library/); that feature's stored invocation is also a natural future tool tier below `code`) |
 | write | `f8_create_vertices`, `f8_create_edges` | the transaction endpoints (`waitForCompletion=true`) |
 | write | `f8_set_property`, `f8_remove_property`, `f8_remove_elements` | property/removal endpoints |
 | write | `f8_define_subgraph` | `PUT /subgraph`, **code-free recipes only** |
@@ -121,6 +121,10 @@ annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`).
 
 Tier gating happens at **both** levels: disabled tiers are absent from `tools/list` *and*
 rejected on `tools/call` (defense against clients replaying cached tool lists).
+
+> Follow-up: the landed [vector-index](../../done/vector-index/) kNN scan
+> (`POST /scan/index/vector`) is a natural `read`-tier tool (`f8_vector_search`) — the
+> GraphRAG entry point for agents. Add it to the read row when this feature is implemented.
 
 Result mapping: F8's problem+json errors (`api-error-contract`) map to MCP tool errors
 (`isError: true` + the problem title/detail); the API key never appears in any error or log.

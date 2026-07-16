@@ -42,6 +42,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -430,6 +431,13 @@ namespace NoSQL.GraphDB.Tests
                 get => _inner.SubGraphRecipeCompiler;
                 set => _inner.SubGraphRecipeCompiler = value;
             }
+            public StoredQueryLibrary StoredQueries => _inner.StoredQueries;
+            public NoSQL.GraphDB.Core.ChangeFeed.ChangeFeedDispatcher ChangeFeed => _inner.ChangeFeed;
+            public IStoredQueryCompiler StoredQueryCompiler
+            {
+                get => _inner.StoredQueryCompiler;
+                set => _inner.StoredQueryCompiler = value;
+            }
             public ILoggerFactory LoggerFactory => _inner.LoggerFactory;
             public void SetId(Guid id) => _inner.SetId(id);
             public void ConfigureAutoTrim(bool enabled, int tombstoneThreshold) => _inner.ConfigureAutoTrim(enabled, tombstoneThreshold);
@@ -448,10 +456,14 @@ namespace NoSQL.GraphDB.Tests
                 => _inner.RangeIndexScan(out result, indexId, leftLimit, rightLimit, includeLeft, includeRight);
             public bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery)
                 => _inner.FulltextIndexScan(out result, indexId, searchQuery);
+            public bool VectorIndexScan(out NoSQL.GraphDB.Core.Index.Vector.VectorSearchResult result, string indexId, float[] query, int k, NoSQL.GraphDB.Core.Index.Vector.VectorSearchConstraint constraint = null)
+                => _inner.VectorIndexScan(out result, indexId, query, k, constraint);
             public bool TryCalculateShortestPath(out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, string plugin, ShortestPathDefinition definition)
                 => _inner.TryCalculateShortestPath(out result, plugin, definition);
             public bool TryCalculateShortestPath<T>(out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm
                 => _inner.TryCalculateShortestPath<T>(out result, definition);
+            public bool TryRunAnalytics(out NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsResult result, string algorithmName, NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsDefinition definition)
+                => _inner.TryRunAnalytics(out result, algorithmName, definition);
         }
     }
 }

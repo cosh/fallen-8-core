@@ -9,7 +9,9 @@
 > format — that teach AI agents (Claude Code and other skill-capable runtimes) how to work
 > with a running Fallen-8. The alternative reading — a *server-side* library of stored,
 > reusable delegate/traversal definitions inside the engine (i.e. stored procedures) — is
-> explicitly **not** this feature; it would be a separate engine feature if wanted.
+> explicitly **not** this feature; that engine feature now exists as
+> [stored-query-library](../../done/stored-query-library/) (skills should teach the
+> register-once/invoke-by-name flow where it fits).
 >
 > **Companion feature:** [mcp-server](../mcp-server/spec.md) gives agents the *tools*;
 > this library gives them the *procedural knowledge*. Neither blocks the other: the skills
@@ -106,6 +108,10 @@ skills/
 Each skill body leads with *when to reach for what* (decision guidance), shows 2–4 canonical
 request/response examples (curl + PowerShell), and links its references. Access-path phrasing
 is REST-first in v1; the MCP-alignment pass (§3.4) adds "via MCP use tool `f8_…`" mappings.
+
+> Follow-up: the landed [vector-index](../../done/vector-index/) feature's GraphRAG recipe
+> (kNN scan → traverse from the hits) belongs in `fallen8-graph-modeling` or a sixth
+> `fallen8-graphrag` skill when this catalog is authored.
 
 ### 3.3 CI enforcement (`SkillLibraryTest`, fallen-8-unittest)
 
