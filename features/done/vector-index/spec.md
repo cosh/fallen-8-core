@@ -1,10 +1,10 @@
 # Vector Index — Specification
 
-> **Status:** Implemented on branch `feature/vector-index` (branch-only workflow — no GitHub
-> issue/PR); council gate pending. See [plan.md](./plan.md) for the phase record.
+> **Status:** Implemented and merged (branch `feature/vector-index`, council-approved
+> 2026-07-16; see [plan.md](./plan.md) for the phase record and council outcome).
 >
-> **Companion features:** [mcp-server](../mcp-server/spec.md) and
-> [skill-library](../skill-library/spec.md) give agents the tools and the know-how to use
+> **Companion features:** [mcp-server](../../open/mcp-server/spec.md) and
+> [skill-library](../../open/skill-library/spec.md) give agents the tools and the know-how to use
 > Fallen-8; this feature gives them the *entry point*: similarity search over embeddings that
 > lands on graph elements, from which the existing traversal/path/subgraph surface takes over
 > (the GraphRAG story). Neither blocks the other.

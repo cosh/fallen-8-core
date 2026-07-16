@@ -100,9 +100,18 @@ Intent: the numbers that police the non-goals, and the GraphRAG story.
 
 ## Phase 5 — Gate
 
-- [ ] Full `dotnet test` green; build 0 warnings/0 errors on the touched projects.
-- [ ] Council review per the repo merge gate; fix findings on the branch;
-  `git merge --no-ff` to `main`; move `features/open/vector-index/` → `features/done/`.
+- [x] Full `dotnet test` green (660 passed); build 0 warnings/0 errors.
+- [x] Council review (three reviewers: correctness/concurrency, regressions/invariants,
+  scope/spec-fidelity). One blocker — NaN/Infinity scores could poison the top-k heap
+  (non-finite components now rejected on add/query, non-finite scores skipped during
+  selection) — plus minors: Load ran with a null logger on the real OpenIndex path and
+  could register a half-initialized index on a corrupt header (now wires the logger and
+  throws), slab growth resize order / Int32 overflow (slab-first, guarded), the purge/
+  re-add race pinning tombstoned elements (refused in the write lock), unlocked counts,
+  Wipe not clearing the slab, a missing churn test, and spec-wording drift (helper vs.
+  controller resolution, TryGetValue bucket). All fixed on the branch; every fix has a
+  pinning test. `git merge --no-ff` to `main`; `features/open/vector-index/` →
+  `features/done/`.
 
 ## Progress
 
@@ -111,7 +120,7 @@ Intent: the numbers that police the non-goals, and the GraphRAG story.
 - [x] Phase 2 — checkpoint save/load
 - [x] Phase 3 — REST endpoints + OpenAPI snapshot
 - [x] Phase 4 — benchmark numbers + README/GraphRAG docs
-- [ ] Phase 5 — council gate, merge + move to done/
+- [x] Phase 5 — council gate, merge + move to done/
 
 ## Decision / revisit conditions
 
