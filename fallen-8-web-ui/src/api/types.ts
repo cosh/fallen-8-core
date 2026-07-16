@@ -47,7 +47,6 @@ export interface StatusREST {
   vertexCount: number;
   edgeCount: number;
   usedMemory: number;
-  freeMemory: number;
   availableIndexPlugins: string[];
   availablePathPlugins: string[];
   availableServicePlugins: string[];

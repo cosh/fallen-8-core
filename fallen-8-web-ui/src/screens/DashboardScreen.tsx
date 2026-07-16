@@ -124,11 +124,10 @@ export function DashboardScreen() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <Stat label="vertices" value={data.vertexCount.toLocaleString()} />
         <Stat label="edges" value={data.edgeCount.toLocaleString()} />
         <Stat label="used memory" value={`${(data.usedMemory / 1024 / 1024).toFixed(1)} MiB`} />
-        <Stat label="free memory" value={`${(data.freeMemory / 1024 / 1024).toFixed(1)} MiB`} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
