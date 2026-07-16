@@ -13,21 +13,24 @@ server-side filtering and a bounded in-memory catch-up buffer. Companion docs:
 3. On ANY `resync` event, re-fetch what you display. For `reason` `trim`, `tabulaRasa` or
    `load`, additionally treat every element id you hold as invalid.
 
-Delivery is in-order (commit order, ascending `seq`), at-most-once per connection; whenever
-continuity is lost — a slow consumer, a buffer overrun, a server restart, an out-of-range
-seek — the stream says so in-band with `resync` instead of silently missing events.
+Delivery is in-order (commit order, strictly ascending `seq` per connection), at-most-once
+per connection; whenever continuity is lost — a slow consumer, a buffer overrun, a server
+restart, an out-of-range seek — the stream says so in-band with `resync` instead of silently
+missing events. A slow consumer's owed `resync(overflow)` is delivered as soon as it frees
+queue space (no further commit required) and carries the sequence number of the last event
+it missed.
 
 ## Opening a stream
 
 ```bash
 # Everything, live:
-curl -N http://localhost:5078/changefeed
+curl -N http://localhost:5000/changefeed
 
 # Only person-vertex creations and removals:
-curl -N "http://localhost:5078/changefeed?kinds=vertexCreated,vertexRemoved&labels=person"
+curl -N "http://localhost:5000/changefeed?kinds=vertexCreated,vertexRemoved&labels=person"
 
 # Catch up after a disconnect (id: value of the last event you saw):
-curl -N "http://localhost:5078/changefeed?since=0b1e4c2e-...:4712"
+curl -N "http://localhost:5000/changefeed?since=0b1e4c2e-...:4712"
 ```
 
 Browser, unauthenticated (loopback developer default):
@@ -109,18 +112,20 @@ endpoint.
 ## Throughput non-regression (measured)
 
 `ChangeFeedThroughputBenchmark` (opt-in, `[TestCategory("Benchmark")]`), 20 000 committed
-single-vertex transactions on a WAL-enabled engine, 2026-07-15, one warm-up round:
+single-vertex transactions per round, three measured rounds after a warm-up, on a
+WAL-enabled engine (2026-07-16):
 
-| Configuration | tx/s |
-|---|---|
-| feed off | 60 219 |
-| feed on, no subscriber | 54 237 |
-| feed on, one draining subscriber | 58 091 |
-| feed on, stalled subscriber (overflow path) | 61 040 |
+| Configuration | median tx/s | rounds (min..max) |
+|---|---|---|
+| feed off | 100 405 | 87 097 .. 105 857 |
+| feed on, no subscriber | 95 905 | 92 503 .. 102 501 |
+| feed on, one draining subscriber | 97 221 | 85 027 .. 106 357 |
+| feed on, stalled subscriber (overflow path) | 104 315 | 82 740 .. 111 234 |
 
-The four configurations are within single-run noise of each other (the stalled run beating
-feed-off is exactly that noise); the writer-side cost is one descriptor capture plus one
-non-blocking channel write per committed transaction, and fan-out happens off the writer.
+The per-round ranges of all four configurations overlap heavily — the differences are
+run-to-run noise (the stalled configuration posting the highest median makes that plain).
+The writer-side cost is one descriptor capture plus one non-blocking channel write per
+committed transaction; fan-out happens off the writer.
 
 ## Deployment note (proxies)
 

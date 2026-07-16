@@ -102,18 +102,24 @@ namespace NoSQL.GraphDB.Tests
                 // Stalled: never read - the queue overflows and the drop+resync path is exercised.
             }
 
-            // Warm-up outside the measurement.
+            // Warm-up outside the measurement, then THREE measured rounds so the recorded
+            // numbers carry variance information rather than single-run noise.
             EnqueueVertices(engine, 1_000);
 
-            var stopwatch = Stopwatch.StartNew();
-            EnqueueVertices(engine, TransactionCount);
-            stopwatch.Stop();
+            var rounds = new List<double>(3);
+            for (var round = 0; round < 3; round++)
+            {
+                var stopwatch = Stopwatch.StartNew();
+                EnqueueVertices(engine, TransactionCount);
+                stopwatch.Stop();
+                rounds.Add(TransactionCount / stopwatch.Elapsed.TotalSeconds);
+            }
 
             subscription?.Dispose();
             drainer?.Wait(2000);
 
-            var txPerSecond = TransactionCount / stopwatch.Elapsed.TotalSeconds;
-            return $"{name}: {TransactionCount} committed tx in {stopwatch.ElapsedMilliseconds} ms = {txPerSecond:F0} tx/s";
+            rounds.Sort();
+            return $"{name}: {TransactionCount} tx/round, rounds [{string.Join(", ", rounds.ConvertAll(r => r.ToString("F0")))}] tx/s, median {rounds[1]:F0} tx/s";
         }
 
         /// <summary>Enqueues single-vertex transactions and waits for the LAST one (group commit

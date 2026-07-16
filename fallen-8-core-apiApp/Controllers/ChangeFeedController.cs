@@ -188,16 +188,30 @@ namespace NoSQL.GraphDB.App.Controllers
             var keepAlive = TimeSpan.FromSeconds(Math.Max(1, _options.KeepAliveSeconds));
             var epoch = feed.Epoch.ToString("D");
 
+            // ONE periodic timer per connection (a Task.WhenAny against a fresh Task.Delay per
+            // event would abandon a live timer for every delivered event - pure churn on a hot
+            // stream). The pending read survives heartbeat rounds.
+            using var heartbeat = new System.Threading.PeriodicTimer(keepAlive);
+
             Task<ChangeEvent> pendingRead = null;
+            Task<bool> pendingTick = null;
             while (!cancellation.IsCancellationRequested)
             {
                 pendingRead ??= ReadNextAsync(subscription, cancellation);
+                pendingTick ??= NextTickAsync(heartbeat, cancellation);
 
-                var completed = await Task.WhenAny(pendingRead, Task.Delay(keepAlive, cancellation));
-                if (completed != pendingRead)
+                var completed = await Task.WhenAny(pendingRead, pendingTick);
+                if (completed == pendingTick)
                 {
+                    var ticked = await pendingTick;
+                    pendingTick = null;
+                    if (!ticked)
+                    {
+                        break; // cancelled while waiting for the heartbeat
+                    }
+
                     // Idle: heartbeat comment (bounds dead-connection detection, defeats proxy
-                    // idle timeouts). The pending read stays pending and is awaited next round.
+                    // idle timeouts).
                     await Response.Body.WriteAsync(_keepAliveBytes, cancellation);
                     await Response.Body.FlushAsync(cancellation);
                     continue;
@@ -220,6 +234,20 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(frame), cancellation);
                 await Response.Body.FlushAsync(cancellation);
+            }
+        }
+
+        /// <summary>Waits for the next heartbeat tick; false when cancelled or the timer is disposed.</summary>
+        private static async Task<bool> NextTickAsync(System.Threading.PeriodicTimer heartbeat,
+            CancellationToken cancellation)
+        {
+            try
+            {
+                return await heartbeat.WaitForNextTickAsync(cancellation);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
             }
         }
 

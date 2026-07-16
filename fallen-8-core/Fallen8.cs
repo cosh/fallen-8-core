@@ -316,22 +316,6 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Initializes a new instance of the Fallen-8 class with an OPT-IN write-ahead log for
-        ///   durability between snapshots (spec P4 / plan Phase 5). When
-        ///   <paramref name="writeAheadLogOptions" /> is null or carries no path, the WAL is disabled
-        ///   and the instance behaves exactly like the default constructor. When a log path is given,
-        ///   an existing log at that path is adopted: a log that predates any snapshot is replayed
-        ///   immediately onto the (empty) graph, while a log anchored to a snapshot is replayed later
-        ///   by <c>Load</c> of that snapshot.
-        ///
-        ///   <para>An optional <paramref name="subGraphRecipeCompiler" /> is registered BEFORE the log
-        ///   is opened, so that an UNANCHORED log's subgraph entries - which replay during construction,
-        ///   before any property could be set - can be recompiled and recovered. For the
-        ///   snapshot-paired path the compiler may instead be assigned to
-        ///   <see cref="SubGraphRecipeCompiler" /> before <c>Load</c> (replay happens during Load); a
-        ///   subgraph entry encountered with no compiler registered is skipped with a warning.</para>
-        /// </summary>
-        /// <summary>
         ///   Initializes a new in-memory instance with an OPT-IN change feed (feature change-feed):
         ///   committed mutations become an in-order event stream with catch-up and per-subscriber
         ///   backpressure. Without options the engine carries no feed.
@@ -345,6 +329,25 @@ namespace NoSQL.GraphDB.Core
             }
         }
 
+        /// <summary>
+        ///   Initializes a new instance of the Fallen-8 class with an OPT-IN write-ahead log for
+        ///   durability between snapshots (spec P4 / plan Phase 5). When
+        ///   <paramref name="writeAheadLogOptions" /> is null or carries no path, the WAL is disabled
+        ///   and the instance behaves exactly like the default constructor. When a log path is given,
+        ///   an existing log at that path is adopted: a log that predates any snapshot is replayed
+        ///   immediately onto the (empty) graph, while a log anchored to a snapshot is replayed later
+        ///   by <c>Load</c> of that snapshot.
+        ///
+        ///   <para>An optional <paramref name="subGraphRecipeCompiler" /> is registered BEFORE the log
+        ///   is opened, so that an UNANCHORED log's subgraph entries - which replay during construction,
+        ///   before any property could be set - can be recompiled and recovered. For the
+        ///   snapshot-paired path the compiler may instead be assigned to
+        ///   <see cref="SubGraphRecipeCompiler" /> before <c>Load</c> (replay happens during Load); a
+        ///   subgraph entry encountered with no compiler registered is skipped with a warning. The
+        ///   optional <paramref name="storedQueryCompiler" /> follows the same rule for stored-query
+        ///   entries, and an optional <paramref name="changeFeedOptions" /> activates the change feed
+        ///   (feature change-feed).</para>
+        /// </summary>
         public Fallen8(ILoggerFactory loggerfactory, WriteAheadLogOptions writeAheadLogOptions,
             ISubGraphRecipeCompiler subGraphRecipeCompiler = null,
             IStoredQueryCompiler storedQueryCompiler = null,

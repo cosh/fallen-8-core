@@ -34,13 +34,33 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
     /// </summary>
     public sealed class ChangeFeedOptions
     {
-        /// <summary>Ring-buffer capacity (events) for <c>?since=</c> catch-up. Default 8192.</summary>
-        public Int32 BufferSize { get; set; } = 8192;
+        private Int32 _bufferSize = 8192;
+        private Int32 _subscriberQueueSize = 1024;
+        private Int32 _maxSubscribers = 32;
 
-        /// <summary>Per-subscriber bounded queue capacity (events). Default 1024.</summary>
-        public Int32 SubscriberQueueSize { get; set; } = 1024;
+        /// <summary>Ring-buffer capacity (events) for <c>?since=</c> catch-up. Default 8192; a
+        /// non-positive value resets to the default (a zero-capacity feed is never intended -
+        /// disable the feed by omitting the options instead).</summary>
+        public Int32 BufferSize
+        {
+            get { return _bufferSize; }
+            set { _bufferSize = value > 0 ? value : 8192; }
+        }
 
-        /// <summary>Maximum concurrent subscribers; a subscribe beyond it is rejected. Default 32.</summary>
-        public Int32 MaxSubscribers { get; set; } = 32;
+        /// <summary>Per-subscriber bounded queue capacity (events). Default 1024; a non-positive
+        /// value resets to the default.</summary>
+        public Int32 SubscriberQueueSize
+        {
+            get { return _subscriberQueueSize; }
+            set { _subscriberQueueSize = value > 0 ? value : 1024; }
+        }
+
+        /// <summary>Maximum concurrent subscribers; a subscribe beyond it is rejected. Default 32;
+        /// a non-positive value resets to the default.</summary>
+        public Int32 MaxSubscribers
+        {
+            get { return _maxSubscribers; }
+            set { _maxSubscribers = value > 0 ? value : 32; }
+        }
     }
 }

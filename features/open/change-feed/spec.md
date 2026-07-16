@@ -150,9 +150,12 @@ the writer is the only producer), it:
 4. **Fans out** to each live subscriber: applies the subscriber's compiled filter (§3.4) and
    `TryWrite`s into the subscriber's own bounded channel. Overflow handling per §3.5.
 
-`resync` events (from Trim/TabulaRasa/Load/DelegateTransaction descriptors, from the
-lost-events flag, or synthesized at subscribe time) get sequence numbers and enter the ring
-buffer like any other event, so a replay from `?since=` reproduces them in order.
+GLOBAL `resync` events (from Trim/TabulaRasa/Load/DelegateTransaction descriptors and from
+the inbox lost-events flag) get sequence numbers and enter the ring buffer like any other
+event, so a replay from `?since=` reproduces them in order. PER-CONNECTION resyncs do not
+enter the ring: a subscribe-time `seekOutOfRange` carries the feed's current head position,
+and a slow consumer's owed `overflow` resync carries the sequence number of the last event
+DROPPED for that subscriber — so every connection still observes strictly ascending ids.
 
 Ordering guarantee stated plainly: **all subscribers observe the same events in the same
 total order (ascending seq), which is commit order.** Filtering removes events from a
@@ -212,7 +215,8 @@ does that anyway to get typed properties. Values-on-request is a parked non-goal
 
 ### 3.4 Transport: SSE endpoint & filter grammar
 
-`GET /api/v{version:apiVersion}/changefeed` on the new `ChangeFeedController`
+`GET /changefeed` on the new `ChangeFeedController` (an absolute route override on the
+standard versioned controller, the convention every controller in the app uses)
 (`Produces("text/event-stream")`, `[ProducesResponseType]` for 200/400/401/503, XML
 `<summary>`/`<remarks>` per repo convention). Response is an unbounded SSE stream:
 
@@ -293,9 +297,11 @@ leak into logs and proxies.
 
 **Backpressure / slow consumers.** Each subscriber owns a bounded channel
 (`SubscriberQueueSize`, default 1024). The dispatcher's `TryWrite` never blocks: on a full
-queue the dispatcher **stops enqueueing for that subscriber, marks it overflowed, and
-enqueues a single `resync` (`reason: "overflow"`) as soon as space frees** (drop + resync
-marker). One slow consumer therefore costs everyone else nothing and costs the writer
+queue the dispatcher **stops enqueueing for that subscriber, marks it overflowed, and a
+waiter enqueues a single `resync` (`reason: "overflow"`) the moment the consumer frees
+queue space — no further commit is required** (an idle tail after a burst must never leave
+continuity loss unsignaled), the resync carrying the seq of the last dropped event (drop +
+resync marker). One slow consumer therefore costs everyone else nothing and costs the writer
 nothing; the slow consumer keeps its connection and is told, in-band, that it must re-fetch.
 The same pattern covers the writer→dispatcher inbox (§3.1): inbox overflow becomes a
 `resync` to the ring and all subscribers.
@@ -314,7 +320,8 @@ The same pattern covers the writer→dispatcher inbox (§3.1): inbox overflow be
 }
 ```
 
-Bound to a validated options type in the hosted app (hosted-durability-lifecycle pattern) and
+Bound to an options type in the hosted app (hosted-durability-lifecycle pattern; non-positive
+values are normalized to the defaults rather than rejected) and
 passed to the engine as `ChangeFeedOptions` at construction, next to `WriteAheadLogOptions`.
 `Enabled: false` reverts the hosted app to today's behaviour exactly (endpoint answers 503
 "change feed disabled" — or is absent from routing; pick 503 for a stable OpenAPI surface —
@@ -324,10 +331,13 @@ and the engine hook is a null check).
 
 - Studio's API client gains a `streamChanges(filter, since, onEvent, onResync)` helper built
   on `fetch()` + SSE parsing, carrying the instance's auth headers like every other call.
-- **Canvas/browser live mode:** subscribe filtered to what is on screen (the labels present
-  on the canvas, `elements` per view); `vertexCreated`/`edgeCreated` matching the filter →
-  fetch the element and add/refresh; `*Removed` → drop it from the canvas;
-  `propertySet`/`propertyRemoved` on a displayed element → re-fetch that element's detail.
+- **Canvas/browser live mode (as built):** ONE unfiltered stream per active instance, with
+  the event-to-view mapping applied client-side as debounced, deduplicated react-query
+  invalidations (status/graph/element-detail keys) — in a multi-screen react-query app this
+  beats per-screen server-side filters, which would force a stream per screen or a reconnect
+  on every navigation. Direct canvas updates where they are exact: `*Removed` drops the
+  element (incident edges cascade), and an `edgeCreated` between two on-screen vertices
+  fetches and merges the edge; other events re-fetch through the invalidations.
 - **Resync handling is mandatory, not optional:** on any `resync`, Studio re-fetches the
   visible state (the same fetches the screen issued to render initially) and, for
   `reason: "trim"`/`"tabulaRasa"`/`"load"`, treats all held ids as invalid.
@@ -358,8 +368,9 @@ All tests MSTest in `fallen-8-unittest`, arrange/act/assert, `TestLoggerFactory.
   configured buffer.
 - **Backpressure.** A deliberately stalled subscriber overflows its queue → it receives
   exactly one `resync{overflow}` (no duplicate storm) and resumes live; a concurrent fast
-  subscriber misses nothing; write throughput during the stall is unaffected (asserted via
-  the benchmark harness); the writer thread never blocks (no fan-out on the writer).
+  subscriber misses nothing; write throughput during the stall is recorded via the opt-in
+  benchmark harness (multi-round numbers with variance in the feature README); the writer
+  thread never blocks (no fan-out on the writer).
 - **Lifecycle.** Disconnect unregisters the subscription (observed via subscriber count);
   `MaxSubscribers + 1` → 503; engine dispose stops the dispatcher cleanly.
 - **Security surface.** No API key → 401 on the endpoint; the feed works fully with

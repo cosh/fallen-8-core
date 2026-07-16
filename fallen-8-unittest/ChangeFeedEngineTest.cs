@@ -641,36 +641,227 @@ namespace NoSQL.GraphDB.Tests
                 "a slow sibling must cost the fast subscriber nothing");
             Assert.IsTrue(fastEvents.Select(e => e.Seq).SequenceEqual(fastEvents.Select(e => e.Seq).OrderBy(s => s)));
 
-            // The stalled subscriber holds only its 2-slot buffered head; the overflow marker is
-            // owed and lands with the next delivery once space exists. Drain with TryRead (a
+            // The stalled subscriber holds only its 2-slot buffered head; draining it frees space
+            // and the owed resync(overflow) must arrive WITHOUT any further commit - an idle tail
+            // after a burst must never leave continuity loss unsignaled. Drain with TryRead (a
             // timed-out async read would stay pending and steal the next event).
             WaitForSeq(small, total);
             var drained = new List<ChangeEvent>();
-            while (stalled.Reader.TryRead(out var buffered))
+            while (stalled.Reader.TryRead(out var buffered) && buffered.Kind == ChangeEventKind.VertexCreated)
             {
                 drained.Add(buffered);
             }
             Assert.AreEqual(2, drained.Count, "the stalled queue held exactly its capacity");
-            Assert.IsTrue(drained.All(e => e.Kind == ChangeEventKind.VertexCreated));
 
-            // The next commit delivers EXACTLY ONE resync(overflow), then the live event - the
-            // in-band "you must re-fetch" signal, no duplicate storm.
+            var resync = Read(stalled);
+            Assert.AreEqual(ChangeEventKind.Resync, resync.Kind, "the owed resync lands as soon as space frees");
+            Assert.AreEqual("overflow", resync.ResyncReason);
+            Assert.AreEqual(total, resync.Seq, "the resync reports the last DROPPED position");
+            AssertQuiet(stalled); // exactly one resync, no duplicate storm
+
+            // Live delivery resumes with strictly ascending seq after the resync.
             var resumeTx = new CreateVertexTransaction
             {
                 Definition = new NoSQL.GraphDB.Core.Model.VertexDefinition { CreationDate = 1u, Label = "person" }
             };
             small.EnqueueTransaction(resumeTx).WaitUntilFinished();
 
-            var resync = Read(stalled);
-            Assert.AreEqual(ChangeEventKind.Resync, resync.Kind);
-            Assert.AreEqual("overflow", resync.ResyncReason);
-
             var resumed = Read(stalled);
             Assert.AreEqual(ChangeEventKind.VertexCreated, resumed.Kind);
+            Assert.IsTrue(resumed.Seq > resync.Seq, "per-connection ids stay strictly ascending");
             AssertQuiet(stalled);
 
             stalled.Dispose();
             fast.Dispose();
+        }
+
+        [TestMethod]
+        public void ConcurrentProducers_YieldStrictlyAscendingSeqs_WithContiguousBatches()
+        {
+            using var subscription = Subscribe();
+
+            // Four concurrent enqueuers, each committing 25 two-vertex batches. The single
+            // writer serializes commits; the feed must reproduce that order: strictly ascending,
+            // gap-free seqs with every batch's two events contiguous (same commit timestamp).
+            const int producers = 4;
+            const int batchesPerProducer = 25;
+            var tasks = new List<Task>();
+            for (var p = 0; p < producers; p++)
+            {
+                tasks.Add(Task.Run(() =>
+                {
+                    for (var i = 0; i < batchesPerProducer; i++)
+                    {
+                        var tx = new CreateVerticesTransaction();
+                        tx.AddVertex(1u, "person");
+                        tx.AddVertex(1u, "person");
+                        _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+                    }
+                }));
+            }
+            Task.WaitAll(tasks.ToArray(), 30_000);
+
+            const int totalEvents = producers * batchesPerProducer * 2;
+            var events = ReadMany(subscription, totalEvents, timeoutMs: 30_000);
+
+            for (var i = 0; i < totalEvents; i++)
+            {
+                Assert.AreEqual(i + 1, events[i].Seq, "seqs are gap-free and strictly ascending under concurrent producers");
+            }
+
+            // Batch contiguity: events pair up per transaction (shared commit timestamp).
+            for (var i = 0; i < totalEvents; i += 2)
+            {
+                Assert.AreEqual(events[i].Ts, events[i + 1].Ts,
+                    "a batch transaction's events are contiguous (no interleaving across commits)");
+            }
+        }
+
+        [TestMethod]
+        public void InboxOverflow_BecomesAResync_ForRingAndSubscribers()
+        {
+            // Deterministic inbox overflow via the engine's INTERNAL test seams (reached by
+            // reflection - the engine declares no InternalsVisibleTo): a 1-slot inbox and a
+            // paused dispatcher. While paused, the second descriptor fills the inbox and the
+            // third is DROPPED by the writer (lost-events flag); on resume the dispatcher must
+            // turn that into a resync(overflow) for the ring and every subscriber.
+            using var feed = CreateFeedWithInboxCapacity(1);
+
+            Assert.IsTrue(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription));
+            using (subscription)
+            {
+                // Let the dispatcher deliver one descriptor first, then pause it and saturate
+                // the inbox.
+                PublishTestDescriptor(feed);
+                Assert.IsTrue(SpinWait.SpinUntil(() => feed.LastSeq >= 1, 5000));
+
+                using (PauseDispatch(feed))
+                {
+                    PublishTestDescriptor(feed); // parks in the 1-slot inbox
+                    PublishTestDescriptor(feed); // inbox full -> dropped, lost-events flag set
+                }
+
+                var first = Read(subscription);
+                Assert.AreEqual(ChangeEventKind.VertexCreated, first.Kind);
+
+                var second = Read(subscription);
+                Assert.AreEqual(ChangeEventKind.VertexCreated, second.Kind);
+
+                var resync = Read(subscription);
+                Assert.AreEqual(ChangeEventKind.Resync, resync.Kind,
+                    "a writer-side inbox drop must surface as a resync - continuity loss is never silent");
+                Assert.AreEqual("overflow", resync.ResyncReason);
+
+                // The resync entered the ring like any other event: a catch-up replay reproduces it.
+                Assert.IsTrue(feed.TrySubscribe(ChangeFeedFilter.MatchAll, feed.Epoch, 2, out var replayer));
+                using (replayer)
+                {
+                    var replayed = Read(replayer);
+                    Assert.AreEqual(ChangeEventKind.Resync, replayed.Kind);
+                    Assert.AreEqual(resync.Seq, replayed.Seq);
+                }
+            }
+        }
+
+        #region reflection access to the engine's internal test seams
+
+        private static ChangeFeedDispatcher CreateFeedWithInboxCapacity(int inboxCapacity)
+        {
+            var logger = TestLoggerFactory.Create().CreateLogger<ChangeFeedDispatcher>();
+            return (ChangeFeedDispatcher)Activator.CreateInstance(
+                typeof(ChangeFeedDispatcher),
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                binder: null,
+                args: new object[] { new ChangeFeedOptions(), logger, inboxCapacity },
+                culture: null);
+        }
+
+        private static void PublishTestDescriptor(ChangeFeedDispatcher feed)
+        {
+            var builder = new NoSQL.GraphDB.Core.ChangeFeed.ChangeDescriptor.Builder();
+            builder.VertexCreated(0, "person");
+            var buildOrNull = typeof(NoSQL.GraphDB.Core.ChangeFeed.ChangeDescriptor.Builder)
+                .GetMethod("BuildOrNull", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var descriptor = buildOrNull.Invoke(builder, null);
+
+            var publish = typeof(ChangeFeedDispatcher)
+                .GetMethod("Publish", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            publish.Invoke(feed, new[] { descriptor });
+        }
+
+        private static IDisposable PauseDispatch(ChangeFeedDispatcher feed)
+        {
+            var pause = typeof(ChangeFeedDispatcher)
+                .GetMethod("PauseDispatchForTest", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            return (IDisposable)pause.Invoke(feed, null);
+        }
+
+        #endregion
+
+        [TestMethod]
+        public void WalEnabledEngine_DeliversEvents_AfterDurableCommit()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "f8_cfwal_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                using var walEngine = new Fallen8(_loggerFactory,
+                    new WriteAheadLogOptions(Path.Combine(tempDir, "cf.wal")), null, null, new ChangeFeedOptions());
+
+                Assert.IsTrue(walEngine.ChangeFeed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription));
+                using (subscription)
+                {
+                    var tx = new CreateVertexTransaction
+                    {
+                        Definition = new NoSQL.GraphDB.Core.Model.VertexDefinition { CreationDate = 1u, Label = "person" }
+                    };
+                    var info = walEngine.EnqueueTransaction(tx);
+                    info.WaitUntilFinished();
+                    Assert.IsTrue(info.Durable, "the WAL-enabled commit is durable");
+
+                    var evt = Read(subscription);
+                    Assert.AreEqual(ChangeEventKind.VertexCreated, evt.Kind);
+                    Assert.AreEqual(1, evt.Seq);
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
+            }
+        }
+
+        [TestMethod]
+        public void Filters_ElementsDimension_AndOrWithinADimension()
+        {
+            using var edgesOnly = Subscribe(ChangeFeedFilter.Create(elements: new[] { ChangeElementType.Edge }));
+            using var twoLabels = Subscribe(ChangeFeedFilter.Create(labels: new[] { "person", "robot" }));
+            using var twoKinds = Subscribe(ChangeFeedFilter.Create(
+                kinds: new[] { ChangeEventKind.VertexCreated, ChangeEventKind.EdgeCreated }));
+
+            var (a, b) = TwoVertices("person", "robot");
+            var tx = new CreateVerticesTransaction();
+            tx.AddVertex(1u, "company");
+            _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+            var edgeId = Edge(a, b);
+
+            // elements=edge: exactly the edge event.
+            var edgeEvent = Read(edgesOnly);
+            Assert.AreEqual(edgeId, edgeEvent.Id);
+            Assert.AreEqual(ChangeElementType.Edge, edgeEvent.Element);
+            AssertQuiet(edgesOnly);
+
+            // labels=person,robot (OR within the dimension): both labeled vertices; neither the
+            // company vertex nor the knows-labeled edge matches.
+            var labeled = ReadMany(twoLabels, 2);
+            CollectionAssert.AreEquivalent(new[] { "person", "robot" },
+                labeled.Select(e => e.Label).ToArray());
+            AssertQuiet(twoLabels);
+
+            // kinds=vertexCreated,edgeCreated (OR): all four creates, nothing else would pass.
+            var kinds = ReadMany(twoKinds, 4);
+            Assert.IsTrue(kinds.All(e =>
+                e.Kind == ChangeEventKind.VertexCreated || e.Kind == ChangeEventKind.EdgeCreated));
+            AssertQuiet(twoKinds);
         }
 
         [TestMethod]

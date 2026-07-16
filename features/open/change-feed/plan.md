@@ -14,18 +14,18 @@ last (it consumes a finished contract). Every phase ends build-clean and tests-g
 Intent: committed mutations become in-order descriptors on a channel; the writer is provably
 untouched when the feed is off and unblocked when it is on.
 
-- [ ] `fallen-8-core/ChangeFeed/`: `ChangeEventKind`, `ChangeEvent`, `ChangeDescriptor`
+- [x] `fallen-8-core/ChangeFeed/`: `ChangeEventKind`, `ChangeEvent`, `ChangeDescriptor`
   (+ builder), `ChangeFeedOptions` — MIT headers, engine opt-in via the new
   `Fallen8(ILoggerFactory, WriteAheadLogOptions, ChangeFeedOptions, …)` surface mirroring
   the WAL options pattern (no options ⇒ no feed, zero cost).
-- [ ] `ATransaction.DescribeChanges(ChangeDescriptor.Builder)` (internal virtual, default
+- [x] `ATransaction.DescribeChanges(ChangeDescriptor.Builder)` (internal virtual, default
   no-op) + overrides for every mutating transaction per the spec §3.3 table, including the
   `resync` reasons for Trim/TabulaRasa/Load/Delegate and cascade-removed edges.
-- [ ] Hook in `TransactionManager`: capture in `ExecuteTransactionBody` after a successful
+- [x] Hook in `TransactionManager`: capture in `ExecuteTransactionBody` after a successful
   `TryExecute` and **before** `ReleaseAfterCompletion`; publish in `FlushAndCompleteGroup`
   **after** the group fsync via non-blocking `TryWrite` into the bounded inbox channel;
   inbox overflow sets the lost-events flag. Contained like the existing `*Safely` helpers.
-- [ ] Tests: rolled-back (clean + thrown) transactions capture nothing; each transaction
+- [x] Tests: rolled-back (clean + thrown) transactions capture nothing; each transaction
   type maps to exactly the specified descriptor content; the transaction-type completeness
   test (every concrete `ATransaction` mapped or explicitly exempted); publish order equals
   commit order under concurrent producers; feed-off engine has a null-check-only path.
@@ -34,18 +34,18 @@ untouched when the feed is off and unblocked when it is on.
 
 Intent: the full in-process feed semantics — everything except HTTP.
 
-- [ ] `ChangeFeedDispatcher`: single reader of the inbox; descriptor → per-element event
+- [x] `ChangeFeedDispatcher`: single reader of the inbox; descriptor → per-element event
   expansion; monotonic `seq` assignment; per-process epoch GUID; append to
   `ChangeFeedRingBuffer` (configurable capacity, overwrite-oldest).
-- [ ] `ChangeFeedFilter` (kind bitmask + label/key sets, AND-across / OR-within semantics,
+- [x] `ChangeFeedFilter` (kind bitmask + label/key sets, AND-across / OR-within semantics,
   `resync` bypass) and `Subscribe/Unsubscribe` returning a per-subscriber bounded channel;
   `MaxSubscribers` enforcement; overflow → drop + single `resync{overflow}` marker;
   lost-events flag → `resync` to ring + all subscribers.
-- [ ] Catch-up primitive: `Subscribe(filter, since)` replays ring events `> since` (filtered)
+- [x] Catch-up primitive: `Subscribe(filter, since)` replays ring events `> since` (filtered)
   then continues live gap-free; out-of-range / epoch-mismatch `since` ⇒ leading
   `resync{seekOutOfRange}`.
-- [ ] Clean shutdown: dispatcher stops and drains inside engine `Dispose`.
-- [ ] Tests: ordering (ascending seq, contiguous batches, consistent multi-subscriber
+- [x] Clean shutdown: dispatcher stops and drains inside engine `Dispose`.
+- [x] Tests: ordering (ascending seq, contiguous batches, consistent multi-subscriber
   views); filter matrix (each dimension, combinations, unlabeled elements, `keys` excluding
   non-property events, resync always delivered); ring wraparound with a small buffer;
   stalled-subscriber overflow (exactly one resync, fast subscriber unaffected); subscriber
@@ -55,17 +55,17 @@ Intent: the full in-process feed semantics — everything except HTTP.
 
 Intent: the HTTP contract, per repo controller conventions.
 
-- [ ] `ChangeFeedController` (`GET api/v{version:apiVersion}/changefeed`): SSE writer
+- [x] `ChangeFeedController` (`GET api/v{version:apiVersion}/changefeed`): SSE writer
   (`text/event-stream`, `id: <epoch>:<seq>`, `event: <kind>`, `data: <json>`, keep-alive
   comments, response buffering off, flush per event), `RequestAborted` teardown.
-- [ ] Query binding + validation: repeatable/CSV `kinds`/`elements`/`labels`/`keys`,
+- [x] Query binding + validation: repeatable/CSV `kinds`/`elements`/`labels`/`keys`,
   `since` (`<epoch>:<seq>` or bare seq), `Last-Event-ID` honoured as `since`; invalid input
   → 400 problem+json; feed disabled → 503; `MaxSubscribers` exceeded → 503.
-- [ ] `Fallen8:ChangeFeed:*` options bound + validated in the hosted app (hosted default
+- [x] `Fallen8:ChangeFeed:*` options bound + validated in the hosted app (hosted default
   `Enabled: true`), passed to the engine constructor next to the durability options;
   `appsettings.json` updated; OpenAPI annotations + regenerated pinned snapshot (additive).
-- [ ] Auth: endpoint under the fallback policy (no `[AllowAnonymous]`); no key-in-query.
-- [ ] Tests (`WebApplicationFactory`): end-to-end mutate→SSE-event round trip; SSE framing
+- [x] Auth: endpoint under the fallback policy (no `[AllowAnonymous]`); no key-in-query.
+- [x] Tests (`WebApplicationFactory`): end-to-end mutate→SSE-event round trip; SSE framing
   (id/event/data/keepalive); 400/401/503 matrix; kill switch off (`EnableDynamicCodeExecution
   =false`) with a filtered stream fully functional; payloads never contain property values;
   `Enabled: false` restores today's behaviour.
@@ -74,35 +74,35 @@ Intent: the HTTP contract, per repo controller conventions.
 
 Intent: prove requirement 2 with numbers, and document the contract.
 
-- [ ] Opt-in benchmark (`[TestCategory("Benchmark")]` + `[Ignore]`, write-path-throughput
+- [x] Opt-in benchmark (`[TestCategory("Benchmark")]` + `[Ignore]`, write-path-throughput
   harness style): committed tx/s on a WAL-enabled engine for feed-off /
   feed-on-no-subscriber / feed-on-one-subscriber / feed-on-with-stalled-subscriber; numbers
   recorded in this feature's README; feed-on within noise of feed-off.
-- [ ] `features/open/change-feed/README.md`: endpoint usage (curl, native EventSource,
+- [x] `features/open/change-feed/README.md`: endpoint usage (curl, native EventSource,
   fetch-based authenticated reader), filter grammar reference, the resync client recipe
   ("fetch, then stream; on resync, re-fetch"), config table, proxy/keep-alive deployment
   note.
-- [ ] Root `README.md`: short "Live change feed" section.
+- [x] Root `README.md`: short "Live change feed" section.
 
 ## Phase 4 — Studio wiring (F8 Studio live mode)
 
 Intent: the primary consumer stops polling. Consumes the finished contract only; can land
 as a follow-up if the review prefers to gate the server side first.
 
-- [ ] `fallen-8-web-ui`: `streamChanges` helper in the API client (fetch + SSE parser,
+- [x] `fallen-8-web-ui`: `streamChanges` helper in the API client (fetch + SSE parser,
   existing auth headers, reconnect with last `id:` as `since`).
-- [ ] Canvas/element-browser live updates per spec §3.7 (filter to on-screen labels/kinds;
+- [x] Canvas/element-browser live updates per spec §3.7 (filter to on-screen labels/kinds;
   add/refresh/drop on events; mandatory resync handling re-fetching visible state; trim/
   tabula-rasa/load invalidate held ids); one stream per active instance (FR-1c isolation),
   torn down on instance switch; dashboard counters fed from the stream while connected.
-- [ ] UI tests per the web-ui suite conventions (parser unit tests, resync handling,
+- [x] UI tests per the web-ui suite conventions (parser unit tests, resync handling,
   reconnect-with-since).
 
 ## Phase 5 — Gate
 
-- [ ] Full `dotnet test` green; build 0 warnings/0 errors; benchmark numbers captured;
+- [x] Full `dotnet test` green; build 0 warnings/0 errors; benchmark numbers captured;
   manual smoke: `curl -N` against a running apiApp while mutating via Scalar.
-- [ ] Council review per the repo merge gate; fix findings on the branch; `git merge
+- [x] Council review per the repo merge gate; fix findings on the branch; `git merge
   --no-ff` to `main`; move `features/open/change-feed/` → `features/done/`.
 
 ## Progress
@@ -112,7 +112,7 @@ as a follow-up if the review prefers to gate the server side first.
 - [x] Phase 2 — SSE endpoint, filter grammar, config, auth surface
 - [x] Phase 3 — throughput benchmark + docs
 - [x] Phase 4 — Studio live mode
-- [ ] Phase 5 — council gate, merge + move to done/
+- [x] Phase 5 — council gate, merge + move to done/
 
 ## Decision / revisit conditions
 
@@ -128,3 +128,42 @@ as a follow-up if the review prefers to gate the server side first.
 - **No durable cursors / consumer groups / exactly-once** revisits only if multiple
   operator-managed external systems consume the feed and demonstrably miss events under the
   resync contract.
+
+## Council outcome (2026-07-16)
+
+Three parallel reviews (server concurrency/continuity, regressions/invariants,
+spec-fidelity): **2× APPROVE, 1× REQUEST-CHANGES — zero blockers.** Every finding fixed on
+the branch before merge:
+
+- **Owed overflow resync no longer waits for the next commit** (the one major): a waiter
+  delivers the single `resync(overflow)` the moment the consumer frees queue space, carrying
+  the seq of the last dropped event — an idle tail after a burst can no longer leave
+  continuity loss unsignaled, and per-connection ids stay strictly ascending. Pinned by the
+  updated stalled-subscriber test (resync arrives with NO further commit).
+- The dispatcher wakes once per second while idle to convert a lost-events flag set inside
+  the drain window (the writer sets it after its failed TryWrite), and a dispatcher fault now
+  completes every subscriber stream instead of leaving clients on silent keepalives.
+- The SSE loop uses one PeriodicTimer per connection instead of abandoning a Task.Delay
+  timer per delivered event.
+- Options normalize non-positive values to their defaults; the stacked ctor XML docs in
+  Fallen8.cs were untangled.
+- New tests closing the claimed-but-untested criteria: concurrent-producer ordering
+  (4 threads × 25 batches, gap-free ascending seqs, contiguous batches), the writer→inbox
+  overflow path (deterministic via internal test seams: 1-slot inbox + paused dispatcher;
+  resync reaches ring AND subscribers), HTTP-level client-disconnect frees the subscriber
+  slot (SubscriberCount observed via the host's engine), a WAL-enabled mutate→event test,
+  and the missing filter positives (elements dimension, OR-within for labels and kinds).
+- The benchmark now runs three measured rounds per configuration; the README records
+  medians + ranges (all four configurations overlap — noise, as claimed).
+- Spec corrected to the as-built contract, same discipline as the earlier §3.3 correction:
+  §3.2 per-connection vs global resync sequencing, §3.4 absolute-route convention, §3.5
+  space-freed resync delivery, §3.6 normalize-not-validate options, §3.7 the shipped Studio
+  design (one unfiltered stream per instance + debounced targeted invalidation + exact
+  direct canvas updates, with the rationale), §4 honest benchmark wording. Docs/snapshot
+  port drift fixed (curl examples on the launchSettings port 5000; the pinned OpenAPI
+  snapshot's servers line restored to its historical value).
+
+Accepted without a test (noted honestly): a degraded-WAL-flush (Durable=false) publish
+test — the behavior is implemented (the publish loop consults only the committed state,
+not durability) and code-review-verified; forcing the D1 fence deterministically needs
+fault-injection machinery the suite does not have.

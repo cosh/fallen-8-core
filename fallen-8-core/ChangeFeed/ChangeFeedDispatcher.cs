@@ -138,6 +138,17 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
         }
 
         public ChangeFeedDispatcher(ChangeFeedOptions options, ILogger<ChangeFeedDispatcher> logger)
+            : this(options, logger, inboxCapacityForTest: null)
+        {
+        }
+
+        /// <summary>
+        ///   Test seam: <paramref name="inboxCapacityForTest"/> shrinks the writer→dispatcher
+        ///   inbox so the overflow path can be exercised deterministically (together with
+        ///   <see cref="PauseDispatchForTest"/>).
+        /// </summary>
+        internal ChangeFeedDispatcher(ChangeFeedOptions options, ILogger<ChangeFeedDispatcher> logger,
+            Int32? inboxCapacityForTest)
         {
             _options = options ?? new ChangeFeedOptions();
             _logger = logger;
@@ -145,7 +156,8 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
 
             // The inbox holds DESCRIPTORS (one per committed transaction, possibly many events
             // each); sized like the ring so a briefly-stalled dispatcher rarely drops.
-            _inbox = Channel.CreateBounded<ChangeDescriptor>(new BoundedChannelOptions(Math.Max(64, _options.BufferSize))
+            _inbox = Channel.CreateBounded<ChangeDescriptor>(new BoundedChannelOptions(
+                inboxCapacityForTest ?? Math.Max(64, _options.BufferSize))
             {
                 SingleWriter = true, // the single writer thread
                 SingleReader = true, // the dispatch loop
@@ -153,6 +165,37 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
             });
 
             _dispatchLoop = Task.Run(DispatchLoopAsync);
+        }
+
+        /// <summary>
+        ///   Test seam: holds the dispatch gate so the dispatcher stalls mid-stream (after it
+        ///   reads a descriptor, before it processes it), letting a test fill the bounded inbox
+        ///   deterministically. Dispose releases the gate. Test-only; never used in production.
+        /// </summary>
+        internal IDisposable PauseDispatchForTest()
+        {
+            System.Threading.Monitor.Enter(_gate);
+            return new GateHold(_gate);
+        }
+
+        private sealed class GateHold : IDisposable
+        {
+            private object _held;
+
+            internal GateHold(object gate)
+            {
+                _held = gate;
+            }
+
+            public void Dispose()
+            {
+                var gate = _held;
+                _held = null;
+                if (gate != null)
+                {
+                    System.Threading.Monitor.Exit(gate);
+                }
+            }
         }
 
         #region writer side
@@ -180,13 +223,38 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
 
         #region dispatcher
 
+        /// <summary>How often an idle dispatcher wakes to convert a pending lost-events flag: the
+        /// writer sets the flag AFTER its failed TryWrite, so a dispatcher that drained and parked
+        /// inside that window would otherwise defer the resync until the next commit - which may
+        /// never come. One timer per second for the whole feed, only while idle.</summary>
+        private static readonly TimeSpan IdleWakeInterval = TimeSpan.FromSeconds(1);
+
         private async Task DispatchLoopAsync()
         {
             try
             {
                 var reader = _inbox.Reader;
-                while (await reader.WaitToReadAsync().ConfigureAwait(false))
+                while (true)
                 {
+                    bool hasData;
+                    try
+                    {
+                        using var idleWake = new CancellationTokenSource(IdleWakeInterval);
+                        hasData = await reader.WaitToReadAsync(idleWake.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Idle wake: convert a lost-events flag set after the last drain, even
+                        // when no further commit ever arrives.
+                        DrainLostEventsFlag();
+                        continue;
+                    }
+
+                    if (!hasData)
+                    {
+                        break; // inbox completed (dispose)
+                    }
+
                     while (reader.TryRead(out var descriptor))
                     {
                         ProcessDescriptor(descriptor);
@@ -195,17 +263,35 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
                     // The inbox is drained: if the writer dropped anything since the last check,
                     // continuity was lost for everyone - ring included, so a later ?since= replay
                     // reproduces the resync in order.
-                    if (Interlocked.Exchange(ref _lostEvents, 0) == 1)
-                    {
-                        ProcessDescriptor(ChangeDescriptor.ForResync(ResyncReasonOverflow));
-                    }
+                    DrainLostEventsFlag();
                 }
+
+                DrainLostEventsFlag();
             }
             catch (Exception ex)
             {
                 // The dispatcher must never take the process down; a fault here degrades the feed,
-                // not the database.
-                _logger?.LogError(ex, "The change-feed dispatcher faulted; the feed stops delivering events.");
+                // not the database - but it must not degrade SILENTLY: complete every subscriber
+                // stream so clients observe the end and reconnect (getting a replay or a resync)
+                // instead of receiving keepalives forever on a dead feed.
+                _logger?.LogError(ex, "The change-feed dispatcher faulted; subscriber streams are completed so clients reconnect.");
+
+                lock (_gate)
+                {
+                    foreach (var subscription in _subscriptions)
+                    {
+                        subscription.Complete();
+                    }
+                    _subscriptions.Clear();
+                }
+            }
+        }
+
+        private void DrainLostEventsFlag()
+        {
+            if (Interlocked.Exchange(ref _lostEvents, 0) == 1)
+            {
+                ProcessDescriptor(ChangeDescriptor.ForResync(ResyncReasonOverflow));
             }
         }
 

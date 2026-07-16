@@ -25,6 +25,7 @@
 
 using System;
 using System.Threading.Channels;
+using System.Threading.Tasks;
 
 namespace NoSQL.GraphDB.Core.ChangeFeed
 {
@@ -32,14 +33,24 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
     ///   One live subscription (feature change-feed): a bounded event queue the dispatcher fills
     ///   and the consumer drains via <see cref="Reader"/>. Backpressure contract: the dispatcher
     ///   NEVER blocks on a slow consumer - on a full queue it stops enqueueing, marks the
-    ///   subscription overflowed, and delivers a single <c>resync(overflow)</c> as soon as space
-    ///   frees; the consumer then re-fetches. Dispose unregisters the subscription and completes
-    ///   the queue.
+    ///   subscription overflowed, and a waiter delivers a single <c>resync(overflow)</c> AS SOON
+    ///   AS the consumer frees queue space (no further commit required - an idle tail after a
+    ///   burst may not produce one, and continuity loss must never stay unsignaled). The owed
+    ///   resync carries the sequence number of the LAST DROPPED event, so a connection's ids stay
+    ///   strictly ascending. Dispose unregisters the subscription and completes the queue.
     /// </summary>
     public sealed class ChangeFeedSubscription : IDisposable
     {
         private readonly ChangeFeedDispatcher _owner;
         private readonly Channel<ChangeEvent> _queue;
+
+        /// <summary>
+        ///   Serializes delivery state (<see cref="_overflowed"/>, <see cref="_lastDroppedSeq"/>)
+        ///   between the dispatcher's <see cref="TryDeliver"/> (called under the dispatcher gate)
+        ///   and the owed-resync waiter (a thread-pool continuation). Never taken on the writer
+        ///   thread and never held across an await.
+        /// </summary>
+        private readonly object _sync = new object();
 
         /// <summary>The subscriber's declarative filter (resync bypasses it).</summary>
         internal ChangeFeedFilter Filter
@@ -47,9 +58,15 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
             get;
         }
 
-        /// <summary>Set when the queue overflowed; the next delivery slot carries resync(overflow).
-        /// Touched only on the dispatcher (single-threaded fan-out).</summary>
+        /// <summary>Set when the queue overflowed; cleared when the owed resync lands.</summary>
         private bool _overflowed;
+
+        /// <summary>The sequence number of the newest event dropped while overflowed - the
+        /// position the owed resync reports.</summary>
+        private long _lastDroppedSeq;
+
+        /// <summary>Whether an owed-resync waiter is currently running (at most one).</summary>
+        private bool _resyncWaiterActive;
 
         /// <summary>The consumer's end of the queue.</summary>
         public ChannelReader<ChangeEvent> Reader => _queue.Reader;
@@ -60,43 +77,101 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
             Filter = filter ?? ChangeFeedFilter.MatchAll;
             _queue = Channel.CreateBounded<ChangeEvent>(new BoundedChannelOptions(Math.Max(1, queueSize))
             {
-                SingleWriter = true,  // the dispatcher (and the subscribe-time replay under the same gate)
+                // Both the dispatcher (under its gate) and the owed-resync waiter write; reads are
+                // the single consumer.
+                SingleWriter = false,
                 SingleReader = true,
                 FullMode = BoundedChannelFullMode.Wait // TryWrite returns false when full - the drop signal
             });
         }
 
         /// <summary>
-        ///   Delivers one event (dispatcher/replay only, under the dispatcher gate). While
-        ///   overflowed, live events are skipped until one <c>resync(overflow)</c> lands; the
-        ///   resync carries the current event's seq so the consumer sees where continuity resumed.
+        ///   Delivers one event (dispatcher/replay only). While overflowed, live events are
+        ///   dropped - they are part of the loss the owed resync covers - and the waiter places
+        ///   that resync the moment the consumer frees space.
         /// </summary>
         internal void TryDeliver(ChangeEvent changeEvent)
         {
-            if (_overflowed)
+            lock (_sync)
             {
-                var resync = ChangeEvent.Resync(changeEvent.Ts, ChangeFeedDispatcher.ResyncReasonOverflow);
-                resync.Seq = changeEvent.Seq;
-                if (!_queue.Writer.TryWrite(resync))
+                if (_overflowed)
                 {
-                    // Still full: the pending resync keeps covering everything missed.
+                    _lastDroppedSeq = changeEvent.Seq;
                     return;
                 }
 
-                _overflowed = false;
-                // Fall through: the event that freed the resync may itself still be deliverable.
-            }
+                if (!Filter.Matches(changeEvent))
+                {
+                    return;
+                }
 
-            if (!Filter.Matches(changeEvent))
+                if (!_queue.Writer.TryWrite(changeEvent))
+                {
+                    // Dropped: the consumer is slow. It is owed exactly one resync, delivered as
+                    // soon as queue space frees - independent of any future commit.
+                    _overflowed = true;
+                    _lastDroppedSeq = changeEvent.Seq;
+                    StartOwedResyncWaiter();
+                }
+            }
+        }
+
+        /// <summary>
+        ///   Starts the single waiter that places the owed <c>resync(overflow)</c> once the
+        ///   consumer frees queue space. Runs on the thread pool - never the writer thread, never
+        ///   the dispatcher gate.
+        /// </summary>
+        private void StartOwedResyncWaiter()
+        {
+            if (_resyncWaiterActive)
             {
                 return;
             }
 
-            if (!_queue.Writer.TryWrite(changeEvent))
+            _resyncWaiterActive = true;
+            _ = DeliverOwedResyncAsync();
+        }
+
+        private async Task DeliverOwedResyncAsync()
+        {
+            try
             {
-                // Dropped: the consumer is slow. It owes exactly one resync (set once; the next
-                // delivery attempt places it as soon as the queue has room).
-                _overflowed = true;
+                while (true)
+                {
+                    // Completes when space is available (the consumer read) or the channel
+                    // completed (unsubscribe/dispose - nothing left to signal).
+                    var canWrite = await _queue.Writer.WaitToWriteAsync().ConfigureAwait(false);
+
+                    lock (_sync)
+                    {
+                        if (!canWrite || !_overflowed)
+                        {
+                            _resyncWaiterActive = false;
+                            return;
+                        }
+
+                        var resync = ChangeEvent.Resync(DateTime.UtcNow, ChangeFeedDispatcher.ResyncReasonOverflow);
+                        resync.Seq = _lastDroppedSeq;
+
+                        if (_queue.Writer.TryWrite(resync))
+                        {
+                            _overflowed = false;
+                            _resyncWaiterActive = false;
+                            return;
+                        }
+
+                        // Space vanished between the wait and the write (only this waiter and the
+                        // dispatcher write, and the dispatcher drops while overflowed - so this is
+                        // a completed-channel race at teardown); loop and re-wait.
+                    }
+                }
+            }
+            catch (ChannelClosedException)
+            {
+                lock (_sync)
+                {
+                    _resyncWaiterActive = false;
+                }
             }
         }
 

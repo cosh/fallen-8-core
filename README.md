@@ -332,7 +332,7 @@ with declarative server-side filters (no code fragments, works with the dynamic-
 off) and an in-memory catch-up buffer:
 
 ```bash
-curl -N "http://localhost:5078/changefeed?kinds=vertexCreated,vertexRemoved&labels=person"
+curl -N "http://localhost:5000/changefeed?kinds=vertexCreated,vertexRemoved&labels=person"
 ```
 
 Events carry ids, labels and property keys — never property values. Whenever continuity is

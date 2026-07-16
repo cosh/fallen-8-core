@@ -259,6 +259,43 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task ClientDisconnect_UnregistersTheSubscription_AndFreesTheSlot()
+        {
+            using var factory = new FeedFactory(new Dictionary<string, string>
+            {
+                ["Fallen8:ChangeFeed:MaxSubscribers"] = "1"
+            });
+            using var client = factory.CreateClient();
+            var feed = ((NoSQL.GraphDB.Core.IFallen8)factory.Services
+                .GetService(typeof(NoSQL.GraphDB.Core.IFallen8))).ChangeFeed;
+
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+            {
+                var (response, _) = await OpenStream(client, "", cts.Token);
+                Assert.IsTrue(SpinWait.SpinUntil(() => feed.SubscriberCount == 1, 5000),
+                    "the open stream holds the only slot");
+
+                // Client disconnect: RequestAborted fires, the controller's finally unregisters.
+                cts.Cancel();
+                response.Dispose();
+            }
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => feed.SubscriberCount == 0, 5000),
+                "the disconnect must unregister the subscription (no slow subscriber-slot leak)");
+
+            // The freed slot is immediately usable.
+            using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var (second, reader) = await OpenStream(client, "", cts2.Token);
+            using (second)
+            {
+                await CreateVertex(client);
+                var frame = await ReadEventFrame(reader, cts2.Token);
+                Assert.AreEqual("vertexCreated", frame.Event);
+                cts2.Cancel();
+            }
+        }
+
+        [TestMethod]
         public async Task WithApiKey_AnonymousIs401_AuthenticatedStreams()
         {
             using var factory = new FeedFactory(new Dictionary<string, string>
