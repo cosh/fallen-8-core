@@ -652,7 +652,7 @@
           "Bulk"
         ],
         "summary": "Streams the graph (or a label-filtered subset) as newline-delimited JSON.",
-        "description": "The stream is fallen8-jsonl version 1: one meta line (format version + exact counts),\r\nthen vertex lines, then edge lines. Edges whose endpoints are not both in the exported\r\nvertex set are omitted, so EVERY exported file is internally consistent and importable\r\nby construction.\r\n\r\nCONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads\r\nare lock-free; a write committed during the export may or may not appear. The\r\nguarantee is internal consistency plus \"everything committed before the export began\r\nis present\" (subject to the label filters). For a point-in-time backup, quiesce writes\r\nor use the save-game machinery.",
+        "description": "The stream is fallen8-jsonl version 1: one meta line (format version + exact counts),\r\nthen vertex lines, then edge lines. Edges whose endpoints are not both in the exported\r\nvertex set are omitted, so EVERY exported file is internally consistent and importable\r\nby construction.\r\n\r\nCONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads\r\nare lock-free; a write committed during the export may or may not appear. The\r\nguarantee is internal consistency plus \"everything committed before the export began\r\nis present\" (subject to the label filters). For a point-in-time backup, quiesce writes\r\nor use the save-game machinery. The same contract covers a property that an\r\nembedded/plugin writer adds DURING the stream: if it is not exportable it is omitted\r\nfrom its element rather than aborting the response (the REST write path cannot create\r\nsuch properties; the pre-stream 422 covers everything present at capture).",
         "parameters": [
           {
             "name": "vertexLabel",
@@ -723,7 +723,7 @@
           "Bulk"
         ],
         "summary": "Imports a fallen8-jsonl stream into an EMPTY graph, assigning fresh engine ids.",
-        "description": "The body is read as a stream and processed line by line; lines batch into large\r\ncreate transactions (Fallen8:BulkIO:ImportBatchSize per transaction = one WAL entry +\r\none fsync each). File ids are remapped unconditionally: they are references within the\r\nfile, resolved for edge endpoints, never preserved as engine ids. A leading meta line\r\nis optional (grep-filtered subset files stay valid); when present, its counts act as a\r\ntruncation guard.\r\n\r\nFAIL-FAST (honest): the first invalid line aborts the import with its exact line\r\nnumber. Batches committed before the failure STAY COMMITTED (each batch is atomic and\r\nWAL-logged; the file is not one transaction) - the error body reports the committed\r\ncounts, and because import requires an empty graph, recovery is always \"/tabularasa,\r\nfix the line, retry\".",
+        "description": "The body is read as a stream and processed line by line; lines batch into large\r\ncreate transactions (Fallen8:BulkIO:ImportBatchSize per transaction = one WAL entry +\r\none fsync each). File ids are remapped unconditionally: they are references within the\r\nfile, resolved for edge endpoints, never preserved as engine ids. A leading meta line\r\nis optional (grep-filtered subset files stay valid); when present, its counts act as a\r\ntruncation guard.\r\n\r\nFAIL-FAST (honest): the first invalid line aborts the import with its exact line\r\nnumber. Batches committed before the failure STAY COMMITTED (each batch is atomic and\r\nWAL-logged; the file is not one transaction) - the error body reports the committed\r\ncounts, and because import requires an empty graph, recovery is always \"/tabularasa,\r\nfix the line, retry\".\r\n\r\nNOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real\r\nKestrel host may enforce it at the transport layer and answer 413 before this action's\r\nown check runs - the status is the same, but the problem body with committed counts is\r\nonly guaranteed when the application-level check fires first.",
         "parameters": [
           {
             "name": "api-version",
@@ -2239,6 +2239,167 @@
           },
           "404": {
             "description": "Index not found or is not a fulltext index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/index/vector/{indexId}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Adds (or replaces) an element's embedding vector in a vector index",
+        "description": "One vector per element: adding again replaces. The generic PUT /index/{indexId} add\r\npath cannot express a float[] key, which is why the vector family has this typed\r\nendpoint (like fulltext and spatial have theirs).\r\n\r\nSample request (explicit mode):\r\n\r\n    PUT /index/vector/myEmbeddings\r\n    {\r\n       \"graphElementId\": 42,\r\n       \"vector\": [0.12, -0.5, 0.33]\r\n    }\r\n\r\nSample request (property mode - reads the element's float[] property):\r\n\r\n    PUT /index/vector/myEmbeddings\r\n    {\r\n       \"graphElementId\": 42,\r\n       \"propertyId\": \"embedding\"\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the vector index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The element and its vector - explicit (\"vector\") or read from a float[] property (\"propertyId\")",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexAddSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexAddSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The vector was indexed (add-again replaced the previous vector)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Not a vector index, neither/both modes supplied, wrong dimension, NaN/Infinity components, zero-norm vector under Cosine, or the named property is missing / not a float[]",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The index or the graph element does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/scan/index/vector": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Finds the k nearest neighbours of a query vector in a vector index",
+        "description": "Exact brute-force kNN (SIMD): deterministic ordering - best score first, ties broken\r\nby ascending element id. Constraints are applied BEFORE scoring, so the returned k are\r\nk MATCHING elements. Removed elements never appear. The GraphRAG recipe: feed the\r\nreturned element ids into the existing traversal surface (POST /path, PUT /subgraph,\r\nproperty reads) - similarity search lands ON the graph.\r\n\r\nSample request:\r\n\r\n    POST /scan/index/vector\r\n    {\r\n       \"indexId\": \"myEmbeddings\",\r\n       \"query\": [0.1, 0.2, 0.3],\r\n       \"k\": 10,\r\n       \"kind\": \"vertex\",\r\n       \"label\": \"person\"\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The kNN query: index, query vector, k, optional kind/label constraints",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the k best-scoring matching elements (fewer when the corpus is smaller)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSearchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Not a vector index, wrong query dimension, NaN/Infinity components, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The index does not exist",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6374,6 +6535,182 @@
           "delegateKind": "VertexFilter",
           "fragment": "return (v) =&gt; v.Label == \"person\";"
         }
+      },
+      "VectorIndexAddSpecification": {
+        "required": [
+          "graphElementId"
+        ],
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The element to index.",
+            "format": "int32",
+            "example": 42
+          },
+          "vector": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The embedding vector (explicit mode). Must match the index dimension."
+          },
+          "propertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The element property holding the vector (property mode); the property must\r\n    be a float[] of the index dimension.",
+            "example": "embedding"
+          }
+        },
+        "description": "Adds (or replaces) an element's vector in a vector index (feature vector-index).\r\nExactly one mode: an explicit float[] VectorIndexAddSpecification.Vector, or string VectorIndexAddSpecification.PropertyId naming\r\na `float[]` property on the element to read the vector from.",
+        "example": {
+          "graphElementId": 42,
+          "vector": [
+            0.12,
+            -0.5,
+            0.33
+          ]
+        }
+      },
+      "VectorIndexScanSpecification": {
+        "required": [
+          "indexId",
+          "query",
+          "k"
+        ],
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The vector index to query.",
+            "example": "myEmbeddings"
+          },
+          "query": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The query vector; must match the index dimension."
+          },
+          "k": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many nearest neighbours to return (1..1024).",
+            "format": "int32",
+            "example": 10
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional element-kind constraint: vertex, edge, or any (default).",
+            "example": "vertex"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional exact (case-sensitive) label constraint; an unlabeled element never\r\n    matches.",
+            "example": "person"
+          }
+        },
+        "description": "A k-nearest-neighbour query against a vector index (feature vector-index).",
+        "example": {
+          "indexId": "myEmbeddings",
+          "query": [
+            0.1,
+            0.2,
+            0.3
+          ],
+          "k": 10,
+          "kind": "vertex",
+          "label": "person"
+        }
+      },
+      "VectorScoredElementREST": {
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The element id.",
+            "format": "int32",
+            "example": 7
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The raw score (no normalization; interpret via metric/higherIsBetter).",
+            "format": "float",
+            "example": 0.93
+          }
+        },
+        "description": "One kNN hit: the element id and its RAW score under the index metric."
+      },
+      "VectorSearchResultREST": {
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The index's metric: Cosine, DotProduct or L2.",
+            "example": "Cosine"
+          },
+          "higherIsBetter": {
+            "type": "boolean",
+            "description": "Whether a HIGHER score is better (false for L2).",
+            "example": true
+          },
+          "results": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/VectorScoredElementREST"
+            },
+            "description": "The hits, best first; ties broken by ascending element id."
+          }
+        },
+        "description": "A kNN result: hits best-first plus the metric and its direction, so an L2 distance can\r\nnever be misread as a similarity."
       },
       "Vertex": {
         "required": [

@@ -456,6 +456,8 @@ namespace NoSQL.GraphDB.Tests
                 => _inner.RangeIndexScan(out result, indexId, leftLimit, rightLimit, includeLeft, includeRight);
             public bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery)
                 => _inner.FulltextIndexScan(out result, indexId, searchQuery);
+            public bool VectorIndexScan(out NoSQL.GraphDB.Core.Index.Vector.VectorSearchResult result, string indexId, float[] query, int k, NoSQL.GraphDB.Core.Index.Vector.VectorSearchConstraint constraint = null)
+                => _inner.VectorIndexScan(out result, indexId, query, k, constraint);
             public bool TryCalculateShortestPath(out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, string plugin, ShortestPathDefinition definition)
                 => _inner.TryCalculateShortestPath(out result, plugin, definition);
             public bool TryCalculateShortestPath<T>(out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm

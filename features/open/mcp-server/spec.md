@@ -122,6 +122,10 @@ annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`).
 Tier gating happens at **both** levels: disabled tiers are absent from `tools/list` *and*
 rejected on `tools/call` (defense against clients replaying cached tool lists).
 
+> Follow-up: the landed [vector-index](../../done/vector-index/) kNN scan
+> (`POST /scan/index/vector`) is a natural `read`-tier tool (`f8_vector_search`) — the
+> GraphRAG entry point for agents. Add it to the read row when this feature is implemented.
+
 Result mapping: F8's problem+json errors (`api-error-contract`) map to MCP tool errors
 (`isError: true` + the problem title/detail); the API key never appears in any error or log.
 Write tools always pass `waitForCompletion` so a success result means the transaction is

@@ -1046,6 +1046,35 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
+        /// <summary>
+        ///   k-nearest-neighbour scan over a vector index (feature vector-index) - the vector
+        ///   analogue of <see cref="FulltextIndexScan"/>: resolve the index, type-check
+        ///   <see cref="Index.Vector.IVectorIndex"/>, delegate. False for an unknown/non-vector
+        ///   index or invalid input.
+        /// </summary>
+        public override bool VectorIndexScan(out Index.Vector.VectorSearchResult result, string indexId,
+            float[] query, int k, Index.Vector.VectorSearchConstraint constraint = null)
+        {
+            result = null;
+
+            if (string.IsNullOrWhiteSpace(indexId) || query == null)
+            {
+                return false;
+            }
+
+            if (!IndexFactory.TryGetIndex(out var index, indexId))
+            {
+                return false;
+            }
+
+            if (index is Index.Vector.IVectorIndex vectorIndex)
+            {
+                return vectorIndex.TryNearestNeighbors(out result, query, k, constraint);
+            }
+
+            return false;
+        }
+
         internal string Save(string path, int savePartitions = 5)
         {
             var actualPath = _persistencyFactory.Save(this, path, savePartitions);
