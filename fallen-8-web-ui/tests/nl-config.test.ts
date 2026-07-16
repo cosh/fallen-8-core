@@ -3,6 +3,7 @@ import {
   DEFAULT_NL_CONFIG,
   isLoopbackEndpoint,
   isNlConfigured,
+  usesApiKey,
 } from "../src/delegate/nl/config";
 import { chatWithModel } from "../src/delegate/nl/generate";
 import { validateDelegate } from "../src/api/endpoints";
@@ -27,6 +28,22 @@ describe("loopback detection (FR-26.10)", () => {
   it("treats remote hosts as non-loopback", () => {
     expect(isLoopbackEndpoint("https://api.example.com")).toBe(false);
     expect(isLoopbackEndpoint("http://192.168.1.20:11434")).toBe(false);
+  });
+});
+
+describe("API key applicability (FR-26.12)", () => {
+  it("never applies to the Ollama kind, regardless of endpoint", () => {
+    expect(usesApiKey(DEFAULT_NL_CONFIG)).toBe(false);
+    expect(
+      usesApiKey({ ...DEFAULT_NL_CONFIG, endpoint: "http://localhost:11434" }),
+    ).toBe(false);
+    expect(
+      usesApiKey({ ...DEFAULT_NL_CONFIG, endpoint: "https://ollama.example.com" }),
+    ).toBe(false);
+  });
+
+  it("applies to OpenAI-compatible custom endpoints", () => {
+    expect(usesApiKey({ ...DEFAULT_NL_CONFIG, apiKind: "openai" })).toBe(true);
   });
 });
 

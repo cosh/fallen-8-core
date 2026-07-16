@@ -108,5 +108,20 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   The name of a registered stored query of kind <c>SubGraph</c> to instantiate instead
+        ///   of inline <see cref="VertexFilter"/>/<see cref="EdgeFilter"/>/<see cref="Patterns"/>
+        ///   fragments (feature stored-query-library). Mutually exclusive with them (400 when
+        ///   mixed); <see cref="Name"/> (and optional <see cref="AdditionalInformation"/>) stay
+        ///   required per instance. A stored-query request compiles nothing and works with
+        ///   dynamic code execution disabled.
+        /// </summary>
+        /// <example>person-net</example>
+        [JsonPropertyName("storedQuery")]
+        public String StoredQuery
+        {
+            get; set;
+        }
     }
 }

@@ -26,6 +26,7 @@
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
 using System;
 
@@ -66,6 +67,34 @@ namespace NoSQL.GraphDB.Core
         ///   subgraph specification format (for example the REST API).
         /// </summary>
         ISubGraphRecipeCompiler SubGraphRecipeCompiler
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   Gets the stored query library (feature stored-query-library).
+        /// </summary>
+        StoredQueryLibrary StoredQueries
+        {
+            get;
+        }
+
+        /// <summary>
+        ///   Gets the change feed, or null when the engine was constructed without one
+        ///   (feature change-feed).
+        /// </summary>
+        ChangeFeed.ChangeFeedDispatcher ChangeFeed
+        {
+            get;
+        }
+
+        /// <summary>
+        ///   Gets or sets the compiler used to (re)build stored query artifacts from their
+        ///   persisted source. When null, rehydrated stored queries load as source-only. Set by
+        ///   the hosting layer that understands the specification format (for example the REST
+        ///   API) - the same bridge pattern as <see cref="SubGraphRecipeCompiler"/>.
+        /// </summary>
+        IStoredQueryCompiler StoredQueryCompiler
         {
             get; set;
         }

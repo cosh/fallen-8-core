@@ -167,20 +167,23 @@ namespace NoSQL.GraphDB.Tests
         #region S2/S3/S4 - RCE opt-in gate
 
         [TestMethod]
-        public async Task CodeEndpoints_Authenticated_GateOff_Return403()
+        public async Task CodeEndpoints_Authenticated_GateOff_InlineFragments_Return403()
         {
+            // The gate is request-shape-aware since feature stored-query-library: a request that
+            // INTRODUCES code (inline fragments) is 403 with the switch off. (A fragment-less or
+            // storedQuery-referencing request passes - pinned by StoredQuerySecurityMatrixTest.)
             using var factory = NewHost(enableCode: false);
             using var client = Client(factory, withKey: true);
 
             using var path = await client.PostAsync("/path/0/to/1",
-                new StringContent("{}", Encoding.UTF8, "application/json"));
+                new StringContent("{\"filter\":{\"vertexFilter\":\"return (v) => true;\"}}", Encoding.UTF8, "application/json"));
             Assert.AreEqual(HttpStatusCode.Forbidden, path.StatusCode,
-                "Authenticated POST /path with dynamic code disabled must be 403 (gate closed).");
+                "Authenticated POST /path with inline fragments and dynamic code disabled must be 403 (gate closed).");
 
             using var subgraph = await client.PutAsync("/subgraph",
-                new StringContent("{}", Encoding.UTF8, "application/json"));
+                new StringContent("{\"name\":\"gated\",\"vertexFilter\":\"return (ge) => true;\"}", Encoding.UTF8, "application/json"));
             Assert.AreEqual(HttpStatusCode.Forbidden, subgraph.StatusCode,
-                "Authenticated PUT /subgraph with dynamic code disabled must be 403 (gate closed).");
+                "Authenticated PUT /subgraph with inline fragments and dynamic code disabled must be 403 (gate closed).");
         }
 
         [TestMethod]

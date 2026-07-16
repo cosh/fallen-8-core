@@ -54,5 +54,12 @@ namespace NoSQL.GraphDB.Core.Transaction
             f8.Trim_internal();
             return true;
         }
+
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            // Ids were reassigned in place: every client-held id is invalid, which no element
+            // delta can express.
+            builder.Resync(ChangeFeed.ChangeFeedDispatcher.ResyncReasonTrim);
+        }
     }
 }

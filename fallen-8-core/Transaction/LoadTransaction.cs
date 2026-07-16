@@ -58,5 +58,11 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             return true;
         }
+
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            // State was replaced wholesale; a subscriber re-fetches everything it cares about.
+            builder.Resync(ChangeFeed.ChangeFeedDispatcher.ResyncReasonLoad);
+        }
     }
 }

@@ -646,6 +646,320 @@
         }
       }
     },
+    "/bulk/export": {
+      "get": {
+        "tags": [
+          "Bulk"
+        ],
+        "summary": "Streams the graph (or a label-filtered subset) as newline-delimited JSON.",
+        "description": "The stream is fallen8-jsonl version 1: one meta line (format version + exact counts),\r\nthen vertex lines, then edge lines. Edges whose endpoints are not both in the exported\r\nvertex set are omitted, so EVERY exported file is internally consistent and importable\r\nby construction.\r\n\r\nCONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads\r\nare lock-free; a write committed during the export may or may not appear. The\r\nguarantee is internal consistency plus \"everything committed before the export began\r\nis present\" (subject to the label filters). For a point-in-time backup, quiesce writes\r\nor use the save-game machinery. The same contract covers a property that an\r\nembedded/plugin writer adds DURING the stream: if it is not exportable it is omitted\r\nfrom its element rather than aborting the response (the REST write path cannot create\r\nsuch properties; the pre-stream 422 covers everything present at capture).",
+        "parameters": [
+          {
+            "name": "vertexLabel",
+            "in": "query",
+            "description": "Optional: export only vertices with exactly this label",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edgeLabel",
+            "in": "query",
+            "description": "Optional: export only edges with exactly this label",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The NDJSON stream (application/x-ndjson)",
+            "content": {
+              "application/x-ndjson": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/x-ndjson; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/x-ndjson": { }
+            }
+          },
+          "422": {
+            "description": "An element carries a property outside the exportable type\r\n     allow-list (or a null value); the body names the element and property. Sent BEFORE any\r\n     streaming, so a failed export is never a half-written file",
+            "content": {
+              "application/x-ndjson; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/x-ndjson": { }
+            }
+          }
+        }
+      }
+    },
+    "/bulk/import": {
+      "post": {
+        "tags": [
+          "Bulk"
+        ],
+        "summary": "Imports a fallen8-jsonl stream into an EMPTY graph, assigning fresh engine ids.",
+        "description": "The body is read as a stream and processed line by line; lines batch into large\r\ncreate transactions (Fallen8:BulkIO:ImportBatchSize per transaction = one WAL entry +\r\none fsync each). File ids are remapped unconditionally: they are references within the\r\nfile, resolved for edge endpoints, never preserved as engine ids. A leading meta line\r\nis optional (grep-filtered subset files stay valid); when present, its counts act as a\r\ntruncation guard.\r\n\r\nFAIL-FAST (honest): the first invalid line aborts the import with its exact line\r\nnumber. Batches committed before the failure STAY COMMITTED (each batch is atomic and\r\nWAL-logged; the file is not one transaction) - the error body reports the committed\r\ncounts, and because import requires an empty graph, recovery is always \"/tabularasa,\r\nfix the line, retry\".\r\n\r\nNOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real\r\nKestrel host may enforce it at the transport layer and answer 413 before this action's\r\nown check runs - the status is the same, but the problem body with committed counts is\r\nonly guaranteed when the application-level check fires first.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The import completed; the body carries created counts",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkImportResultREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkImportResultREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkImportResultREST"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A line was invalid (malformed JSON, unknown fields, bad property\r\n     type/value, duplicate file id, unresolved edge endpoint, over-long line, meta-count\r\n     mismatch) - the problem body carries lineNumber and the committed counts",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The graph is not empty (import requires an empty target; use\r\n     /tabularasa or a fresh instance)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body exceeds the configured Fallen8:BulkIO:MaxImportRequestBytes",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A batch transaction faulted internally; committed counts are reported"
+          }
+        }
+      }
+    },
+    "/changefeed": {
+      "get": {
+        "tags": [
+          "ChangeFeed"
+        ],
+        "summary": "Streams committed graph mutations as Server-Sent Events, with declarative server-side filtering and catch-up.",
+        "description": "The stream format per event:\r\n\r\n    id: &lt;epoch-guid&gt;:&lt;seq&gt;\r\n    event: &lt;kind&gt;\r\n    data: {\"seq\":4712,\"ts\":\"2026-07-15T12:34:56.789Z\",\"kind\":\"propertySet\",\"element\":\"vertex\",\"id\":42,\"label\":\"person\",\"key\":\"name\"}\r\n\r\nA comment line (\": keepalive\") is written every KeepAliveSeconds so proxies do not idle\r\nthe stream out. Filters combine with AND across dimensions and OR within one dimension;\r\nresync events bypass every filter (continuity loss must always reach the client). On\r\nany resync, re-fetch the state you display; for reason trim/tabulaRasa/load, treat all\r\nheld element ids as invalid.\r\n\r\nThe feed is fully functional with dynamic code execution disabled - filters are\r\ndeclarative parameters, never compiled code. Payloads never contain property values;\r\nre-fetch the element when the value is needed.",
+        "parameters": [
+          {
+            "name": "kinds",
+            "in": "query",
+            "description": "Event kinds to include (repeatable or comma-separated): vertexCreated, vertexRemoved, edgeCreated, edgeRemoved, propertySet, propertyRemoved. Unset = all kinds. resync events always pass.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "elements",
+            "in": "query",
+            "description": "Element types to include: vertex, edge. Unset = both.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "labels",
+            "in": "query",
+            "description": "Element labels to include (exact, case-sensitive). Unset = any label. An unlabeled element never matches a labels filter.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "keys",
+            "in": "query",
+            "description": "Property keys to include (exact, case-sensitive). Only property events carry a key, so setting this excludes create/remove events.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Catch-up position: the last seen SSE id (\"&lt;epoch&gt;:&lt;seq&gt;\") or a bare sequence number. Buffered missed events replay first; a position outside the buffered window (or from another process epoch) starts the stream with resync(seekOutOfRange). The Last-Event-ID header (native EventSource reconnect) is honoured when this parameter is unset.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The SSE stream (text/event-stream); it stays open until the client disconnects",
+            "content": {
+              "text/event-stream": { }
+            }
+          },
+          "400": {
+            "description": "An unknown kind/element value or a malformed since position",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "503": {
+            "description": "The change feed is disabled (Fallen8:ChangeFeed:Enabled=false) or the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached",
+            "content": {
+              "text/event-stream": { }
+            }
+          }
+        }
+      }
+    },
     "/delegates/validate": {
       "post": {
         "tags": [
@@ -1937,6 +2251,167 @@
         }
       }
     },
+    "/index/vector/{indexId}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Adds (or replaces) an element's embedding vector in a vector index",
+        "description": "One vector per element: adding again replaces. The generic PUT /index/{indexId} add\r\npath cannot express a float[] key, which is why the vector family has this typed\r\nendpoint (like fulltext and spatial have theirs).\r\n\r\nSample request (explicit mode):\r\n\r\n    PUT /index/vector/myEmbeddings\r\n    {\r\n       \"graphElementId\": 42,\r\n       \"vector\": [0.12, -0.5, 0.33]\r\n    }\r\n\r\nSample request (property mode - reads the element's float[] property):\r\n\r\n    PUT /index/vector/myEmbeddings\r\n    {\r\n       \"graphElementId\": 42,\r\n       \"propertyId\": \"embedding\"\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the vector index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The element and its vector - explicit (\"vector\") or read from a float[] property (\"propertyId\")",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexAddSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexAddSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The vector was indexed (add-again replaced the previous vector)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Not a vector index, neither/both modes supplied, wrong dimension, NaN/Infinity components, zero-norm vector under Cosine, or the named property is missing / not a float[]",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The index or the graph element does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/scan/index/vector": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Finds the k nearest neighbours of a query vector in a vector index",
+        "description": "Exact brute-force kNN (SIMD): deterministic ordering - best score first, ties broken\r\nby ascending element id. Constraints are applied BEFORE scoring, so the returned k are\r\nk MATCHING elements. Removed elements never appear. The GraphRAG recipe: feed the\r\nreturned element ids into the existing traversal surface (POST /path, PUT /subgraph,\r\nproperty reads) - similarity search lands ON the graph.\r\n\r\nSample request:\r\n\r\n    POST /scan/index/vector\r\n    {\r\n       \"indexId\": \"myEmbeddings\",\r\n       \"query\": [0.1, 0.2, 0.3],\r\n       \"k\": 10,\r\n       \"kind\": \"vertex\",\r\n       \"label\": \"person\"\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The kNN query: index, query vector, k, optional kind/label constraints",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the k best-scoring matching elements (fewer when the corpus is smaller)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSearchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Not a vector index, wrong query dimension, NaN/Infinity components, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The index does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/scan/index/spatial": {
       "post": {
         "tags": [
@@ -2579,7 +3054,7 @@
             }
           },
           "400": {
-            "description": "Invalid path specification",
+            "description": "Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2601,7 +3076,7 @@
             }
           },
           "403": {
-            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)",
+            "description": "The request carries inline filter/cost fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery - or carrying no fragments at all - are NOT gated by that switch.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2612,7 +3087,18 @@
             }
           },
           "404": {
-            "description": "Source or target vertex not found",
+            "description": "Source or target vertex not found, or no stored query with the referenced name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name})",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3229,6 +3715,308 @@
         }
       }
     },
+    "/storedquery": {
+      "post": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Registers a stored query: validates and compiles the specification, then publishes it under a unique name.",
+        "description": "Exactly one of \"path\" / \"subGraph\" must be present and must match \"kind\". The code\r\nfragments are compiled ONCE here, with the same bounds as the inline endpoints; a\r\ncompile failure rejects the registration with the compiler diagnostics. Entries are\r\nimmutable: to change one, delete and re-register.\r\n\r\nSample request:\r\n\r\n    POST /storedquery\r\n    {\r\n       \"name\": \"adults-shortest\",\r\n       \"kind\": \"Path\",\r\n       \"description\": \"age&gt;30 vertices, weight-by-distance\",\r\n       \"path\": {\r\n         \"filter\": { \"vertexFilter\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\" },\r\n         \"cost\":   { \"edgeCost\": \"return (e) =&gt; 1.0;\" }\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The stored query specification (name, kind, and the matching path/subGraph block)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/StoredQuerySpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/StoredQuerySpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The stored query was compiled and registered",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredQuerySummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The specification was malformed (name/kind/block), or a fragment failed to compile (the body carries the compiler diagnostics)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) - registration introduces code and is always gated",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A stored query with the same name already exists, or the library quota (Fallen8:StoredQueries:MaxCount) was reached",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The registration transaction faulted with an internal error",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Lists all registered stored queries.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the stored query summaries",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StoredQuerySummaryREST"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/storedquery/{name}": {
+      "get": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Gets the full definition of a stored query, including its source specification.",
+        "description": "The response includes the stored specification JSON (the registration request's\r\npath/subGraph block), which also covers manual migration between instances, and - for\r\na Failed entry - the recompile diagnostics.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The stored query name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the stored query detail",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredQueryDetailREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No stored query with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Deletes (deregisters) a stored query.",
+        "description": "Deletion drops the pinned compiled artifact so its collectible load context can unload\r\nonce in-flight invocations finish. NOT gated by the dynamic-code switch: removal\r\ncompiles nothing and must stay possible while the switch is off.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The stored query name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The stored query was deleted"
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No stored query with the given name exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The removal transaction was rolled back and did not complete"
+          }
+        }
+      }
+    },
     "/subgraph": {
       "put": {
         "tags": [
@@ -3300,7 +4088,7 @@
             }
           },
           "403": {
-            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)",
+            "description": "The request carries inline filter/pattern fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery are NOT gated by that switch.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3311,7 +4099,7 @@
             }
           },
           "400": {
-            "description": "The specification was invalid, the pattern was structurally invalid, or a filter failed to compile",
+            "description": "The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3322,7 +4110,7 @@
             }
           },
           "404": {
-            "description": "The source subgraph named by fromSubGraph does not exist",
+            "description": "The source subgraph named by fromSubGraph does not exist, or no stored query with the referenced name exists",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3333,7 +4121,7 @@
             }
           },
           "409": {
-            "description": "A subgraph with the same name already exists, or a resource quota (subgraph count or materialized-element ceiling) was exceeded",
+            "description": "A subgraph with the same name already exists, a resource quota (subgraph count or materialized-element ceiling) was exceeded, or the referenced stored query is not invocable (its recompile on load failed)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3755,6 +4543,42 @@
       },
       "BinaryOperator": {
         "type": "integer"
+      },
+      "BulkImportResultREST": {
+        "type": "object",
+        "properties": {
+          "verticesCreated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The number of vertices created.",
+            "format": "int32",
+            "example": 10000
+          },
+          "edgesCreated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The number of edges created.",
+            "format": "int32",
+            "example": 25000
+          },
+          "linesRead": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The number of lines read from the request body (including meta and blank lines).",
+            "format": "int64",
+            "example": 35001
+          }
+        },
+        "description": "The success summary of a bulk JSONL import (feature bulk-import-export)."
       },
       "DelegateDiagnosticREST": {
         "type": "object",
@@ -4618,6 +5442,14 @@
           "cost": {
             "description": "Cost function specifications for weighting paths",
             "$ref": "#/components/schemas/PathCostSpecification"
+          },
+          "storedQuery": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The name of a registered stored query of kind `Path` to use instead of inline\r\nPathFilterSpecification PathSpecification.Filter/PathCostSpecification PathSpecification.Cost fragments (feature stored-query-library).\r\nMutually exclusive with them (400 when mixed). A stored-query request compiles\r\nnothing and works with dynamic code execution disabled; the numeric bounds and\r\nstring PathSpecification.PathAlgorithmName stay per-request.",
+            "example": "adults-shortest"
           }
         },
         "description": "Specification for finding paths between vertices in the graph",
@@ -5319,6 +6151,205 @@
           ]
         }
       },
+      "StoredPathQueryBlock": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "description": "Filtering criteria for elements to include in path calculations.",
+            "$ref": "#/components/schemas/PathFilterSpecification"
+          },
+          "cost": {
+            "description": "Cost function specifications for weighting paths.",
+            "$ref": "#/components/schemas/PathCostSpecification"
+          }
+        },
+        "description": "The stored form of a path query: the `filter`/`cost` blocks of a\r\nPathSpecification. The numeric bounds (`maxDepth`, `maxResults`,\r\n`maxPathWeight`) and the algorithm name stay per-request."
+      },
+      "StoredQueryDetailREST": {
+        "type": "object",
+        "properties": {
+          "specificationJson": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored specification document (JSON text): the registration request's\r\n`path` / `subGraph` block exactly as stored."
+          },
+          "compileDiagnostics": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The compiler diagnostics of a failed rehydration recompile; null unless\r\nstring StoredQuerySummaryREST.CompileState is `Failed`."
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query name.",
+            "example": "adults-shortest"
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query kind (`Path` or `SubGraph`).",
+            "example": "Path"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The optional description."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "When the query was registered (UTC).",
+            "format": "date-time"
+          },
+          "compileState": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The compile state: `Compiled` (invocable), `Failed` (a rehydration\r\nrecompile failed - see the detail response's diagnostics; invoking returns 409), or\r\n`SourceOnly` (loaded without a compiler).",
+            "example": "Compiled"
+          }
+        },
+        "description": "Full detail of a registered stored query, INCLUDING its source specification - the\r\nlibrary is transparent to its operator (and `GET` covers manual migration between\r\ninstances)."
+      },
+      "StoredQuerySpecification": {
+        "required": [
+          "name",
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The unique name to register the query under. Restricted to\r\n`^[A-Za-z0-9_-]{1,128}$` (always a safe URL path segment); compared\r\ncase-sensitively.",
+            "example": "adults-shortest"
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query kind: `Path` (a filter/cost set for `POST /path`) or\r\n`SubGraph` (a pattern template for `PUT /subgraph`).",
+            "example": "Path"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "An optional human-readable description.",
+            "example": "age&gt;30 vertices, weight-by-distance"
+          },
+          "path": {
+            "description": "The path filter/cost block (required iff string StoredQuerySpecification.Kind is `Path`).",
+            "$ref": "#/components/schemas/StoredPathQueryBlock"
+          },
+          "subGraph": {
+            "description": "The subgraph pattern template block (required iff string StoredQuerySpecification.Kind is\r\n`SubGraph`). The subgraph instance name and additional information stay\r\nper-request on `PUT /subgraph` and are not part of the stored template.",
+            "$ref": "#/components/schemas/StoredSubGraphQueryBlock"
+          }
+        },
+        "description": "Specification for registering a stored query (feature stored-query-library): a named,\r\nvalidated, pre-compiled query definition that the path/subgraph endpoints can afterwards\r\nreference by name - including when dynamic code execution is disabled.",
+        "example": {
+          "name": "adults-shortest",
+          "kind": "Path",
+          "description": "age&gt;30 vertices, weight-by-distance",
+          "path": {
+            "filter": {
+              "vertexFilter": "return (v) =&gt; v.TryGetProperty(out int age, \"age\") &amp;&amp; age &gt; 30;"
+            },
+            "cost": {
+              "edgeCost": "return (e) =&gt; 1.0;"
+            }
+          }
+        }
+      },
+      "StoredQuerySummaryREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query name.",
+            "example": "adults-shortest"
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored query kind (`Path` or `SubGraph`).",
+            "example": "Path"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The optional description."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "When the query was registered (UTC).",
+            "format": "date-time"
+          },
+          "compileState": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The compile state: `Compiled` (invocable), `Failed` (a rehydration\r\nrecompile failed - see the detail response's diagnostics; invoking returns 409), or\r\n`SourceOnly` (loaded without a compiler).",
+            "example": "Compiled"
+          }
+        },
+        "description": "Summary of a registered stored query (list/detail responses)."
+      },
+      "StoredSubGraphQueryBlock": {
+        "type": "object",
+        "properties": {
+          "vertexFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional pre-filter selecting which vertices are copied into the subgraph\r\n(a C# fragment receiving an `AGraphElementModel`).",
+            "example": "return (ge) =&gt; ge.Label == \"person\";"
+          },
+          "edgeFilter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional pre-filter selecting which edges are copied into the subgraph\r\n(a C# fragment receiving an `AGraphElementModel`).",
+            "example": "return (ge) =&gt; ge.Label == \"knows\";"
+          },
+          "patterns": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PatternSpecification"
+            },
+            "description": "Ordered pattern sequence describing the paths to keep (see\r\nList&lt;PatternSpecification&gt; SubGraphSpecification.Patterns)."
+          }
+        },
+        "description": "The stored form of a subgraph query: a SubGraphSpecification WITHOUT the\r\nper-instance `name`/`additionalInformation` fields."
+      },
       "Stream": {
         "type": "string",
         "format": "binary"
@@ -5372,6 +6403,14 @@
               "$ref": "#/components/schemas/PatternSpecification"
             },
             "description": "Ordered pattern sequence describing the paths to keep. Should alternate\r\nvertex ↔ edge and start with a vertex pattern. Empty means \"no pruning\"."
+          },
+          "storedQuery": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The name of a registered stored query of kind `SubGraph` to instantiate instead\r\nof inline string SubGraphSpecification.VertexFilter/string SubGraphSpecification.EdgeFilter/List&lt;PatternSpecification&gt; SubGraphSpecification.Patterns\r\nfragments (feature stored-query-library). Mutually exclusive with them (400 when\r\nmixed); string SubGraphSpecification.Name (and optional Dictionary&lt;string, string&gt; SubGraphSpecification.AdditionalInformation) stay\r\nrequired per instance. A stored-query request compiles nothing and works with\r\ndynamic code execution disabled.",
+            "example": "person-net"
           }
         },
         "description": "Specification for creating a subgraph by pattern matching against the graph.",
@@ -5496,6 +6535,182 @@
           "delegateKind": "VertexFilter",
           "fragment": "return (v) =&gt; v.Label == \"person\";"
         }
+      },
+      "VectorIndexAddSpecification": {
+        "required": [
+          "graphElementId"
+        ],
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The element to index.",
+            "format": "int32",
+            "example": 42
+          },
+          "vector": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The embedding vector (explicit mode). Must match the index dimension."
+          },
+          "propertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The element property holding the vector (property mode); the property must\r\n    be a float[] of the index dimension.",
+            "example": "embedding"
+          }
+        },
+        "description": "Adds (or replaces) an element's vector in a vector index (feature vector-index).\r\nExactly one mode: an explicit float[] VectorIndexAddSpecification.Vector, or string VectorIndexAddSpecification.PropertyId naming\r\na `float[]` property on the element to read the vector from.",
+        "example": {
+          "graphElementId": 42,
+          "vector": [
+            0.12,
+            -0.5,
+            0.33
+          ]
+        }
+      },
+      "VectorIndexScanSpecification": {
+        "required": [
+          "indexId",
+          "query",
+          "k"
+        ],
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The vector index to query.",
+            "example": "myEmbeddings"
+          },
+          "query": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The query vector; must match the index dimension."
+          },
+          "k": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many nearest neighbours to return (1..1024).",
+            "format": "int32",
+            "example": 10
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional element-kind constraint: vertex, edge, or any (default).",
+            "example": "vertex"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional exact (case-sensitive) label constraint; an unlabeled element never\r\n    matches.",
+            "example": "person"
+          }
+        },
+        "description": "A k-nearest-neighbour query against a vector index (feature vector-index).",
+        "example": {
+          "indexId": "myEmbeddings",
+          "query": [
+            0.1,
+            0.2,
+            0.3
+          ],
+          "k": 10,
+          "kind": "vertex",
+          "label": "person"
+        }
+      },
+      "VectorScoredElementREST": {
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The element id.",
+            "format": "int32",
+            "example": 7
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The raw score (no normalization; interpret via metric/higherIsBetter).",
+            "format": "float",
+            "example": 0.93
+          }
+        },
+        "description": "One kNN hit: the element id and its RAW score under the index metric."
+      },
+      "VectorSearchResultREST": {
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The index's metric: Cosine, DotProduct or L2.",
+            "example": "Cosine"
+          },
+          "higherIsBetter": {
+            "type": "boolean",
+            "description": "Whether a HIGHER score is better (false for L2).",
+            "example": true
+          },
+          "results": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/VectorScoredElementREST"
+            },
+            "description": "The hits, best first; ties broken by ascending element id."
+          }
+        },
+        "description": "A kNN result: hits best-first plus the metric and its direction, so an L2 distance can\r\nnever be misread as a similarity."
       },
       "Vertex": {
         "required": [
@@ -5671,6 +6886,12 @@
       "name": "Benchmark"
     },
     {
+      "name": "Bulk"
+    },
+    {
+      "name": "ChangeFeed"
+    },
+    {
       "name": "Delegates"
     },
     {
@@ -5681,6 +6902,9 @@
     },
     {
       "name": "SaveGames"
+    },
+    {
+      "name": "StoredQueries"
     },
     {
       "name": "SubGraph"

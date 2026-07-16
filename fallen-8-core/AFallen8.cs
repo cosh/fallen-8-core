@@ -34,6 +34,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -84,6 +85,31 @@ namespace NoSQL.GraphDB.Core
             get; set;
         }
 
+        /// <summary>
+        ///   Gets the stored query library (feature stored-query-library).
+        /// </summary>
+        public abstract StoredQueryLibrary StoredQueries
+        {
+            get; internal set;
+        }
+
+        /// <summary>
+        ///   Gets the change feed, or null when the engine carries none (feature change-feed).
+        /// </summary>
+        public abstract ChangeFeed.ChangeFeedDispatcher ChangeFeed
+        {
+            get; internal set;
+        }
+
+        /// <summary>
+        ///   Gets or sets the compiler used to (re)build stored query artifacts from their
+        ///   persisted source.
+        /// </summary>
+        public abstract IStoredQueryCompiler StoredQueryCompiler
+        {
+            get; set;
+        }
+
         public ILoggerFactory LoggerFactory
         {
             get; internal set;
@@ -125,6 +151,7 @@ namespace NoSQL.GraphDB.Core
         public abstract bool IndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals);
         public abstract bool RangeIndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true);
         public abstract bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery);
+        public abstract bool VectorIndexScan(out Index.Vector.VectorSearchResult result, string indexId, float[] query, int k, Index.Vector.VectorSearchConstraint constraint = null);
         public abstract bool TryCalculateShortestPath(out List<Path> result, string plugin, ShortestPathDefinition definition);
         public abstract bool TryCalculateShortestPath<T>(out List<Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm;
 
