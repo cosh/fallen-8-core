@@ -1,8 +1,9 @@
 # Studio Coverage — Implementation Plan
 
-> **Status:** Concept — not yet scheduled. Phases are ordered by leverage and dependency,
-> not by capability size; each phase is independently shippable and leaves the Studio
-> consistent. Contracts and arbitration rationale live in [spec.md](./spec.md).
+> **Status:** Implemented on branch `feature/studio-coverage` (phases 0–5, one commit per
+> phase, 2026-07-17); awaiting review/merge. Contracts and arbitration rationale live in
+> [spec.md](./spec.md). Phases are ordered by leverage and dependency, not by capability
+> size; each phase is independently shippable and leaves the Studio consistent.
 
 ## Phase 0 — Fix the "NaN MiB" tile
 
