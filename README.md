@@ -50,7 +50,8 @@ dotnet run --project fallen-8-core-apiApp
 With the F8 Studio web UI (built into the apiApp's wwwroot):
 
 ```bash
-npm run install:ui && npm run build:apiapp
+npm run install:ui
+npm run build:apiapp
 dotnet run --project fallen-8-core-apiApp
 # open http://localhost:5000
 ```
@@ -77,8 +78,16 @@ The delegate editor's compile validation and NL assist run C# fragments through 
 server. That surface is gated by a single capability flag that is **off by default**;
 turn it on to use the editor:
 
+Bash
+
 ```bash
 F8_ENABLE_DYNAMIC_CODE=true docker compose up --build
+```
+
+PowerShell (`$env:` variables stay set for the session; `Remove-Item Env:F8_ENABLE_DYNAMIC_CODE` to unset)
+
+```powershell
+$env:F8_ENABLE_DYNAMIC_CODE = "true"; docker compose up --build
 ```
 
 Authentication is independent and all-or-nothing: set `F8_API_KEY` and the *entire*
@@ -86,8 +95,16 @@ service requires that key (register the instance in Studio with it); leave it un
 the whole service — reads, mutations, and the code endpoints alike — is open, for a
 trusted network. The dynamic-code flag gates code execution either way.
 
+Bash
+
 ```bash
 F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true docker compose up --build   # secured + editor on
+```
+
+PowerShell
+
+```powershell
+$env:F8_API_KEY = "change-me"; $env:F8_ENABLE_DYNAMIC_CODE = "true"; docker compose up --build   # secured + editor on
 ```
 
 ### Save games (checkpoints)
@@ -129,6 +146,12 @@ cURL example
 curl -L -X PUT 'https://localhost:5001/unittest'
 ```
 
+PowerShell example
+
+```powershell
+Invoke-RestMethod 'https://localhost:5001/unittest' -Method Put
+```
+
 ### Scan for Trent and Mallory
 
 HTTP example (Trent)
@@ -149,23 +172,20 @@ Content-Length: 148
 }
 ```
 
-Powershell example (Trent)
+PowerShell example (Trent)
 
 ```powershell
-$headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-$headers.Add("Content-Type", "application/json")
-
-$body = "{
-`n    `"operator`": 0,
-`n    `"literal`": {
-`n        `"value`": `"Trent`",
-`n        `"fullQualifiedTypeName`": `"System.String`"
-`n    },
-`n    `"resultType`": 0
-`n}"
-
-$response = Invoke-RestMethod 'https://localhost:5001/scan/graph/property/0' -Method 'POST' -Headers $headers -Body $body
-$response | ConvertTo-Json
+$body = @'
+{
+    "operator": 0,
+    "literal": {
+        "value": "Trent",
+        "fullQualifiedTypeName": "System.String"
+    },
+    "resultType": 0
+}
+'@
+Invoke-RestMethod 'https://localhost:5001/scan/graph/property/0' -Method Post -ContentType 'application/json' -Body $body
 ```
 
 cURL example (Mallory)
@@ -204,16 +224,10 @@ Content-Length: 2
 {}
 ```
 
-Powershell example
+PowerShell example
 
 ```powershell
-$headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-$headers.Add("Content-Type", "application/json")
-
-$body = "{}"
-
-$response = Invoke-RestMethod 'https://localhost:5001/path/4/to/3' -Method 'POST' -Headers $headers -Body $body
-$response | ConvertTo-Json
+Invoke-RestMethod 'https://localhost:5001/path/4/to/3' -Method Post -ContentType 'application/json' -Body '{}'
 ```
 
 cURL example
@@ -333,9 +347,18 @@ Move whole graphs as plain, `grep`-able data — `GET /bulk/export` streams the 
 newline-delimited JSON (typed property values, so everything round-trips exactly), and
 `POST /bulk/import` streams it back into an empty instance with fresh ids:
 
+Bash
+
 ```bash
 curl -sf http://localhost:5000/bulk/export -o graph.jsonl
 curl -sf -X POST http://localhost:5000/bulk/import -H "Content-Type: application/x-ndjson" --data-binary @graph.jsonl
+```
+
+PowerShell
+
+```powershell
+Invoke-RestMethod 'http://localhost:5000/bulk/export' -OutFile graph.jsonl
+Invoke-RestMethod 'http://localhost:5000/bulk/import' -Method Post -ContentType 'application/x-ndjson' -InFile graph.jsonl
 ```
 
 See [features/bulk-import-export/](features/done/bulk-import-export/) for the line schema,
@@ -347,8 +370,16 @@ consistency contract, and error semantics.
 with declarative server-side filters (no code fragments, works with the dynamic-code switch
 off) and an in-memory catch-up buffer:
 
+Bash
+
 ```bash
 curl -N "http://localhost:5000/changefeed?kinds=vertexCreated,vertexRemoved&labels=person"
+```
+
+PowerShell (`curl.exe`, shipped with Windows — the bare `curl` alias buffers instead of streaming)
+
+```powershell
+curl.exe -N "http://localhost:5000/changefeed?kinds=vertexCreated,vertexRemoved&labels=person"
 ```
 
 Events carry ids, labels and property keys — never property values. Whenever continuity is
@@ -364,10 +395,19 @@ adjacency: **PageRank**, **weakly connected components**, **label propagation** 
 **degree centrality** and **triangle counting** — synchronously under a wall-clock budget,
 with deterministic, hand-verifiable semantics and no dynamic code:
 
+Bash
+
 ```bash
 curl -sf -X POST http://localhost:5000/analytics/PAGERANK \
      -H "Content-Type: application/json" \
      -d '{ "vertexLabel": "person", "maxResults": 10 }'
+```
+
+PowerShell
+
+```powershell
+Invoke-RestMethod 'http://localhost:5000/analytics/PAGERANK' -Method Post -ContentType 'application/json' `
+                  -Body '{ "vertexLabel": "person", "maxResults": 10 }'
 ```
 
 Responses are bounded (top-K / partition summaries); the full per-vertex result lands as
@@ -381,10 +421,19 @@ A `VectorIndex` gives exact k-nearest-neighbour search over `float[]` embeddings
 dot product, or L2, SIMD brute-force, deterministic ordering. Create it through the normal
 index surface, add vectors (explicitly or from a `float[]` element property), then query:
 
+Bash
+
 ```bash
 curl -sf -X POST http://localhost:5000/scan/index/vector \
      -H "Content-Type: application/json" \
      -d '{ "indexId": "embeddings", "query": [0.1, 0.2, 0.3], "k": 10, "label": "person" }'
+```
+
+PowerShell
+
+```powershell
+Invoke-RestMethod 'http://localhost:5000/scan/index/vector' -Method Post -ContentType 'application/json' `
+                  -Body '{ "indexId": "embeddings", "query": [0.1, 0.2, 0.3], "k": 10, "label": "person" }'
 ```
 
 Hits are graph elements, so the traversal surface takes over from there — the GraphRAG
