@@ -188,6 +188,14 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       graphElementId: 1,
       propertyId: "embedding",
     });
+    await endpoints.listAnalyticsAlgorithms(instance);
+    await endpoints.runAnalytics(instance, "PAGERANK", {
+      vertexLabel: "person",
+      maxResults: 100,
+      writeBack: true,
+      writeBackPropertyKey: "analytics.pagerank",
+    });
+    await endpoints.getPartitionMembers(instance, "WCC", 0, { maxResults: 100, offset: 0 });
 
     expect(recorded.length).toBeGreaterThan(30);
     for (const call of recorded) {

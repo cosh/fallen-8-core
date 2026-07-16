@@ -374,6 +374,63 @@ export interface StoredQueryDetailREST extends StoredQuerySummaryREST {
   compileDiagnostics: string | null;
 }
 
+/**
+ * Graph analytics (feature graph-analytics; surfaced by studio-coverage). Runs are
+ * synchronous one-shots with budgets — there is no job store, and the UI must not
+ * fabricate one. Top-K/partition rows are the response; full results travel via
+ * write-back (snapshot-durable only).
+ */
+export interface AnalyticsSpecification {
+  vertexLabel?: string;
+  edgePropertyId?: string;
+  direction?: "in" | "out" | "both";
+  maxIterations?: number;
+  epsilon?: number;
+  timeBudgetSeconds?: number;
+  parameters?: Record<string, number>;
+  maxResults?: number;
+  offset?: number;
+  writeBack?: boolean;
+  writeBackPropertyKey?: string;
+}
+
+export interface ScoredVertexREST {
+  graphElementId: number;
+  score: number;
+}
+
+export interface PartitionSummaryREST {
+  partitionId: number;
+  size: number;
+}
+
+export interface WriteBackResultREST {
+  propertyKey: string | null;
+  verticesWritten: number;
+  chunks: number;
+}
+
+export interface AnalyticsResultREST {
+  algorithm: string | null;
+  converged: boolean;
+  iterationsRun: number;
+  elapsedMs: number;
+  budgetExhausted: boolean;
+  vertexCount: number;
+  statistics: Record<string, number> | null;
+  results: ScoredVertexREST[] | null;
+  partitions: PartitionSummaryREST[] | null;
+  writeBack: WriteBackResultREST | null;
+}
+
+/** One partition's membership page — re-runs the specification (exact only when quiescent). */
+export interface PartitionMembersREST {
+  partitionId: number;
+  size: number;
+  offset: number;
+  members: number[] | null;
+}
+
 /** POST /delegates/validate (gap G-2, added by this feature) */
 export type DelegateKind =
   | "VertexFilter"

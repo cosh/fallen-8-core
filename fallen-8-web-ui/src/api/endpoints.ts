@@ -1,6 +1,8 @@
 import { apiRequest } from "./client";
 import type { InstanceConfig } from "../instances/types";
 import type {
+  AnalyticsResultREST,
+  AnalyticsSpecification,
   BenchmarkResult,
   DelegateKind,
   DelegateValidationResult,
@@ -13,6 +15,7 @@ import type {
   GraphStatisticsREST,
   IndexAddToSpecification,
   IndexScanSpecification,
+  PartitionMembersREST,
   PathREST,
   PathSpecification,
   PluginSpecification,
@@ -261,6 +264,34 @@ export const recalculateSubGraph = (i: InstanceConfig, name: string) =>
 
 export const deleteSubGraph = (i: InstanceConfig, name: string) =>
   apiRequest<void>(i, `/subgraph/${encodeURIComponent(name)}`, { method: "DELETE" });
+
+// ---- graph analytics (concept spec §3) ----
+
+/** Map of algorithm name → one-line description; the picker IS the discovery surface. */
+export const listAnalyticsAlgorithms = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<Record<string, string>>(i, "/analytics/algorithms", { signal });
+
+export const runAnalytics = (
+  i: InstanceConfig,
+  algorithmName: string,
+  spec: AnalyticsSpecification,
+) =>
+  apiRequest<AnalyticsResultREST>(i, `/analytics/${encodeURIComponent(algorithmName)}`, {
+    method: "POST",
+    body: spec,
+  });
+
+export const getPartitionMembers = (
+  i: InstanceConfig,
+  algorithmName: string,
+  partitionId: number,
+  spec: AnalyticsSpecification,
+) =>
+  apiRequest<PartitionMembersREST>(
+    i,
+    `/analytics/${encodeURIComponent(algorithmName)}/partition/${partitionId}`,
+    { method: "POST", body: spec },
+  );
 
 // ---- stored query library (concept spec §5) ----
 
