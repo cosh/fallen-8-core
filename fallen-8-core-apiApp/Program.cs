@@ -112,6 +112,10 @@ namespace NoSQL.GraphDB.App
             builder.Services.Configure<Fallen8ChangeFeedOptions>(
                 builder.Configuration.GetSection(Fallen8ChangeFeedOptions.SectionName));
 
+            // Bulk import/export configuration (feature bulk-import-export).
+            builder.Services.Configure<Fallen8BulkIOOptions>(
+                builder.Configuration.GetSection(Fallen8BulkIOOptions.SectionName));
+
             // Register the engine singleton through a factory so durable mode constructs the
             // WAL-enabling overload with the recipe compiler supplied AT CONSTRUCTION - an unanchored
             // WAL replays during construction, so only a compiler present then can recover its

@@ -325,6 +325,20 @@ and crash-recovery via the write-ahead log. See
 [features/stored-query-library/](features/done/stored-query-library/) for the full
 specification.
 
+## Bulk export/import (JSONL)
+
+Move whole graphs as plain, `grep`-able data — `GET /bulk/export` streams the graph as
+newline-delimited JSON (typed property values, so everything round-trips exactly), and
+`POST /bulk/import` streams it back into an empty instance with fresh ids:
+
+```bash
+curl -sf http://localhost:5000/bulk/export -o graph.jsonl
+curl -sf -X POST http://localhost:5000/bulk/import -H "Content-Type: application/x-ndjson" --data-binary @graph.jsonl
+```
+
+See [features/bulk-import-export/](features/done/bulk-import-export/) for the line schema,
+consistency contract, and error semantics.
+
 ## Live change feed
 
 `GET /changefeed` streams committed mutations as **Server-Sent Events** — in commit order,

@@ -504,6 +504,12 @@ namespace NoSQL.GraphDB.Tests
                 }, "PathSpecification"),
                 (new PathFilterSpecification(), "PathFilterSpecification"),
                 (new PathCostSpecification(), "PathCostSpecification"),
+                (new BulkImportResultREST
+                {
+                    VerticesCreated = 10000,
+                    EdgesCreated = 25000,
+                    LinesRead = 35001
+                }, "BulkImportResultREST"),
                 (new ChangeEventREST
                 {
                     Seq = 4712,
