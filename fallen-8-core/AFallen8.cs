@@ -151,6 +151,7 @@ namespace NoSQL.GraphDB.Core
         public abstract bool IndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals);
         public abstract bool RangeIndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true);
         public abstract bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery);
+        public abstract bool VectorIndexScan(out Index.Vector.VectorSearchResult result, string indexId, float[] query, int k, Index.Vector.VectorSearchConstraint constraint = null);
         public abstract bool TryCalculateShortestPath(out List<Path> result, string plugin, ShortestPathDefinition definition);
         public abstract bool TryCalculateShortestPath<T>(out List<Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm;
 

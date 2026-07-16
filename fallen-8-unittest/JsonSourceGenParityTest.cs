@@ -504,6 +504,34 @@ namespace NoSQL.GraphDB.Tests
                 }, "PathSpecification"),
                 (new PathFilterSpecification(), "PathFilterSpecification"),
                 (new PathCostSpecification(), "PathCostSpecification"),
+                (new VectorIndexAddSpecification
+                {
+                    GraphElementId = 42,
+                    Vector = new[] { 0.12f, -0.5f, 0.33f }
+                }, "VectorIndexAddSpecification (explicit mode)"),
+                (new VectorIndexAddSpecification
+                {
+                    GraphElementId = 42,
+                    PropertyId = "embedding"
+                }, "VectorIndexAddSpecification (property mode)"),
+                (new VectorIndexScanSpecification
+                {
+                    IndexId = "myEmbeddings",
+                    Query = new[] { 0.1f, 0.2f, 0.3f },
+                    K = 10,
+                    Kind = "vertex",
+                    Label = "person"
+                }, "VectorIndexScanSpecification"),
+                (new VectorSearchResultREST
+                {
+                    Metric = "Cosine",
+                    HigherIsBetter = true,
+                    Results = new List<VectorScoredElementREST>
+                    {
+                        new VectorScoredElementREST { GraphElementId = 7, Score = 0.93f }
+                    }
+                }, "VectorSearchResultREST"),
+                (new VectorScoredElementREST { GraphElementId = 7, Score = 0.93f }, "VectorScoredElementREST"),
                 (new BulkImportResultREST
                 {
                     VerticesCreated = 10000,

@@ -161,6 +161,14 @@ namespace NoSQL.GraphDB.Core
         /// <param name='searchQuery'> GraphScan query. </param>
         Boolean FulltextIndexScan(out FulltextSearchResult result, String indexId, String searchQuery);
 
+        /// <summary>
+        ///   k-nearest-neighbour scan over a vector index (feature vector-index). Returns false
+        ///   for an unknown or non-vector index or invalid input (wrong query dimension, k out of
+        ///   bounds, zero-norm query under Cosine).
+        /// </summary>
+        Boolean VectorIndexScan(out Index.Vector.VectorSearchResult result, String indexId,
+            Single[] query, Int32 k, Index.Vector.VectorSearchConstraint constraint = null);
+
         #endregion
 
         #region calculations

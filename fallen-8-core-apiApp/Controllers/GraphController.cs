@@ -49,6 +49,7 @@ using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Spatial;
+using NoSQL.GraphDB.Core.Index.Vector;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Transaction;
@@ -760,6 +761,199 @@ namespace NoSQL.GraphDB.App.Controllers
             return _fallen8.FulltextIndexScan(out result, definition.IndexId, definition.RequestString)
                        ? new FulltextSearchResultREST(result)
                        : null;
+        }
+
+        /// <summary>
+        /// Adds (or replaces) an element's embedding vector in a vector index
+        /// </summary>
+        /// <param name="indexId">The ID of the vector index</param>
+        /// <param name="definition">The element and its vector - explicit ("vector") or read from a float[] property ("propertyId")</param>
+        /// <returns>True when the vector was indexed</returns>
+        /// <remarks>
+        /// One vector per element: adding again replaces. The generic PUT /index/{indexId} add
+        /// path cannot express a float[] key, which is why the vector family has this typed
+        /// endpoint (like fulltext and spatial have theirs).
+        ///
+        /// Sample request (explicit mode):
+        ///
+        ///     PUT /index/vector/myEmbeddings
+        ///     {
+        ///        "graphElementId": 42,
+        ///        "vector": [0.12, -0.5, 0.33]
+        ///     }
+        ///
+        /// Sample request (property mode - reads the element's float[] property):
+        ///
+        ///     PUT /index/vector/myEmbeddings
+        ///     {
+        ///        "graphElementId": 42,
+        ///        "propertyId": "embedding"
+        ///     }
+        /// </remarks>
+        /// <response code="200">The vector was indexed (add-again replaced the previous vector)</response>
+        /// <response code="400">Not a vector index, neither/both modes supplied, wrong dimension, zero-norm vector under Cosine, or the named property is missing / not a float[]</response>
+        /// <response code="404">The index or the graph element does not exist</response>
+        [HttpPut("/index/vector/{indexId}")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public IActionResult AddToVectorIndex([FromRoute] String indexId, [FromBody] VectorIndexAddSpecification definition)
+        {
+            if (definition == null)
+            {
+                return BadRequest("A vector add specification is required.");
+            }
+
+            if (!_fallen8.IndexFactory.TryGetIndex(out var index, indexId))
+            {
+                return NotFound(String.Format("No index named '{0}'.", indexId));
+            }
+
+            if (!(index is IVectorIndex vectorIndex))
+            {
+                return BadRequest(String.Format("Index '{0}' is not a vector index.", indexId));
+            }
+
+            if (!_fallen8.TryGetGraphElement(out var element, definition.GraphElementId))
+            {
+                return NotFound(String.Format("Could not find graph element with id {0}.", definition.GraphElementId));
+            }
+
+            var hasVector = definition.Vector != null;
+            var hasProperty = !String.IsNullOrEmpty(definition.PropertyId);
+            if (hasVector == hasProperty)
+            {
+                return BadRequest("Exactly one of 'vector' / 'propertyId' must be supplied.");
+            }
+
+            Single[] vector;
+            if (hasVector)
+            {
+                vector = definition.Vector;
+            }
+            else
+            {
+                if (!element.TryGetProperty<Object>(out var propertyValue, definition.PropertyId))
+                {
+                    return BadRequest(String.Format("Element {0} carries no property '{1}'.",
+                        definition.GraphElementId, definition.PropertyId));
+                }
+
+                vector = propertyValue as Single[];
+                if (vector == null)
+                {
+                    return BadRequest(String.Format("Property '{0}' on element {1} is not a float[].",
+                        definition.PropertyId, definition.GraphElementId));
+                }
+            }
+
+            if (vector.Length != vectorIndex.Dimension)
+            {
+                return BadRequest(String.Format("The vector has dimension {0}; index '{1}' requires {2}.",
+                    vector.Length, indexId, vectorIndex.Dimension));
+            }
+
+            if (vectorIndex.Metric == VectorDistanceMetric.Cosine && VectorIndex.IsZeroNorm(vector))
+            {
+                return BadRequest("A zero-norm vector cannot rank under the Cosine metric.");
+            }
+
+            vectorIndex.AddOrUpdate(vector, element);
+            return Ok(true);
+        }
+
+        /// <summary>
+        /// Finds the k nearest neighbours of a query vector in a vector index
+        /// </summary>
+        /// <param name="definition">The kNN query: index, query vector, k, optional kind/label constraints</param>
+        /// <returns>The hits best-first with raw scores, plus the metric and its direction</returns>
+        /// <remarks>
+        /// Exact brute-force kNN (SIMD): deterministic ordering - best score first, ties broken
+        /// by ascending element id. Constraints are applied BEFORE scoring, so the returned k are
+        /// k MATCHING elements. Removed elements never appear. The GraphRAG recipe: feed the
+        /// returned element ids into the existing traversal surface (POST /path, PUT /subgraph,
+        /// property reads) - similarity search lands ON the graph.
+        ///
+        /// Sample request:
+        ///
+        ///     POST /scan/index/vector
+        ///     {
+        ///        "indexId": "myEmbeddings",
+        ///        "query": [0.1, 0.2, 0.3],
+        ///        "k": 10,
+        ///        "kind": "vertex",
+        ///        "label": "person"
+        ///     }
+        /// </remarks>
+        /// <response code="200">Returns the k best-scoring matching elements (fewer when the corpus is smaller)</response>
+        /// <response code="400">Not a vector index, wrong query dimension, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value</response>
+        /// <response code="404">The index does not exist</response>
+        [HttpPost("/scan/index/vector")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(VectorSearchResultREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public IActionResult VectorIndexScan([FromBody] VectorIndexScanSpecification definition)
+        {
+            if (definition == null || definition.Query == null)
+            {
+                return BadRequest("A vector scan specification with a query vector is required.");
+            }
+
+            if (!_fallen8.IndexFactory.TryGetIndex(out var index, definition.IndexId))
+            {
+                return NotFound(String.Format("No index named '{0}'.", definition.IndexId));
+            }
+
+            if (!(index is IVectorIndex vectorIndex))
+            {
+                return BadRequest(String.Format("Index '{0}' is not a vector index.", definition.IndexId));
+            }
+
+            VectorSearchConstraint constraint = null;
+            if (!String.IsNullOrEmpty(definition.Kind) || definition.Label != null)
+            {
+                constraint = new VectorSearchConstraint { Label = definition.Label };
+                switch (definition.Kind)
+                {
+                    case null:
+                    case "":
+                    case "any":
+                        constraint.Kind = VectorSearchElementKind.Any;
+                        break;
+                    case "vertex":
+                        constraint.Kind = VectorSearchElementKind.Vertex;
+                        break;
+                    case "edge":
+                        constraint.Kind = VectorSearchElementKind.Edge;
+                        break;
+                    default:
+                        return BadRequest(String.Format("'{0}' is not a valid kind. Expected vertex, edge or any.", definition.Kind));
+                }
+            }
+
+            if (!vectorIndex.TryNearestNeighbors(out var result, definition.Query, definition.K, constraint))
+            {
+                return BadRequest(String.Format(
+                    "Invalid kNN query: the query must have dimension {0}, k must be within [1, {1}], and a Cosine query must not be zero-norm.",
+                    vectorIndex.Dimension, VectorIndex.MaxK));
+            }
+
+            var results = new List<VectorScoredElementREST>(result.Entries.Count);
+            foreach (var entry in result.Entries)
+            {
+                results.Add(new VectorScoredElementREST { GraphElementId = entry.Element.Id, Score = entry.Score });
+            }
+
+            return Ok(new VectorSearchResultREST
+            {
+                Metric = result.Metric.ToString(),
+                HigherIsBetter = result.HigherIsBetter,
+                Results = results
+            });
         }
 
         /// <summary>
