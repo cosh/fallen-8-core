@@ -1466,17 +1466,26 @@ namespace NoSQL.GraphDB.App.Controllers
                         VertexCost = traverser.VertexCost()
                     };
 
+                    // Feature observability: the algorithm-run span (tags: plugin name - an
+                    // all-caps plugin identifier, not user content - and result count).
+                    var algorithmName = definition.PathAlgorithmName ?? "BLS"; // Default to BLS if not specified
+                    using var searchSpan = Diagnostics.AppDiagnostics.Source.StartActivity("fallen8.path.search");
+                    searchSpan?.SetTag("algorithm", algorithmName);
+
                     List<Core.Algorithms.Path.Path> paths;
                     if (_fallen8.TryCalculateShortestPath(
                         out paths,
-                        definition.PathAlgorithmName ?? "BLS", // Default to BLS if not specified
+                        algorithmName,
                         pathDefinition))
                     {
                         if (paths != null && paths.Count > 0)
                         {
+                            searchSpan?.SetTag("result.count", paths.Count);
                             return new List<PathREST>(paths.Select(aPath => new PathREST(aPath)));
                         }
                     }
+
+                    searchSpan?.SetTag("result.count", 0);
                 }
             }
             catch (Exception ex)

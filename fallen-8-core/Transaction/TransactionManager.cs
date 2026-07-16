@@ -67,6 +67,20 @@ namespace NoSQL.GraphDB.Core.Transaction
             /// flush after the fsync. Null when the feed is off or the transaction changed nothing.</summary>
             public ChangeFeed.ChangeDescriptor Changes;
 
+            /// <summary>Enqueue timestamp for the commit-latency histogram (feature observability);
+            /// 0 when nobody listens - the Enabled gate skips the clock read entirely.</summary>
+            public long EnqueueTimestamp;
+
+            /// <summary>The enqueuing request's activity context (feature observability), so the
+            /// execute span started on the decoupled writer thread parents to the HTTP request
+            /// that enqueued the transaction. Default when no trace listener is attached.</summary>
+            public ActivityContext ParentContext;
+
+            /// <summary>The execute span, started in <see cref="ExecuteTransactionBody"/> and
+            /// finished by the group flush AFTER the durable tag is known - so its duration covers
+            /// execute through durable acknowledgement. Null when unsampled.</summary>
+            public Activity Span;
+
             public WorkItem(ATransaction tx, TaskCompletionSource completion, TransactionInformation info)
             {
                 Tx = tx;
@@ -201,6 +215,8 @@ namespace NoSQL.GraphDB.Core.Transaction
                     _logger.LogError(ex, "The transaction writer thread caught an unexpected exception in the group-commit loop; completing pending transactions and continuing.");
                     foreach (var pending in group)
                     {
+                        pending.Span?.Dispose();
+                        pending.Span = null;
                         pending.Completion.TrySetResult();
                     }
                 }
@@ -270,6 +286,9 @@ namespace NoSQL.GraphDB.Core.Transaction
                 }
             }
 
+            var metrics = _f8.Metrics;
+            metrics?.RecordGroupSize(group.Count);
+
             foreach (var item in group)
             {
                 if (item.Info.TransactionState == TransactionState.Finished && !(item.BufferedDurable && groupDurable))
@@ -278,6 +297,26 @@ namespace NoSQL.GraphDB.Core.Transaction
                     // logging suspended). The degraded state is signalled via Durable, not Error
                     // (feature crash-durability-hardening D1); a later Save re-establishes durability.
                     item.Info.Durable = false;
+                    metrics?.RecordNonDurable();
+                }
+
+                // Commit latency = enqueue to durable acknowledgement, recorded HERE - strictly
+                // after the group fsync, just before the completion fires (feature observability).
+                // The stamp exists only when the histogram had a listener at enqueue time.
+                if (item.EnqueueTimestamp != 0L && metrics != null &&
+                    item.Info.TransactionState == TransactionState.Finished)
+                {
+                    metrics.RecordCommitDuration(item.Tx.GetType().Name,
+                        Stopwatch.GetElapsedTime(item.EnqueueTimestamp).TotalSeconds);
+                }
+
+                // Finish the execute span with the now-known durability; its duration covers
+                // execute through the durable-ack point.
+                if (item.Span != null)
+                {
+                    item.Span.SetTag("transaction.durable", item.Info.Durable);
+                    item.Span.Dispose();
+                    item.Span = null;
                 }
 
                 item.Completion.TrySetResult();
@@ -332,6 +371,22 @@ namespace NoSQL.GraphDB.Core.Transaction
             var tx = item.Tx;
             var transactionType = tx.GetType().Name;
 
+            // Feature observability. The execute span parents to the ENQUEUING request's context
+            // (captured in AddTransaction), so a slow REST mutation shows its queue wait and
+            // execution even though the body runs on this decoupled writer thread. The span is
+            // finished by the group flush once durability is known. The execute-duration
+            // timestamp is Enabled-gated: no clock read when nobody listens.
+            var metrics = _f8.Metrics;
+            if (Diagnostics.Fallen8Diagnostics.Source.HasListeners())
+            {
+                item.Span = Diagnostics.Fallen8Diagnostics.Source.StartActivity(
+                    "fallen8.transaction.execute", ActivityKind.Internal, item.ParentContext);
+                item.Span?.SetTag("transaction.type", transactionType);
+            }
+            var executeStart = metrics != null && metrics.ExecuteDurationEnabled
+                ? Stopwatch.GetTimestamp()
+                : 0L;
+
             bool succeeded;
             try
             {
@@ -355,12 +410,28 @@ namespace NoSQL.GraphDB.Core.Transaction
                 faultedInfo.Error = ex;
                 faultedInfo.FailureReason = TransactionFailureReason.InternalError;
 
+                if (executeStart != 0L)
+                {
+                    metrics.RecordExecuteDuration(transactionType, Stopwatch.GetElapsedTime(executeStart).TotalSeconds);
+                }
+                metrics?.RecordRollback(transactionType, TransactionFailureReason.InternalError);
+                item.Span?.SetTag("transaction.state", nameof(TransactionState.RolledBack));
+                item.Span?.SetStatus(ActivityStatusCode.Error);
+
                 ReleaseInputsSafely(tx, transactionType);
                 return;
             }
 
+            if (executeStart != 0L)
+            {
+                metrics.RecordExecuteDuration(transactionType, Stopwatch.GetElapsedTime(executeStart).TotalSeconds);
+            }
+
             if (succeeded)
             {
+                metrics?.RecordCommit(transactionType);
+                item.Span?.SetTag("transaction.state", nameof(TransactionState.Finished));
+
                 SetTransactionState(tx, TransactionState.Finished);
 
                 // Buffer this committed transaction's WAL frame (no fsync; the group flush fsyncs once
@@ -390,6 +461,10 @@ namespace NoSQL.GraphDB.Core.Transaction
                 RollbackSafely(tx, transactionType);
                 var rolledBackInfo = SetTransactionState(tx, TransactionState.RolledBack);
                 rolledBackInfo.FailureReason = tx.FailureReason;
+
+                metrics?.RecordRollback(transactionType, tx.FailureReason);
+                item.Span?.SetTag("transaction.state", nameof(TransactionState.RolledBack));
+
                 ReleaseInputsSafely(tx, transactionType);
             }
         }
@@ -519,9 +594,41 @@ namespace NoSQL.GraphDB.Core.Transaction
             // assignment simply publishes it unconditionally.
             transactionState[tx.TransactionIdGuid] = txInfo;
 
-            _transactions.Add(new WorkItem(tx, completion, txInfo));
+            var item = new WorkItem(tx, completion, txInfo);
+
+            // Feature observability, Enabled-gated: the enqueue timestamp (for the commit-latency
+            // histogram) is taken ONLY when a listener is attached, and the enqueuing activity
+            // context (for cross-thread span parenting) only when something samples.
+            var metrics = _f8.Metrics;
+            if (metrics != null && metrics.CommitDurationEnabled)
+            {
+                item.EnqueueTimestamp = Stopwatch.GetTimestamp();
+            }
+            if (Diagnostics.Fallen8Diagnostics.Source.HasListeners())
+            {
+                item.ParentContext = Activity.Current?.Context ?? default;
+            }
+
+            _transactions.Add(item);
 
             return txInfo;
+        }
+
+        /// <summary>Transactions waiting for the single writer, for the queue-depth gauge
+        /// (feature observability). 0 during teardown races - the gauge callback must never throw.</summary>
+        internal int QueueDepth
+        {
+            get
+            {
+                try
+                {
+                    return _transactions.Count;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return 0;
+                }
+            }
         }
 
         public TransactionState GetState(String txId)

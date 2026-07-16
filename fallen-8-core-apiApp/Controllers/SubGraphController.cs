@@ -311,8 +311,20 @@ namespace NoSQL.GraphDB.App.Controllers
                     SourceSubGraphName = fromSubGraph,
                     SpecificationJson = specificationJson
                 };
+
+                // Feature observability: the algorithm-run span (tags: the plugin name and the
+                // created subgraph's element counts - never the user's name or filter text).
+                using var runSpan = Diagnostics.AppDiagnostics.Source.StartActivity("fallen8.subgraph.run");
+
                 var txInfo = _fallen8.EnqueueTransaction(tx);
                 txInfo.WaitUntilFinished();
+
+                if (tx.SubGraphCreated != null)
+                {
+                    runSpan?.SetTag("algorithm", tx.SubGraphCreated.AlgorithmPluginName);
+                    runSpan?.SetTag("result.vertices", tx.SubGraphCreated.SubGraph?.VertexCount ?? 0);
+                    runSpan?.SetTag("result.edges", tx.SubGraphCreated.SubGraph?.EdgeCount ?? 0);
+                }
 
                 if (tx.SubGraphCreated == null)
                 {

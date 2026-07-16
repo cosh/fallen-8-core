@@ -265,6 +265,58 @@ namespace NoSQL.GraphDB.Core
         /// </summary>
         private readonly ILogger<Fallen8> _logger;
 
+        /// <summary>
+        ///   The engine's per-instance metric instruments (feature observability). Created by
+        ///   the constructor after the transaction manager, disposed FIRST on teardown so no
+        ///   gauge callback can observe torn-down state. Null only after Dispose.
+        /// </summary>
+        internal Diagnostics.Fallen8Metrics Metrics;
+
+        #endregion
+
+        #region metric gauge accessors (feature observability - atomically published values only)
+
+        /// <summary>Transactions waiting for the single writer (0 during teardown races).</summary>
+        internal Int32 TransactionQueueDepthForMetrics => _txManager?.QueueDepth ?? 0;
+
+        /// <summary>The metric face of DurabilityDegraded: the D1 sticky fence has tripped or an
+        /// anchored log awaits its paired load (D3).</summary>
+        internal Boolean WalDegradedForMetrics
+        {
+            get
+            {
+                var wal = _wal;
+                return (wal != null && wal.HasFailed) || _walAwaitingPairedLoad;
+            }
+        }
+
+        /// <summary>The current write-ahead log file length (0 when the WAL is off).</summary>
+        internal Int64 WalSizeForMetrics => _wal?.CurrentLength ?? 0L;
+
+        /// <summary>Registered index count.</summary>
+        internal Int32 IndexCountForMetrics => IndexFactory?.Indices?.Count ?? 0;
+
+        /// <summary>Total keys across all registered indices (aggregate only - per-index detail
+        /// is GET /statistics' job, behind auth; no index NAME ever becomes a metric tag).</summary>
+        internal Int64 IndexEntriesForMetrics
+        {
+            get
+            {
+                var indices = IndexFactory?.Indices;
+                if (indices == null)
+                {
+                    return 0L;
+                }
+
+                var total = 0L;
+                foreach (var index in indices.Values)
+                {
+                    total += index.CountOfKeys();
+                }
+                return total;
+            }
+        }
+
         #endregion
 
         #region Internal Helper Methods
@@ -303,6 +355,10 @@ namespace NoSQL.GraphDB.Core
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
             _persistencyFactory = new PersistencyFactory(persistencyLogger);
+
+            // Per-engine metric instruments (feature observability): created AFTER the
+            // transaction manager (the queue-depth gauge reads it), disposed BEFORE it.
+            Metrics = new Diagnostics.Fallen8Metrics(this);
         }
 
         /// <summary>
@@ -1077,7 +1133,23 @@ namespace NoSQL.GraphDB.Core
 
         internal string Save(string path, int savePartitions = 5)
         {
-            var actualPath = _persistencyFactory.Save(this, path, savePartitions);
+            // Cold-path instrumentation (feature observability): a save is seconds of I/O, so
+            // the unconditional timestamp is noise; the span is null when nothing samples.
+            using var span = Diagnostics.Fallen8Diagnostics.Source.StartActivity("fallen8.checkpoint.save");
+            span?.SetTag("checkpoint.partitions", savePartitions);
+            var start = System.Diagnostics.Stopwatch.GetTimestamp();
+
+            string actualPath;
+            try
+            {
+                actualPath = _persistencyFactory.Save(this, path, savePartitions);
+            }
+            catch
+            {
+                Metrics?.RecordCheckpointFailure("save");
+                span?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
+                throw;
+            }
 
             // WAL compose (spec P4/§5): the snapshot is now DURABLY committed (the factory writes it
             // via temp + fsync + atomic rename). Only now reset the log to build upon this snapshot -
@@ -1094,7 +1166,41 @@ namespace NoSQL.GraphDB.Core
             // (feature crash-durability-hardening D1/D3).
             _walAwaitingPairedLoad = false;
 
+            var bytes = MeasureCheckpointBytes(actualPath);
+            Metrics?.RecordCheckpointSave(
+                System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalSeconds, bytes);
+            span?.SetTag("checkpoint.bytes", bytes);
+
             return actualPath;
+        }
+
+        /// <summary>
+        ///   Total on-disk size of a checkpoint: the snapshot file plus its partitions and index
+        ///   sidecars, which all share the snapshot path as their name prefix. Best-effort
+        ///   (-1 when unmeasurable) - a metrics detail must never fault a save/load.
+        /// </summary>
+        private static long MeasureCheckpointBytes(string checkpointPath)
+        {
+            try
+            {
+                var directory = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(checkpointPath));
+                var prefix = System.IO.Path.GetFileName(checkpointPath);
+                if (directory == null || string.IsNullOrEmpty(prefix))
+                {
+                    return -1L;
+                }
+
+                var total = 0L;
+                foreach (var file in System.IO.Directory.EnumerateFiles(directory, prefix + "*"))
+                {
+                    total += new System.IO.FileInfo(file).Length;
+                }
+                return total;
+            }
+            catch
+            {
+                return -1L;
+            }
         }
 
         public override bool TryCalculateShortestPath(
@@ -2071,7 +2177,29 @@ namespace NoSQL.GraphDB.Core
         internal bool FlushWal()
         {
             var wal = _wal;
-            return wal == null || wal.FlushGroup();
+            if (wal == null)
+            {
+                return true;
+            }
+
+            // Enabled-gated timestamp (feature observability): no clock read when nobody listens.
+            var metrics = Metrics;
+            var start = metrics != null && metrics.WalFlushDurationEnabled
+                ? System.Diagnostics.Stopwatch.GetTimestamp()
+                : 0L;
+
+            var durable = wal.FlushGroup();
+
+            if (start != 0L)
+            {
+                metrics.RecordWalFlushDuration(System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalSeconds);
+            }
+            if (!durable)
+            {
+                metrics?.RecordWalFlushFailure();
+            }
+
+            return durable;
         }
 
         /// <summary>
@@ -2102,7 +2230,7 @@ namespace NoSQL.GraphDB.Core
         ///   crash. A torn/corrupt tail is handled by <see cref="WriteAheadLog.ReadEntries" /> (it
         ///   stops at the last complete entry), so this loop only ever sees whole, CRC-valid entries.
         /// </summary>
-        private void ReplayWriteAheadLog()
+        private int ReplayWriteAheadLog()
         {
             _walSuspended = true;
             try
@@ -2188,6 +2316,7 @@ namespace NoSQL.GraphDB.Core
                 }
 
                 _logger.LogInformation("Recovered {Count} transaction(s) from the write-ahead log.", replayed);
+                return replayed;
             }
             finally
             {
@@ -2441,6 +2570,33 @@ namespace NoSQL.GraphDB.Core
                 return;
             }
 
+            // Cold-path instrumentation (feature observability): duration + bytes + span,
+            // failure counter on a rejected load. The load itself is unchanged.
+            using var span = Diagnostics.Fallen8Diagnostics.Source.StartActivity("fallen8.checkpoint.load");
+            var start = System.Diagnostics.Stopwatch.GetTimestamp();
+            int replayedEntries;
+            try
+            {
+                LoadCore(path, startServices, out replayedEntries);
+            }
+            catch
+            {
+                Metrics?.RecordCheckpointFailure("load");
+                span?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
+                throw;
+            }
+
+            var bytes = MeasureCheckpointBytes(path);
+            Metrics?.RecordCheckpointLoad(
+                System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalSeconds, bytes);
+            span?.SetTag("checkpoint.bytes", bytes);
+            span?.SetTag("checkpoint.wal.replayed", replayedEntries);
+        }
+
+        private void LoadCore(String path, Boolean startServices, out int replayedEntries)
+        {
+            replayedEntries = 0;
+
             _logger.LogInformation("Fallen-8 now loads a savegame from path \"{Path}\"", path);
 
             var oldIndexFactory = IndexFactory;
@@ -2532,7 +2688,7 @@ namespace NoSQL.GraphDB.Core
                         var baseline = (int)_wal.BaselineCurrentId;
                         SetSnapshotCountForReplay(baseline);
                         _currentId = baseline;
-                        ReplayWriteAheadLog();
+                        replayedEntries = ReplayWriteAheadLog();
                     }
                     else
                     {
@@ -2610,6 +2766,13 @@ namespace NoSQL.GraphDB.Core
 
         public override void Dispose()
         {
+            // Unregister the metric instruments BEFORE anything is torn down (feature
+            // observability, pinned by test): an exporter's collection thread may invoke a
+            // gauge callback at any moment, and the callbacks read the transaction manager and
+            // WAL state disposed below. Disposing the Meter first makes that race impossible.
+            Metrics?.Dispose();
+            Metrics = null;
+
             // Stop the single transaction-writer thread FIRST (finding P2), so no in-flight or queued
             // transaction can run concurrently with - or after - the state teardown below. This both
             // gives the worker a clean shutdown and removes any race between a late transaction and

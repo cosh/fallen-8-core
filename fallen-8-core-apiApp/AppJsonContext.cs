@@ -109,6 +109,12 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(PartitionSummaryREST))]
     [JsonSerializable(typeof(PartitionMembersREST))]
     [JsonSerializable(typeof(WriteBackResultREST))]
+    [JsonSerializable(typeof(GraphStatisticsREST))]
+    [JsonSerializable(typeof(CardinalityStatsREST))]
+    [JsonSerializable(typeof(NamedCountREST))]
+    [JsonSerializable(typeof(DegreeStatsREST))]
+    [JsonSerializable(typeof(IndexStatsREST))]
+    [JsonSerializable(typeof(MemoryStatsREST))]
     public sealed partial class AppJsonContext : JsonSerializerContext
     {
     }

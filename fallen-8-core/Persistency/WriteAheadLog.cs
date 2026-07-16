@@ -243,6 +243,27 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
+        ///   The current on-disk length of the log file, for the <c>fallen8.wal.size</c> gauge
+        ///   (feature observability). Best-effort: 0 when the file is missing or unreadable -
+        ///   a gauge callback must never throw into the exporter's collection thread.
+        /// </summary>
+        internal long CurrentLength
+        {
+            get
+            {
+                try
+                {
+                    var info = new FileInfo(_path);
+                    return info.Exists ? info.Length : 0L;
+                }
+                catch
+                {
+                    return 0L;
+                }
+            }
+        }
+
+        /// <summary>
         ///   Buffers one framed entry (<c>[Int32 length][payload][UInt32 CRC-32]</c>) for the current
         ///   commit group WITHOUT touching disk (feature write-path-throughput). Runs only on the single
         ///   writer thread, after the transaction has committed. The bytes reach disk - and become
