@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // CodeGenerationHelper.cs
 //
@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -128,7 +129,20 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 // Count every real compile (feature codegen-cache-keying): a cache hit never reaches
                 // here, so this is the "compiled once" signal the acceptance test asserts.
                 System.Threading.Interlocked.Increment(ref _pathCompileCount);
+
+                // Feature observability: compile span + duration/failure metrics. A compile is a
+                // cold, heavy operation - the unconditional timestamp is noise relative to Roslyn.
+                using var compileSpan = NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.Source.StartActivity("fallen8.codegen.compile");
+                compileSpan?.SetTag("artifact", NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.PathTraverserArtifact);
+                var compileStart = Stopwatch.GetTimestamp();
+
                 EmitResult compilationResult = compilation.Emit(ms);
+
+                NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.RecordCompile(
+                    NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.PathTraverserArtifact, compilationResult.Success,
+                    Stopwatch.GetElapsedTime(compileStart).TotalSeconds);
+                compileSpan?.SetTag("success", compilationResult.Success);
+
                 if (compilationResult.Success)
                 {
                     ms.Seek(0, SeekOrigin.Begin);
@@ -637,6 +651,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
             // re-running Roslyn for the same code.
             if (!_subGraphProviderCache.TryGetValue(sourceCode, out (Object Instance, Type Type) provider))
             {
+                NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.RecordCacheMiss(NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.SubGraphArtifact);
+
                 var compileError = CompileProvider(sourceCode, out provider);
                 if (compileError != null)
                 {
@@ -644,6 +660,10 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 }
 
                 _subGraphProviderCache.Set(sourceCode, provider, _subGraphProviderCacheOptions);
+            }
+            else
+            {
+                NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.RecordCacheHit(NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.SubGraphArtifact);
             }
 
             foreach (var slot in slots)
@@ -673,7 +693,17 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             using (var ms = new MemoryStream())
             {
+                // Feature observability: compile span + duration/failure metrics (cold path).
+                using var compileSpan = NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.Source.StartActivity("fallen8.codegen.compile");
+                compileSpan?.SetTag("artifact", NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.SubGraphArtifact);
+                var compileStart = Stopwatch.GetTimestamp();
+
                 EmitResult compilationResult = compilation.Emit(ms);
+
+                NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.RecordCompile(
+                    NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.SubGraphArtifact, compilationResult.Success,
+                    Stopwatch.GetElapsedTime(compileStart).TotalSeconds);
+                compileSpan?.SetTag("success", compilationResult.Success);
 
                 if (!compilationResult.Success)
                 {

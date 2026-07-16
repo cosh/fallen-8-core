@@ -4074,6 +4074,55 @@
         }
       }
     },
+    "/statistics": {
+      "get": {
+        "tags": [
+          "Statistics"
+        ],
+        "summary": "Returns a graph-shape snapshot: counts, cardinalities, degrees, indices, memory",
+        "description": "The result is an ADVISORY snapshot, not transactionally consistent: reads are\r\nlock-free over the volatile element snapshot, so a write committed during the pass\r\nmay or may not appear.\r\n\r\nCOST (honest): counts and memory are O(1); labels and property keys are one pass\r\nover the element snapshot; degrees are O(1) adjacency-count reads per vertex. When\r\nV+E exceeds the configured element budget (Fallen8:Observability:StatisticsElementBudget,\r\ndefault 1,000,000) the pass samples with a uniform stride and the response says so:\r\nsampled=true, sampleStride, per-name counts as counted IN THE SAMPLE (multiply by\r\nthe stride to extrapolate), distinctTotal = distinct within the sample (sampling\r\nhonestly undercounts distinct values). Degree percentiles from a strided sample are\r\nstatistically sound. Memory numbers never force a GC.\r\n\r\nThis endpoint exposes SCHEMA-SHAPED data (label names, property keys, index names),\r\nso it sits behind the normal API-key policy - unlike /metrics, whose inventory is\r\naggregate numbers only - and under the sensitive rate limiter so a misconfigured\r\nscrape loop cannot turn an O(V+E) pass into a DoS.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The snapshot",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphStatisticsREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "Rate limited (the sensitive fixed-window limiter)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/storedquery": {
       "post": {
         "tags": [
@@ -5149,6 +5198,92 @@
         },
         "description": "The success summary of a bulk JSONL import (feature bulk-import-export)."
       },
+      "CardinalityStatsREST": {
+        "type": "object",
+        "properties": {
+          "top": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/NamedCountREST"
+            },
+            "description": "The top-N entries, count-descending."
+          },
+          "distinctTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Distinct names seen (within the sample when sampled=true).",
+            "format": "int32",
+            "example": 17
+          }
+        },
+        "description": "Top-N names by count plus the distinct total. Sampling honestly UNDERCOUNTS\r\n    distinct values: when sampled=true, distinctTotal is distinct-within-the-sample - the\r\n    DTO documents that rather than pretending to estimate."
+      },
+      "DegreeStatsREST": {
+        "type": "object",
+        "properties": {
+          "min": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64",
+            "example": 0
+          },
+          "max": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64",
+            "example": 420
+          },
+          "mean": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double",
+            "example": 3.7
+          },
+          "p50": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64",
+            "example": 2
+          },
+          "p90": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64",
+            "example": 9
+          },
+          "p99": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64",
+            "example": 40
+          }
+        },
+        "description": "Degree distribution over the sampled vertices - strided-sample percentiles are\r\n    statistically sound."
+      },
       "DelegateDiagnosticREST": {
         "type": "object",
         "properties": {
@@ -5600,6 +5735,93 @@
           ]
         }
       },
+      "GraphStatisticsREST": {
+        "type": "object",
+        "properties": {
+          "vertexCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "example": 2500000
+          },
+          "edgeCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "example": 10000000
+          },
+          "vertexLabels": {
+            "description": "Vertex label cardinalities (top-N + distinct).",
+            "$ref": "#/components/schemas/CardinalityStatsREST"
+          },
+          "edgeLabels": {
+            "description": "Edge label cardinalities (top-N + distinct).",
+            "$ref": "#/components/schemas/CardinalityStatsREST"
+          },
+          "inDegree": {
+            "description": "In-degree distribution over the sampled vertices.",
+            "$ref": "#/components/schemas/DegreeStatsREST"
+          },
+          "outDegree": {
+            "description": "Out-degree distribution over the sampled vertices.",
+            "$ref": "#/components/schemas/DegreeStatsREST"
+          },
+          "totalDegree": {
+            "description": "Total (in+out) degree distribution over the sampled vertices.",
+            "$ref": "#/components/schemas/DegreeStatsREST"
+          },
+          "propertyKeys": {
+            "description": "Property-key cardinalities by element count (top-N + distinct) - the\r\n    heaviest stat (O(total properties) over the sampled elements).",
+            "$ref": "#/components/schemas/CardinalityStatsREST"
+          },
+          "indices": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/IndexStatsREST"
+            },
+            "description": "The registered indices."
+          },
+          "memory": {
+            "description": "Free process/GC memory reads (never a forced GC).",
+            "$ref": "#/components/schemas/MemoryStatsREST"
+          },
+          "computedInMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Wall-clock cost of computing this snapshot.",
+            "format": "double",
+            "example": 184.2
+          },
+          "sampled": {
+            "type": "boolean",
+            "description": "True when V+E exceeded the element budget and the pass sampled with a\r\n    uniform stride; per-name counts are then within-sample.",
+            "example": false
+          },
+          "sampleStride": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The uniform stride used (1 when exact).",
+            "format": "int32",
+            "example": 1
+          }
+        },
+        "description": "The graph-shape snapshot behind GET /statistics (feature observability). An ADVISORY,\r\nlock-free snapshot - not transactionally consistent - computed on demand under an\r\nelement budget: exact when V+E fits the budget, uniformly strided (and flagged) above it."
+      },
       "IndexAddToSpecification": {
         "required": [
           "graphElementId",
@@ -5689,6 +5911,48 @@
           "resultType": "Vertices"
         }
       },
+      "IndexStatsREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The index name.",
+            "example": "myIndex"
+          },
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The plugin type name.",
+            "example": "DictionaryIndex"
+          },
+          "keys": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "CountOfKeys().",
+            "format": "int32",
+            "example": 1000
+          },
+          "values": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "CountOfValues().",
+            "format": "int32",
+            "example": 1200
+          }
+        },
+        "description": "One registered index."
+      },
       "LiteralSpecification": {
         "required": [
           "value"
@@ -5747,6 +6011,76 @@
           "startServices": true,
           "saveGameLocation": "C:/Fallen8/database.f8s"
         }
+      },
+      "MemoryStatsREST": {
+        "type": "object",
+        "properties": {
+          "processWorkingSetBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Process working set.",
+            "format": "int64",
+            "example": 1073741824
+          },
+          "gcHeapBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "GC.GetTotalMemory(false) - allocated managed memory, no forced collection.",
+            "format": "int64",
+            "example": 805306368
+          },
+          "gcLastHeapSizeBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "GCMemoryInfo.HeapSizeBytes from the last GC.",
+            "format": "int64",
+            "example": 805306368
+          },
+          "gcFragmentedBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "GCMemoryInfo.FragmentedBytes from the last GC.",
+            "format": "int64",
+            "example": 52428800
+          }
+        },
+        "description": "Process/GC memory numbers that are FREE to read - this endpoint never forces a\r\n    GC (deliberate contrast with the benchmark-only GC.GetTotalMemory(true))."
+      },
+      "NamedCountREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The label / property key.",
+            "example": "person"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many sampled elements carry it.",
+            "format": "int64",
+            "example": 1200
+          }
+        },
+        "description": "One label (or property key) with its element count. When the response is\r\n    sampled, counts are AS COUNTED IN THE SAMPLE (multiply by sampleStride to extrapolate)."
       },
       "PartitionMembersREST": {
         "type": "object",
@@ -7611,6 +7945,9 @@
     },
     {
       "name": "SaveGames"
+    },
+    {
+      "name": "Statistics"
     },
     {
       "name": "StoredQueries"

@@ -754,7 +754,45 @@ namespace NoSQL.GraphDB.Tests
                     PropertyKey = "analytics.wcc",
                     VerticesWritten = 42,
                     Chunks = 1
-                }, "WriteBackResultREST")
+                }, "WriteBackResultREST"),
+                (new NamedCountREST { Name = "person", Count = 1200 }, "NamedCountREST"),
+                (new CardinalityStatsREST
+                {
+                    DistinctTotal = 17,
+                    Top = new List<NamedCountREST> { new NamedCountREST { Name = "person", Count = 1200 } }
+                }, "CardinalityStatsREST"),
+                (new DegreeStatsREST { Min = 0, Max = 420, Mean = 3.7, P50 = 2, P90 = 9, P99 = 40 }, "DegreeStatsREST"),
+                (new IndexStatsREST { Name = "byName", Type = "DictionaryIndex", Keys = 1000, Values = 1200 }, "IndexStatsREST"),
+                (new MemoryStatsREST
+                {
+                    ProcessWorkingSetBytes = 1073741824L,
+                    GcHeapBytes = 805306368L,
+                    GcLastHeapSizeBytes = 805306368L,
+                    GcFragmentedBytes = 52428800L
+                }, "MemoryStatsREST"),
+                (new GraphStatisticsREST
+                {
+                    VertexCount = 4,
+                    EdgeCount = 2,
+                    VertexLabels = new CardinalityStatsREST
+                    {
+                        DistinctTotal = 2,
+                        Top = new List<NamedCountREST> { new NamedCountREST { Name = "person", Count = 3 } }
+                    },
+                    EdgeLabels = new CardinalityStatsREST { DistinctTotal = 1, Top = new List<NamedCountREST>() },
+                    InDegree = new DegreeStatsREST { Max = 1, Mean = 0.5 },
+                    OutDegree = new DegreeStatsREST { Max = 2, Mean = 0.5 },
+                    TotalDegree = new DegreeStatsREST { Max = 2, Mean = 1 },
+                    PropertyKeys = new CardinalityStatsREST { DistinctTotal = 1, Top = new List<NamedCountREST>() },
+                    Indices = new List<IndexStatsREST>
+                    {
+                        new IndexStatsREST { Name = "byName", Type = "DictionaryIndex", Keys = 1, Values = 1 }
+                    },
+                    Memory = new MemoryStatsREST { ProcessWorkingSetBytes = 1073741824L, GcHeapBytes = 805306368L },
+                    ComputedInMs = 1.4,
+                    Sampled = false,
+                    SampleStride = 1
+                }, "GraphStatisticsREST")
             };
         }
 

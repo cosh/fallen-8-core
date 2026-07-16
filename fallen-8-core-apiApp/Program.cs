@@ -42,6 +42,9 @@ using NoSQL.GraphDB.App.Services;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 using System;
 using System.Diagnostics.CodeAnalysis;
@@ -120,6 +123,58 @@ namespace NoSQL.GraphDB.App
             builder.Services.Configure<Fallen8AnalyticsOptions>(
                 builder.Configuration.GetSection(Fallen8AnalyticsOptions.SectionName));
             builder.Services.AddSingleton<AnalyticsRunGate>();
+
+            // Observability (feature observability): options + the readiness flag + health checks.
+            // OpenTelemetry itself is registered further below ONLY when an exporter is enabled -
+            // a fully default configuration runs zero OTel code paths.
+            builder.Services.Configure<Fallen8ObservabilityOptions>(
+                builder.Configuration.GetSection(Fallen8ObservabilityOptions.SectionName));
+            var observability = new Fallen8ObservabilityOptions();
+            builder.Configuration.GetSection(Fallen8ObservabilityOptions.SectionName).Bind(observability);
+            builder.Services.AddSingleton<StartupState>();
+            builder.Services.AddHealthChecks()
+                .AddCheck<StartupReadinessCheck>("startup-load", tags: new[] { "ready" });
+
+            if (observability.AnyExporterEnabled)
+            {
+                var otel = builder.Services.AddOpenTelemetry();
+                otel.ConfigureResource(r => r.AddService("fallen8"));
+                otel.WithMetrics(metrics =>
+                {
+                    // The engine + app meters, plus the BUILT-IN HTTP/Kestrel/runtime meters -
+                    // native in .NET 10, no instrumentation packages.
+                    metrics.AddMeter(
+                        NoSQL.GraphDB.Core.Diagnostics.Fallen8Diagnostics.SourceName,
+                        NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.SourceName,
+                        "Microsoft.AspNetCore.Hosting",
+                        "Microsoft.AspNetCore.Server.Kestrel",
+                        "System.Runtime");
+                    if (observability.Prometheus.Enabled)
+                    {
+                        metrics.AddPrometheusExporter();
+                    }
+                    if (!string.IsNullOrWhiteSpace(observability.Otlp.Endpoint))
+                    {
+                        metrics.AddOtlpExporter(o => o.Endpoint = new Uri(observability.Otlp.Endpoint));
+                    }
+                });
+
+                // Trace EXPORT exists only via OTLP (Prometheus is metrics-only): without an
+                // endpoint no sampler listens and StartActivity returns null - spans cost nothing.
+                if (!string.IsNullOrWhiteSpace(observability.Otlp.Endpoint))
+                {
+                    otel.WithTracing(tracing =>
+                    {
+                        tracing.AddSource(
+                            NoSQL.GraphDB.Core.Diagnostics.Fallen8Diagnostics.SourceName,
+                            NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.SourceName,
+                            "Microsoft.AspNetCore");
+                        tracing.SetSampler(new ParentBasedSampler(
+                            new TraceIdRatioBasedSampler(observability.TracingSamplingRatio)));
+                        tracing.AddOtlpExporter(o => o.Endpoint = new Uri(observability.Otlp.Endpoint));
+                    });
+                }
+            }
 
             // Register the engine singleton through a factory so durable mode constructs the
             // WAL-enabling overload with the recipe compiler supplied AT CONSTRUCTION - an unanchored
@@ -330,6 +385,55 @@ namespace NoSQL.GraphDB.App
             app.UseAuthorization();
 
             app.MapControllers();
+
+            // Health endpoints (feature observability): liveness (no checks - up once Kestrel
+            // answers) and readiness (the startup-load flag). Anonymous, status-only - the same
+            // posture as /status.
+            app.MapHealthChecks("/healthz", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+            {
+                Predicate = _ => false
+            }).AllowAnonymous();
+            app.MapHealthChecks("/readyz", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+            {
+                Predicate = check => check.Tags.Contains("ready")
+            }).AllowAnonymous();
+
+            // The Prometheus scrape endpoint (feature observability). Anonymous BY DEFAULT - a
+            // deliberate, documented call (spec §3.7): the inventory carries zero user-supplied
+            // strings, /status already exposes counts+memory anonymously, and the server binds
+            // loopback by default. Prometheus:RequireApiKey=true drops the exemption.
+            if (observability.Prometheus.Enabled)
+            {
+                var metricsEndpoint = app.MapPrometheusScrapingEndpoint("/metrics");
+                if (!observability.Prometheus.RequireApiKey)
+                {
+                    metricsEndpoint.AllowAnonymous();
+                }
+
+                // Honest auth-mode line: RequireApiKey only bites when a key is actually
+                // configured (the fallback policy is installed only then) - say so.
+                var keyConfigured = !string.IsNullOrWhiteSpace(security.ApiKey);
+                var authMode = !observability.Prometheus.RequireApiKey
+                    ? "anonymous (Prometheus:RequireApiKey=false)"
+                    : keyConfigured
+                        ? "API key required"
+                        : "RequireApiKey=true but NO API key is configured - effectively anonymous (configure Fallen8:Security:ApiKey)";
+                startupLogger.LogWarning(
+                    "Fallen-8 observability: GET /metrics is ENABLED (Prometheus exposition), auth mode: {AuthMode}. " +
+                    "The metric inventory carries aggregate operational numbers only (no user-supplied strings).",
+                    authMode);
+            }
+            if (!string.IsNullOrWhiteSpace(observability.Otlp.Endpoint))
+            {
+                startupLogger.LogWarning(
+                    "Fallen-8 observability: OTLP export is ENABLED to \"{Endpoint}\" (metrics + traces, sampling ratio {Ratio}).",
+                    observability.Otlp.Endpoint, observability.TracingSamplingRatio);
+            }
+            if (!observability.AnyExporterEnabled)
+            {
+                startupLogger.LogInformation(
+                    "Fallen-8 observability: no exporters enabled (Fallen8:Observability) - zero OpenTelemetry code paths run; /statistics and the health endpoints are always available.");
+            }
 
             if (spaIndexPresent)
             {

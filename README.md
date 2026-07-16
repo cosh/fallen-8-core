@@ -17,6 +17,7 @@ This is the .NET Core version of the original [fallen-8](https://github.com/cosh
 - **Subgraphs** — extract a pattern-matched subset of the graph as a standalone graph, recalculate it when the source changes, and persist it (see [Subgraphs](#subgraphs))
 - **Plugins** for indexes, algorithms and services
 - Checkpoint **persistency**, with a **save-game registry** that records every checkpoint and drives startup (see [Save games](#save-games-checkpoints))
+- **Observability** — opt-in Prometheus/OTLP metrics + traces, a `/statistics` graph-shape snapshot, health endpoints (see [Observability](#observability))
 - **F8 Studio** — a browser UI for browsing, querying, visualizing, and authoring the C# delegate fragments, with an optional local **natural-language assist**
 - Ships as **one Docker unit** (engine + API + UI) via `docker compose`
 
@@ -389,6 +390,24 @@ curl -sf -X POST http://localhost:5000/scan/index/vector \
 Hits are graph elements, so the traversal surface takes over from there — the GraphRAG
 recipe (kNN → paths/subgraphs/properties), memory math, and measured latency live in
 [features/vector-index/](features/done/vector-index/).
+
+## Observability
+
+The engine emits metrics and traces through the BCL instruments (no engine dependency);
+the server wires OpenTelemetry **opt-in** — a default configuration runs zero OTel code:
+
+```jsonc
+"Fallen8": { "Observability": { "Prometheus": { "Enabled": true } } }
+```
+
+`GET /metrics` then serves commit latency, queue depth, WAL degradation, checkpoint
+durations, element/index gauges and codegen cache stats in Prometheus format (plus the
+built-in HTTP/runtime meters); an OTLP endpoint adds traces whose transaction spans parent
+to the enqueuing HTTP request across the writer thread. `GET /statistics` returns a budgeted
+graph-shape snapshot (label/property cardinalities, degree percentiles, index inventory),
+and `/healthz` + `/readyz` cover probes. See
+[features/observability/](features/done/observability/) for the metric reference, scrape
+config, and the measured (noise-level) overhead.
 
 ## Additional information
 

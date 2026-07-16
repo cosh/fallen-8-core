@@ -56,13 +56,19 @@ namespace NoSQL.GraphDB.App.Services
         // mid-teardown (possibly empty) graph and register it as the newest save game.
         private int _stopped;
 
+        /// <summary>The readiness flag behind GET /readyz (feature observability); optional so
+        /// direct test construction stays unchanged.</summary>
+        private readonly StartupState _startupState;
+
         public DurabilityLifecycleService(IFallen8 fallen8, IOptions<Fallen8DurabilityOptions> options,
-            SaveGameRegistry saveGames, ILogger<DurabilityLifecycleService> logger)
+            SaveGameRegistry saveGames, ILogger<DurabilityLifecycleService> logger,
+            StartupState startupState = null)
         {
             _fallen8 = fallen8;
             _options = options.Value;
             _saveGames = saveGames;
             _logger = logger;
+            _startupState = startupState;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -71,6 +77,9 @@ namespace NoSQL.GraphDB.App.Services
             {
                 _logger.LogWarning("Fallen-8 durability is in VOLATILE mode (Fallen8:Durability:Volatile=true): " +
                     "no checkpoint is loaded on start and none is saved on shutdown; a restart loses all data.");
+
+                // Nothing to load: ready immediately (feature observability).
+                _startupState?.MarkReady();
                 return Task.CompletedTask;
             }
 
@@ -97,6 +106,7 @@ namespace NoSQL.GraphDB.App.Services
                         _fallen8.VertexCount, _fallen8.EdgeCount);
                 }
 
+                _startupState?.MarkReady();
                 return Task.CompletedTask;
             }
 
@@ -177,6 +187,9 @@ namespace NoSQL.GraphDB.App.Services
             _logger.LogInformation("Fallen-8 save game loaded: {VertexCount} vertices, {EdgeCount} edges.",
                 _fallen8.VertexCount, _fallen8.EdgeCount);
 
+            // Load-at-startup completed: the server is ready (feature observability). The
+            // throwing failure paths above deliberately never mark ready.
+            _startupState?.MarkReady();
             return Task.CompletedTask;
         }
 

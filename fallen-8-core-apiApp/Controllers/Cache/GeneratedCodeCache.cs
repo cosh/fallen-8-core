@@ -76,10 +76,14 @@ namespace NoSQL.GraphDB.Core.App.Controllers.Cache
         {
             if (_traverser.TryGetValue(KeyFor(definition), out var cached) && cached is IPathTraverser found)
             {
+                NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.RecordCacheHit(
+                    NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.PathTraverserArtifact);
                 traverser = found;
                 return true;
             }
 
+            NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.RecordCacheMiss(
+                NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.PathTraverserArtifact);
             traverser = null;
             return false;
         }
