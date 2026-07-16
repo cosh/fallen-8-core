@@ -338,7 +338,7 @@ curl -N "http://localhost:5000/changefeed?kinds=vertexCreated,vertexRemoved&labe
 Events carry ids, labels and property keys — never property values. Whenever continuity is
 lost (slow consumer, restart, trim/load), the stream says so in-band with a `resync` event;
 the client recipe is always "fetch, then stream; on resync, re-fetch". See
-[features/change-feed/](features/open/change-feed/) for the event schema, filter grammar,
+[features/change-feed/](features/done/change-feed/) for the event schema, filter grammar,
 and measured write-throughput non-regression.
 
 ## Additional information

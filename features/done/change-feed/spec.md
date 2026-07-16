@@ -1,8 +1,7 @@
 # Change Feed — Specification
 
-> **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
-> repository root `CLAUDE.md`. Feature branch: `feature/change-feed` (branch-only workflow —
-> no GitHub issue/PR).
+> **Status:** Implemented and merged (branch `feature/change-feed`, council-approved
+> 2026-07-16; see [plan.md](./plan.md) for the phase record and council outcome).
 >
 > **Primary consumer:** F8 Studio ([web-ui](../../done/web-ui/spec.md)). The web UI spec
 > explicitly parked "change streaming (the API has no notification channel; see gap G-5)" —
