@@ -540,6 +540,365 @@
         }
       }
     },
+    "/analytics/algorithms": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Lists the discovered analytics algorithm plugins",
+        "description": "The five built-ins are PAGERANK, WCC, LABELPROPAGATION, DEGREE and TRIANGLECOUNT;\r\nthird-party IGraphAnalyticsAlgorithm plugins from assimilated assemblies appear here\r\ntoo (the same discovery as path and subgraph algorithms).",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The available algorithms with their descriptions",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/analytics/{algorithmName}": {
+      "post": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Runs an analytics algorithm over the graph",
+        "description": "Runs synchronously under the wall-clock budget (default 30 s). Score algorithms\r\nreturn the top-K vertices by score (descending, ascending id tie-break); partition\r\nalgorithms return partition summaries (largest first). The FULL per-vertex result's\r\ndelivery vehicle is the opt-in property write-back (\"writeBack\": true), which lands\r\nthrough chunked plugin write transactions; write-back durability is SNAPSHOT-ONLY -\r\na WAL-only replay with no intervening save loses the written properties (re-run to\r\nrestore, overwrite is idempotent).\r\n\r\nReaching the iteration cap is a NORMAL 200 (converged=false, values usable), as is\r\nbudget exhaustion after at least one completed pass (budgetExhausted=true).\r\n\r\nSample request:\r\n\r\n    POST /analytics/PAGERANK\r\n    {\r\n       \"vertexLabel\": \"person\",\r\n       \"maxResults\": 10,\r\n       \"parameters\": { \"DampingFactor\": 0.85 }\r\n    }",
+        "parameters": [
+          {
+            "name": "algorithmName",
+            "in": "path",
+            "description": "The plugin name (e.g. PAGERANK, WCC, LABELPROPAGATION, DEGREE, TRIANGLECOUNT)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Scoping, budgets, algorithm parameters, result bound and the optional write-back",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The run's result (including converged=false / budgetExhausted=true partials that carry usable values)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsResultREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsResultREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsResultREST"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown direction/parameter values, out-of-ceiling maxIterations/maxResults/timeBudgetSeconds, or a bad write-back property key",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown algorithm name",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "The wall-clock budget exhausted with no usable result",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "All concurrent-run slots are taken",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analytics/{algorithmName}/partition/{partitionId}": {
+      "post": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Returns one partition's membership page from a fresh run of a partition algorithm",
+        "description": "Analytics runs are one-shot (no job store), so the page comes from a FRESH run with\r\nthe same specification - deterministic for a quiescent graph. Use offset+maxResults\r\nto page; the page ceiling is 10000 rows.",
+        "parameters": [
+          {
+            "name": "algorithmName",
+            "in": "path",
+            "description": "A partition algorithm (WCC or LABELPROPAGATION)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "partitionId",
+            "in": "path",
+            "description": "The partition id from a previous run's summaries",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The same run specification, plus the page offset",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The membership page",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartitionMembersREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartitionMembersREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartitionMembersREST"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid specification, a negative offset, writeBack (not supported here), or a score algorithm",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown algorithm or a partition id the run did not produce (including an empty scope)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "The wall-clock budget exhausted with no usable result",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "All concurrent-run slots are taken",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/generate": {
       "get": {
         "tags": [
@@ -4490,6 +4849,216 @@
         },
         "description": "Abstract base class for all graph elements (vertices and edges)"
       },
+      "AnalyticsResultREST": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The plugin that ran.",
+            "example": "PAGERANK"
+          },
+          "converged": {
+            "type": "boolean",
+            "description": "Whether the iterative algorithm converged (single-pass algorithms: true).\r\n    False with usable values when the iteration cap stopped the run.",
+            "example": true
+          },
+          "iterationsRun": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Completed iterations.",
+            "format": "int32",
+            "example": 23
+          },
+          "elapsedMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Wall-clock duration in milliseconds.",
+            "format": "double",
+            "example": 184.2
+          },
+          "budgetExhausted": {
+            "type": "boolean",
+            "description": "True when the time budget or cancellation stopped the run and the values\r\n    are the last completed iteration's (partial relative to the requested work).",
+            "example": false
+          },
+          "vertexCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many vertices were in scope for the run.",
+            "format": "int32",
+            "example": 2500000
+          },
+          "statistics": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "double"
+            },
+            "description": "Run-level aggregates: TriangleCount, ComponentCount, CommunityCount,\r\n    degree Min/Max/Mean."
+          },
+          "results": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ScoredVertexREST"
+            },
+            "description": "Top-K scored vertices (score algorithms only), best first."
+          },
+          "partitions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PartitionSummaryREST"
+            },
+            "description": "Partition summaries (partition algorithms only), largest first."
+          },
+          "writeBack": {
+            "description": "The write-back report; null when the request did not opt in.",
+            "$ref": "#/components/schemas/WriteBackResultREST"
+          }
+        },
+        "description": "One analytics run's response: run metadata, statistics, and the BOUNDED projection of\r\nthe per-vertex result (top-K scores or partition summaries - the full result set's\r\ndelivery vehicle is write-back)."
+      },
+      "AnalyticsSpecification": {
+        "type": "object",
+        "properties": {
+          "vertexLabel": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Only vertices with exactly this label participate (induced-subgraph\r\n    scoping); null = whole graph.",
+            "example": "person"
+          },
+          "edgePropertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Only edges in this adjacency group (edge-property-id) are traversed;\r\n    null = all edges.",
+            "example": "knows"
+          },
+          "direction": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Edge-direction interpretation: \"in\", \"out\" or \"both\". Null selects the\r\n    algorithm's default (PAGERANK: out; DEGREE and LABELPROPAGATION: both; WCC and\r\n    TRIANGLECOUNT ignore direction).",
+            "example": "out"
+          },
+          "maxIterations": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Iteration cap for iterative algorithms (PAGERANK default 100,\r\n    LABELPROPAGATION default 20; ceiling 10000). Reaching the cap is a normal outcome:\r\n    converged=false, values usable.",
+            "format": "int32",
+            "example": 100
+          },
+          "epsilon": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "PageRank convergence threshold (L1 delta); 0 selects the default 1e-6.",
+            "format": "double",
+            "example": 0.000001
+          },
+          "timeBudgetSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "Wall-clock budget in seconds; null selects the configured default (30 s).\r\n    Values above the configured ceiling are a 400.",
+            "format": "int32",
+            "example": 30
+          },
+          "parameters": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "double"
+            },
+            "description": "Algorithm-specific numeric knobs, e.g. {\"DampingFactor\": 0.85}."
+          },
+          "maxResults": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "How many rows the response carries (top-K scores or partition summaries).\r\n    Default 100, ceiling 10000 - the full result set's delivery vehicle is write-back,\r\n    not pagination through millions.",
+            "format": "int32",
+            "example": 100
+          },
+          "offset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Offset into a partition's membership page (partition endpoint only).",
+            "format": "int32",
+            "example": 0
+          },
+          "writeBack": {
+            "type": "boolean",
+            "description": "Opt-in: write each in-scope vertex's value as a property through the\r\n    sanctioned plugin write path (chunked DelegateTransactions). Durability is\r\n    snapshot-only (mode a): a WAL-only replay with no intervening save loses the\r\n    written properties - re-run to restore (idempotent overwrite).",
+            "example": false
+          },
+          "writeBackPropertyKey": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Overrides the convention property key (e.g. \"analytics.pagerank\");\r\n    non-empty, at most 256 chars.",
+            "example": "analytics.pagerank"
+          }
+        },
+        "description": "One analytics run request (feature graph-analytics): data-only scoping, budgets,\r\nalgorithm parameters, the bounded-result knob and the opt-in property write-back.\r\nNo dynamic code anywhere - these endpoints work with the dynamic-code switch off.",
+        "example": {
+          "vertexLabel": "person",
+          "maxResults": 10,
+          "parameters": {
+            "DampingFactor": 0.85
+          }
+        }
+      },
       "BenchmarkResultREST": {
         "type": "object",
         "properties": {
@@ -5178,6 +5747,83 @@
           "startServices": true,
           "saveGameLocation": "C:/Fallen8/database.f8s"
         }
+      },
+      "PartitionMembersREST": {
+        "type": "object",
+        "properties": {
+          "partitionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The partition id.",
+            "format": "int32",
+            "example": 0
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The partition's total size (across all pages).",
+            "format": "int32",
+            "example": 42
+          },
+          "offset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "This page's offset into the ascending-id member list.",
+            "format": "int32",
+            "example": 0
+          },
+          "members": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            },
+            "description": "The member vertex ids on this page, ascending."
+          }
+        },
+        "description": "One partition's membership page (partition algorithms)."
+      },
+      "PartitionSummaryREST": {
+        "type": "object",
+        "properties": {
+          "partitionId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The partition id (WCC: smallest member vertex id; LABELPROPAGATION: the\r\n    community's label, itself a vertex id).",
+            "format": "int32",
+            "example": 0
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The number of vertices in the partition.",
+            "format": "int32",
+            "example": 42
+          }
+        },
+        "description": "One partition summary (partition algorithms), rows ordered size-descending\r\n    with ascending-partition-id tie-break."
       },
       "PathCostSpecification": {
         "type": "object",
@@ -6002,6 +6648,32 @@
           "label": "person",
           "resultType": "Vertices"
         }
+      },
+      "ScoredVertexREST": {
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The vertex id.",
+            "format": "int32",
+            "example": 7
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The raw score (PageRank mass, degree, triangle count).",
+            "format": "double",
+            "example": 0.25
+          }
+        },
+        "description": "One scored vertex (score algorithms), rows ordered score-descending with\r\n    ascending-id tie-break."
       },
       "SearchDistanceSpecification": {
         "required": [
@@ -6875,12 +7547,49 @@
             }
           ]
         }
+      },
+      "WriteBackResultREST": {
+        "type": "object",
+        "properties": {
+          "propertyKey": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The property key the values were written under.",
+            "example": "analytics.pagerank"
+          },
+          "verticesWritten": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many vertex writes the committed chunks carried. A vertex removed\r\n    concurrently between the run and its chunk is a silent no-op on the writer yet\r\n    still counted - the fuzzy-consistency story applies to write-back too.",
+            "format": "int32",
+            "example": 2500000
+          },
+          "chunks": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many DelegateTransaction chunks carried the write-back (each chunk is\r\n    atomic; the whole write-back is not - re-run to remedy a mid-way failure).",
+            "format": "int32",
+            "example": 50
+          }
+        },
+        "description": "The write-back report when the request opted in."
       }
     }
   },
   "tags": [
     {
       "name": "Admin"
+    },
+    {
+      "name": "Analytics"
     },
     {
       "name": "Benchmark"

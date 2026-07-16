@@ -462,6 +462,8 @@ namespace NoSQL.GraphDB.Tests
                 => _inner.TryCalculateShortestPath(out result, plugin, definition);
             public bool TryCalculateShortestPath<T>(out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm
                 => _inner.TryCalculateShortestPath<T>(out result, definition);
+            public bool TryRunAnalytics(out NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsResult result, string algorithmName, NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsDefinition definition)
+                => _inner.TryRunAnalytics(out result, algorithmName, definition);
         }
     }
 }

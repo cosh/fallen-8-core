@@ -13,6 +13,7 @@ This is the .NET Core version of the original [fallen-8](https://github.com/cosh
 - **Properties** on vertices and edges
 - **Indexes** on vertices and edges (dictionary, range, fulltext, spatial R-Tree, vector kNN)
 - **Path finding** with runtime-compiled filter and cost functions
+- **Graph analytics** — PageRank, connected components, communities, degree centrality, triangle counting, with optional property write-back (see [Graph analytics](#graph-analytics))
 - **Subgraphs** — extract a pattern-matched subset of the graph as a standalone graph, recalculate it when the source changes, and persist it (see [Subgraphs](#subgraphs))
 - **Plugins** for indexes, algorithms and services
 - Checkpoint **persistency**, with a **save-game registry** that records every checkpoint and drives startup (see [Save games](#save-games-checkpoints))
@@ -354,6 +355,24 @@ lost (slow consumer, restart, trim/load), the stream says so in-band with a `res
 the client recipe is always "fetch, then stream; on resync, re-fetch". See
 [features/change-feed/](features/done/change-feed/) for the event schema, filter grammar,
 and measured write-throughput non-regression.
+
+## Graph analytics
+
+A third plugin-discovered algorithm family runs whole-graph analytics over the in-memory
+adjacency: **PageRank**, **weakly connected components**, **label propagation** communities,
+**degree centrality** and **triangle counting** — synchronously under a wall-clock budget,
+with deterministic, hand-verifiable semantics and no dynamic code:
+
+```bash
+curl -sf -X POST http://localhost:5000/analytics/PAGERANK \
+     -H "Content-Type: application/json" \
+     -d '{ "vertexLabel": "person", "maxResults": 10 }'
+```
+
+Responses are bounded (top-K / partition summaries); the full per-vertex result lands as
+vertex properties via the opt-in write-back (`"writeBack": true`, snapshot-durable). See
+[features/graph-analytics/](features/done/graph-analytics/) for all five algorithms, the
+budget/status-code contract, and the consistency story.
 
 ## Vector search (kNN over embeddings)
 

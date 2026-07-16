@@ -102,6 +102,13 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(SaveGameKpisREST))]
     [JsonSerializable(typeof(SaveGameIndexREST))]
     [JsonSerializable(typeof(SaveGameRegistryDocument))]
+    [JsonSerializable(typeof(System.Collections.Generic.Dictionary<string, string>))]
+    [JsonSerializable(typeof(AnalyticsSpecification))]
+    [JsonSerializable(typeof(AnalyticsResultREST))]
+    [JsonSerializable(typeof(ScoredVertexREST))]
+    [JsonSerializable(typeof(PartitionSummaryREST))]
+    [JsonSerializable(typeof(PartitionMembersREST))]
+    [JsonSerializable(typeof(WriteBackResultREST))]
     public sealed partial class AppJsonContext : JsonSerializerContext
     {
     }

@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using Microsoft.Extensions.Caching.Memory;
+using NoSQL.GraphDB.Core.Algorithms.Analytics;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using System;
@@ -61,6 +62,16 @@ namespace NoSQL.GraphDB.Core.Cache
                 ExpirationScanFrequency = TimeSpan.FromMinutes(1)
             });
 
+        public IMemoryCache Analytics
+        {
+            get;
+        } = new MemoryCache(
+            new MemoryCacheOptions
+            {
+                SizeLimit = 1024,
+                ExpirationScanFrequency = TimeSpan.FromMinutes(1)
+            });
+
         public void AddShortestPath(IShortestPathAlgorithm algo)
         {
             ShortestPath.Set(algo.PluginName, algo, _cacheOptions);
@@ -69,6 +80,11 @@ namespace NoSQL.GraphDB.Core.Cache
         public void AddSubGraph(ISubGraphAlgorithm algo)
         {
             SubGraph.Set(algo.PluginName, algo, _cacheOptions);
+        }
+
+        public void AddAnalytics(IGraphAnalyticsAlgorithm algo)
+        {
+            Analytics.Set(algo.PluginName, algo, _cacheOptions);
         }
     }
 }
