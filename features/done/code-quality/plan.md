@@ -45,15 +45,17 @@ test assertion may change.
   snapshot, stop, print diff stat); verified byte-stable on a no-change run.
 - [x] CLAUDE.md: quality-gates section (warnings-as-errors, convention tests, snapshot
   script); feature `README.md` summarizing the measures + survey numbers.
-- [ ] Full `dotnet test` green; council review; fix findings; `git merge --no-ff` to `main`;
-  move `features/open/code-quality/` → `features/done/`.
+- [x] Full `dotnet test` green (722 passed); council review (two reviewers: refactor
+  behaviour-preservation, scope/docs - no blockers; majors fixed on the branch: snapshot
+  script orphan/stale-port robustness, the change-feed contract pointer; honesty fixes);
+  `git merge --no-ff` to `main`; move `features/open/code-quality/` → `features/done/`.
 
 ## Progress
 
 - [x] Phase 0 — zero-warning gate
 - [x] Phase 1 — convention tests + hygiene fixes
 - [x] Phase 2 — consolidation refactors
-- [ ] Phase 3 — snapshot script, docs, council gate, merge + move to done/
+- [x] Phase 3 — snapshot script, docs, council gate, merge + move to done/
 
 ## Decision / revisit conditions
 

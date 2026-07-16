@@ -1,7 +1,7 @@
 # Code Quality Gates & Consolidation — Specification
 
-> **Status:** Draft. Feature branch: `feature/code-quality` (branch-only workflow — no GitHub
-> issue/PR).
+> **Status:** Implemented and merged (branch `feature/code-quality`, council-approved
+> 2026-07-16; see [plan.md](./plan.md) for the phase record and council outcome).
 
 ## 1. Overview & motivation
 
