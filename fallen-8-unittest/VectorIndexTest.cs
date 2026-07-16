@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // VectorIndexTest.cs
 //
@@ -454,6 +454,184 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(real.Id, hits.Single().Id);
         }
 
+        [TestMethod]
+        public void Load_ThrowsOnCorruptHeader_SoTheIndexIsSkippedNotHalfInitialized()
+        {
+            // A corrupt header must throw (LoadIndices catches per index), never return
+            // normally - OpenIndex would otherwise register an index with null internals.
+            using (var stream = new MemoryStream())
+            {
+                var writer = new NoSQL.GraphDB.Core.Serializer.SerializationWriter(stream, true);
+                writer.Write(VectorIndex.MaxDimension + 1); // invalid dimension
+                writer.Write((byte)0);
+                writer.Write(0);
+                writer.UpdateHeader();
+                writer.Flush();
+                stream.Position = 0;
+
+                var target = new VectorIndex();
+                Assert.ThrowsException<InvalidDataException>(() =>
+                    target.Load(new NoSQL.GraphDB.Core.Serializer.SerializationReader(stream), _fallen8));
+            }
+
+            using (var stream = new MemoryStream())
+            {
+                var writer = new NoSQL.GraphDB.Core.Serializer.SerializationWriter(stream, true);
+                writer.Write(2);
+                writer.Write((byte)99); // invalid metric
+                writer.Write(0);
+                writer.UpdateHeader();
+                writer.Flush();
+                stream.Position = 0;
+
+                var target = new VectorIndex();
+                Assert.ThrowsException<InvalidDataException>(() =>
+                    target.Load(new NoSQL.GraphDB.Core.Serializer.SerializationReader(stream), _fallen8));
+            }
+        }
+
+        #endregion
+
+        #region non-finite input & score handling
+
+        [TestMethod]
+        public void NonFiniteComponents_AreRejected_OnAddAndQuery()
+        {
+            var index = CreateIndex("emb", 2, "L2");
+            var v = Vertex();
+
+            index.AddOrUpdate(new[] { float.NaN, 1f }, v);
+            Assert.AreEqual(0, index.CountOfValues(), "a NaN component never enters the index");
+
+            index.AddOrUpdate(new[] { float.PositiveInfinity, 1f }, v);
+            Assert.AreEqual(0, index.CountOfValues(), "an Infinity component never enters the index");
+
+            index.AddOrUpdate(new[] { 1f, 1f }, v);
+            Assert.AreEqual(1, index.CountOfValues());
+
+            Assert.IsFalse(index.TryNearestNeighbors(out _, new[] { float.NaN, 0f }, 1),
+                "a NaN query is rejected");
+            Assert.IsFalse(index.TryNearestNeighbors(out _, new[] { float.NegativeInfinity, 0f }, 1),
+                "an Infinity query is rejected");
+        }
+
+        [TestMethod]
+        public void NonFiniteScores_FromFiniteInputs_AreSkippedNotPoisoning()
+        {
+            // Finite, non-zero components can still score non-finite: under Cosine the
+            // squared norm of [1e-25, 1e-25] underflows to 0, so the score is 0/0 or x/0.
+            // Such a candidate must be skipped, never freeze the heap root (which would
+            // degrade "top-k" to scan order for the whole corpus).
+            var index = CreateIndex("emb", 2, "Cosine");
+            var underflow = Vertex();
+            var good = Vertex();
+            var better = Vertex();
+
+            index.AddOrUpdate(new[] { 1e-25f, 1e-25f }, underflow); // passes the zero-norm check
+            index.AddOrUpdate(new[] { 0f, 1f }, good);
+            index.AddOrUpdate(new[] { 1f, 0f }, better);
+
+            var hits = Knn(index, new[] { 1f, 0f }, 3);
+            Assert.AreEqual(2, hits.Count, "the underflowing candidate is skipped");
+            Assert.AreEqual(better.Id, hits[0].Id, "the remaining candidates rank exactly");
+            Assert.AreEqual(good.Id, hits[1].Id);
+            Assert.IsTrue(hits.TrueForAll(h => h.Id != underflow.Id));
+
+            // An underflowing QUERY makes every score non-finite: true, but empty.
+            Assert.IsTrue(index.TryNearestNeighbors(out var result, new[] { 1e-25f, 1e-25f }, 3));
+            Assert.AreEqual(0, result.Entries.Count);
+
+            // Dot-product overflow to Infinity is skipped the same way.
+            var dotIndex = CreateIndex("dot", 2, "DotProduct");
+            var overflow = Vertex();
+            var sane = Vertex();
+            dotIndex.AddOrUpdate(new[] { 3e38f, 3e38f }, overflow);
+            dotIndex.AddOrUpdate(new[] { 1f, 1f }, sane);
+
+            var dotHits = Knn(dotIndex, new[] { 3e38f, 0f }, 2); // overflow * query -> Infinity
+            Assert.AreEqual(1, dotHits.Count, "the overflowing candidate is skipped");
+            Assert.AreEqual(sane.Id, dotHits[0].Id);
+        }
+
+        #endregion
+
+        #region churn, races & the engine read helper
+
+        [TestMethod]
+        public void SlotMapIntegrity_SurvivesAddRemoveChurn()
+        {
+            var index = CreateIndex("emb", 2, "L2");
+            var vertices = new List<VertexModel>();
+            for (var i = 0; i < 12; i++)
+            {
+                var v = Vertex();
+                vertices.Add(v);
+                index.AddOrUpdate(new[] { (float)i, 0f }, v);
+            }
+
+            // Remove middles (each triggers swap-last), then the new middles again.
+            index.RemoveValue(vertices[3]);
+            index.RemoveValue(vertices[7]);
+            index.RemoveValue(vertices[0]);
+            Assert.AreEqual(9, index.CountOfValues());
+
+            // Re-add one removed element with a NEW vector, replace a survivor in place.
+            index.AddOrUpdate(new[] { 100f, 0f }, vertices[3]);
+            index.AddOrUpdate(new[] { 200f, 0f }, vertices[5]);
+            Assert.AreEqual(10, index.CountOfValues());
+
+            // Every surviving element is findable at its exact vector...
+            Assert.IsTrue(index.TryGetValue(out var bucket3, new[] { 100f, 0f }));
+            Assert.AreEqual(vertices[3].Id, bucket3.Single().Id);
+            Assert.IsTrue(index.TryGetValue(out var bucket5, new[] { 200f, 0f }));
+            Assert.AreEqual(vertices[5].Id, bucket5.Single().Id);
+            Assert.IsFalse(index.TryGetValue(out _, new[] { 5f, 0f }), "the replaced vector is unfindable");
+            Assert.IsFalse(index.TryGetValue(out _, new[] { 0f, 0f }), "removed vectors are unfindable");
+
+            // ...and kNN over the churned index returns exactly the live set, exactly ordered.
+            var hits = Knn(index, new[] { 0f, 0f }, 100);
+            Assert.AreEqual(10, hits.Count);
+            Assert.AreEqual(vertices[1].Id, hits[0].Id, "x=1 is now the closest to the origin");
+            Assert.AreEqual(vertices[3].Id, hits[8].Id, "x=100");
+            Assert.AreEqual(vertices[5].Id, hits[9].Id, "x=200");
+        }
+
+        [TestMethod]
+        public void AddOrUpdate_SkipsATombstonedElement_ClosingThePurgeReAddRace()
+        {
+            // If a re-add slips in AFTER the write-end purge ran for a committed removal,
+            // nothing would ever purge the entry again - it must be refused at the door.
+            var index = CreateIndex("emb", 2, "L2");
+            var doomed = Vertex();
+            _fallen8.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = doomed.Id })
+                .WaitUntilFinished();
+
+            index.AddOrUpdate(new[] { 1f, 1f }, doomed);
+
+            Assert.AreEqual(0, index.CountOfValues(), "a removed element never (re-)enters a slot");
+        }
+
+        [TestMethod]
+        public void VectorIndexScan_TheEngineReadHelper_ResolvesAndDelegates()
+        {
+            var index = CreateIndex("emb", 2, "L2");
+            var v = Vertex();
+            index.AddOrUpdate(new[] { 1f, 2f }, v);
+
+            Assert.IsTrue(_fallen8.VectorIndexScan(out var result, "emb", new[] { 1f, 2f }, 1));
+            Assert.AreEqual(v.Id, result.Entries.Single().Element.Id);
+            Assert.AreEqual(0f, result.Entries[0].Score, 1e-6f);
+
+            Assert.IsFalse(_fallen8.VectorIndexScan(out _, "nope", new[] { 1f, 2f }, 1),
+                "unknown index");
+
+            Assert.IsTrue(_fallen8.IndexFactory.TryCreateIndex(out _, "dict", "DictionaryIndex",
+                new Dictionary<string, object>()));
+            Assert.IsFalse(_fallen8.VectorIndexScan(out _, "dict", new[] { 1f, 2f }, 1),
+                "not a vector index");
+        }
+
         #endregion
     }
 }
+

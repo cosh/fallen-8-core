@@ -63,8 +63,10 @@ not vibes.
   ascending element id), scores returned raw (no normalization games).
 - **One vector per element** (add-again = replace), single contiguous copy of each vector
   inside the index (structure-of-arrays layout, §3.3), honest memory math documented.
-- Dimension validated on every write and every query; k bounded; zero-norm vectors rejected
-  for cosine (NaN never enters a ranking).
+- Dimension validated on every write and every query; k bounded; NaN/Infinity components
+  rejected on add and query; zero-norm vectors rejected for cosine; non-finite *scores*
+  (cosine squared-norm underflow, dot-product overflow — reachable from finite inputs) are
+  skipped during selection. NaN never enters a ranking.
 - Removed elements never surface from a kNN result (engine purge + defense-in-depth filter).
 - Save/load round-trip via the existing per-index sidecar mechanism; scores identical after
   reload.
@@ -158,8 +160,9 @@ public interface IVectorIndex : IIndex
   committed removal — it must never scan.
 - **`TryRemoveKey(key)`**: removes every element whose stored vector is bitwise-equal to
   `key` (linear scan; diagnostic-grade, like the endpoint that calls it).
-- **`TryGetValue(out bucket, key)`**: exact-match linear scan returning the (0- or
-  1-element) bucket. `GetKeys`/`GetKeyValues` enumerate per-slot copies — diagnostic-only,
+- **`TryGetValue(out bucket, key)`**: exact-match linear scan returning every element whose
+  stored vector is bitwise-equal to `key` (normally 0 or 1 element, but distinct elements
+  may share a vector). `GetKeys`/`GetKeyValues` enumerate per-slot copies — diagnostic-only,
   O(n·d), documented as such. Because `float[]` is not `IComparable`, the generic
   `Fallen8.IndexScan`/`RangeIndexScan` paths simply never match a vector index — the
   dedicated endpoint is the query surface, exactly as with fulltext and spatial.
@@ -201,7 +204,10 @@ Single pass over the dense slot range under the read lock:
    engine purge should already have removed it; this mirrors the read-end `FilterLive`
    floor so the two ends can never disagree).
 3. Score via `TensorPrimitives.CosineSimilarity` / `.Dot` / `.Distance` on the slot's span —
-   SIMD within each candidate, no per-candidate allocation.
+   SIMD within each candidate, no per-candidate allocation. A non-finite score is skipped:
+   NaN is not totally ordered (it would freeze the heap root), and neither NaN nor Infinity
+   survives JSON serialization — and both are reachable from finite inputs (cosine
+   squared-norm underflow, dot-product overflow).
 4. Bounded top-k selection (fixed-size binary heap of `(score, id)`); ordering: best first
    (`Cosine`/`DotProduct`: higher is better; `L2`: lower is better), ties by ascending id —
    fully deterministic.
@@ -232,9 +238,12 @@ spatial got theirs:
 
 Engine plumbing mirrors fulltext: a `Fallen8.VectorIndexScan(out VectorSearchResult, indexId,
 query, k, constraint)` read helper resolves the index, type-checks `IVectorIndex`, and
-delegates — the controller stays thin. Both actions carry `[ProducesResponseType]` /
-`[Consumes]` / `[Produces]` + XML `<summary>`/`<remarks>` with request samples, per repo
-convention; the pinned OpenAPI snapshot is regenerated (plan Phase 3).
+delegates — the `IFallen8Read` surface for embedded callers. The controller resolves the
+index itself instead of going through the helper, because the REST contract needs the
+granular status split (404 unknown index vs. 400 not-a-vector-index) that the helper's
+single `bool` collapses. Both actions carry `[ProducesResponseType]` / `[Consumes]` /
+`[Produces]` + XML `<summary>`/`<remarks>` with request samples, per repo convention; the
+pinned OpenAPI snapshot is regenerated (plan Phase 3).
 
 **The GraphRAG story** (documented in the feature README, aligned with the skill library):
 kNN returns element ids → feed them straight into the existing surface —
@@ -263,9 +272,12 @@ v1 deliberately keeps the join client-side (non-goal + trigger in §2).
 
 `CanPersist => true`. `Save` (under the read lock, like `RangeIndex`): dimension, metric,
 count, then per slot `elementId` + `Write(float[])` (the serializer's native
-`SingleArrayType`). `Load`: read header, validate dimension against the limits, resolve each
-element via `fallen8.TryGetGraphElement` (missing id → logged and skipped, the family's
-existing posture), rebuild slab/arrays/slot map. Loaded through the unchanged
+`SingleArrayType`). `Load`: read header, validate dimension and metric against the limits
+(a corrupt header throws, so the per-index catch in `LoadIndices` skips exactly this
+sidecar instead of registering a half-initialized index), resolve each element via
+`fallen8.TryGetGraphElement` (missing id → logged and skipped, the family's existing
+posture; the logger is wired inside `Load` because `OpenIndex` activates the plugin without
+calling `Initialize`), rebuild slab/arrays/slot map. Loaded through the unchanged
 `IndexFactory.OpenIndex` path from the per-index sidecar; nothing in
 `PersistencyFactory` changes.
 
@@ -278,9 +290,10 @@ existing posture), rebuild slab/arrays/slot map. Loaded through the unchanged
   the same trade every index in the family makes today; the fix is the family-wide 3.5
   migration, not something bespoke here.)
 - Bounds, all validated before any work: `k ∈ [1, 1024]`, `dimension ∈ [1, 4096]`,
-  query/stored vectors exactly `Dimension` long, zero-norm rejected under cosine. No
-  unbounded allocation is reachable from user input (top-k heap is `k`-sized; the slab grows
-  only with successful adds).
+  query/stored vectors exactly `Dimension` long with finite components, zero-norm rejected
+  under cosine. No unbounded allocation is reachable from user input (top-k heap is
+  `k`-sized; the slab grows only with successful adds, slab-first so a failed resize is
+  retryable, and growth past `Int32.MaxValue` slab floats throws instead of overflowing).
 
 ### 3.9 Tests (MSTest, `fallen-8-unittest`, the repo bar)
 

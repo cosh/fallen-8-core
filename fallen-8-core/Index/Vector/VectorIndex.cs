@@ -165,12 +165,24 @@ namespace NoSQL.GraphDB.Core.Index.Vector
 
         public Int32 CountOfKeys()
         {
-            return _count;
+            if (ReadResource())
+            {
+                try
+                {
+                    return _count;
+                }
+                finally
+                {
+                    FinishReadResource();
+                }
+            }
+
+            throw new CollisionException();
         }
 
         public Int32 CountOfValues()
         {
-            return _count;
+            return CountOfKeys();
         }
 
         public void AddOrUpdate(Object key, AGraphElementModel graphElement)
@@ -190,6 +202,14 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                 return;
             }
 
+            if (HasNonFiniteComponent(vector))
+            {
+                _logger?.LogWarning(
+                    "VectorIndex.AddOrUpdate for element {ElementId} skipped: the vector contains NaN or Infinity.",
+                    graphElement.Id);
+                return;
+            }
+
             if (Metric == VectorDistanceMetric.Cosine && IsZeroNorm(vector))
             {
                 _logger?.LogWarning(
@@ -202,6 +222,17 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             {
                 try
                 {
+                    // Close the purge/re-add race: an element tombstoned by a committed removal
+                    // must never (re-)enter a slot, or it would be pinned forever (the engine's
+                    // write-end purge runs once per removal and will not come back for it).
+                    if (graphElement._removed)
+                    {
+                        _logger?.LogWarning(
+                            "VectorIndex.AddOrUpdate for element {ElementId} skipped: the element is removed.",
+                            graphElement.Id);
+                        return;
+                    }
+
                     if (_slotByElement.TryGetValue(graphElement, out var existingSlot))
                     {
                         // One vector per element: add-again replaces in place.
@@ -211,8 +242,18 @@ namespace NoSQL.GraphDB.Core.Index.Vector
 
                     if (_count == _elements.Length)
                     {
-                        Array.Resize(ref _elements, _elements.Length * 2);
-                        Array.Resize(ref _vectors, _vectors.Length * 2);
+                        // Grow the SLAB first: it is the large, failure-prone allocation, and a
+                        // failed resize must leave the slots/slab invariant intact (retryable).
+                        var newCapacity = _elements.Length * 2;
+                        var newSlabLength = (Int64)newCapacity * Dimension;
+                        if (newSlabLength > Int32.MaxValue)
+                        {
+                            throw new InvalidOperationException(String.Format(
+                                "The vector slab cannot grow beyond {0} slots at dimension {1}.",
+                                _elements.Length, Dimension));
+                        }
+                        Array.Resize(ref _vectors, (Int32)newSlabLength);
+                        Array.Resize(ref _elements, newCapacity);
                     }
 
                     Array.Copy(vector, 0, _vectors, _count * Dimension, Dimension);
@@ -320,6 +361,7 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             {
                 try
                 {
+                    Array.Clear(_vectors, 0, _count * Dimension);
                     Array.Clear(_elements, 0, _count);
                     _slotByElement.Clear();
                     _count = 0;
@@ -436,6 +478,11 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                 return false;
             }
 
+            if (HasNonFiniteComponent(query))
+            {
+                return false;
+            }
+
             if (Metric == VectorDistanceMetric.Cosine && IsZeroNorm(query))
             {
                 return false;
@@ -479,6 +526,16 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                             VectorDistanceMetric.DotProduct => TensorPrimitives.Dot(query, candidate),
                             _ => TensorPrimitives.Distance(query, candidate)
                         };
+
+                        // A non-finite score must never enter the heap: NaN is not totally
+                        // ordered (it would freeze the root and degrade "top-k" to scan order),
+                        // and neither NaN nor Infinity survives JSON serialization. Finite
+                        // inputs can still get here - cosine squared-norm underflow yields 0/0,
+                        // dot products can overflow to Infinity.
+                        if (!Single.IsFinite(score))
+                        {
+                            continue;
+                        }
 
                         if (heapCount < k)
                         {
@@ -648,19 +705,35 @@ namespace NoSQL.GraphDB.Core.Index.Vector
 
         public void Load(SerializationReader reader, IFallen8 fallen8)
         {
+            // The real load path (IndexFactory.OpenIndex) activates the plugin WITHOUT calling
+            // Initialize, so the logger must be wired here or every skip below would be silent.
+            _logger ??= fallen8?.LoggerFactory?.CreateLogger<VectorIndex>();
+
             if (WriteResource())
             {
                 try
                 {
+                    // A corrupt header must THROW, not return: OpenIndex would otherwise register
+                    // an index whose internals are still null. LoadIndices catches per index, so
+                    // throwing skips exactly this sidecar - the family's corrupt-sidecar posture.
                     var dimension = reader.ReadInt32();
                     if (dimension < 1 || dimension > MaxDimension)
                     {
-                        _logger?.LogError("A persisted vector index carries an invalid dimension ({Dimension}); it loads empty.", dimension);
-                        return;
+                        _logger?.LogError("A persisted vector index carries an invalid dimension ({Dimension}); the index is skipped.", dimension);
+                        throw new System.IO.InvalidDataException(String.Format(
+                            "Invalid persisted vector index dimension: {0}.", dimension));
+                    }
+
+                    var metricByte = reader.ReadByte();
+                    if (metricByte > (Byte)VectorDistanceMetric.L2)
+                    {
+                        _logger?.LogError("A persisted vector index carries an invalid metric ({Metric}); the index is skipped.", metricByte);
+                        throw new System.IO.InvalidDataException(String.Format(
+                            "Invalid persisted vector index metric: {0}.", metricByte));
                     }
 
                     Dimension = dimension;
-                    Metric = (VectorDistanceMetric)reader.ReadByte();
+                    Metric = (VectorDistanceMetric)metricByte;
 
                     var persistedCount = reader.ReadInt32();
                     _vectors = new float[Math.Max(16, persistedCount) * dimension];
@@ -730,6 +803,21 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                 }
             }
             return true;
+        }
+
+        /// <summary>Whether any component is NaN or Infinity - such a vector is rejected on add
+        /// and query (a NaN score is not totally ordered and would poison the top-k heap;
+        /// neither NaN nor Infinity survives JSON serialization).</summary>
+        public static bool HasNonFiniteComponent(ReadOnlySpan<Single> vector)
+        {
+            for (var i = 0; i < vector.Length; i++)
+            {
+                if (!Single.IsFinite(vector[i]))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         #endregion

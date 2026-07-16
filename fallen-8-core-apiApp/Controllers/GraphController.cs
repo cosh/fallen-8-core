@@ -791,7 +791,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <response code="200">The vector was indexed (add-again replaced the previous vector)</response>
-        /// <response code="400">Not a vector index, neither/both modes supplied, wrong dimension, zero-norm vector under Cosine, or the named property is missing / not a float[]</response>
+        /// <response code="400">Not a vector index, neither/both modes supplied, wrong dimension, NaN/Infinity components, zero-norm vector under Cosine, or the named property is missing / not a float[]</response>
         /// <response code="404">The index or the graph element does not exist</response>
         [HttpPut("/index/vector/{indexId}")]
         [Consumes("application/json")]
@@ -855,6 +855,11 @@ namespace NoSQL.GraphDB.App.Controllers
                     vector.Length, indexId, vectorIndex.Dimension));
             }
 
+            if (VectorIndex.HasNonFiniteComponent(vector))
+            {
+                return BadRequest("The vector contains NaN or Infinity components; only finite values can rank.");
+            }
+
             if (vectorIndex.Metric == VectorDistanceMetric.Cosine && VectorIndex.IsZeroNorm(vector))
             {
                 return BadRequest("A zero-norm vector cannot rank under the Cosine metric.");
@@ -888,7 +893,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <response code="200">Returns the k best-scoring matching elements (fewer when the corpus is smaller)</response>
-        /// <response code="400">Not a vector index, wrong query dimension, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value</response>
+        /// <response code="400">Not a vector index, wrong query dimension, NaN/Infinity components, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value</response>
         /// <response code="404">The index does not exist</response>
         [HttpPost("/scan/index/vector")]
         [Consumes("application/json")]
@@ -938,7 +943,7 @@ namespace NoSQL.GraphDB.App.Controllers
             if (!vectorIndex.TryNearestNeighbors(out var result, definition.Query, definition.K, constraint))
             {
                 return BadRequest(String.Format(
-                    "Invalid kNN query: the query must have dimension {0}, k must be within [1, {1}], and a Cosine query must not be zero-norm.",
+                    "Invalid kNN query: the query must have dimension {0} with finite components, k must be within [1, {1}], and a Cosine query must not be zero-norm.",
                     vectorIndex.Dimension, VectorIndex.MaxK));
             }
 

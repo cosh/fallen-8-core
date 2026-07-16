@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // VectorIndexBenchmark.cs
 //
@@ -80,17 +80,29 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(index.TryNearestNeighbors(out var warmup, query, k));
             Assert.AreEqual(k, warmup.Entries.Count);
 
-            var stopwatch = Stopwatch.StartNew();
+            // Per-query timing so the worst case is visible too - the spec's ANN revisit
+            // trigger is phrased on tail latency, not the mean.
+            var perQuery = new double[queries];
+            var stopwatch = new Stopwatch();
             for (var q = 0; q < queries; q++)
             {
+                stopwatch.Restart();
                 index.TryNearestNeighbors(out _, query, k);
+                stopwatch.Stop();
+                perQuery[q] = stopwatch.Elapsed.TotalMilliseconds;
             }
-            stopwatch.Stop();
 
-            var perQueryMs = stopwatch.Elapsed.TotalMilliseconds / queries;
+            Array.Sort(perQuery);
+            var perQueryMs = 0.0;
+            foreach (var ms in perQuery)
+            {
+                perQueryMs += ms;
+            }
+            perQueryMs /= queries;
+            var maxMs = perQuery[queries - 1];
             var slabBytes = (long)count * dims * sizeof(float);
             Console.WriteLine($"Brute-force kNN over {count:N0} x {dims} dims (Cosine, k={k}): " +
-                              $"{perQueryMs:F2} ms/query ({queries} queries, total {stopwatch.Elapsed.TotalMilliseconds:F0} ms); " +
+                              $"mean {perQueryMs:F2} ms/query, worst {maxMs:F2} ms ({queries} queries); " +
                               $"vector slab {slabBytes / (1024.0 * 1024.0):F0} MiB");
 
             // Generous bound - a failure here means the scan regressed by an order of
@@ -99,3 +111,4 @@ namespace NoSQL.GraphDB.Tests
         }
     }
 }
+

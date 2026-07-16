@@ -2312,7 +2312,7 @@
             }
           },
           "400": {
-            "description": "Not a vector index, neither/both modes supplied, wrong dimension, zero-norm vector under Cosine, or the named property is missing / not a float[]",
+            "description": "Not a vector index, neither/both modes supplied, wrong dimension, NaN/Infinity components, zero-norm vector under Cosine, or the named property is missing / not a float[]",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2388,7 +2388,7 @@
             }
           },
           "400": {
-            "description": "Not a vector index, wrong query dimension, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value",
+            "description": "Not a vector index, wrong query dimension, NaN/Infinity components, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {

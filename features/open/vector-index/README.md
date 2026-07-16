@@ -42,9 +42,9 @@ curl -sf -X PUT http://localhost:5000/index/vector/embeddings \
      -d '{ "graphElementId": 42, "propertyId": "embedding" }'
 ```
 
-Exactly one mode per request. 400 with a reason for: wrong dimension, zero-norm vector under
-cosine, both/neither mode, missing or non-`float[]` property, not a vector index. 404 for an
-unknown index or element.
+Exactly one mode per request. 400 with a reason for: wrong dimension, NaN/Infinity
+components, zero-norm vector under cosine, both/neither mode, missing or non-`float[]`
+property, not a vector index. 404 for an unknown index or element.
 
 ## Querying (kNN)
 
@@ -118,9 +118,10 @@ copy — your choice, stated honestly.
 
 Opt-in benchmark (`fallen-8-unittest/VectorIndexBenchmark.cs`, remove `[Ignore]` and run
 `dotnet test --filter "TestCategory=Benchmark"`): brute-force kNN over **100,000 × 384-dim**
-vectors (Cosine, k=10) measured **~21 ms/query** (vector slab ~147 MiB). The spec's revisit
-trigger for ANN structures is ~1 M vectors or p99 > ~100 ms at your real dimension — run the
-benchmark on your box before adding complexity.
+vectors (Cosine, k=10) measured **~21 ms/query mean, ~75 ms worst of 50** (vector slab
+~147 MiB). The spec's revisit trigger for ANN structures is ~1 M vectors or p99 > ~100 ms at
+your real dimension — the benchmark prints mean and worst per-query time, so run it on your
+box before adding complexity.
 
 Note the family's concurrency model: a kNN scan holds the index's shared read lock, so a
 concurrent write to the *same index* waits behind the longest running scan — milliseconds at
@@ -147,8 +148,10 @@ the property copy is the honest workaround.
 ## Limits & guarantees
 
 - `dimension` ∈ [1, 4096], `k` ∈ [1, 1024] (`VectorIndex.MaxDimension`/`MaxK` constants).
-- Every write and every query validates the dimension; zero-norm is rejected under cosine
-  (NaN never enters a ranking).
+- Every write and every query validates the dimension and rejects NaN/Infinity components;
+  zero-norm is rejected under cosine. A candidate whose *score* comes out non-finite anyway
+  (cosine squared-norm underflow, dot-product overflow — possible from finite inputs) is
+  skipped during selection. NaN never enters a ranking.
 - One vector per element; re-add replaces; element removal purges the vector O(1).
 - No dynamic code, no new capability flags — plain data endpoints under the existing
   API-key/rate-limit posture.

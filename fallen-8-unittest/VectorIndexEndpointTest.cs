@@ -200,6 +200,14 @@ namespace NoSQL.GraphDB.Tests
             {
                 Assert.AreEqual(HttpStatusCode.BadRequest, r.StatusCode, "property exists but is not a float[]");
             }
+
+            // 3.5e39 overflows Single to Infinity during JSON deserialization - a non-finite
+            // component must be a 400, never a stored ranking poison.
+            using (var r = await client.PutAsync("/index/vector/emb",
+                Json("{\"graphElementId\":" + v + ",\"vector\":[3.5e39,0,0]}")))
+            {
+                Assert.AreEqual(HttpStatusCode.BadRequest, r.StatusCode, "Infinity component");
+            }
         }
 
         [TestMethod]
@@ -228,6 +236,10 @@ namespace NoSQL.GraphDB.Tests
             using (var r = await client.PostAsync("/scan/index/vector", Json("{\"indexId\":\"emb\",\"query\":[0,0,0],\"k\":1}")))
             {
                 Assert.AreEqual(HttpStatusCode.BadRequest, r.StatusCode, "zero-norm under cosine");
+            }
+            using (var r = await client.PostAsync("/scan/index/vector", Json("{\"indexId\":\"emb\",\"query\":[3.5e39,0,0],\"k\":1}")))
+            {
+                Assert.AreEqual(HttpStatusCode.BadRequest, r.StatusCode, "non-finite query component");
             }
             using (var r = await client.PostAsync("/scan/index/vector", Json("{\"indexId\":\"emb\",\"query\":[1,0,0],\"k\":1,\"kind\":\"hyperedge\"}")))
             {
