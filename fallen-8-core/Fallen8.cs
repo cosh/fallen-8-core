@@ -1171,6 +1171,47 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
+        public override bool TryRunAnalytics(
+            out Algorithms.Analytics.GraphAnalyticsResult result,
+            string algorithmName,
+            Algorithms.Analytics.GraphAnalyticsDefinition definition)
+        {
+            if (string.IsNullOrWhiteSpace(algorithmName))
+            {
+                throw new ArgumentException("Algorithm name cannot be null or whitespace.", nameof(algorithmName));
+            }
+
+            if (definition == null)
+            {
+                throw new ArgumentNullException(nameof(definition));
+            }
+
+            Algorithms.Analytics.IGraphAnalyticsAlgorithm algo = null;
+
+            // The resolve-initialize-cache-invoke flow of TryCalculateShortestPath, on the
+            // third plugin family (feature graph-analytics).
+            if (!_pluginCache.Analytics.TryGetValue(algorithmName, out Object cachedAlgo))
+            {
+                if (PluginFactory.TryFindPlugin(out algo, algorithmName))
+                {
+                    algo.Initialize(this, null);
+                    _pluginCache.AddAnalytics(algo);
+                }
+            }
+            else
+            {
+                algo = (Algorithms.Analytics.IGraphAnalyticsAlgorithm)cachedAlgo;
+            }
+
+            if (algo != null)
+            {
+                return algo.TryRunAnalytics(out result, definition);
+            }
+
+            result = null;
+            return false;
+        }
+
         internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, String edgePropertyId, Int32 targetVertexId,
             UInt32 creationDate, String label, Dictionary<String, Object> properties)
         {

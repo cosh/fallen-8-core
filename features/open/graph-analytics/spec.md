@@ -1,8 +1,7 @@
 # Graph Analytics — Specification
 
-> **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
-> repository root `CLAUDE.md`. Feature branch: `feature/graph-analytics` (branch-only workflow —
-> no GitHub issue/PR).
+> **Status:** Implemented on branch `feature/graph-analytics` (branch-only workflow — no
+> GitHub issue/PR); council gate pending. See [plan.md](./plan.md) for the phase record.
 
 ## 1. Overview & requirements
 

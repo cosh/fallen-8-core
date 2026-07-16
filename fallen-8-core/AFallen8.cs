@@ -154,6 +154,7 @@ namespace NoSQL.GraphDB.Core
         public abstract bool VectorIndexScan(out Index.Vector.VectorSearchResult result, string indexId, float[] query, int k, Index.Vector.VectorSearchConstraint constraint = null);
         public abstract bool TryCalculateShortestPath(out List<Path> result, string plugin, ShortestPathDefinition definition);
         public abstract bool TryCalculateShortestPath<T>(out List<Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm;
+        public abstract bool TryRunAnalytics(out Algorithms.Analytics.GraphAnalyticsResult result, string algorithmName, Algorithms.Analytics.GraphAnalyticsDefinition definition);
 
         #endregion
 

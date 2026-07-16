@@ -197,6 +197,20 @@ namespace NoSQL.GraphDB.Core
             ShortestPathDefinition definition)
                 where T : IShortestPathAlgorithm;
 
+        /// <summary>
+        ///   Runs a whole-graph analytics algorithm plugin (feature graph-analytics), mirroring
+        ///   <see cref="TryCalculateShortestPath(out List{Path}, string, ShortestPathDefinition)"/>:
+        ///   resolve via PluginFactory, initialize, cache, invoke. Returns false for an unknown
+        ///   plugin, an invalid definition, or a run whose budget died before any usable result.
+        /// </summary>
+        /// <param name="result"> The analytics result (scores or partitions + run metadata). </param>
+        /// <param name="algorithmName"> The plugin name, e.g. "PAGERANK". </param>
+        /// <param name="definition"> Scoping, budgets and algorithm parameters. </param>
+        bool TryRunAnalytics(
+            out Algorithms.Analytics.GraphAnalyticsResult result,
+            string algorithmName,
+            Algorithms.Analytics.GraphAnalyticsDefinition definition);
+
         #endregion
     }
 }

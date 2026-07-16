@@ -116,6 +116,11 @@ namespace NoSQL.GraphDB.App
             builder.Services.Configure<Fallen8BulkIOOptions>(
                 builder.Configuration.GetSection(Fallen8BulkIOOptions.SectionName));
 
+            // Graph analytics configuration + the concurrent-run gate (feature graph-analytics).
+            builder.Services.Configure<Fallen8AnalyticsOptions>(
+                builder.Configuration.GetSection(Fallen8AnalyticsOptions.SectionName));
+            builder.Services.AddSingleton<AnalyticsRunGate>();
+
             // Register the engine singleton through a factory so durable mode constructs the
             // WAL-enabling overload with the recipe compiler supplied AT CONSTRUCTION - an unanchored
             // WAL replays during construction, so only a compiler present then can recover its

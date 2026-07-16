@@ -697,7 +697,59 @@ namespace NoSQL.GraphDB.Tests
                             EngineVersion = "0.9.3.0"
                         }
                     }
-                }, "SaveGameRegistryDocument")
+                }, "SaveGameRegistryDocument"),
+                (new AnalyticsSpecification
+                {
+                    VertexLabel = "person",
+                    EdgePropertyId = "knows",
+                    Direction = "out",
+                    MaxIterations = 100,
+                    Epsilon = 1e-6,
+                    TimeBudgetSeconds = 30,
+                    Parameters = new Dictionary<string, double> { { "DampingFactor", 0.85 } },
+                    MaxResults = 10,
+                    WriteBack = true,
+                    WriteBackPropertyKey = "analytics.pagerank"
+                }, "AnalyticsSpecification"),
+                (new AnalyticsResultREST
+                {
+                    Algorithm = "PAGERANK",
+                    Converged = true,
+                    IterationsRun = 23,
+                    ElapsedMs = 184.2,
+                    BudgetExhausted = false,
+                    VertexCount = 4,
+                    Statistics = new Dictionary<string, double> { { "ComponentCount", 2d } },
+                    Results = new List<ScoredVertexREST>
+                    {
+                        new ScoredVertexREST { GraphElementId = 7, Score = 0.25 }
+                    },
+                    Partitions = new List<PartitionSummaryREST>
+                    {
+                        new PartitionSummaryREST { PartitionId = 0, Size = 42 }
+                    },
+                    WriteBack = new WriteBackResultREST
+                    {
+                        PropertyKey = "analytics.pagerank",
+                        VerticesWritten = 4,
+                        Chunks = 1
+                    }
+                }, "AnalyticsResultREST"),
+                (new ScoredVertexREST { GraphElementId = 7, Score = 0.25 }, "ScoredVertexREST"),
+                (new PartitionSummaryREST { PartitionId = 0, Size = 42 }, "PartitionSummaryREST"),
+                (new PartitionMembersREST
+                {
+                    PartitionId = 0,
+                    Size = 42,
+                    Offset = 10,
+                    Members = new List<int> { 10, 11, 12 }
+                }, "PartitionMembersREST"),
+                (new WriteBackResultREST
+                {
+                    PropertyKey = "analytics.wcc",
+                    VerticesWritten = 42,
+                    Chunks = 1
+                }, "WriteBackResultREST")
             };
         }
 

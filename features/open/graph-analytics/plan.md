@@ -17,42 +17,42 @@ result shape being final. Every phase ends build-clean (`dotnet build fallen-8-c
 
 Intent: a walking skeleton of the whole family — plugin kind, engine facade, REST, tests.
 
-- [ ] `fallen-8-core/Algorithms/Analytics/`: `IGraphAnalyticsAlgorithm`,
+- [x] `fallen-8-core/Algorithms/Analytics/`: `IGraphAnalyticsAlgorithm`,
   `GraphAnalyticsDefinition`, `GraphAnalyticsResult` (MIT headers, XML docs, `Try*` pattern)
   per spec §3.1.
-- [ ] `PluginCache.Analytics` `IMemoryCache` + `AddAnalytics(…)` alongside
+- [x] `PluginCache.Analytics` `IMemoryCache` + `AddAnalytics(…)` alongside
   `ShortestPath`/`SubGraph`; `Fallen8.TryRunAnalytics(out result, name, definition)` facade
   mirroring `TryCalculateShortestPath` (resolve via
   `PluginFactory.TryFindPlugin<IGraphAnalyticsAlgorithm>`, initialize, cache, invoke).
-- [ ] `DegreeCentralityAlgorithm` (`DEGREE`): snapshot from `GetAllVertices()`, dense
+- [x] `DegreeCentralityAlgorithm` (`DEGREE`): snapshot from `GetAllVertices()`, dense
   id→index map, `GetRawOutEdges()`/`GetRawInEdges()` walks, `Direction` in/out/both,
   label + edge-property-id scoping, removed-element skipping, `Statistics` min/max/mean.
-- [ ] `AnalyticsController` skeleton: `GET /analytics/algorithms`,
+- [x] `AnalyticsController` skeleton: `GET /analytics/algorithms`,
   `POST /analytics/{algorithmName}` (200/400/404 only for now), `AnalyticsSpecification` /
   `AnalyticsResultREST` DTOs, top-K + `maxResults` ceiling (10 000), OpenAPI annotations per
   repo convention.
-- [ ] Tests: degree fixtures (star, parallel edges, self-loop), scoping, removed elements,
+- [x] Tests: degree fixtures (star, parallel edges, self-loop), scoping, removed elements,
   empty graph, plugin discovery via the factory, REST 404/400/ordering/ceiling.
 
 ## Phase 1 — Iterative machinery + PageRank + WCC
 
 Intent: budgets, convergence, and the two most-wanted results.
 
-- [ ] Budget plumbing shared by all algorithms: `MaxIterations` (ceiling 10 000), `Epsilon`,
+- [x] Budget plumbing shared by all algorithms: `MaxIterations` (ceiling 10 000), `Epsilon`,
   `TimeBudget` + `CancellationToken` checked every 4 096 vertices; `Converged` /
   `IterationsRun` / `Elapsed` / `BudgetExhausted` metadata; the §3.4 partial-result rules
   (iterative: last completed pass; single-pass: `false`).
-- [ ] `AnalyticsOptions` config section (default `TimeBudget` 30 s, `MaxConcurrentRuns` 1)
+- [x] `AnalyticsOptions` config section (default `TimeBudget` 30 s, `MaxConcurrentRuns` 1)
   bound in the apiApp; controller slot-holding + **429**; **408** mapping for
   no-usable-result exhaustion (problem+json per `api-error-contract`).
-- [ ] `PageRankAlgorithm` (`PAGERANK`): damping via `Parameters["DampingFactor"]` (0.85),
+- [x] `PageRankAlgorithm` (`PAGERANK`): damping via `Parameters["DampingFactor"]` (0.85),
   L1-delta convergence, dangling-mass redistribution, parallel-edge/self-loop semantics per
   spec §3.3, `Direction` interpretation.
-- [ ] `WeaklyConnectedComponentsAlgorithm` (`WCC`): iterative union-find (path halving),
+- [x] `WeaklyConnectedComponentsAlgorithm` (`WCC`): iterative union-find (path halving),
   smallest-id component ids, `Statistics["ComponentCount"]`.
-- [ ] Partition REST projection: partition summaries (size, largest first) +
+- [x] Partition REST projection: partition summaries (size, largest first) +
   `POST /analytics/{name}/partition/{partitionId}` membership paging.
-- [ ] Tests: pinned 4-vertex PageRank values, cycle, dangling, damping-0 uniform,
+- [x] Tests: pinned 4-vertex PageRank values, cycle, dangling, damping-0 uniform,
   `MaxIterations=1` ⇒ `Converged=false`; WCC two-chains/singleton/direction-blind;
   near-zero `TimeBudget` ⇒ 408 path (suite-safe deadline); 429 with a held slot;
   cancellation honoured.
@@ -61,13 +61,13 @@ Intent: budgets, convergence, and the two most-wanted results.
 
 Intent: complete the v1 algorithm set on the now-proven machinery.
 
-- [ ] `LabelPropagationAlgorithm` (`LABELPROPAGATION`): synchronous rounds, ascending-id
+- [x] `LabelPropagationAlgorithm` (`LABELPROPAGATION`): synchronous rounds, ascending-id
   order, most-frequent-neighbour label with smallest-label tie-break, stop on no-change or
   `MaxIterations` (default 20), `Statistics["CommunityCount"]`.
-- [ ] `TriangleCountingAlgorithm` (`TRIANGLECOUNT`): undirected simple-graph reduction
+- [x] `TriangleCountingAlgorithm` (`TRIANGLECOUNT`): undirected simple-graph reduction
   (dedupe parallel edges, drop self-loops), sorted-neighbour intersection, per-vertex counts
   + `Statistics["TriangleCount"]` (= Σ/3), budget-cooperative.
-- [ ] Tests: two-cliques-plus-bridge ⇒ 2 communities (determinism pinned by double run),
+- [x] Tests: two-cliques-plus-bridge ⇒ 2 communities (determinism pinned by double run),
   one-round clique convergence; K4 ⇒ 4, 4-cycle ⇒ 0, parallel-edge dedupe, self-loop
   ignored; scoping + budget cases for both.
 
@@ -75,14 +75,14 @@ Intent: complete the v1 algorithm set on the now-proven machinery.
 
 Intent: the full-result delivery vehicle, through the sanctioned write path only.
 
-- [ ] Write-back executor shared by all five algorithms: chunked `DelegateTransaction`
+- [x] Write-back executor shared by all five algorithms: chunked `DelegateTransaction`
   bodies (50 000 `SetProperty` calls per chunk) via `IFallen8WriterContext`,
   `EnqueueTransaction` + `WaitUntilFinished` per chunk; property-key convention table from
   spec §3.5 + `writeBackPropertyKey` override validation (non-empty, ≤ 256 chars, 400
   otherwise).
-- [ ] REST: `writeBack` flag on `AnalyticsSpecification`; response reports vertices written,
+- [x] REST: `writeBack` flag on `AnalyticsSpecification`; response reports vertices written,
   chunk count, and the mode-(a) durability note in the endpoint docs.
-- [ ] Tests: keys/types per convention; idempotent re-run overwrite; multi-chunk run applies
+- [x] Tests: keys/types per convention; idempotent re-run overwrite; multi-chunk run applies
   all chunks; induced mid-chunk failure leaves earlier chunks applied (documented
   non-atomicity pinned); write-back survives `Save`→`Load` but is absent after WAL-only
   replay (mode-(a) pin, mirroring `PluginWriteTransactionsTest`); write-back works with
@@ -92,23 +92,23 @@ Intent: the full-result delivery vehicle, through the sanctioned write path only
 
 Intent: ship what exists, honestly documented.
 
-- [ ] Regenerate the pinned OpenAPI snapshot (`features/done/web-ui/openapi-v0.1.json`);
+- [x] Regenerate the pinned OpenAPI snapshot (`features/done/web-ui/openapi-v0.1.json`);
   verify the web-ui contract test still passes (new endpoints are additive).
-- [ ] `features/open/graph-analytics/README.md`: usage examples per algorithm (request/
+- [x] `features/open/graph-analytics/README.md`: usage examples per algorithm (request/
   response), the consistency story (§3.4) and write-back durability note verbatim, the
   parked-items table with revisit triggers.
-- [ ] Root `README.md`: analytics section next to path/subgraph.
-- [ ] Full `dotnet test` green; build clean; council review per the repo merge gate; fix
-  findings on the branch; `git merge --no-ff` to `main`; move
+- [x] Root `README.md`: analytics section next to path/subgraph.
+- [ ] Full `dotnet test` green (692 passed); build clean; council review per the repo merge
+  gate; fix findings on the branch; `git merge --no-ff` to `main`; move
   `features/open/graph-analytics/` → `features/done/`.
 
 ## Progress
 
-- [ ] Phase 0 — contract + `DEGREE` end-to-end (engine facade, cache, controller, tests)
-- [ ] Phase 1 — budgets/convergence + `PAGERANK` + `WCC` + 408/429 semantics
-- [ ] Phase 2 — `LABELPROPAGATION` + `TRIANGLECOUNT`
-- [ ] Phase 3 — chunked property write-back (mode (a)) + durability pins
-- [ ] Phase 4 — OpenAPI snapshot, READMEs, council gate, merge + move to done/
+- [x] Phase 0 — contract + `DEGREE` end-to-end (engine facade, cache, controller, tests)
+- [x] Phase 1 — budgets/convergence + `PAGERANK` + `WCC` + 408/429 semantics
+- [x] Phase 2 — `LABELPROPAGATION` + `TRIANGLECOUNT`
+- [x] Phase 3 — chunked property write-back (mode (a)) + durability pins
+- [ ] Phase 4 — OpenAPI snapshot + READMEs done; council gate, merge + move to done/ pending
 
 ## Decision / revisit conditions
 
