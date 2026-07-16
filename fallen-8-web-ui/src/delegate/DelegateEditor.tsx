@@ -167,7 +167,10 @@ export function DelegateEditor({
     <Dialog.Root open onOpenChange={(open) => !open && onCancel()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60" />
-        <Dialog.Content className="panel fixed top-1/2 left-1/2 z-50 flex h-[80vh] w-[64rem] max-w-[95vw] -translate-x-1/2 -translate-y-1/2 flex-col">
+        {/* Centered via inset+m-auto, NOT translate: a transform here would become the
+            containing block for Monaco's fixedOverflowWidgets (suggest/hover), shifting
+            them away from the cursor. */}
+        <Dialog.Content className="panel fixed inset-0 z-50 m-auto flex h-[80vh] w-5xl max-w-[95vw] flex-col">
           <div className="panel-title">
             <Dialog.Title className="contents">
               delegate editor — {delegateKind}
