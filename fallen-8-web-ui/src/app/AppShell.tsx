@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRegistry, useActiveInstance } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import { getStatus } from "../api/endpoints";
+import { useLiveChangeFeed, type LiveFeedStatus } from "../state/liveFeed";
 
 const NAV = [
   { to: "/", label: "Connect", icon: "◉" },
@@ -46,6 +47,37 @@ function HealthChip() {
 }
 
 /**
+ * Live-mode chip (feature change-feed): "live" while the active instance's change feed
+ * stream is up, a quiet "live off" when the server answered 503 (feed disabled) - the
+ * screens then simply stay in their polling behaviour. Nothing while connecting.
+ */
+function LiveChip({ status }: { status: LiveFeedStatus }) {
+  if (status === "live") {
+    return (
+      <span
+        data-testid="live-chip"
+        title="Live updates: streaming committed changes from this instance"
+        className="border-accent/40 text-accent rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase"
+      >
+        live
+      </span>
+    );
+  }
+  if (status === "unavailable") {
+    return (
+      <span
+        data-testid="live-chip"
+        title="Live updates unavailable (change feed disabled on this instance) - falling back to polling"
+        className="border-line text-fg-faint rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase"
+      >
+        live off
+      </span>
+    );
+  }
+  return null;
+}
+
+/**
  * App shell: left icon rail + top bar with the always-visible instance switcher (FR-1b).
  * Every screen renders under a bar that names the active instance and its endpoint, so
  * production is never mistaken for local.
@@ -56,6 +88,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const setActive = useRegistry((s) => s.setActive);
   const active = useActiveInstance();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // One change feed stream per ACTIVE instance, torn down on switch (FR-1c).
+  const liveStatus = useLiveChangeFeed(active);
 
   return (
     <div className="flex h-full">
@@ -108,7 +142,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               {describeEndpoint(active)}
             </span>
           )}
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <LiveChip status={liveStatus} />
             <HealthChip />
           </div>
         </header>
