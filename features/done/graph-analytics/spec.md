@@ -1,7 +1,7 @@
 # Graph Analytics — Specification
 
-> **Status:** Implemented on branch `feature/graph-analytics` (branch-only workflow — no
-> GitHub issue/PR); council gate pending. See [plan.md](./plan.md) for the phase record.
+> **Status:** Implemented and merged (branch `feature/graph-analytics`, council-approved
+> 2026-07-16; see [plan.md](./plan.md) for the phase record and council outcome).
 
 ## 1. Overview & requirements
 

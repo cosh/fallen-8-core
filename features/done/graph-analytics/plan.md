@@ -98,9 +98,14 @@ Intent: ship what exists, honestly documented.
   response), the consistency story (§3.4) and write-back durability note verbatim, the
   parked-items table with revisit triggers.
 - [x] Root `README.md`: analytics section next to path/subgraph.
-- [ ] Full `dotnet test` green (692 passed); build clean; council review per the repo merge
-  gate; fix findings on the branch; `git merge --no-ff` to `main`; move
-  `features/open/graph-analytics/` → `features/done/`.
+- [x] Full `dotnet test` green (697 passed); build clean; council review per the repo merge
+  gate (three reviewers: correctness/concurrency, regressions/invariants, scope/spec-fidelity
+  — no blockers; the majors were test-coverage gaps, all findings fixed on the branch with
+  pinning tests: partition-endpoint writeBack refusal + empty-scope 404, default-vs-ceiling
+  budget clamp, non-numeric statistics guard, LP/triangle scoping and budget pins, the
+  deterministic BudgetExhausted=true chain fixture, REST 408/write-back-500 stubs, spec
+  corrections); `git merge --no-ff` to `main`; move `features/open/graph-analytics/` →
+  `features/done/`.
 
 ## Progress
 
@@ -108,7 +113,7 @@ Intent: ship what exists, honestly documented.
 - [x] Phase 1 — budgets/convergence + `PAGERANK` + `WCC` + 408/429 semantics
 - [x] Phase 2 — `LABELPROPAGATION` + `TRIANGLECOUNT`
 - [x] Phase 3 — chunked property write-back (mode (a)) + durability pins
-- [ ] Phase 4 — OpenAPI snapshot + READMEs done; council gate, merge + move to done/ pending
+- [x] Phase 4 — OpenAPI snapshot, READMEs, council gate, merge + move to done/
 
 ## Decision / revisit conditions
 
