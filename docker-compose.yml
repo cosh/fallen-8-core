@@ -2,7 +2,8 @@
 # plus the NL-assist model backend (official Ollama image with the MIT default model,
 # phi4-mini). Manage the environment as a whole - not individual containers:
 #
-#   docker compose up -d --build     # start everything (npm run env:up)
+#   docker compose up -d --build     # start everything (npm run env:up, which also
+#                                    # applies docker-compose.gpu.yml on NVIDIA hosts)
 #   docker compose down              # stop everything; named volumes persist (npm run env:down)
 #   docker compose logs -f           # follow the whole environment (npm run env:logs)
 #

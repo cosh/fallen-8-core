@@ -1,0 +1,19 @@
+# GPU override: hands the host's NVIDIA GPU(s) to the Ollama container so NL-assist
+# inference runs accelerated. It is a separate file because a device reservation
+# hard-fails container creation on hosts without an NVIDIA GPU + container toolkit -
+# `npm run env:up` detects the GPU (scripts/env-up.js) and applies this file
+# automatically. To apply it by hand:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# AMD GPUs are not covered: Ollama needs the ollama/ollama:rocm image for ROCm.
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

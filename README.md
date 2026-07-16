@@ -63,7 +63,8 @@ model backend (Ollama + the MIT default model, pulled on first start). The envir
 managed **as one unit** via compose - do not start/stop individual containers:
 
 ```bash
-npm run env:up      # = docker compose up -d --build   (start everything)
+npm run env:up      # = docker compose up -d --build   (start everything; uses the
+                    #   host's NVIDIA GPU for Ollama when one is present)
 npm run env:down    # = docker compose down            (stop everything; data volumes persist)
 npm run env:logs    # follow all logs
 npm run env:status  # health of the whole environment
