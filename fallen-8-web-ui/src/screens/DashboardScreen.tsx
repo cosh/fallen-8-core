@@ -1,16 +1,20 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import {
+  exportBulk,
   generateSampleGraph,
   getStatus,
+  importBulk,
   loadGraph,
   runBenchmark,
   saveGraph,
   tabulaRasa,
   trimGraph,
 } from "../api/endpoints";
+import { ApiError } from "../api/client";
+import { shapeSuggestions, useGraphShape } from "../state/graphShape";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Stat } from "../components/Stat";
@@ -46,6 +50,11 @@ export function DashboardScreen() {
   const [confirming, setConfirming] = useState<"tabularasa" | "load" | null>(null);
   const [loadPath, setLoadPath] = useState("");
   const [lastMessage, setLastMessage] = useState<string | null>(null);
+  const [showExportFilter, setShowExportFilter] = useState(false);
+  const [exportVertexLabel, setExportVertexLabel] = useState("");
+  const [exportEdgeLabel, setExportEdgeLabel] = useState("");
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const suggestions = shapeSuggestions(useGraphShape(instance).data);
 
   const status = useQuery({
     queryKey: [instance.id, "status"],
@@ -94,7 +103,45 @@ export function DashboardScreen() {
     mutationFn: () => runBenchmark(instance),
   });
 
-  const failed = [save, load, trim, erase, generate].find((m) => m.isError);
+  const exportGraph = useMutation({
+    mutationFn: () =>
+      exportBulk(instance, {
+        vertexLabel: exportVertexLabel.trim() || undefined,
+        edgeLabel: exportEdgeLabel.trim() || undefined,
+      }),
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${instance.name}.jsonl`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setLastMessage(`Exported ${(blob.size / 1024 / 1024).toFixed(1)} MiB of jsonl.`);
+    },
+  });
+
+  const importGraph = useMutation({
+    mutationFn: async (file: File) => {
+      if (file.size > 64 * 1024 * 1024) {
+        setLastMessage(
+          "Large file — the browser buffers the whole upload with no resumability; curl is the better tool from here up.",
+        );
+      }
+      return await importBulk(instance, file);
+    },
+    onSuccess: (result) => {
+      setLastMessage(
+        result
+          ? `Imported ${result.verticesCreated.toLocaleString()} vertices and ${result.edgesCreated.toLocaleString()} edges (${result.linesRead.toLocaleString()} lines read).`
+          : "Imported.",
+      );
+      refresh();
+    },
+  });
+
+  const failed = [save, load, trim, erase, generate, exportGraph].find(
+    (m) => m.isError,
+  );
 
   if (status.isPending) {
     return <div className="text-fg-faint">Loading status…</div>;
@@ -229,6 +276,92 @@ export function DashboardScreen() {
             </button>
           </div>
 
+          <div className="border-line space-y-2 border-t pt-3">
+            <div className="text-fg-faint text-[10px] tracking-widest uppercase">
+              interchange (jsonl)
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <button
+                type="button"
+                className="btn"
+                data-testid="bulk-export"
+                disabled={exportGraph.isPending}
+                title="internally consistent interchange — not a crash-consistent backup; use save games for point-in-time"
+                onClick={() => exportGraph.mutate()}
+              >
+                {exportGraph.isPending ? "Exporting…" : "Export .jsonl"}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowExportFilter((s) => !s)}
+              >
+                {showExportFilter ? "Hide" : "Filter by label"}
+              </button>
+              {showExportFilter && (
+                <>
+                  <div>
+                    <label className="label" htmlFor="export-vertex-label">
+                      vertex label
+                    </label>
+                    <input
+                      id="export-vertex-label"
+                      className="input w-36"
+                      list="dash-vertex-labels"
+                      value={exportVertexLabel}
+                      onChange={(e) => setExportVertexLabel(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="export-edge-label">
+                      edge label
+                    </label>
+                    <input
+                      id="export-edge-label"
+                      className="input w-36"
+                      list="dash-edge-labels"
+                      value={exportEdgeLabel}
+                      onChange={(e) => setExportEdgeLabel(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+              <button
+                type="button"
+                className="btn ml-4"
+                data-testid="bulk-import"
+                disabled={importGraph.isPending}
+                title="imports into an EMPTY graph only — the server enforces this with a 409"
+                onClick={() => importFileRef.current?.click()}
+              >
+                {importGraph.isPending ? "Importing…" : "Import .jsonl…"}
+              </button>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".jsonl,.ndjson,application/x-ndjson"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) importGraph.mutate(file);
+                }}
+              />
+            </div>
+            {importGraph.isError && (
+              <div className="space-y-1" data-testid="import-error">
+                <ErrorBox error={importGraph.error} />
+                {importGraph.error instanceof ApiError &&
+                  importGraph.error.status === 409 && (
+                    <p className="text-fg-dim text-[12px]">
+                      Target graph is not empty — Tabula rasa first, or import into a
+                      fresh instance.
+                    </p>
+                  )}
+              </div>
+            )}
+          </div>
+
           {lastMessage && (
             <div className="text-accent text-[12px]" data-testid="admin-message">
               {lastMessage}
@@ -239,6 +372,17 @@ export function DashboardScreen() {
       </section>
 
       <StoredQueriesPanel />
+
+      <datalist id="dash-vertex-labels">
+        {suggestions.vertexLabels.map((label) => (
+          <option key={label} value={label} />
+        ))}
+      </datalist>
+      <datalist id="dash-edge-labels">
+        {suggestions.edgeLabels.map((label) => (
+          <option key={label} value={label} />
+        ))}
+      </datalist>
 
       <ConfirmDialog
         open={confirming === "tabularasa"}

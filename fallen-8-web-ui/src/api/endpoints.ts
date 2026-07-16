@@ -1,9 +1,10 @@
-import { apiRequest } from "./client";
+import { ApiError, apiRequest, authHeaders, buildUrl } from "./client";
 import type { InstanceConfig } from "../instances/types";
 import type {
   AnalyticsResultREST,
   AnalyticsSpecification,
   BenchmarkResult,
+  BulkImportResultREST,
   DelegateKind,
   DelegateValidationResult,
   EdgeREST,
@@ -101,6 +102,44 @@ export const generateSampleGraph = (i: InstanceConfig, nodeCount = 200, edgeCoun
 
 export const runBenchmark = (i: InstanceConfig, iterations = 1000) =>
   apiRequest<BenchmarkResult>(i, "/benchmark", { query: { iterations } });
+
+// ---- bulk interchange (concept spec §7) ----
+// Raw fetch, not apiRequest: the payload is application/x-ndjson, not JSON.
+
+/** Streams the graph (or a label-filtered subset) to a Blob for a browser download. */
+export async function exportBulk(
+  i: InstanceConfig,
+  filters?: { vertexLabel?: string; edgeLabel?: string },
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const url = buildUrl(i.baseUrl, "/bulk/export", {
+    vertexLabel: filters?.vertexLabel,
+    edgeLabel: filters?.edgeLabel,
+  });
+  const response = await fetch(url, { headers: authHeaders(i), signal });
+  if (!response.ok) {
+    throw new ApiError(response.status, url, await response.text().catch(() => ""));
+  }
+  return await response.blob();
+}
+
+/** Imports into an EMPTY graph (server 409s otherwise); fail-fast with a line number. */
+export async function importBulk(
+  i: InstanceConfig,
+  file: Blob,
+): Promise<BulkImportResultREST | null> {
+  const url = buildUrl(i.baseUrl, "/bulk/import", undefined);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { ...authHeaders(i), "Content-Type": "application/x-ndjson" },
+    body: file,
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, url, await response.text().catch(() => ""));
+  }
+  const text = await response.text();
+  return text && text !== "null" ? (JSON.parse(text) as BulkImportResultREST) : null;
+}
 
 // ---- elements (FR-5/6/7) ----
 

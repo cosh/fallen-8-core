@@ -34,6 +34,13 @@ export interface SaveGame {
   kpis: SaveGameKpis;
 }
 
+/** POST /bulk/import success summary (feature bulk-import-export). */
+export interface BulkImportResultREST {
+  verticesCreated: number;
+  edgesCreated: number;
+  linesRead: number;
+}
+
 /** GET /benchmark - structured edge-traversal statistics (TPS = traversals/second). */
 export interface BenchmarkResult {
   iterations: number;
