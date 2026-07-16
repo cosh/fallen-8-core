@@ -1,8 +1,7 @@
 # Bulk Import/Export (JSONL) — Specification
 
-> **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
-> repository root `CLAUDE.md`. Feature branch: `feature/bulk-import-export` (branch-only
-> workflow — no GitHub issue/PR).
+> **Status:** Implemented and merged (branch `feature/bulk-import-export`, council-approved
+> 2026-07-16; see [plan.md](./plan.md) for the phase record and council outcome).
 
 ## 1. Overview & requirements
 

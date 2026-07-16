@@ -336,7 +336,7 @@ curl -sf http://localhost:5000/bulk/export -o graph.jsonl
 curl -sf -X POST http://localhost:5000/bulk/import -H "Content-Type: application/x-ndjson" --data-binary @graph.jsonl
 ```
 
-See [features/bulk-import-export/](features/open/bulk-import-export/) for the line schema,
+See [features/bulk-import-export/](features/done/bulk-import-export/) for the line schema,
 consistency contract, and error semantics.
 
 ## Live change feed
