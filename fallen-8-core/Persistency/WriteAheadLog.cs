@@ -242,6 +242,14 @@ namespace NoSQL.GraphDB.Core.Persistency
             get { return _failed; }
         }
 
+        /// <summary>The number of frames buffered for the current commit group (feature
+        /// observability): lets the flush metrics distinguish a REAL flush attempt from the
+        /// empty/degraded fast paths, so failure counts and duration percentiles stay honest.</summary>
+        internal int PendingFrameCount
+        {
+            get { return _pendingFrames.Count; }
+        }
+
         /// <summary>
         ///   The current on-disk length of the log file, for the <c>fallen8.wal.size</c> gauge
         ///   (feature observability). Best-effort: 0 when the file is missing or unreadable -

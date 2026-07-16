@@ -410,16 +410,29 @@ namespace NoSQL.GraphDB.App
                     metricsEndpoint.AllowAnonymous();
                 }
 
+                // Honest auth-mode line: RequireApiKey only bites when a key is actually
+                // configured (the fallback policy is installed only then) - say so.
+                var keyConfigured = !string.IsNullOrWhiteSpace(security.ApiKey);
+                var authMode = !observability.Prometheus.RequireApiKey
+                    ? "anonymous (Prometheus:RequireApiKey=false)"
+                    : keyConfigured
+                        ? "API key required"
+                        : "RequireApiKey=true but NO API key is configured - effectively anonymous (configure Fallen8:Security:ApiKey)";
                 startupLogger.LogWarning(
                     "Fallen-8 observability: GET /metrics is ENABLED (Prometheus exposition), auth mode: {AuthMode}. " +
                     "The metric inventory carries aggregate operational numbers only (no user-supplied strings).",
-                    observability.Prometheus.RequireApiKey ? "API key required" : "anonymous (Prometheus:RequireApiKey=false)");
+                    authMode);
             }
             if (!string.IsNullOrWhiteSpace(observability.Otlp.Endpoint))
             {
                 startupLogger.LogWarning(
                     "Fallen-8 observability: OTLP export is ENABLED to \"{Endpoint}\" (metrics + traces, sampling ratio {Ratio}).",
                     observability.Otlp.Endpoint, observability.TracingSamplingRatio);
+            }
+            if (!observability.AnyExporterEnabled)
+            {
+                startupLogger.LogInformation(
+                    "Fallen-8 observability: no exporters enabled (Fallen8:Observability) - zero OpenTelemetry code paths run; /statistics and the health endpoints are always available.");
             }
 
             if (spaIndexPresent)

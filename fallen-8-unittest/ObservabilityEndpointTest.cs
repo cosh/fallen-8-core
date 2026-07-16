@@ -133,11 +133,16 @@ namespace NoSQL.GraphDB.Tests
             var b = SeedVertex(factory);
             SeedEdge(factory, a, b);
 
+            // A rollback too, so its series appears through the exporter name-mapping.
+            EngineOf(factory).EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = 424242 })
+                .WaitUntilFinished();
+
             using var response = await client.GetAsync("/metrics");
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
             var body = await response.Content.ReadAsStringAsync();
 
             StringAssert.Contains(body, "fallen8_transaction_commits");
+            StringAssert.Contains(body, "fallen8_transaction_rollbacks");
             StringAssert.Contains(body, "fallen8_graph_vertices");
             StringAssert.Contains(body, "fallen8_transaction_commit_duration");
         }
@@ -308,6 +313,43 @@ namespace NoSQL.GraphDB.Tests
             request.Headers.Add("X-Api-Key", "test-key-123");
             using var authenticated = await client.SendAsync(request);
             Assert.AreEqual(HttpStatusCode.OK, authenticated.StatusCode);
+        }
+
+        [TestMethod]
+        public async Task Statistics_IsRateLimited_UnderTheSensitivePolicy()
+        {
+            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            {
+                // A tiny window so the test exhausts it deterministically without hammering.
+                { "Fallen8:Security:SensitiveRateLimitPermitPerWindow", "3" },
+                { "Fallen8:Security:RateLimitWindowSeconds", "60" }
+            });
+            using var client = factory.CreateClient();
+
+            for (var i = 0; i < 3; i++)
+            {
+                using var ok = await client.GetAsync("/statistics");
+                Assert.AreEqual(HttpStatusCode.OK, ok.StatusCode, "request " + (i + 1) + " within the window");
+            }
+
+            using var limited = await client.GetAsync("/statistics");
+            Assert.AreEqual((HttpStatusCode)429, limited.StatusCode,
+                "the sensitive fixed-window limiter caps a scrape-loop misconfiguration");
+        }
+
+        [TestMethod]
+        public void ReadinessCheck_ReflectsTheStartupFlag()
+        {
+            var state = new NoSQL.GraphDB.App.Services.StartupState();
+            var check = new NoSQL.GraphDB.App.Services.StartupReadinessCheck(state);
+
+            var notReady = check.CheckHealthAsync(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext()).Result;
+            Assert.AreEqual(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy, notReady.Status,
+                "before load-at-startup completes, /readyz reports unhealthy");
+
+            state.MarkReady();
+            var ready = check.CheckHealthAsync(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext()).Result;
+            Assert.AreEqual(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy, ready.Status);
         }
 
         #endregion

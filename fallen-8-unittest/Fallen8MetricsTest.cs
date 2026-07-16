@@ -48,17 +48,18 @@ namespace NoSQL.GraphDB.Tests
     {
         private sealed record Measurement(String Instrument, Double Value, Dictionary<String, Object> Tags);
 
-        /// <summary>Collects every measurement from meters named NoSQL.GraphDB.Core.</summary>
+        /// <summary>Collects every measurement from the named meters (default: the engine's).</summary>
         private sealed class Collector : IDisposable
         {
             private readonly MeterListener _listener = new MeterListener();
             public readonly ConcurrentQueue<Measurement> Measurements = new ConcurrentQueue<Measurement>();
 
-            public Collector()
+            public Collector(params string[] meterNames)
             {
+                var names = meterNames.Length == 0 ? new[] { "NoSQL.GraphDB.Core" } : meterNames;
                 _listener.InstrumentPublished = (instrument, listener) =>
                 {
-                    if (instrument.Meter.Name == "NoSQL.GraphDB.Core")
+                    if (Array.IndexOf(names, instrument.Meter.Name) >= 0)
                     {
                         listener.EnableMeasurementEvents(instrument);
                     }
@@ -266,13 +267,60 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void EnabledGate_UnlistenedInstruments_RecordNothing()
+        {
+            // A listener that enables ONLY the commits counter: the duration histograms stay
+            // Enabled == false, so their record paths (and the timestamp stamps behind them)
+            // are skipped entirely - the observable half of the hot-path Enabled gate.
+            using var listener = new MeterListener();
+            var commitCount = 0L;
+            var durationCount = 0;
+            listener.InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == "NoSQL.GraphDB.Core" &&
+                    instrument.Name == "fallen8.transaction.commits")
+                {
+                    l.EnableMeasurementEvents(instrument);
+                }
+            };
+            listener.SetMeasurementEventCallback<Int64>((i, v, t, s) => System.Threading.Interlocked.Add(ref commitCount, v));
+            listener.SetMeasurementEventCallback<Double>((i, v, t, s) => System.Threading.Interlocked.Increment(ref durationCount));
+            listener.Start();
+
+            using var engine = new Fallen8(TestLoggerFactory.Create());
+            CreateVertex(engine);
+            CreateVertex(engine);
+
+            Assert.AreEqual(2L, System.Threading.Interlocked.Read(ref commitCount), "the enabled counter records");
+            Assert.AreEqual(0, durationCount,
+                "no duration histogram has a listener, so nothing is recorded (and no enqueue/execute timestamps are taken)");
+        }
+
+        [TestMethod]
+        public void EngineAssembly_ReferencesNoOpenTelemetryPackage()
+        {
+            // The BCL-only acceptance criterion, pinned at runtime: the engine assembly's
+            // reference list must never contain an OpenTelemetry assembly (the instruments are
+            // System.Diagnostics.* from the shared framework).
+            var references = typeof(Fallen8).Assembly.GetReferencedAssemblies();
+            foreach (var reference in references)
+            {
+                Assert.IsFalse(reference.Name.StartsWith("OpenTelemetry", StringComparison.OrdinalIgnoreCase),
+                    "fallen-8-core must stay dependency-clean; found " + reference.Name);
+            }
+        }
+
+        [TestMethod]
         public void TagHygiene_NoUserSuppliedStringEverBecomesATagValue()
         {
             const string userLabel = "userSuppliedLabelXYZZY";
             const string userProperty = "userSuppliedKeyXYZZY";
             const string userIndexName = "userIndexNameXYZZY";
+            const string userFragmentMarker = "userFragmentXYZZY";
 
-            using var collector = new Collector();
+            // BOTH meters: the engine's and the app's (codegen) - the invariant covers every
+            // emitted measurement.
+            using var collector = new Collector("NoSQL.GraphDB.Core", "NoSQL.GraphDB.App");
             using var engine = new Fallen8(TestLoggerFactory.Create());
 
             // A battery of operations carrying user strings everywhere the API accepts them.
@@ -284,14 +332,28 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out _, userIndexName, "DictionaryIndex",
                 new Dictionary<string, object>()));
             engine.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = 424242 }).WaitUntilFinished();
+
+            // A codegen compile whose FRAGMENT carries a user string (the App-meter side).
+            NoSQL.GraphDB.Core.App.Helper.CodeGenerationHelper.GeneratePathTraverser(out _,
+                new NoSQL.GraphDB.App.Controllers.Model.PathSpecification
+                {
+                    Filter = new NoSQL.GraphDB.App.Controllers.Model.PathFilterSpecification
+                    {
+                        Vertex = "return (v) => v.Label != \"" + userFragmentMarker + "\";"
+                    }
+                });
+
             collector.CollectGauges();
 
+            Assert.IsTrue(collector.Measurements.Count > 0);
             foreach (var measurement in collector.Measurements)
             {
                 foreach (var tag in measurement.Tags)
                 {
                     var value = tag.Value?.ToString() ?? "";
-                    Assert.IsFalse(value.Contains(userLabel) || value.Contains(userProperty) || value.Contains(userIndexName),
+                    Assert.IsFalse(
+                        value.Contains(userLabel) || value.Contains(userProperty) ||
+                        value.Contains(userIndexName) || value.Contains(userFragmentMarker),
                         $"metric tag {tag.Key}='{value}' on {measurement.Instrument} must never carry user input");
                 }
             }

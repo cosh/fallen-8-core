@@ -155,69 +155,119 @@ namespace NoSQL.GraphDB.Core.Diagnostics
 
         #region record helpers (tag values are TYPE/ENUM NAMES only - never user input)
 
+        // CONTAINMENT: Counter.Add / Histogram.Record invoke MeterListener measurement
+        // callbacks INLINE and the BCL does not swallow their exceptions. Most record helpers
+        // run on the single writer thread, whose containment contract (B6: the worker survives
+        // any faulting transaction) must hold for a hostile/buggy listener too - so every
+        // helper catches. Observability must never fault the observed.
+
         internal void RecordCommit(String transactionType)
         {
-            _commits.Add(1, new KeyValuePair<String, Object>("transaction.type", transactionType));
+            try
+            {
+                _commits.Add(1, new KeyValuePair<String, Object>("transaction.type", transactionType));
+            }
+            catch { /* a throwing listener must never fault the writer */ }
         }
 
         internal void RecordRollback(String transactionType, Transaction.TransactionFailureReason reason)
         {
-            _rollbacks.Add(1,
-                new KeyValuePair<String, Object>("transaction.type", transactionType),
-                new KeyValuePair<String, Object>("failure.reason", reason.ToString()));
+            try
+            {
+                _rollbacks.Add(1,
+                    new KeyValuePair<String, Object>("transaction.type", transactionType),
+                    new KeyValuePair<String, Object>("failure.reason", reason.ToString()));
+            }
+            catch { /* contained */ }
         }
 
         internal void RecordExecuteDuration(String transactionType, Double seconds)
         {
-            _executeDuration.Record(seconds, new KeyValuePair<String, Object>("transaction.type", transactionType));
+            try
+            {
+                _executeDuration.Record(seconds, new KeyValuePair<String, Object>("transaction.type", transactionType));
+            }
+            catch { /* contained */ }
         }
 
         internal void RecordCommitDuration(String transactionType, Double seconds)
         {
-            _commitDuration.Record(seconds, new KeyValuePair<String, Object>("transaction.type", transactionType));
+            try
+            {
+                _commitDuration.Record(seconds, new KeyValuePair<String, Object>("transaction.type", transactionType));
+            }
+            catch { /* contained */ }
         }
 
         internal void RecordGroupSize(Int32 size)
         {
-            _groupSize.Record(size);
+            try
+            {
+                _groupSize.Record(size);
+            }
+            catch { /* contained */ }
         }
 
         internal void RecordNonDurable()
         {
-            _nonDurable.Add(1);
+            try
+            {
+                _nonDurable.Add(1);
+            }
+            catch { /* contained */ }
         }
 
         internal void RecordWalFlushDuration(Double seconds)
         {
-            _walFlushDuration.Record(seconds);
+            try
+            {
+                _walFlushDuration.Record(seconds);
+            }
+            catch { /* contained */ }
         }
 
         internal void RecordWalFlushFailure()
         {
-            _walFlushFailures.Add(1);
+            try
+            {
+                _walFlushFailures.Add(1);
+            }
+            catch { /* contained */ }
         }
 
         internal void RecordCheckpointSave(Double seconds, Int64 bytes)
         {
-            _checkpointSaveDuration.Record(seconds);
-            if (bytes >= 0)
+            try
             {
-                _checkpointSaveBytes.Record(bytes);
+                _checkpointSaveDuration.Record(seconds);
+                if (bytes >= 0)
+                {
+                    _checkpointSaveBytes.Record(bytes);
+                }
             }
+            catch { /* contained */ }
         }
 
         internal void RecordCheckpointLoad(Double seconds, Int64 bytes)
         {
-            _checkpointLoadDuration.Record(seconds);
-            if (bytes >= 0)
+            try
             {
-                _checkpointLoadBytes.Record(bytes);
+                _checkpointLoadDuration.Record(seconds);
+                if (bytes >= 0)
+                {
+                    _checkpointLoadBytes.Record(bytes);
+                }
             }
+            catch { /* contained */ }
         }
 
         internal void RecordCheckpointFailure(String operation)
         {
-            _checkpointFailures.Add(1, new KeyValuePair<String, Object>("operation", operation));
+            try
+            {
+                _checkpointFailures.Add(1, new KeyValuePair<String, Object>("operation", operation));
+            }
+            catch { /* contained */ }
         }
 
         #endregion

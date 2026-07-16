@@ -132,6 +132,26 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void NoListener_NoSpansAreCreated()
+        {
+            // The zero-config guarantee for traces: with nothing listening to the engine
+            // source, HasListeners() is false, the WorkItem never carries a span, and
+            // StartActivity would return null anyway. Observable pin: a listener on an
+            // UNRELATED source sees nothing from a full transaction round-trip.
+            Assert.IsFalse(NoSQL.GraphDB.Core.Diagnostics.Fallen8Diagnostics.Source.HasListeners(),
+                "precondition: nothing listens to the engine source");
+
+            using var unrelated = new SpanCollector("some.unrelated.source");
+            using var engine = new Fallen8(TestLoggerFactory.Create());
+            engine.EnqueueTransaction(new CreateVertexTransaction
+            {
+                Definition = new VertexDefinition { CreationDate = 1u, Label = "person" }
+            }).WaitUntilFinished();
+
+            Assert.AreEqual(0, unrelated.Stopped.Count, "no span objects are created when unsampled");
+        }
+
+        [TestMethod]
         public void CodegenCompileSpan_CarriesArtifactAndSuccess()
         {
             using var collector = new SpanCollector("NoSQL.GraphDB.App");

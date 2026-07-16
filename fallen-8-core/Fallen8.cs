@@ -297,19 +297,21 @@ namespace NoSQL.GraphDB.Core
         internal Int32 IndexCountForMetrics => IndexFactory?.Indices?.Count ?? 0;
 
         /// <summary>Total keys across all registered indices (aggregate only - per-index detail
-        /// is GET /statistics' job, behind auth; no index NAME ever becomes a metric tag).</summary>
+        /// is GET /statistics' job, behind auth; no index NAME ever becomes a metric tag).
+        /// Enumerates a read-locked SNAPSHOT of the index map - the exporter's collection
+        /// thread must never race a concurrent create/delete on the plain dictionary.</summary>
         internal Int64 IndexEntriesForMetrics
         {
             get
             {
-                var indices = IndexFactory?.Indices;
-                if (indices == null)
+                var factory = IndexFactory;
+                if (factory == null)
                 {
                     return 0L;
                 }
 
                 var total = 0L;
-                foreach (var index in indices.Values)
+                foreach (var index in factory.GetIndicesSnapshot())
                 {
                     total += index.CountOfKeys();
                 }
@@ -1176,8 +1178,11 @@ namespace NoSQL.GraphDB.Core
 
         /// <summary>
         ///   Total on-disk size of a checkpoint: the snapshot file plus its partitions and index
-        ///   sidecars, which all share the snapshot path as their name prefix. Best-effort
-        ///   (-1 when unmeasurable) - a metrics detail must never fault a save/load.
+        ///   sidecars, which all share the snapshot path as their name prefix. Files whose name
+        ///   extends the prefix with a '#' are EXCLUDED - that is the version stamp a later save
+        ///   to the same base path gets (PersistencyFactory), i.e. a DIFFERENT checkpoint whose
+        ///   size must not be summed into this one's. Best-effort (-1 when unmeasurable) - a
+        ///   metrics detail must never fault a save/load.
         /// </summary>
         private static long MeasureCheckpointBytes(string checkpointPath)
         {
@@ -1193,6 +1198,11 @@ namespace NoSQL.GraphDB.Core
                 var total = 0L;
                 foreach (var file in System.IO.Directory.EnumerateFiles(directory, prefix + "*"))
                 {
+                    var name = System.IO.Path.GetFileName(file);
+                    if (name.Length > prefix.Length && name[prefix.Length] == '#')
+                    {
+                        continue;
+                    }
                     total += new System.IO.FileInfo(file).Length;
                 }
                 return total;
@@ -2182,9 +2192,14 @@ namespace NoSQL.GraphDB.Core
                 return true;
             }
 
-            // Enabled-gated timestamp (feature observability): no clock read when nobody listens.
+            // Honest flush metrics (feature observability): only a REAL flush attempt - pending
+            // frames on a non-tripped fence - is measured. The empty fast path would pollute the
+            // duration percentiles with ~0s samples, and the already-degraded path would count
+            // ONE real failure as N (every group "fails" until the next Save); the degraded state
+            // is what fallen8.wal.degraded and .nondurable report. Timestamp is Enabled-gated.
+            var isRealAttempt = wal.PendingFrameCount > 0 && !wal.HasFailed;
             var metrics = Metrics;
-            var start = metrics != null && metrics.WalFlushDurationEnabled
+            var start = isRealAttempt && metrics != null && metrics.WalFlushDurationEnabled
                 ? System.Diagnostics.Stopwatch.GetTimestamp()
                 : 0L;
 
@@ -2194,7 +2209,7 @@ namespace NoSQL.GraphDB.Core
             {
                 metrics.RecordWalFlushDuration(System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalSeconds);
             }
-            if (!durable)
+            if (isRealAttempt && !durable)
             {
                 metrics?.RecordWalFlushFailure();
             }
@@ -2571,19 +2586,28 @@ namespace NoSQL.GraphDB.Core
             }
 
             // Cold-path instrumentation (feature observability): duration + bytes + span,
-            // failure counter on a rejected load. The load itself is unchanged.
+            // failure counter on a rejected load - whether it threw (corrupt/invalid file) or
+            // returned false (e.g. a non-existent path). The load itself is unchanged.
             using var span = Diagnostics.Fallen8Diagnostics.Source.StartActivity("fallen8.checkpoint.load");
             var start = System.Diagnostics.Stopwatch.GetTimestamp();
             int replayedEntries;
+            bool loaded;
             try
             {
-                LoadCore(path, startServices, out replayedEntries);
+                loaded = LoadCore(path, startServices, out replayedEntries);
             }
             catch
             {
                 Metrics?.RecordCheckpointFailure("load");
                 span?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
                 throw;
+            }
+
+            if (!loaded)
+            {
+                Metrics?.RecordCheckpointFailure("load");
+                span?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
+                return;
             }
 
             var bytes = MeasureCheckpointBytes(path);
@@ -2593,7 +2617,7 @@ namespace NoSQL.GraphDB.Core
             span?.SetTag("checkpoint.wal.replayed", replayedEntries);
         }
 
-        private void LoadCore(String path, Boolean startServices, out int replayedEntries)
+        private bool LoadCore(String path, Boolean startServices, out int replayedEntries)
         {
             replayedEntries = 0;
 
@@ -2752,6 +2776,8 @@ namespace NoSQL.GraphDB.Core
             {
                 Trim_internal();
             }
+
+            return success;
         }
 
         public override TransactionInformation EnqueueTransaction(ATransaction tx)
@@ -2769,7 +2795,9 @@ namespace NoSQL.GraphDB.Core
             // Unregister the metric instruments BEFORE anything is torn down (feature
             // observability, pinned by test): an exporter's collection thread may invoke a
             // gauge callback at any moment, and the callbacks read the transaction manager and
-            // WAL state disposed below. Disposing the Meter first makes that race impossible.
+            // WAL state disposed below. Disposing the Meter first unregisters the callbacks
+            // up front; the residual in-flight-callback window is additionally covered by the
+            // callbacks' own containment (Guarded / the disposed-queue and file guards).
             Metrics?.Dispose();
             Metrics = null;
 

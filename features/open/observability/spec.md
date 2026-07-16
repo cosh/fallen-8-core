@@ -162,15 +162,20 @@ in .NET 10.
 
 `ActivitySource "NoSQL.GraphDB.Core"` / `"NoSQL.GraphDB.App"` spans:
 
-- `fallen8.transaction.execute` — around `ExecuteTransactionBody`, tag `transaction.type`,
-  terminal state, `durable`. The parent is the **enqueuing request's** activity: `AddTransaction`
-  captures `Activity.Current?.Context` on the `WorkItem`, and the writer starts the span with
-  that explicit parent — so a slow REST mutation shows its queue wait + execution even though
-  the body runs on the decoupled single writer thread.
+- `fallen8.transaction.execute` — starts at `ExecuteTransactionBody` and closes at the
+  durable-ack point in the group flush (so its duration covers execute **through** the group
+  fsync), tags `transaction.type`, terminal state, and `durable` (committed transactions
+  only — durability is meaningless for a rollback). The parent is the **enqueuing request's**
+  activity: `AddTransaction` captures `Activity.Current?.Context` on the `WorkItem`, and the
+  writer starts the span with that explicit parent — so a slow REST mutation shows its queue
+  wait + execution even though the body runs on the decoupled single writer thread. The span
+  is immediately detached from the writer thread's `Activity.Current` (it outlives the
+  method), so same-group transactions without an ambient parent are never mis-parented.
 - `fallen8.checkpoint.save` / `fallen8.checkpoint.load` — around `Save` / `Load_internal`,
   tags: partitions, bytes, replayed WAL entry count.
-- `fallen8.codegen.compile` — around each Roslyn compile, tags `artifact`, `success`,
-  `cache` = `hit|miss` (a hit span is not created; the miss span carries the compile).
+- `fallen8.codegen.compile` — around each Roslyn compile, tags `artifact`, `success`. (A
+  cache HIT never creates a span, so a `cache` tag would be the constant `miss` — dropped;
+  hit/miss ratios live in the `fallen8.codegen.cache.*` counters.)
 - `fallen8.path.search` / `fallen8.subgraph.run` — around `IPathTraverser`/algorithm execution
   in `GraphController` and `SubGraphFactory` recalculation, tags: algorithm plugin name,
   result count.
@@ -188,12 +193,12 @@ New `Fallen8ObservabilityOptions` (`Fallen8:Observability` section, sibling of
 `Fallen8:Security` / `Fallen8:Durability`):
 
 ```
-Fallen8:Observability:Prometheus:Enabled        bool, default false  -> maps GET /metrics
-Fallen8:Observability:Prometheus:RequireApiKey  bool, default false  (see §3.7)
-Fallen8:Observability:Otlp:Endpoint             string, default null -> adds OTLP exporter (metrics + traces)
-Fallen8:Observability:Tracing:SamplingRatio     double, default 1.0
-Fallen8:Observability:Statistics:ElementBudget  int, default 1_000_000 (§3.5)
-Fallen8:Observability:Statistics:TopN           int, default 20
+Fallen8:Observability:Prometheus:Enabled         bool, default false  -> maps GET /metrics
+Fallen8:Observability:Prometheus:RequireApiKey   bool, default false  (see §3.7)
+Fallen8:Observability:Otlp:Endpoint              string, default null -> adds OTLP exporter (metrics + traces)
+Fallen8:Observability:TracingSamplingRatio       double, default 1.0
+Fallen8:Observability:StatisticsElementBudget    int, default 1_000_000 (§3.5)
+Fallen8:Observability:StatisticsTopN             int, default 20
 ```
 
 `Program.cs` adds `AddOpenTelemetry()` **only when** Prometheus or OTLP is enabled — a fully
@@ -202,8 +207,10 @@ security gates. Packages (apiApp only, exact versions pinned at implementation t
 `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Exporter.Prometheus.AspNetCore` (note: this
 exporter has long been a release-candidate package — pin it and say so in the feature README;
 it is nevertheless the standard in-process scrape endpoint), and
-`OpenTelemetry.Exporter.OpenTelemetryProtocol`. Startup logs one posture line (exporters on/off,
-`/metrics` auth mode) in the voice of the existing security warnings.
+`OpenTelemetry.Exporter.OpenTelemetryProtocol`. Startup logs a posture line per enabled
+exporter (including the honest `/metrics` auth mode — `RequireApiKey` without a configured
+key is called out as effectively anonymous) and an info line when everything is off, in the
+voice of the existing security warnings.
 
 ### 3.5 `GET /statistics` — graph-shape snapshot
 
@@ -219,7 +226,7 @@ Honest cost per stat, and how each is bounded:
 |---|---|---|---|
 | `vertexCount`, `edgeCount` | `Fallen8.VertexCount/EdgeCount` | O(1) | — |
 | `labels` (vertex + edge): top-N `{label, count}` + `distinctTotal` | one pass over the element snapshot, dictionary count | **O(V+E)** | element budget |
-| `degree` (in/out/total): min, max, mean, p50/p90/p99 | `VertexModel.GetInDegree()/GetOutDegree()` (`VertexModel.cs:328/334`, O(1) each — adjacency counts, **not** an edge walk), collect + sort | **O(V)** + O(S log S) sort of the collected sample | vertex budget |
+| `degree` (in/out/total): min, max, mean, p50/p90/p99 | `VertexModel.GetInDegree()/GetOutDegree()` (`VertexModel.cs:328/334` — adjacency group-count sums, O(#edge-property groups) per vertex, **never** an edge walk), collect + sort | **O(V)** + O(S log S) sort of the collected sample | vertex budget |
 | `propertyKeys`: top-N by element count + `distinctTotal` | per-element property-id iteration | **O(P)** (total properties — the heaviest stat) | element budget |
 | `indices`: `[{name, type, keys, values}]` | `IndexFactory.Indices` + `CountOfKeys()/CountOfValues()` | O(#indices) | — |
 | `memory`: `processWorkingSetBytes`, `gcHeapBytes` (`GC.GetTotalMemory(false)`), `GCMemoryInfo` highlights | BCL reads | O(1), **never forces a GC** (deliberate contrast with `memory-footprint`'s benchmark-only `GetTotalMemory(true)`) | — |

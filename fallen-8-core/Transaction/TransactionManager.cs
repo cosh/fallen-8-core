@@ -215,8 +215,7 @@ namespace NoSQL.GraphDB.Core.Transaction
                     _logger.LogError(ex, "The transaction writer thread caught an unexpected exception in the group-commit loop; completing pending transactions and continuing.");
                     foreach (var pending in group)
                     {
-                        pending.Span?.Dispose();
-                        pending.Span = null;
+                        FinishSpanSafely(pending);
                         pending.Completion.TrySetResult();
                     }
                 }
@@ -310,14 +309,9 @@ namespace NoSQL.GraphDB.Core.Transaction
                         Stopwatch.GetElapsedTime(item.EnqueueTimestamp).TotalSeconds);
                 }
 
-                // Finish the execute span with the now-known durability; its duration covers
-                // execute through the durable-ack point.
-                if (item.Span != null)
-                {
-                    item.Span.SetTag("transaction.durable", item.Info.Durable);
-                    item.Span.Dispose();
-                    item.Span = null;
-                }
+                // Finish the execute span with the now-known durability (Finished items only);
+                // its duration covers execute through the durable-ack point.
+                FinishSpanSafely(item);
 
                 item.Completion.TrySetResult();
             }
@@ -377,12 +371,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             // finished by the group flush once durability is known. The execute-duration
             // timestamp is Enabled-gated: no clock read when nobody listens.
             var metrics = _f8.Metrics;
-            if (Diagnostics.Fallen8Diagnostics.Source.HasListeners())
-            {
-                item.Span = Diagnostics.Fallen8Diagnostics.Source.StartActivity(
-                    "fallen8.transaction.execute", ActivityKind.Internal, item.ParentContext);
-                item.Span?.SetTag("transaction.type", transactionType);
-            }
+            item.Span = StartExecuteSpanSafely(item, transactionType);
             var executeStart = metrics != null && metrics.ExecuteDurationEnabled
                 ? Stopwatch.GetTimestamp()
                 : 0L;
@@ -415,8 +404,7 @@ namespace NoSQL.GraphDB.Core.Transaction
                     metrics.RecordExecuteDuration(transactionType, Stopwatch.GetElapsedTime(executeStart).TotalSeconds);
                 }
                 metrics?.RecordRollback(transactionType, TransactionFailureReason.InternalError);
-                item.Span?.SetTag("transaction.state", nameof(TransactionState.RolledBack));
-                item.Span?.SetStatus(ActivityStatusCode.Error);
+                TagSpanSafely(item.Span, "transaction.state", nameof(TransactionState.RolledBack), markError: true);
 
                 ReleaseInputsSafely(tx, transactionType);
                 return;
@@ -429,8 +417,12 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             if (succeeded)
             {
+                // The commit counter is recorded strictly AFTER the terminal state is published
+                // and the WAL frame buffered would be even safer - but the record helper is
+                // exception-contained (a hostile listener cannot fault the writer), so ordering
+                // here is a non-issue; keep it adjacent to the state for readability.
                 metrics?.RecordCommit(transactionType);
-                item.Span?.SetTag("transaction.state", nameof(TransactionState.Finished));
+                TagSpanSafely(item.Span, "transaction.state", nameof(TransactionState.Finished), markError: false);
 
                 SetTransactionState(tx, TransactionState.Finished);
 
@@ -463,9 +455,96 @@ namespace NoSQL.GraphDB.Core.Transaction
                 rolledBackInfo.FailureReason = tx.FailureReason;
 
                 metrics?.RecordRollback(transactionType, tx.FailureReason);
-                item.Span?.SetTag("transaction.state", nameof(TransactionState.RolledBack));
+                TagSpanSafely(item.Span, "transaction.state", nameof(TransactionState.RolledBack), markError: false);
 
                 ReleaseInputsSafely(tx, transactionType);
+            }
+        }
+
+        /// <summary>
+        ///   Starts the execute span with the enqueue-time parent context, CONTAINED (feature
+        ///   observability): ActivitySource.StartActivity invokes listener callbacks inline, and
+        ///   a hostile/buggy listener must never fault the single writer (B6). The span also
+        ///   deliberately does NOT stay current on this thread: StartActivity sets
+        ///   Activity.Current, and because the span outlives this method (the group flush
+        ///   finishes it), leaving it current would (a) mis-parent later same-group transactions
+        ///   that carry NO explicit parent (StartActivity falls back to Activity.Current when the
+        ///   parent context is default) and (b) leave a stopped span current after the flush.
+        ///   Restoring the previous Current immediately keeps the writer thread's ambient
+        ///   context clean.
+        /// </summary>
+        private static Activity StartExecuteSpanSafely(WorkItem item, String transactionType)
+        {
+            if (!Diagnostics.Fallen8Diagnostics.Source.HasListeners())
+            {
+                return null;
+            }
+
+            try
+            {
+                var previous = Activity.Current;
+                var span = Diagnostics.Fallen8Diagnostics.Source.StartActivity(
+                    "fallen8.transaction.execute", ActivityKind.Internal, item.ParentContext);
+                if (span != null)
+                {
+                    Activity.Current = previous;
+                    span.SetTag("transaction.type", transactionType);
+                }
+                return span;
+            }
+            catch
+            {
+                // A throwing listener must never fault the writer thread.
+                return null;
+            }
+        }
+
+        /// <summary>Sets a span tag (and optionally the error status), contained like every
+        /// other observability call on the writer thread.</summary>
+        private static void TagSpanSafely(Activity span, String key, Object value, Boolean markError)
+        {
+            if (span == null)
+            {
+                return;
+            }
+
+            try
+            {
+                span.SetTag(key, value);
+                if (markError)
+                {
+                    span.SetStatus(ActivityStatusCode.Error);
+                }
+            }
+            catch
+            {
+                // contained
+            }
+        }
+
+        /// <summary>Finishes the execute span at the durable-ack point, contained. The durable
+        /// tag is stamped only for COMMITTED transactions (durability is meaningless for a
+        /// rollback - nothing was applied, so nothing needed the log).</summary>
+        private static void FinishSpanSafely(WorkItem item)
+        {
+            var span = item.Span;
+            if (span == null)
+            {
+                return;
+            }
+
+            item.Span = null;
+            try
+            {
+                if (item.Info.TransactionState == TransactionState.Finished)
+                {
+                    span.SetTag("transaction.durable", item.Info.Durable);
+                }
+                span.Dispose();
+            }
+            catch
+            {
+                // contained
             }
         }
 

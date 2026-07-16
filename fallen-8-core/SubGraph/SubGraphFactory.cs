@@ -552,6 +552,12 @@ namespace NoSQL.GraphDB.Core.SubGraph
             {
                 _logger.LogInformation(String.Format("Recalculating subgraph \"{0}\" using algorithm \"{1}\"...", subGraphName, outdatedSubGraphResult.AlgorithmPluginName));
 
+                // Feature observability: the recalculation is the other fallen8.subgraph.run
+                // producer (next to the REST create). Tag: the RESOLVED plugin name only.
+                using var runSpan = Diagnostics.Fallen8Diagnostics.Source.StartActivity("fallen8.subgraph.run");
+                runSpan?.SetTag("algorithm", outdatedSubGraphResult.AlgorithmPluginName);
+                runSpan?.SetTag("recalculation", true);
+
                 // Get or load the algorithm
                 if (!TryGetOrLoadAlgorithm(out var algo, outdatedSubGraphResult.SourceFallen8, outdatedSubGraphResult.AlgorithmPluginName, outdatedSubGraphResult.AlgorithmParameters))
                 {
@@ -564,6 +570,9 @@ namespace NoSQL.GraphDB.Core.SubGraph
                     _logger.LogError(String.Format("Failed to recalculate subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, outdatedSubGraphResult.AlgorithmPluginName));
                     return false;
                 }
+
+                runSpan?.SetTag("result.vertices", newSubGraph.SubGraph?.VertexCount ?? 0);
+                runSpan?.SetTag("result.edges", newSubGraph.SubGraph?.EdgeCount ?? 0);
 
                 // Preserve the existing IDs and metadata
                 Guid oldSubGraphId = outdatedSubGraphResult.SubGraph.Id;

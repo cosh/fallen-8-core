@@ -203,6 +203,34 @@ namespace NoSQL.GraphDB.Core.Index
         }
 
         /// <summary>
+        ///   Returns a point-in-time snapshot of the registered index ids paired with their
+        ///   index instances, copied under the read lock (feature observability). Public so
+        ///   GET /statistics can enumerate the inventory (name, type, counts) off the writer
+        ///   thread without racing a concurrent create/delete on the plain dictionary.
+        /// </summary>
+        public IReadOnlyList<KeyValuePair<String, IIndex>> GetNamedIndicesSnapshot()
+        {
+            if (ReadResource())
+            {
+                try
+                {
+                    var result = new List<KeyValuePair<String, IIndex>>(Indices.Count);
+                    foreach (var kv in Indices)
+                    {
+                        result.Add(kv);
+                    }
+                    return result;
+                }
+                finally
+                {
+                    FinishReadResource();
+                }
+            }
+
+            throw new CollisionException();
+        }
+
+        /// <summary>
         ///   Tries the index of the get.
         /// </summary>
         /// <returns> <c>true</c> if the index was found; otherwise, <c>false</c> . </returns>

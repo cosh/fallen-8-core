@@ -1466,11 +1466,11 @@ namespace NoSQL.GraphDB.App.Controllers
                         VertexCost = traverser.VertexCost()
                     };
 
-                    // Feature observability: the algorithm-run span (tags: plugin name - an
-                    // all-caps plugin identifier, not user content - and result count).
+                    // Feature observability: the algorithm-run span. The algorithm tag is set
+                    // only AFTER the plugin resolved (TryCalculateShortestPath returned true),
+                    // so the span never carries an arbitrary unresolved user string.
                     var algorithmName = definition.PathAlgorithmName ?? "BLS"; // Default to BLS if not specified
                     using var searchSpan = Diagnostics.AppDiagnostics.Source.StartActivity("fallen8.path.search");
-                    searchSpan?.SetTag("algorithm", algorithmName);
 
                     List<Core.Algorithms.Path.Path> paths;
                     if (_fallen8.TryCalculateShortestPath(
@@ -1478,6 +1478,7 @@ namespace NoSQL.GraphDB.App.Controllers
                         algorithmName,
                         pathDefinition))
                     {
+                        searchSpan?.SetTag("algorithm", algorithmName);
                         if (paths != null && paths.Count > 0)
                         {
                             searchSpan?.SetTag("result.count", paths.Count);

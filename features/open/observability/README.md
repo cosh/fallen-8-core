@@ -55,7 +55,7 @@ property keys) lives in `/statistics`, behind auth.
 
 Useful queries: `histogram_quantile(0.99, rate(fallen8_transaction_commit_duration_bucket[5m]))`
 (commit p99), `fallen8_wal_degraded == 1` (alert: durability degraded),
-`rate(fallen8_transaction_rollbacks_total[5m]) by (failure_reason)`.
+`sum by (failure_reason) (rate(fallen8_transaction_rollbacks_total[5m]))`.
 
 ## Scraping
 

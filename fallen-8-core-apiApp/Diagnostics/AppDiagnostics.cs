@@ -68,25 +68,40 @@ namespace NoSQL.GraphDB.App.Diagnostics
         private static readonly Counter<Int64> _compileFailures = _meter.CreateCounter<Int64>(
             "fallen8.codegen.compile.failures", "{failure}", "Failed Roslyn compiles (diagnostics in the 400 response, never here).");
 
+        // CONTAINMENT: Counter.Add / Histogram.Record invoke listener callbacks inline and the
+        // BCL does not swallow their exceptions - observability must never fault the observed.
+
         internal static void RecordCacheHit(String artifact)
         {
-            _cacheHits.Add(1, new KeyValuePair<String, Object>("artifact", artifact));
+            try
+            {
+                _cacheHits.Add(1, new KeyValuePair<String, Object>("artifact", artifact));
+            }
+            catch { /* contained */ }
         }
 
         internal static void RecordCacheMiss(String artifact)
         {
-            _cacheMisses.Add(1, new KeyValuePair<String, Object>("artifact", artifact));
+            try
+            {
+                _cacheMisses.Add(1, new KeyValuePair<String, Object>("artifact", artifact));
+            }
+            catch { /* contained */ }
         }
 
         internal static void RecordCompile(String artifact, Boolean success, Double seconds)
         {
-            _compileDuration.Record(seconds,
-                new KeyValuePair<String, Object>("artifact", artifact),
-                new KeyValuePair<String, Object>("success", success));
-            if (!success)
+            try
             {
-                _compileFailures.Add(1, new KeyValuePair<String, Object>("artifact", artifact));
+                _compileDuration.Record(seconds,
+                    new KeyValuePair<String, Object>("artifact", artifact),
+                    new KeyValuePair<String, Object>("success", success));
+                if (!success)
+                {
+                    _compileFailures.Add(1, new KeyValuePair<String, Object>("artifact", artifact));
+                }
             }
+            catch { /* contained */ }
         }
     }
 }

@@ -19,8 +19,9 @@ Intent: the configuration surface and the engine-side homes, with nothing record
   "NoSQL.GraphDB.Core"`) and `Fallen8Metrics.cs` (per-engine `Meter "NoSQL.GraphDB.Core"`,
   `IDisposable`), MIT headers; created in the `Fallen8` constructor, disposed in
   `Fallen8.Dispose` **before** the transaction manager (pinned by test).
-- [x] Verify by test: engine csproj has no new package reference; two engines in one process
-  report independent gauges; disposal unregisters callbacks.
+- [x] Verify by test: the engine assembly references no OpenTelemetry assembly (runtime
+  reflection pin of the BCL-only constraint); two engines in one process report independent
+  gauges; disposal unregisters callbacks.
 
 ## Phase 1 — Engine meters (transactions, WAL, checkpoint, graph)
 
@@ -74,10 +75,11 @@ Intent: the instruments become operationally visible.
 - [x] `GeneratedCodeCache` hit/miss counters + compile duration/failure metrics
   (`NoSQL.GraphDB.App` meter).
 - [x] Startup posture log line (exporters, `/metrics` auth mode) in the existing security-warning voice.
-- [x] Tests (`WebApplicationFactory`): `/metrics` 404 when disabled; 200 + exposition-format
-  content containing `fallen8_` series after real operations when enabled; auth matrix
-  (anonymous default / 401 when `RequireApiKey` and no key sent); zero-config path registers no
-  OTel services.
+- [x] Tests (`WebApplicationFactory`): `/metrics` serves no exposition output when disabled
+  (asserted SPA-fallback-safely: no `fallen8_` series, whatever the status); 200 +
+  exposition-format content containing `fallen8_` series after real operations when enabled;
+  auth matrix (anonymous default / 401 when `RequireApiKey` and no key sent); zero-config
+  path registers no OTel services.
 
 ## Phase 4 — Health endpoints
 

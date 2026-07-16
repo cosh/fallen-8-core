@@ -131,10 +131,12 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             var indices = new List<IndexStatsREST>();
-            var registered = _fallen8.IndexFactory?.Indices;
-            if (registered != null)
+            var factory = _fallen8.IndexFactory;
+            if (factory != null)
             {
-                foreach (var pair in registered)
+                // A read-locked snapshot: enumerating the live dictionary would race a
+                // concurrent index create/delete on another request thread.
+                foreach (var pair in factory.GetNamedIndicesSnapshot())
                 {
                     indices.Add(new IndexStatsREST
                     {
