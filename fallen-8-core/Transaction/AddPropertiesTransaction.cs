@@ -48,6 +48,24 @@ namespace NoSQL.GraphDB.Core.Transaction
             f8.RestoreProperties_internal(_undo);
         }
 
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            // One undo entry exists per APPLIED set, in apply order; only id/key primitives are
+            // read - never the value.
+            if (_undo == null)
+            {
+                return;
+            }
+
+            foreach (var applied in _undo)
+            {
+                if (f8.TryDescribeElement(applied.GraphElementId, out var elementType, out var label))
+                {
+                    builder.PropertySet(elementType, applied.GraphElementId, label, applied.PropertyId);
+                }
+            }
+        }
+
         internal override Boolean TryExecute(Fallen8 f8)
         {
             // Validate the whole batch (structure + conflict-freedom, incl. intra-batch) before

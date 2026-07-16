@@ -41,6 +41,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
 
 namespace NoSQL.GraphDB.Core.Persistency
@@ -479,6 +480,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             try
             {
                 SaveSubGraphRecipes(fallen8, path);
+                SaveStoredQueries(fallen8, path);
             }
             catch
             {
@@ -486,7 +488,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 throw;
             }
 
-            File.Move(tempMain, path, true); // atomic commit point (the recipe manifest is already durable)
+            File.Move(tempMain, path, true); // atomic commit point (the recipe + stored-query manifests are already durable)
 
             return path;
         }
@@ -589,6 +591,104 @@ namespace NoSQL.GraphDB.Core.Persistency
                 _logger.LogError(ex, String.Format("Could not persist the subgraph recipe manifest \"{0}\": {1}", manifestPath, ex.Message));
                 throw new IOException(String.Format("Could not persist the subgraph recipe manifest \"{0}\".", manifestPath), ex);
             }
+        }
+
+        /// <summary>
+        /// Persists every stored query definition into ONE versioned manifest next to the save point
+        /// (feature stored-query-library) - the exact discipline of <see cref="SaveSubGraphRecipes"/>:
+        /// written atomically (temp + fsync + rename) BEFORE the header commit-point rename, and a
+        /// write failure FAILS the whole save (nothing committed, the WAL left unreset so its
+        /// RegisterStoredQuery entries survive for the next replay). Source only, never compiled bytes.
+        /// </summary>
+        private void SaveStoredQueries(IFallen8 fallen8, string path)
+        {
+            if (fallen8.StoredQueries == null)
+            {
+                return;
+            }
+
+            var definitions = new List<StoredQueryDefinition>();
+            foreach (var entry in fallen8.StoredQueries.GetAll())
+            {
+                if (entry?.Definition != null)
+                {
+                    definitions.Add(entry.Definition);
+                }
+            }
+
+            var manifestPath = path + Constants.StoredQueryManifestString;
+
+            if (definitions.Count == 0)
+            {
+                // Nothing to persist: make sure no stale manifest lingers at this path.
+                TryDeleteFile(manifestPath);
+                return;
+            }
+
+            var manifest = new StoredQueryManifest
+            {
+                FormatVersion = PersistenceFormat.FormatVersion,
+                Definitions = definitions
+            };
+
+            var temp = TempNameFor(manifestPath);
+            try
+            {
+                var json = JsonSerializer.Serialize(manifest, CoreJsonContext.Default.StoredQueryManifest);
+                WriteAllBytesDurably(temp, Encoding.UTF8.GetBytes(json));
+                File.Move(temp, manifestPath, true);
+            }
+            catch (Exception ex)
+            {
+                TryDeleteFile(temp);
+                _logger.LogError(ex, String.Format("Could not persist the stored query manifest \"{0}\": {1}", manifestPath, ex.Message));
+                throw new IOException(String.Format("Could not persist the stored query manifest \"{0}\".", manifestPath), ex);
+            }
+        }
+
+        /// <summary>
+        /// Reads the single stored-query manifest that sits next to the given save point (feature
+        /// stored-query-library). A missing manifest means "no stored queries"; an unknown manifest
+        /// version or a read error is logged LOUDLY and treated as no stored queries - the manifest
+        /// must never fail the whole load, but a corrupt one is an error, not a silent skip.
+        /// </summary>
+        internal List<StoredQueryDefinition> LoadStoredQueryDefinitions(string pathToSavePoint)
+        {
+            var result = new List<StoredQueryDefinition>();
+            var manifestPath = pathToSavePoint + Constants.StoredQueryManifestString;
+
+            if (!File.Exists(manifestPath))
+            {
+                return result;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(manifestPath, Encoding.UTF8);
+                var manifest = JsonSerializer.Deserialize(json, CoreJsonContext.Default.StoredQueryManifest);
+                if (manifest == null)
+                {
+                    return result;
+                }
+
+                if (manifest.FormatVersion != PersistenceFormat.FormatVersion)
+                {
+                    _logger.LogError(String.Format("The stored query manifest \"{0}\" has unsupported version {1} (expected {2}); its stored queries will not be rehydrated.",
+                        manifestPath, manifest.FormatVersion, PersistenceFormat.FormatVersion));
+                    return result;
+                }
+
+                if (manifest.Definitions != null)
+                {
+                    result.AddRange(manifest.Definitions.Where(d => d != null));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, String.Format("Could not read the stored query manifest \"{0}\": {1}", manifestPath, ex.Message));
+            }
+
+            return result;
         }
 
         /// <summary>

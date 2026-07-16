@@ -111,5 +111,21 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             get { return false; }
         }
+
+        /// <summary>
+        ///   Describes this COMMITTED transaction's changes for the change feed (feature
+        ///   change-feed). Called on the single writer thread immediately after a successful
+        ///   <see cref="TryExecute"/> and BEFORE <see cref="ReleaseAfterCompletion"/> drops the
+        ///   input payload, and only when the engine carries a feed. Implementations record
+        ///   primitives only (ids, labels, property keys, edge endpoints) - never property values
+        ///   and never model/definition references - via the builder. The default records nothing:
+        ///   a transaction that mutates no graph element (Save, stored-query registration,
+        ///   subgraph create/remove - subgraphs are derived state in their OWN graph instance)
+        ///   stays silent. Rolled-back transactions are never asked (RolledBack ⇒ zero events).
+        /// </summary>
+        internal virtual void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            // no-op by default
+        }
     }
 }

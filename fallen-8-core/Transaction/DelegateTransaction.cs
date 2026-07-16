@@ -106,6 +106,12 @@ namespace NoSQL.GraphDB.Core.Transaction
             _context?.Compensate();
         }
 
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            // Plugin mutations are opaque to the descriptor model; a subscriber re-fetches.
+            builder.Resync(ChangeFeed.ChangeFeedDispatcher.ResyncReasonDelegateWrite);
+        }
+
         internal override void Cleanup()
         {
             // Drop the context (and its journal) once the transaction is no longer observable. The

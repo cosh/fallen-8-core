@@ -103,6 +103,19 @@ namespace NoSQL.GraphDB.App
             builder.Services.Configure<Fallen8DurabilityOptions>(
                 builder.Configuration.GetSection(Fallen8DurabilityOptions.SectionName));
 
+            // Stored query library configuration (feature stored-query-library).
+            builder.Services.Configure<Fallen8StoredQueryOptions>(
+                builder.Configuration.GetSection(Fallen8StoredQueryOptions.SectionName));
+
+            // Change feed configuration (feature change-feed): hosted default ON - a read-only
+            // surface with a small idle cost, and what makes F8 Studio live out of the box.
+            builder.Services.Configure<Fallen8ChangeFeedOptions>(
+                builder.Configuration.GetSection(Fallen8ChangeFeedOptions.SectionName));
+
+            // Bulk import/export configuration (feature bulk-import-export).
+            builder.Services.Configure<Fallen8BulkIOOptions>(
+                builder.Configuration.GetSection(Fallen8BulkIOOptions.SectionName));
+
             // Register the engine singleton through a factory so durable mode constructs the
             // WAL-enabling overload with the recipe compiler supplied AT CONSTRUCTION - an unanchored
             // WAL replays during construction, so only a compiler present then can recover its
@@ -111,20 +124,38 @@ namespace NoSQL.GraphDB.App
             {
                 var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
                 var durability = sp.GetRequiredService<IOptions<Fallen8DurabilityOptions>>().Value;
+                var storedQueryOptions = sp.GetRequiredService<IOptions<Fallen8StoredQueryOptions>>().Value;
+                var changeFeedOptions = sp.GetRequiredService<IOptions<Fallen8ChangeFeedOptions>>().Value.ToEngineOptions();
 
+                Fallen8 engine;
                 if (durability.Volatile)
                 {
-                    return new Fallen8(loggerFactory);
+                    engine = new Fallen8(loggerFactory, changeFeedOptions)
+                    {
+                        StoredQueryCompiler = new StoredQueryCompiler()
+                    };
+                }
+                else
+                {
+                    // Ensure the storage directory exists BEFORE the engine opens the WAL there; a missing
+                    // or unwritable directory must fail loudly at startup, never silently degrade to volatile.
+                    var storageDirectory = durability.ResolveStorageDirectory();
+                    Directory.CreateDirectory(storageDirectory);
+
+                    // Both compilers are supplied AT CONSTRUCTION: an unanchored WAL replays during
+                    // construction, so only compilers present then can recompile its CreateSubGraph /
+                    // RegisterStoredQuery entries.
+                    engine = new Fallen8(loggerFactory,
+                        new WriteAheadLogOptions(durability.ResolveWalPath()),
+                        new RecipeSubGraphCompiler(),
+                        new StoredQueryCompiler(),
+                        changeFeedOptions);
                 }
 
-                // Ensure the storage directory exists BEFORE the engine opens the WAL there; a missing
-                // or unwritable directory must fail loudly at startup, never silently degrade to volatile.
-                var storageDirectory = durability.ResolveStorageDirectory();
-                Directory.CreateDirectory(storageDirectory);
+                // Stored query library: apply the configured registration ceiling.
+                engine.StoredQueries.MaxCount = storedQueryOptions.MaxCount;
 
-                return new Fallen8(loggerFactory,
-                    new WriteAheadLogOptions(durability.ResolveWalPath()),
-                    new RecipeSubGraphCompiler());
+                return engine;
             });
 
             // Save-game metadata registry (feature save-games): the persistent historical record of

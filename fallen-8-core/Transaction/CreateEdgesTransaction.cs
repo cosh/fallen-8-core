@@ -115,6 +115,19 @@ namespace NoSQL.GraphDB.Core.Transaction
                 : ImmutableList.CreateRange(_edgesAdded);
         }
 
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            if (_edgesAdded == null)
+            {
+                return;
+            }
+
+            foreach (var edge in _edgesAdded)
+            {
+                builder.EdgeCreated(edge.Id, edge.Label, edge.SourceVertex.Id, edge.TargetVertex.Id);
+            }
+        }
+
         internal override void ReleaseAfterCompletion()
         {
             // Drop the input definitions (and their property dictionaries) once the transaction

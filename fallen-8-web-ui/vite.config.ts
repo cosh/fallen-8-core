@@ -24,6 +24,7 @@ const API_PREFIXES = [
   "/generate",
   "/benchmark",
   "/plugin",
+  "/changefeed",
 ];
 
 const API_TARGET = process.env.F8_API_URL ?? "http://localhost:5000";

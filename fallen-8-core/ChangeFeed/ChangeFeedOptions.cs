@@ -1,0 +1,66 @@
+// MIT License
+//
+// ChangeFeedOptions.cs
+//
+// Copyright (c) 2025 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+
+namespace NoSQL.GraphDB.Core.ChangeFeed
+{
+    /// <summary>
+    ///   Opt-in options for the engine's change feed (feature change-feed), mirroring the
+    ///   <see cref="WriteAheadLogOptions"/> pattern: an engine constructed WITHOUT these options
+    ///   carries no feed and the write path pays only a null check.
+    /// </summary>
+    public sealed class ChangeFeedOptions
+    {
+        private Int32 _bufferSize = 8192;
+        private Int32 _subscriberQueueSize = 1024;
+        private Int32 _maxSubscribers = 32;
+
+        /// <summary>Ring-buffer capacity (events) for <c>?since=</c> catch-up. Default 8192; a
+        /// non-positive value resets to the default (a zero-capacity feed is never intended -
+        /// disable the feed by omitting the options instead).</summary>
+        public Int32 BufferSize
+        {
+            get { return _bufferSize; }
+            set { _bufferSize = value > 0 ? value : 8192; }
+        }
+
+        /// <summary>Per-subscriber bounded queue capacity (events). Default 1024; a non-positive
+        /// value resets to the default.</summary>
+        public Int32 SubscriberQueueSize
+        {
+            get { return _subscriberQueueSize; }
+            set { _subscriberQueueSize = value > 0 ? value : 1024; }
+        }
+
+        /// <summary>Maximum concurrent subscribers; a subscribe beyond it is rejected. Default 32;
+        /// a non-positive value resets to the default.</summary>
+        public Int32 MaxSubscribers
+        {
+            get { return _maxSubscribers; }
+            set { _maxSubscribers = value > 0 ? value : 32; }
+        }
+    }
+}
