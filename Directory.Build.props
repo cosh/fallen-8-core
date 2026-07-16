@@ -17,7 +17,7 @@
     <!-- The default analyzer level, pinned explicitly so an SDK bump changing the default is
          a visible diff here rather than silent behaviour drift. Raising the MODE (e.g. to
          Recommended: ~3,200 findings measured 2026-07, dominated by naming/formatting rules)
-         is a per-rule decision recorded in features/code-quality/spec.md, not a default. -->
+         is a per-rule decision recorded in the code-quality feature docs, not a default. -->
     <AnalysisLevel>latest</AnalysisLevel>
 
   </PropertyGroup>

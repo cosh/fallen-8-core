@@ -63,7 +63,8 @@ dotnet run --project fallen-8-core-apiApp
   MIT header, `Console.Write*` in product code, `DateTime.Now` outside the documented
   `DateHelper` allowlist, or a non-exact package version.
 - **OpenAPI snapshot**: regenerate with `pwsh scripts/update-openapi-snapshot.ps1` whenever
-  a controller's routes or XML docs change; the diff must stay additive.
+  a controller's routes or XML docs change; review the printed diff - additions are
+  expected, removals only where a deliberately edited remark shrank.
 - **One home per explanation**: a concept is explained once — usually on the type that owns
   the contract or in the feature README — and every other site is a one-line pointer. Do not
   re-narrate a feature's story across call-site comments, controller remarks, the root

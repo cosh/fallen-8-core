@@ -44,8 +44,8 @@ namespace NoSQL.GraphDB.App.Controllers
 {
     /// <summary>
     ///   Streams committed graph mutations as Server-Sent Events (feature change-feed).
-    ///   The delivery contract is documented once, on the streaming action below (it feeds
-    ///   the OpenAPI operation); usage lives in features/done/change-feed/README.md.
+    ///   The delivery contract lives on <c>ChangeFeedDispatcher</c> (the type that owns it);
+    ///   usage lives in features/done/change-feed/README.md.
     /// </summary>
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]
@@ -85,6 +85,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     event: &lt;kind&gt;
         ///     data: {"seq":4712,"ts":"2026-07-15T12:34:56.789Z","kind":"propertySet","element":"vertex","id":42,"label":"person","key":"name"}
         ///
+        /// Delivery: events arrive in commit order (ascending seq), at most once per connection.
         /// A comment line (": keepalive") is written every KeepAliveSeconds so proxies do not idle
         /// the stream out. Filters combine with AND across dimensions and OR within one dimension;
         /// resync events bypass every filter (continuity loss must always reach the client). On

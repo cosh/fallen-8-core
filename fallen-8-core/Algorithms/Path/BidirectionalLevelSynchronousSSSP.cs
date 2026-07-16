@@ -680,8 +680,6 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
             return result;
         }
-
-
         /// <summary>
         /// Gets the local frontier corresponding to a vertex
         /// </summary>

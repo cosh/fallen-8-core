@@ -147,7 +147,10 @@ stripped before token checks so prose mentioning a banned token does not trip th
   `Console.WriteLine` → `System.Diagnostics.Debug.WriteLine` — a debug dump belongs on the
   debug listener, not the process stdout.
 - `DateHelper.GetModificationDate`: **kept** (see Non-goals) with a comment stating why, and
-  the file allowlisted in the convention test so the debt stays visible and bounded.
+  the file allowlisted in the convention test so the debt stays visible and bounded. The
+  survey found a second product `DateTime.Now` (the benchmark sample generator); it now goes
+  through a new `DateHelper.GetNowStamp()` so the clock convention lives in exactly the one
+  allowlisted file.
 
 ### 3.5 Snapshot script (`scripts/update-openapi-snapshot.ps1`)
 
@@ -202,7 +205,8 @@ WeightedDijkstra traversal models; VectorIndex internals.
   a warning fails the build (`TreatWarningsAsErrors` active in all three projects).
 - `CodeQualityTest` enforces the four §3.2 rules and passes; deleting a header or adding a
   `Console.WriteLine` to product code makes the suite fail.
-- The six analytics walkers, seven problem+json blocks and three resolve-cache flows are
+- The six analytics walkers, seven problem+json blocks and the string-named resolve-cache
+  flows (the generic Activator overload deliberately keeps its distinct shape) are
   consolidated; the full suite (718 tests pre-feature) stays green with **zero assertion
   changes** in existing tests — the refactors are provably behaviour-preserving.
 - The snapshot script regenerates `openapi-v0.1.json` byte-stable against a freshly built
