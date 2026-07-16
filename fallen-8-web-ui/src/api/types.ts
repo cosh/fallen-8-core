@@ -253,6 +253,8 @@ export interface PathSpecification {
   maxPathWeight: number;
   filter?: PathFilterSpecification;
   cost?: PathCostSpecification;
+  /** Stored query of kind Path — mutually exclusive with filter/cost (server 400s on mix). */
+  storedQuery?: string;
 }
 
 export interface PathElementREST {
@@ -288,6 +290,8 @@ export interface SubGraphSpecification {
   vertexFilter?: string;
   edgeFilter?: string;
   patterns?: PatternSpecification[];
+  /** Stored query of kind SubGraph — mutually exclusive with filters/patterns (server 400s on mix). */
+  storedQuery?: string;
 }
 
 export interface SubGraphSummary {
@@ -298,6 +302,46 @@ export interface SubGraphSummary {
   sourceFallen8Id?: string | null;
   canRecalculate?: boolean;
   additionalInformation?: string | null;
+}
+
+/**
+ * Stored query library (feature stored-query-library; surfaced by studio-coverage).
+ * Blocks hold exactly the per-template parts; numeric bounds and instance names stay
+ * per-request. Entries are immutable: delete + re-register is the edit flow.
+ */
+export type StoredQueryKind = "Path" | "SubGraph";
+
+export interface StoredPathQueryBlock {
+  filter?: PathFilterSpecification;
+  cost?: PathCostSpecification;
+}
+
+export interface StoredSubGraphQueryBlock {
+  vertexFilter?: string;
+  edgeFilter?: string;
+  patterns?: PatternSpecification[];
+}
+
+export interface StoredQuerySpecification {
+  name: string;
+  kind: StoredQueryKind;
+  description?: string;
+  path?: StoredPathQueryBlock;
+  subGraph?: StoredSubGraphQueryBlock;
+}
+
+/** compileState: Compiled (invocable) | Failed (invoking 409s) | SourceOnly. */
+export interface StoredQuerySummaryREST {
+  name: string | null;
+  kind: string | null;
+  description: string | null;
+  createdAt: string;
+  compileState: string | null;
+}
+
+export interface StoredQueryDetailREST extends StoredQuerySummaryREST {
+  specificationJson: string | null;
+  compileDiagnostics: string | null;
 }
 
 /** POST /delegates/validate (gap G-2, added by this feature) */

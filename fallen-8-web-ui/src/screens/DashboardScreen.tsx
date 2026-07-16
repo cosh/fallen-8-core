@@ -14,6 +14,7 @@ import {
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Stat } from "../components/Stat";
+import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
 import { formatCompact, formatExact } from "../lib/format";
 
 /**
@@ -236,6 +237,8 @@ export function DashboardScreen() {
           {failed && <ErrorBox error={failed.error} />}
         </div>
       </section>
+
+      <StoredQueriesPanel />
 
       <ConfirmDialog
         open={confirming === "tabularasa"}

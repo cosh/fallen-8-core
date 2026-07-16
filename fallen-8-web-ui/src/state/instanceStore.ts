@@ -29,6 +29,9 @@ export interface ResultSet {
   elementIds: number[];
 }
 
+/** Where a path/subgraph run takes its fragments from (concept spec §5.1). */
+export type FilterSource = "inline" | "stored";
+
 export interface PathDraft {
   from: string;
   to: string;
@@ -41,6 +44,8 @@ export interface PathDraft {
   edgePropertyFilter: string;
   vertexCost: string;
   edgeCost: string;
+  filterSource: FilterSource;
+  storedQuery: string;
 }
 
 export const DEFAULT_PATH_DRAFT: PathDraft = {
@@ -55,12 +60,19 @@ export const DEFAULT_PATH_DRAFT: PathDraft = {
   edgePropertyFilter: "",
   vertexCost: "",
   edgeCost: "",
+  filterSource: "inline",
+  storedQuery: "",
 };
 
 /** One-shot navigation intent: "open Query with this scan pre-filled" (cleared on consume). */
 export interface ScanPrefill {
   kind: "index";
   indexId: string;
+}
+
+/** One-shot navigation intent: "open Subgraph with this stored query selected". */
+export interface SubgraphPrefill {
+  storedQuery: string;
 }
 
 export interface WorkspaceState {
@@ -70,6 +82,7 @@ export interface WorkspaceState {
   resultSets: ResultSet[];
   pathDraft: PathDraft;
   scanPrefill: ScanPrefill | null;
+  subgraphPrefill: SubgraphPrefill | null;
 
   mergeIntoCanvas: (vertices: VertexREST[], edges: CanvasEdgeInput[]) => void;
   removeFromCanvas: (kind: "node" | "edge", id: number) => void;
@@ -79,6 +92,7 @@ export interface WorkspaceState {
   removeResultSet: (id: string) => void;
   setPathDraft: (patch: Partial<PathDraft>) => void;
   setScanPrefill: (prefill: ScanPrefill | null) => void;
+  setSubgraphPrefill: (prefill: SubgraphPrefill | null) => void;
 }
 
 function createWorkspaceStore(instanceId: string) {
@@ -91,6 +105,7 @@ function createWorkspaceStore(instanceId: string) {
         resultSets: [],
         pathDraft: { ...DEFAULT_PATH_DRAFT },
         scanPrefill: null,
+        subgraphPrefill: null,
 
         mergeIntoCanvas: (vertices, edges) =>
           set((s) => {
@@ -160,8 +175,22 @@ function createWorkspaceStore(instanceId: string) {
           set((s) => ({ pathDraft: { ...s.pathDraft, ...patch } })),
 
         setScanPrefill: (scanPrefill) => set({ scanPrefill }),
+
+        setSubgraphPrefill: (subgraphPrefill) => set({ subgraphPrefill }),
       }),
-      { name: `f8.workspace.${instanceId}` },
+      {
+        name: `f8.workspace.${instanceId}`,
+        // Deep-merge the path draft so drafts persisted before a field existed pick
+        // up its default instead of rehydrating as undefined.
+        merge: (persisted, current) => {
+          const p = (persisted ?? {}) as Partial<WorkspaceState>;
+          return {
+            ...current,
+            ...p,
+            pathDraft: { ...DEFAULT_PATH_DRAFT, ...(p.pathDraft ?? {}) },
+          };
+        },
+      },
     ),
   );
 }

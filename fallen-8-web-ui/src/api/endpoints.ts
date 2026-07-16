@@ -21,6 +21,9 @@ import type {
   ScanSpecification,
   SearchDistanceSpecification,
   StatusREST,
+  StoredQueryDetailREST,
+  StoredQuerySpecification,
+  StoredQuerySummaryREST,
   SubGraphSpecification,
   SubGraphSummary,
   VertexREST,
@@ -238,6 +241,23 @@ export const recalculateSubGraph = (i: InstanceConfig, name: string) =>
 
 export const deleteSubGraph = (i: InstanceConfig, name: string) =>
   apiRequest<void>(i, `/subgraph/${encodeURIComponent(name)}`, { method: "DELETE" });
+
+// ---- stored query library (concept spec §5) ----
+
+export const listStoredQueries = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<StoredQuerySummaryREST[]>(i, "/storedquery", { signal });
+
+export const getStoredQuery = (i: InstanceConfig, name: string, signal?: AbortSignal) =>
+  apiRequest<StoredQueryDetailREST>(i, `/storedquery/${encodeURIComponent(name)}`, {
+    signal,
+  });
+
+/** Requires EnableDynamicCodeExecution (403 otherwise); invocation by name does not. */
+export const registerStoredQuery = (i: InstanceConfig, spec: StoredQuerySpecification) =>
+  apiRequest<StoredQuerySummaryREST>(i, "/storedquery", { method: "POST", body: spec });
+
+export const deleteStoredQuery = (i: InstanceConfig, name: string) =>
+  apiRequest<void>(i, `/storedquery/${encodeURIComponent(name)}`, { method: "DELETE" });
 
 // ---- mutations (FR-21) ----
 

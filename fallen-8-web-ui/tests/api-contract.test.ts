@@ -161,6 +161,22 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     await endpoints.generateSampleGraph(instance);
     await endpoints.runBenchmark(instance);
     await endpoints.getStatistics(instance);
+    await endpoints.listStoredQueries(instance);
+    await endpoints.getStoredQuery(instance, "q");
+    await endpoints.registerStoredQuery(instance, {
+      name: "q",
+      kind: "Path",
+      path: { filter: { vertexFilter: "return (v) => true;" } },
+    });
+    await endpoints.deleteStoredQuery(instance, "q");
+    await endpoints.findPaths(instance, 1, 2, {
+      pathAlgorithmName: "BLS",
+      maxDepth: 7,
+      maxResults: 1,
+      maxPathWeight: 1,
+      storedQuery: "q",
+    });
+    await endpoints.createSubGraph(instance, { name: "s", storedQuery: "q" });
 
     expect(recorded.length).toBeGreaterThan(30);
     for (const call of recorded) {
