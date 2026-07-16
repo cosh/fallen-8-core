@@ -1,7 +1,7 @@
 # Fallen-8 Observability — Specification
 
-> **Status:** Implemented on branch `feature/observability` (branch-only workflow — no
-> GitHub issue/PR); council gate pending. See [plan.md](./plan.md) for the phase record.
+> **Status:** Implemented and merged (branch `feature/observability`, council-approved
+> 2026-07-16; see [plan.md](./plan.md) for the phase record and council outcome).
 
 ## 1. Overview & motivation
 

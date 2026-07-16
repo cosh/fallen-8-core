@@ -119,8 +119,13 @@ Intent: the graph-shape snapshot with honest, budgeted cost.
   (listener attached); confirm the off-path is unchanged and record the on-path delta in the
   feature README.
 - [x] Full `dotnet test` green (713 passed); build 0 warnings/0 errors introduced.
-- [ ] Council review per the repo merge gate; fix findings on the branch; `git merge --no-ff`
-  to `main`; move `features/open/observability/` → `features/done/`.
+- [x] Council review per the repo merge gate (three reviewers: correctness/concurrency,
+  regressions/invariants, scope/spec-fidelity — no blockers; majors fixed on the branch:
+  listener-callback containment on the writer thread, Activity.Current detachment so spans
+  never mis-parent, read-locked index-snapshot enumeration, honest WAL flush metrics,
+  checkpoint-bytes version filtering, plus the claimed-but-missing tests and spec
+  corrections); `git merge --no-ff` to `main`; move `features/open/observability/` →
+  `features/done/`.
 
 ## Progress
 
@@ -130,7 +135,7 @@ Intent: the graph-shape snapshot with honest, budgeted cost.
 - [x] Phase 3 — exporters + `/metrics` + codegen counters + posture log
 - [x] Phase 4 — `/healthz` + `/readyz` readiness tied to startup load
 - [x] Phase 5 — `/statistics` with budgeted sampling, auth, rate limit
-- [ ] Phase 6 — docs + overhead benchmark done; council gate, merge + move to done/ pending
+- [x] Phase 6 — docs, overhead benchmark, council gate, merge + move to done/
 
 ## Decision / revisit conditions
 
