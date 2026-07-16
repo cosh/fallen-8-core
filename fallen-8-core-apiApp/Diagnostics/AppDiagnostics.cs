@@ -34,11 +34,9 @@ namespace NoSQL.GraphDB.App.Diagnostics
     ///   The API app's trace source and metric instruments (feature observability): the
     ///   codegen cache/compile signals around the Roslyn paths and the algorithm-run spans.
     ///   STATIC (unlike the engine's per-instance <c>Fallen8Metrics</c>) because everything
-    ///   here reads process-wide state - the codegen caches are themselves static.
-    ///
-    ///   <para>TAG HYGIENE (the §3.7 invariant): tag values are fixed artifact names
-    ///   (<c>path_traverser</c>/<c>subgraph</c>) and booleans - never user input. Filter
-    ///   fragments, labels and index names must never appear here.</para>
+    ///   here reads process-wide state - the codegen caches are themselves static. The tag
+    ///   hygiene invariant (no user input in tag values) is documented once, on
+    ///   <c>Fallen8Metrics</c>, and applies here identically.
     /// </summary>
     public static class AppDiagnostics
     {

@@ -1,0 +1,25 @@
+<Project>
+
+  <!-- Repo-wide build gates (feature code-quality). Applies to every project under this
+       root (the engine, the API app, the tests, and any future sibling). -->
+  <PropertyGroup>
+
+    <!-- The zero-warning bar the feature plans have always claimed, now enforced: a build
+         that produces a warning FAILS. The response to a new warning is fixing it - or a
+         consciously scoped NoWarn with a comment - never disabling this gate. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- NuGet audit advisories stay WARNINGS: a CVE published overnight must surface loudly
+         without bricking every build that morning. The response (an explicit pinned fix,
+         precedent: the Microsoft.OpenApi 2.10.0 pin) stays a human decision. -->
+    <WarningsNotAsErrors>NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+
+    <!-- The default analyzer level, pinned explicitly so an SDK bump changing the default is
+         a visible diff here rather than silent behaviour drift. Raising the MODE (e.g. to
+         Recommended: ~3,200 findings measured 2026-07, dominated by naming/formatting rules)
+         is a per-rule decision recorded in the code-quality feature docs, not a default. -->
+    <AnalysisLevel>latest</AnalysisLevel>
+
+  </PropertyGroup>
+
+</Project>

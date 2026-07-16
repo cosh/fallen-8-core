@@ -32,7 +32,7 @@ namespace NoSQL.GraphDB.App.Security
 {
     /// <summary>
     ///   The capability an operator must have enabled for a request to a gated endpoint to proceed
-    ///   (feature api-security-boundary). Paired with <see cref="RequireAuthenticatedUser"/> in the
+    ///   (feature api-security-boundary). Paired with <c>RequireAuthenticatedUser</c> in the
     ///   policy, so a gated endpoint needs BOTH an authenticated caller (else 401) AND the operator to
     ///   have flipped the capability on (else 403).
     /// </summary>

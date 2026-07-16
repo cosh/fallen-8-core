@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // BidirectionalLevelSynchronousSSSP.cs
 //
@@ -611,22 +611,29 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         }
 
         /// <summary>
-        /// Gets the frontier elements on an incoming edge
+        /// Gets the frontier elements over one adjacency direction (feature code-quality: one
+        /// implementation instead of the former in/out near-twins whose edgeFilter x
+        /// vertexFilter branch matrix repeated the same construction six times). Semantics are
+        /// unchanged, including the subtlety that a vertex is marked visited BEFORE the vertex
+        /// filter runs - a filter-rejected vertex stays visited.
         /// </summary>
         /// <param name="vertex">The vertex behind the frontier</param>
+        /// <param name="direction">Incoming or outgoing</param>
         /// <param name="edgepropertyFilter">The edge property filter</param>
         /// <param name="edgeFilter">The edge filter</param>
         /// <param name="vertexFilter">The vertex filter</param>
         /// <param name="alreadyVisited">The vertices that have been visited already</param>
         /// <returns>A number of frontier elements</returns>
-        private static IEnumerable<FrontierElement> GetValidIncomingEdges(
+        private static IEnumerable<FrontierElement> GetValidEdges(
             VertexModel vertex,
+            Direction direction,
             Delegates.EdgePropertyFilter edgepropertyFilter,
             Delegates.EdgeFilter edgeFilter,
             Delegates.VertexFilter vertexFilter,
             HashSet<VertexModel> alreadyVisited)
         {
-            var edgeProperties = vertex.GetRawInEdges();
+            var incoming = direction == Direction.IncomingEdge;
+            var edgeProperties = incoming ? vertex.GetRawInEdges() : vertex.GetRawOutEdges();
             var result = new List<FrontierElement>();
 
             if (edgeProperties != null)
@@ -638,232 +645,41 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         continue;
                     }
 
-                    if (edgeFilter != null)
+                    for (var i = 0; i < edgeContainer.Value.Count; i++)
                     {
-                        for (var i = 0; i < edgeContainer.Value.Count; i++)
+                        var aEdge = edgeContainer.Value[i];
+                        if (edgeFilter != null && !edgeFilter(aEdge))
                         {
-                            var aEdge = edgeContainer.Value[i];
-                            if (edgeFilter(aEdge))
-                            {
-                                if (alreadyVisited.Add(aEdge.SourceVertex))
-                                {
-                                    if (vertexFilter != null)
-                                    {
-                                        if (vertexFilter(aEdge.SourceVertex))
-                                        {
-                                            result.Add(new FrontierElement
-                                            {
-                                                EdgeDirection = Direction.IncomingEdge,
-                                                EdgeLocation = new EdgeLocation
-                                                {
-                                                    Edge = aEdge,
-                                                    EdgePropertyId =
-                                                        edgeContainer.Key
-                                                },
-                                                FrontierVertex = aEdge.SourceVertex
-                                            });
-                                        }
-                                    }
-                                    else
-                                    {
-                                        result.Add(new FrontierElement
-                                        {
-                                            EdgeDirection = Direction.IncomingEdge,
-                                            EdgeLocation = new EdgeLocation
-                                            {
-                                                Edge = aEdge,
-                                                EdgePropertyId =
-                                                    edgeContainer.Key
-                                            },
-                                            FrontierVertex = aEdge.SourceVertex
-                                        });
-                                    }
-                                }
-                            }
+                            continue;
                         }
-                    }
-                    else
-                    {
-                        if (vertexFilter != null)
-                        {
-                            for (var i = 0; i < edgeContainer.Value.Count; i++)
-                            {
-                                var aEdge = edgeContainer.Value[i];
 
-                                if (alreadyVisited.Add(aEdge.SourceVertex))
-                                {
-                                    if (vertexFilter(aEdge.SourceVertex))
-                                    {
-                                        result.Add(new FrontierElement
-                                        {
-                                            EdgeDirection = Direction.IncomingEdge,
-                                            EdgeLocation = new EdgeLocation
-                                            {
-                                                Edge = aEdge,
-                                                EdgePropertyId =
-                                                    edgeContainer.Key
-                                            },
-                                            FrontierVertex = aEdge.SourceVertex
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        else
+                        var frontierVertex = incoming ? aEdge.SourceVertex : aEdge.TargetVertex;
+                        if (!alreadyVisited.Add(frontierVertex))
                         {
-                            for (var i = 0; i < edgeContainer.Value.Count; i++)
-                            {
-                                var aEdge = edgeContainer.Value[i];
-                                if (alreadyVisited.Add(aEdge.SourceVertex))
-                                {
-                                    result.Add(new FrontierElement
-                                    {
-                                        EdgeDirection = Direction.IncomingEdge,
-                                        EdgeLocation = new EdgeLocation
-                                        {
-                                            Edge = aEdge,
-                                            EdgePropertyId =
-                                                edgeContainer.Key
-                                        },
-                                        FrontierVertex = aEdge.SourceVertex
-                                    });
-                                }
-                            }
+                            continue;
                         }
+
+                        if (vertexFilter != null && !vertexFilter(frontierVertex))
+                        {
+                            continue;
+                        }
+
+                        result.Add(new FrontierElement
+                        {
+                            EdgeDirection = direction,
+                            EdgeLocation = new EdgeLocation
+                            {
+                                Edge = aEdge,
+                                EdgePropertyId = edgeContainer.Key
+                            },
+                            FrontierVertex = frontierVertex
+                        });
                     }
                 }
             }
 
             return result;
         }
-
-        /// <summary>
-        /// Gets the frontier elements on an outgoing edge
-        /// </summary>
-        /// <param name="vertex">The vertex behind the frontier</param>
-        /// <param name="edgepropertyFilter">The edge property filter</param>
-        /// <param name="edgeFilter">The edge filter</param>
-        /// <param name="vertexFilter">The vertex filter</param>
-        /// <param name="alreadyVisited">The vertices that have been visited already</param>
-        /// <returns>A number of frontier elements</returns>
-        private static IEnumerable<FrontierElement> GetValidOutgoingEdges(
-            VertexModel vertex,
-            Delegates.EdgePropertyFilter edgepropertyFilter,
-            Delegates.EdgeFilter edgeFilter,
-            Delegates.VertexFilter vertexFilter,
-            HashSet<VertexModel> alreadyVisited)
-        {
-            var edgeProperties = vertex.GetRawOutEdges();
-            var result = new List<FrontierElement>();
-
-            if (edgeProperties != null)
-            {
-                foreach (var edgeContainer in edgeProperties)
-                {
-                    if (edgepropertyFilter != null && !edgepropertyFilter(edgeContainer.Key))
-                    {
-                        continue;
-                    }
-
-                    if (edgeFilter != null)
-                    {
-                        for (var i = 0; i < edgeContainer.Value.Count; i++)
-                        {
-                            var aEdge = edgeContainer.Value[i];
-                            if (edgeFilter(aEdge))
-                            {
-                                if (alreadyVisited.Add(aEdge.TargetVertex))
-                                {
-                                    if (vertexFilter != null)
-                                    {
-                                        if (vertexFilter(aEdge.TargetVertex))
-                                        {
-                                            result.Add(new FrontierElement
-                                            {
-                                                EdgeDirection = Direction.OutgoingEdge,
-                                                EdgeLocation = new EdgeLocation
-                                                {
-                                                    Edge = aEdge,
-                                                    EdgePropertyId =
-                                                        edgeContainer.Key
-                                                },
-                                                FrontierVertex = aEdge.TargetVertex
-                                            });
-                                        }
-                                    }
-                                    else
-                                    {
-                                        result.Add(new FrontierElement
-                                        {
-                                            EdgeDirection = Direction.OutgoingEdge,
-                                            EdgeLocation = new EdgeLocation
-                                            {
-                                                Edge = aEdge,
-                                                EdgePropertyId =
-                                                    edgeContainer.Key
-                                            },
-                                            FrontierVertex = aEdge.TargetVertex
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if (vertexFilter != null)
-                        {
-                            for (var i = 0; i < edgeContainer.Value.Count; i++)
-                            {
-                                var aEdge = edgeContainer.Value[i];
-
-                                if (alreadyVisited.Add(aEdge.TargetVertex))
-                                {
-                                    if (vertexFilter(aEdge.TargetVertex))
-                                    {
-                                        result.Add(new FrontierElement
-                                        {
-                                            EdgeDirection = Direction.OutgoingEdge,
-                                            EdgeLocation = new EdgeLocation
-                                            {
-                                                Edge = aEdge,
-                                                EdgePropertyId =
-                                                    edgeContainer.Key
-                                            },
-                                            FrontierVertex = aEdge.TargetVertex
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            for (var i = 0; i < edgeContainer.Value.Count; i++)
-                            {
-                                var aEdge = edgeContainer.Value[i];
-                                if (alreadyVisited.Add(aEdge.TargetVertex))
-                                {
-                                    result.Add(new FrontierElement
-                                    {
-                                        EdgeDirection = Direction.OutgoingEdge,
-                                        EdgeLocation = new EdgeLocation
-                                        {
-                                            Edge = aEdge,
-                                            EdgePropertyId =
-                                                edgeContainer.Key
-                                        },
-                                        FrontierVertex = aEdge.TargetVertex
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            return result;
-        }
-
         /// <summary>
         /// Gets the local frontier corresponding to a vertex
         /// </summary>
@@ -880,8 +696,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         {
             var result = new List<FrontierElement>();
 
-            result.AddRange(GetValidIncomingEdges(vertex, edgepropertyFilter, edgeFilter, vertexFilter, alreadyVisitedVertices));
-            result.AddRange(GetValidOutgoingEdges(vertex, edgepropertyFilter, edgeFilter, vertexFilter, alreadyVisitedVertices));
+            result.AddRange(GetValidEdges(vertex, Direction.IncomingEdge, edgepropertyFilter, edgeFilter, vertexFilter, alreadyVisitedVertices));
+            result.AddRange(GetValidEdges(vertex, Direction.OutgoingEdge, edgepropertyFilter, edgeFilter, vertexFilter, alreadyVisitedVertices));
 
             return result;
         }

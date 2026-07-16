@@ -50,10 +50,11 @@ namespace NoSQL.GraphDB.Core.Transaction
         private const int MaxGroupSize = 4096;
 
         /// <summary>
-        ///   One queued unit of work: the transaction, the completion source the writer completes AFTER
-        ///   the group fsync (so awaiting it observes the durable-before-ack point), the caller's
-        ///   <see cref="TransactionInformation"/>, and whether the transaction buffered a durable WAL
-        ///   frame (ANDed with the group flush result to set <see cref="TransactionInformation.Durable"/>).
+        ///   One queued unit of work: the transaction, the completion source the writer completes
+        ///   after the group fsync (durable-before-ack - see <see cref="ConsumeLoop"/>), the
+        ///   caller's <see cref="TransactionInformation"/>, and whether the transaction buffered a
+        ///   durable WAL frame (ANDed with the group flush result to set
+        ///   <see cref="TransactionInformation.Durable"/>).
         /// </summary>
         private sealed class WorkItem
         {
@@ -232,10 +233,10 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         /// <summary>
         ///   Flushes the current commit group's buffered WAL frames with ONE fsync, then completes
-        ///   every member's completion source (feature write-path-throughput). A committed member whose
-        ///   frame did not reach disk durably (the flush failed or the fence had tripped) has its
-        ///   <see cref="TransactionInformation.Durable"/> set false; it stays <c>Finished</c> (applied
-        ///   in memory). Completion happens strictly AFTER the fsync, preserving durable-before-ack.
+        ///   every member's completion source (durable-before-ack - see <see cref="ConsumeLoop"/>).
+        ///   A committed member whose frame did not reach disk durably (the flush failed or the
+        ///   fence had tripped) has its <see cref="TransactionInformation.Durable"/> set false; it
+        ///   stays <c>Finished</c> (applied in memory).
         /// </summary>
         private void FlushAndCompleteGroup(List<WorkItem> group)
         {

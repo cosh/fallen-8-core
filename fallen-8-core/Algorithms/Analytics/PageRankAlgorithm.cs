@@ -100,16 +100,16 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
                 }
 
                 var vertex = workspace.Vertices[i];
-                var d = 0;
+                var d = 0L;
                 if (direction != Direction.IncomingEdge)
                 {
-                    d += CountInScope(vertex.GetRawOutEdges(), edgePropertyId, scope, neighborIsTarget: true);
+                    d += AnalyticsAdjacency.CountInScope(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope);
                 }
                 if (direction != Direction.OutgoingEdge)
                 {
-                    d += CountInScope(vertex.GetRawInEdges(), edgePropertyId, scope, neighborIsTarget: false);
+                    d += AnalyticsAdjacency.CountInScope(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope);
                 }
-                degree[i] = d;
+                degree[i] = (Int32)d;
             }
 
             var rank = new Double[n];
@@ -146,14 +146,15 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
 
                     var share = rank[i] / degree[i];
                     var vertex = workspace.Vertices[i];
+                    var distributor = new DistributeVisitor { Next = next, Share = share };
 
                     if (direction != Direction.IncomingEdge)
                     {
-                        Distribute(vertex.GetRawOutEdges(), edgePropertyId, scope, next, share, neighborIsTarget: true);
+                        AnalyticsAdjacency.Visit(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope, ref distributor);
                     }
                     if (direction != Direction.OutgoingEdge)
                     {
-                        Distribute(vertex.GetRawInEdges(), edgePropertyId, scope, next, share, neighborIsTarget: false);
+                        AnalyticsAdjacency.Visit(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope, ref distributor);
                     }
                 }
 
@@ -200,72 +201,16 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             return true;
         }
 
-        private static Int32 CountInScope(EdgeAdjacency adjacency, String edgePropertyId,
-            Dictionary<Int32, Int32> scope, Boolean neighborIsTarget)
+        /// <summary>Adds the source vertex's rank share onto each in-scope neighbour
+        /// (the push step of the power iteration), via the shared walk.</summary>
+        private struct DistributeVisitor : IInScopeNeighborVisitor
         {
-            if (adjacency == null)
+            public Double[] Next;
+            public Double Share;
+
+            public void OnNeighbor(Int32 denseIndex)
             {
-                return 0;
-            }
-
-            var count = 0;
-            foreach (var group in adjacency)
-            {
-                if (edgePropertyId != null && !String.Equals(group.Key, edgePropertyId, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                var segment = group.Value;
-                for (var e = 0; e < segment.Count; e++)
-                {
-                    var edge = segment.Array[segment.Offset + e];
-                    if (edge == null || edge._removed)
-                    {
-                        continue;
-                    }
-
-                    var neighbor = neighborIsTarget ? edge.TargetVertex : edge.SourceVertex;
-                    if (neighbor != null && scope.ContainsKey(neighbor.Id))
-                    {
-                        count++;
-                    }
-                }
-            }
-
-            return count;
-        }
-
-        private static void Distribute(EdgeAdjacency adjacency, String edgePropertyId,
-            Dictionary<Int32, Int32> scope, Double[] next, Double share, Boolean neighborIsTarget)
-        {
-            if (adjacency == null)
-            {
-                return;
-            }
-
-            foreach (var group in adjacency)
-            {
-                if (edgePropertyId != null && !String.Equals(group.Key, edgePropertyId, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                var segment = group.Value;
-                for (var e = 0; e < segment.Count; e++)
-                {
-                    var edge = segment.Array[segment.Offset + e];
-                    if (edge == null || edge._removed)
-                    {
-                        continue;
-                    }
-
-                    var neighbor = neighborIsTarget ? edge.TargetVertex : edge.SourceVertex;
-                    if (neighbor != null && scope.TryGetValue(neighbor.Id, out var j))
-                    {
-                        next[j] += share;
-                    }
-                }
+                Next[denseIndex] += Share;
             }
         }
     }

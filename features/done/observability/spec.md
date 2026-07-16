@@ -2,6 +2,8 @@
 
 > **Status:** Implemented and merged (branch `feature/observability`, council-approved
 > 2026-07-16; see [plan.md](./plan.md) for the phase record and council outcome).
+> The LIVING metric reference is [README.md](./README.md) — the §3.2 table below is the
+> as-designed record and is not maintained.
 
 ## 1. Overview & motivation
 

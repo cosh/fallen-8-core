@@ -73,37 +73,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
                     return false;
                 }
 
-                var adjacency = workspace.Vertices[i].GetRawOutEdges();
-                if (adjacency == null)
-                {
-                    continue;
-                }
-
-                foreach (var group in adjacency)
-                {
-                    if (edgePropertyId != null && !String.Equals(group.Key, edgePropertyId, StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
-
-                    var segment = group.Value;
-                    for (var e = 0; e < segment.Count; e++)
-                    {
-                        var edge = segment.Array[segment.Offset + e];
-                        if (edge == null || edge._removed)
-                        {
-                            continue;
-                        }
-
-                        var neighbor = edge.TargetVertex;
-                        if (neighbor == null || !scope.TryGetValue(neighbor.Id, out var j))
-                        {
-                            continue;
-                        }
-
-                        Union(parent, workspace, i, j);
-                    }
-                }
+                var unioner = new UnionVisitor { Parent = parent, Workspace = workspace, Source = i };
+                AnalyticsAdjacency.Visit(workspace.Vertices[i].GetRawOutEdges(), neighborIsTarget: true,
+                    edgePropertyId, scope, ref unioner);
             }
 
             var partitions = new Dictionary<Int32, Int32>(n);
@@ -120,6 +92,19 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             result = new GraphAnalyticsResult(partitions, statistics, converged: true,
                 iterationsRun: n == 0 ? 0 : 1, stopwatch.Elapsed, budgetExhausted: false);
             return true;
+        }
+
+        /// <summary>Unions the source vertex with each in-scope neighbour, via the shared walk.</summary>
+        private struct UnionVisitor : IInScopeNeighborVisitor
+        {
+            public Int32[] Parent;
+            public Workspace Workspace;
+            public Int32 Source;
+
+            public void OnNeighbor(Int32 denseIndex)
+            {
+                Union(Parent, Workspace, Source, denseIndex);
+            }
         }
 
         /// <summary>Find with path halving - iterative, no recursion.</summary>

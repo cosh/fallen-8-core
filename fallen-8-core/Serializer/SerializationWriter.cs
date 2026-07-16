@@ -193,7 +193,9 @@ namespace NoSQL.GraphDB.Core.Serializer
 #endif
             }
 
-            Console.WriteLine(sb);
+            // A [Conditional("DEBUG")] diagnostic dump belongs on the debug listener, not the
+            // process stdout (feature code-quality; product code writes no console output).
+            Debug.WriteLine(sb);
         }
         #endregion
 

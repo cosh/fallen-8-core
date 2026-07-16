@@ -60,7 +60,9 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// <param name="edgeCountPerVertex">The number of edges per vertex</param>
         public void CreateScaleFreeNetwork(int nodeCount, int edgeCountPerVertex)
         {
-            var creationDate = DateHelper.ConvertDateTime(DateTime.Now);
+            // The shared local-clock stamp (feature code-quality): the clock convention lives
+            // in DateHelper alone - see the comment on DateHelper.GetModificationDate.
+            var creationDate = DateHelper.GetNowStamp();
             var prng = new Random();
             if (nodeCount < _numberOfToBeTestedVertices)
             {
