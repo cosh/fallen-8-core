@@ -39,6 +39,7 @@ using NoSQL.GraphDB.Core.Index.Range;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
+using NoSQL.GraphDB.Core.ChangeFeed;
 using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
@@ -142,6 +143,15 @@ namespace NoSQL.GraphDB.Core
         ///   The stored query library (feature stored-query-library).
         /// </summary>
         public override StoredQueryLibrary StoredQueries
+        {
+            get; internal set;
+        }
+
+        /// <summary>
+        ///   The change feed (feature change-feed), or null when the engine was constructed
+        ///   without <see cref="ChangeFeedOptions"/> - the write path then pays only a null check.
+        /// </summary>
+        public override ChangeFeedDispatcher ChangeFeed
         {
             get; internal set;
         }
@@ -306,6 +316,20 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Initializes a new in-memory instance with an OPT-IN change feed (feature change-feed):
+        ///   committed mutations become an in-order event stream with catch-up and per-subscriber
+        ///   backpressure. Without options the engine carries no feed.
+        /// </summary>
+        public Fallen8(ILoggerFactory loggerfactory, ChangeFeedOptions changeFeedOptions)
+            : this(loggerfactory)
+        {
+            if (changeFeedOptions != null)
+            {
+                ChangeFeed = new ChangeFeedDispatcher(changeFeedOptions, loggerfactory.CreateLogger<ChangeFeedDispatcher>());
+            }
+        }
+
+        /// <summary>
         ///   Initializes a new instance of the Fallen-8 class with an OPT-IN write-ahead log for
         ///   durability between snapshots (spec P4 / plan Phase 5). When
         ///   <paramref name="writeAheadLogOptions" /> is null or carries no path, the WAL is disabled
@@ -319,13 +343,22 @@ namespace NoSQL.GraphDB.Core
         ///   before any property could be set - can be recompiled and recovered. For the
         ///   snapshot-paired path the compiler may instead be assigned to
         ///   <see cref="SubGraphRecipeCompiler" /> before <c>Load</c> (replay happens during Load); a
-        ///   subgraph entry encountered with no compiler registered is skipped with a warning.</para>
+        ///   subgraph entry encountered with no compiler registered is skipped with a warning. The
+        ///   optional <paramref name="storedQueryCompiler" /> follows the same rule for stored-query
+        ///   entries, and an optional <paramref name="changeFeedOptions" /> activates the change feed
+        ///   (feature change-feed).</para>
         /// </summary>
         public Fallen8(ILoggerFactory loggerfactory, WriteAheadLogOptions writeAheadLogOptions,
             ISubGraphRecipeCompiler subGraphRecipeCompiler = null,
-            IStoredQueryCompiler storedQueryCompiler = null)
+            IStoredQueryCompiler storedQueryCompiler = null,
+            ChangeFeedOptions changeFeedOptions = null)
             : this(loggerfactory)
         {
+            if (changeFeedOptions != null)
+            {
+                ChangeFeed = new ChangeFeedDispatcher(changeFeedOptions, loggerfactory.CreateLogger<ChangeFeedDispatcher>());
+            }
+
             if (subGraphRecipeCompiler != null)
             {
                 SubGraphRecipeCompiler = subGraphRecipeCompiler;
@@ -474,6 +507,95 @@ namespace NoSQL.GraphDB.Core
                 throw new ArgumentOutOfRangeException(nameof(graphElementId));
             }
             return snap.Segments[graphElementId >> SegmentShift][graphElementId & SegmentMask];
+        }
+
+        /// <summary>
+        ///   Resolves an element's category and label for the change feed (feature change-feed),
+        ///   INCLUDING tombstoned (soft-removed) elements - a removal descriptor is captured after
+        ///   the element was marked removed, and removal is a soft-delete that keeps the model in
+        ///   its slot. WRITER THREAD ONLY (descriptor capture).
+        /// </summary>
+        internal bool TryDescribeElement(Int32 graphElementId, out ChangeElementType elementType, out String label)
+        {
+            elementType = ChangeElementType.None;
+            label = null;
+
+            var snap = _snapshot;
+            if (graphElementId < 0 || graphElementId >= snap.Count)
+            {
+                return false;
+            }
+
+            var element = snap.Segments[graphElementId >> SegmentShift][graphElementId & SegmentMask];
+            if (element == null)
+            {
+                return false;
+            }
+
+            elementType = element is VertexModel ? ChangeElementType.Vertex : ChangeElementType.Edge;
+            label = element.Label;
+            return true;
+        }
+
+        /// <summary>
+        ///   Describes one element THIS transaction removed - plus, for a vertex, its
+        ///   cascade-removed edges - into a change descriptor (feature change-feed). WRITER THREAD
+        ///   ONLY, called from a removal transaction's <c>DescribeChanges</c> after a successful
+        ///   execute. Cascades enumerate the removed vertex's own raw adjacency: an edge removed
+        ///   EARLIER (directly, or by the other endpoint's removal) was detached from this vertex's
+        ///   containers at that time, so exactly the edges this removal cascaded remain - a
+        ///   self-loop (present in both directions) is deduplicated by id.
+        /// </summary>
+        internal void DescribeRemovedElement(Int32 graphElementId, ChangeDescriptor.Builder builder)
+        {
+            var snap = _snapshot;
+            if (graphElementId < 0 || graphElementId >= snap.Count)
+            {
+                return;
+            }
+
+            var element = snap.Segments[graphElementId >> SegmentShift][graphElementId & SegmentMask];
+
+            if (element is VertexModel vertex)
+            {
+                builder.VertexRemoved(vertex.Id, vertex.Label);
+
+                var seenEdges = new HashSet<Int32>();
+
+                var outgoing = vertex.GetRawOutEdges();
+                if (outgoing != null)
+                {
+                    foreach (var edgesPerProperty in outgoing)
+                    {
+                        foreach (var edge in edgesPerProperty.Value)
+                        {
+                            if (seenEdges.Add(edge.Id))
+                            {
+                                builder.EdgeRemoved(edge.Id, edge.Label);
+                            }
+                        }
+                    }
+                }
+
+                var incoming = vertex.GetRawInEdges();
+                if (incoming != null)
+                {
+                    foreach (var edgesPerProperty in incoming)
+                    {
+                        foreach (var edge in edgesPerProperty.Value)
+                        {
+                            if (seenEdges.Add(edge.Id))
+                            {
+                                builder.EdgeRemoved(edge.Id, edge.Label);
+                            }
+                        }
+                    }
+                }
+            }
+            else if (element is EdgeModel removedEdge)
+            {
+                builder.EdgeRemoved(removedEdge.Id, removedEdge.Label);
+            }
         }
 
         /// <summary>
@@ -1212,14 +1334,16 @@ namespace NoSQL.GraphDB.Core
             undo.Add(new Transaction.PropertyMutationUndo(graphElementId, propertyId, hadValueBefore, priorValue));
         }
 
-        internal void RemoveProperty_internal(Int32 graphElementId, String propertyId)
+        /// <summary>
+        ///   Removes a property from an element. Returns whether a property was ACTUALLY removed
+        ///   (false for an empty slot or a key the element does not carry), so the change feed can
+        ///   report exactly what changed.
+        /// </summary>
+        internal bool RemoveProperty_internal(Int32 graphElementId, String propertyId)
         {
             var graphElement = GetGraphElementForMutation(graphElementId);
 
-            if (graphElement != null)
-            {
-                graphElement.RemoveProperty(propertyId);
-            }
+            return graphElement != null && graphElement.RemoveProperty(propertyId);
         }
 
         internal bool TryRemoveGraphElement_private(Int32 graphElementId)
@@ -2448,6 +2572,11 @@ namespace NoSQL.GraphDB.Core
 
             StoredQueries.Clear();
             StoredQueries = null;
+
+            // After the writer thread has stopped (no more publishes): stop the dispatcher and
+            // complete every subscriber stream.
+            ChangeFeed?.Dispose();
+            ChangeFeed = null;
         }
 
         #region private helper methods

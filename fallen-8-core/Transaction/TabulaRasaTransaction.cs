@@ -45,5 +45,10 @@ namespace NoSQL.GraphDB.Core.Transaction
             f8.TabulaRasa_internal();
             return true;
         }
+
+        internal override void DescribeChanges(Fallen8 f8, ChangeFeed.ChangeDescriptor.Builder builder)
+        {
+            builder.Resync(ChangeFeed.ChangeFeedDispatcher.ResyncReasonTabulaRasa);
+        }
     }
 }

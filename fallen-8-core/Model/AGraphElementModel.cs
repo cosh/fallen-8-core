@@ -385,18 +385,18 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> <c>true</c> if the property was removed; otherwise, <c>false</c> if there was no such property. </returns>
         /// <param name='propertyId'> If set to <c>true</c> property identifier. </param>
         /// <exception cref='CollisionException'>Is thrown when the collision exception.</exception>
-        internal void RemoveProperty(String propertyId)
+        internal bool RemoveProperty(String propertyId)
         {
             var store = _properties;
             if (store == null)
             {
-                return;
+                return false;
             }
 
             int idx = IndexOfKey(store, propertyId);
             if (idx < 0)
             {
-                return;
+                return false;
             }
 
             if (store.Length == 1)
@@ -413,6 +413,7 @@ namespace NoSQL.GraphDB.Core.Model
             }
 
             ModificationDate = DateHelper.GetModificationDate(CreationDate);
+            return true;
         }
 
         /// <summary>

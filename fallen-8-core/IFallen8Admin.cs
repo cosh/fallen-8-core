@@ -80,6 +80,15 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Gets the change feed, or null when the engine was constructed without one
+        ///   (feature change-feed).
+        /// </summary>
+        ChangeFeed.ChangeFeedDispatcher ChangeFeed
+        {
+            get;
+        }
+
+        /// <summary>
         ///   Gets or sets the compiler used to (re)build stored query artifacts from their
         ///   persisted source. When null, rehydrated stored queries load as source-only. Set by
         ///   the hosting layer that understands the specification format (for example the REST

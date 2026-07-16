@@ -432,6 +432,7 @@ namespace NoSQL.GraphDB.Tests
                 set => _inner.SubGraphRecipeCompiler = value;
             }
             public StoredQueryLibrary StoredQueries => _inner.StoredQueries;
+            public NoSQL.GraphDB.Core.ChangeFeed.ChangeFeedDispatcher ChangeFeed => _inner.ChangeFeed;
             public IStoredQueryCompiler StoredQueryCompiler
             {
                 get => _inner.StoredQueryCompiler;

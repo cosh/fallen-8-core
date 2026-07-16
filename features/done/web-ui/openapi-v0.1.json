@@ -646,6 +646,119 @@
         }
       }
     },
+    "/changefeed": {
+      "get": {
+        "tags": [
+          "ChangeFeed"
+        ],
+        "summary": "Streams committed graph mutations as Server-Sent Events, with declarative server-side filtering and catch-up.",
+        "description": "The stream format per event:\r\n\r\n    id: &lt;epoch-guid&gt;:&lt;seq&gt;\r\n    event: &lt;kind&gt;\r\n    data: {\"seq\":4712,\"ts\":\"2026-07-15T12:34:56.789Z\",\"kind\":\"propertySet\",\"element\":\"vertex\",\"id\":42,\"label\":\"person\",\"key\":\"name\"}\r\n\r\nA comment line (\": keepalive\") is written every KeepAliveSeconds so proxies do not idle\r\nthe stream out. Filters combine with AND across dimensions and OR within one dimension;\r\nresync events bypass every filter (continuity loss must always reach the client). On\r\nany resync, re-fetch the state you display; for reason trim/tabulaRasa/load, treat all\r\nheld element ids as invalid.\r\n\r\nThe feed is fully functional with dynamic code execution disabled - filters are\r\ndeclarative parameters, never compiled code. Payloads never contain property values;\r\nre-fetch the element when the value is needed.",
+        "parameters": [
+          {
+            "name": "kinds",
+            "in": "query",
+            "description": "Event kinds to include (repeatable or comma-separated): vertexCreated, vertexRemoved, edgeCreated, edgeRemoved, propertySet, propertyRemoved. Unset = all kinds. resync events always pass.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "elements",
+            "in": "query",
+            "description": "Element types to include: vertex, edge. Unset = both.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "labels",
+            "in": "query",
+            "description": "Element labels to include (exact, case-sensitive). Unset = any label. An unlabeled element never matches a labels filter.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "keys",
+            "in": "query",
+            "description": "Property keys to include (exact, case-sensitive). Only property events carry a key, so setting this excludes create/remove events.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Catch-up position: the last seen SSE id (\"&lt;epoch&gt;:&lt;seq&gt;\") or a bare sequence number. Buffered missed events replay first; a position outside the buffered window (or from another process epoch) starts the stream with resync(seekOutOfRange). The Last-Event-ID header (native EventSource reconnect) is honoured when this parameter is unset.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The SSE stream (text/event-stream); it stays open until the client disconnects",
+            "content": {
+              "text/event-stream": { }
+            }
+          },
+          "400": {
+            "description": "An unknown kind/element value or a malformed since position",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "503": {
+            "description": "The change feed is disabled (Fallen8:ChangeFeed:Enabled=false) or the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached",
+            "content": {
+              "text/event-stream": { }
+            }
+          }
+        }
+      }
+    },
     "/delegates/validate": {
       "post": {
         "tags": [
@@ -6197,6 +6310,9 @@
     },
     {
       "name": "Benchmark"
+    },
+    {
+      "name": "ChangeFeed"
     },
     {
       "name": "Delegates"
