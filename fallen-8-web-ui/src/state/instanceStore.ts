@@ -57,12 +57,19 @@ export const DEFAULT_PATH_DRAFT: PathDraft = {
   edgeCost: "",
 };
 
+/** One-shot navigation intent: "open Query with this scan pre-filled" (cleared on consume). */
+export interface ScanPrefill {
+  kind: "index";
+  indexId: string;
+}
+
 export interface WorkspaceState {
   canvasNodes: Record<number, CanvasNode>;
   canvasEdges: Record<number, CanvasEdge>;
   pathOverlay: PathREST | null;
   resultSets: ResultSet[];
   pathDraft: PathDraft;
+  scanPrefill: ScanPrefill | null;
 
   mergeIntoCanvas: (vertices: VertexREST[], edges: CanvasEdgeInput[]) => void;
   removeFromCanvas: (kind: "node" | "edge", id: number) => void;
@@ -71,6 +78,7 @@ export interface WorkspaceState {
   addResultSet: (title: string, elementIds: number[]) => void;
   removeResultSet: (id: string) => void;
   setPathDraft: (patch: Partial<PathDraft>) => void;
+  setScanPrefill: (prefill: ScanPrefill | null) => void;
 }
 
 function createWorkspaceStore(instanceId: string) {
@@ -82,6 +90,7 @@ function createWorkspaceStore(instanceId: string) {
         pathOverlay: null,
         resultSets: [],
         pathDraft: { ...DEFAULT_PATH_DRAFT },
+        scanPrefill: null,
 
         mergeIntoCanvas: (vertices, edges) =>
           set((s) => {
@@ -149,6 +158,8 @@ function createWorkspaceStore(instanceId: string) {
 
         setPathDraft: (patch) =>
           set((s) => ({ pathDraft: { ...s.pathDraft, ...patch } })),
+
+        setScanPrefill: (scanPrefill) => set({ scanPrefill }),
       }),
       { name: `f8.workspace.${instanceId}` },
     ),

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
+import { shapeSuggestions, useGraphShape } from "../state/graphShape";
 import {
   createIndex,
   deleteIndex,
@@ -20,9 +21,10 @@ import { ErrorBox } from "../components/ErrorBox";
 import { getInstanceStore } from "../state/instanceStore";
 
 /**
- * Query workspace (FR-8/9/10/11): the five scan types with typed literals, id-list
+ * Query workspace (FR-8/9/10/11): the scan types with typed literals, id-list
  * hydration with progress, open-as-table + send-to-canvas, and index management.
- * Label/property/index discovery is client-side (gap G-3): free-form inputs.
+ * Identifier inputs are free-form with <datalist> suggestions fed by the Graph shape
+ * snapshot (feature studio-coverage — closes gap G-3 when a snapshot exists).
  */
 
 type ScanKind = "property" | "index" | "range" | "fulltext" | "spatial";
@@ -60,6 +62,19 @@ export function QueryScreen() {
   const [fulltextResult, setFulltextResult] = useState<FulltextSearchResultREST | null>(null);
   const [idCount, setIdCount] = useState<number | null>(null);
   const [capped, setCapped] = useState(false);
+
+  const suggestions = shapeSuggestions(useGraphShape(instance).data);
+
+  // Consume a one-shot prefill (e.g. Graph shape index row → "Scan").
+  const scanPrefill = store((s) => s.scanPrefill);
+  const setScanPrefill = store((s) => s.setScanPrefill);
+  useEffect(() => {
+    if (scanPrefill) {
+      setKind(scanPrefill.kind);
+      setIndexId(scanPrefill.indexId);
+      setScanPrefill(null);
+    }
+  }, [scanPrefill, setScanPrefill]);
 
   const scan = useMutation({
     mutationFn: async () => {
@@ -164,6 +179,7 @@ export function QueryScreen() {
                   id="scan-property"
                   data-testid="scan-property"
                   className="input w-40"
+                  list="shape-property-keys"
                   value={propertyId}
                   onChange={(e) => setPropertyId(e.target.value)}
                   placeholder="age"
@@ -179,6 +195,7 @@ export function QueryScreen() {
                 <input
                   id="scan-index"
                   className="input w-40"
+                  list="shape-index-ids"
                   value={indexId}
                   onChange={(e) => setIndexId(e.target.value)}
                   placeholder="myIndex"
@@ -367,6 +384,18 @@ export function QueryScreen() {
       )}
 
       <IndexManagement />
+
+      {/* Shared identifier suggestions from the Graph shape snapshot (empty until computed). */}
+      <datalist id="shape-property-keys">
+        {suggestions.propertyKeys.map((key) => (
+          <option key={key} value={key} />
+        ))}
+      </datalist>
+      <datalist id="shape-index-ids">
+        {suggestions.indexIds.map((id) => (
+          <option key={id} value={id} />
+        ))}
+      </datalist>
     </div>
   );
 }
@@ -398,6 +427,7 @@ function IndexManagement() {
           <input
             id="index-id"
             className="input w-40"
+            list="shape-index-ids"
             value={indexId}
             onChange={(e) => setIndexId(e.target.value)}
             placeholder="myIndex"
@@ -439,8 +469,8 @@ function IndexManagement() {
         </div>
       )}
       <p className="text-fg-faint px-3 pb-3 text-[11px]">
-        The API has no index/label discovery (gap G-3) — ids here are free-form; scans
-        derive suggestions from elements you have already loaded.
+        Ids here are free-form; compute the Graph shape snapshot on the Analytics screen
+        to feed property/index suggestions into these inputs (gap G-3).
       </p>
     </section>
   );

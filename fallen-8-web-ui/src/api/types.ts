@@ -86,6 +86,60 @@ export interface GraphREST {
   edges: EdgeREST[];
 }
 
+/**
+ * GET /statistics — graph-shape snapshot (feature observability; surfaced by feature
+ * studio-coverage). When sampled=true, per-name counts and distinct totals are
+ * within-the-sample; multiply counts by sampleStride to extrapolate.
+ */
+export interface NamedCountREST {
+  name: string | null;
+  count: number;
+}
+
+export interface CardinalityStatsREST {
+  top: NamedCountREST[] | null;
+  distinctTotal: number;
+}
+
+export interface DegreeStatsREST {
+  min: number;
+  max: number;
+  mean: number;
+  p50: number;
+  p90: number;
+  p99: number;
+}
+
+export interface IndexStatsREST {
+  name: string | null;
+  type: string | null;
+  keys: number;
+  values: number;
+}
+
+export interface MemoryStatsREST {
+  processWorkingSetBytes: number;
+  gcHeapBytes: number;
+  gcLastHeapSizeBytes: number;
+  gcFragmentedBytes: number;
+}
+
+export interface GraphStatisticsREST {
+  vertexCount: number;
+  edgeCount: number;
+  vertexLabels: CardinalityStatsREST;
+  edgeLabels: CardinalityStatsREST;
+  inDegree: DegreeStatsREST;
+  outDegree: DegreeStatsREST;
+  totalDegree: DegreeStatsREST;
+  propertyKeys: CardinalityStatsREST;
+  indices: IndexStatsREST[] | null;
+  memory: MemoryStatsREST;
+  computedInMs: number;
+  sampled: boolean;
+  sampleStride: number;
+}
+
 /** Typed literal (FR-9): { value | propertyValue, fullQualifiedTypeName } */
 export interface LiteralSpecification {
   value: string;

@@ -13,6 +13,7 @@ import {
 } from "../api/endpoints";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Stat } from "../components/Stat";
 import { formatCompact, formatExact } from "../lib/format";
 
 /**
@@ -21,17 +22,6 @@ import { formatCompact, formatExact } from "../lib/format";
  * (FR-1d); demo-data playground (generate/benchmark). A 500 from save/load is a rolled
  * back transaction and renders as a real failure.
  */
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="panel px-3 py-2">
-      <div className="text-fg-faint text-[10px] tracking-widest uppercase">{label}</div>
-      <div className="text-fg mt-1 text-xl" data-testid={`stat-${label.replace(/\s/g, "-")}`}>
-        {value}
-      </div>
-    </div>
-  );
-}
 
 function PluginList({ title, plugins }: { title: string; plugins: string[] }) {
   return (

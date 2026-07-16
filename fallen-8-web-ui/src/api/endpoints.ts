@@ -10,6 +10,7 @@ import type {
   FulltextIndexScanSpecification,
   FulltextSearchResultREST,
   GraphREST,
+  GraphStatisticsREST,
   IndexAddToSpecification,
   IndexScanSpecification,
   PathREST,
@@ -38,6 +39,13 @@ const WAIT = { waitForCompletion: true } as const;
 
 export const getStatus = (i: InstanceConfig, signal?: AbortSignal) =>
   apiRequest<StatusREST>(i, "/status", { signal });
+
+/**
+ * Graph-shape snapshot (feature studio-coverage): O(V+E), budgeted and rate-limited
+ * server-side — only ever fetched on explicit demand (the Graph shape panel's Compute).
+ */
+export const getStatistics = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<GraphStatisticsREST>(i, "/statistics", { signal });
 
 export const saveGraph = (i: InstanceConfig, path?: string) =>
   apiRequest<SaveGame>(i, "/save", {

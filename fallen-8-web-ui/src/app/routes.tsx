@@ -12,6 +12,7 @@ import { BrowserScreen } from "../screens/BrowserScreen";
 import { QueryScreen } from "../screens/QueryScreen";
 import { PathScreen } from "../screens/PathScreen";
 import { SubgraphScreen } from "../screens/SubgraphScreen";
+import { AnalyticsScreen } from "../screens/AnalyticsScreen";
 import { CanvasScreen } from "../screens/CanvasScreen";
 
 const rootRoute = createRootRoute({
@@ -69,6 +70,14 @@ const subgraphRoute = createRoute({
   component: SubgraphScreen,
 });
 
+// NOTE: bare "/analytics" is safe - the API only has /analytics/algorithms and
+// /analytics/{name} (both deeper), so the SPA fallback wins on a full-page load.
+const analyticsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/analytics",
+  component: AnalyticsScreen,
+});
+
 const canvasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/canvas",
@@ -83,6 +92,7 @@ const routeTree = rootRoute.addChildren([
   queryRoute,
   pathRoute,
   subgraphRoute,
+  analyticsRoute,
   canvasRoute,
 ]);
 

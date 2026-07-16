@@ -160,6 +160,7 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     await endpoints.tabulaRasa(instance);
     await endpoints.generateSampleGraph(instance);
     await endpoints.runBenchmark(instance);
+    await endpoints.getStatistics(instance);
 
     expect(recorded.length).toBeGreaterThan(30);
     for (const call of recorded) {
