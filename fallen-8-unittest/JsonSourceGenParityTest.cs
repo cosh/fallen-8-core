@@ -150,6 +150,7 @@ namespace NoSQL.GraphDB.Tests
                 EdgeCount = 25000,
                 AvailableIndexPlugins = new List<string> { "DictionaryIndex", "SpatialIndex" },
                 AvailablePathPlugins = new List<string> { "Dijkstra" },
+                AvailableAnalyticsPlugins = new List<string> { "PAGERANK", "WCC" },
                 AvailableServicePlugins = new List<string>()
             };
             AssertSameJson(status, "StatusREST (no [JsonPropertyName] -> camelCase policy)");
@@ -441,6 +442,7 @@ namespace NoSQL.GraphDB.Tests
                     EdgeCount = 25000,
                     AvailableIndexPlugins = new List<string> { "DictionaryIndex", "SpatialIndex" },
                     AvailablePathPlugins = new List<string> { "BLS", "DIJKSTRA" },
+                    AvailableAnalyticsPlugins = new List<string> { "PAGERANK", "WCC" },
                     AvailableServicePlugins = new List<string>()
                 }, "StatusREST"),
                 (new SampleStats { VertexCount = 3, EdgeCount = 7 }, "SampleStats"),

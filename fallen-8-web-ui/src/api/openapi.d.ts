@@ -536,6 +536,272 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/algorithms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lists the discovered analytics algorithm plugins
+         * @description The five built-ins are PAGERANK, WCC, LABELPROPAGATION, DEGREE and TRIANGLECOUNT;
+         *     third-party IGraphAnalyticsAlgorithm plugins from assimilated assemblies appear here
+         *     too (the same discovery as path and subgraph algorithms).
+         */
+        get: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The available algorithms with their descriptions */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": {
+                            [key: string]: string;
+                        };
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/{algorithmName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Runs an analytics algorithm over the graph
+         * @description Runs synchronously under the wall-clock budget (default 30 s). Score algorithms
+         *     return the top-K vertices by score (descending, ascending id tie-break); partition
+         *     algorithms return partition summaries (largest first). The FULL per-vertex result's
+         *     delivery vehicle is the opt-in property write-back ("writeBack": true), which lands
+         *     through chunked plugin write transactions; write-back durability is SNAPSHOT-ONLY -
+         *     a WAL-only replay with no intervening save loses the written properties (re-run to
+         *     restore, overwrite is idempotent).
+         *
+         *     Reaching the iteration cap is a NORMAL 200 (converged=false, values usable), as is
+         *     budget exhaustion after at least one completed pass (budgetExhausted=true).
+         *
+         *     Sample request:
+         *
+         *         POST /analytics/PAGERANK
+         *         {
+         *            "vertexLabel": "person",
+         *            "maxResults": 10,
+         *            "parameters": { "DampingFactor": 0.85 }
+         *         }
+         */
+        post: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path: {
+                    /** @description The plugin name (e.g. PAGERANK, WCC, LABELPROPAGATION, DEGREE, TRIANGLECOUNT) */
+                    algorithmName: string;
+                };
+                cookie?: never;
+            };
+            /** @description Scoping, budgets, algorithm parameters, result bound and the optional write-back */
+            requestBody: {
+                content: {
+                    "application/json; ver=0.1": components["schemas"]["AnalyticsSpecification"];
+                    "application/*+json; ver=0.1": components["schemas"]["AnalyticsSpecification"];
+                };
+            };
+            responses: {
+                /** @description The run's result (including converged=false / budgetExhausted=true partials that carry usable values) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["AnalyticsResultREST"];
+                        "application/json; ver=0.1": components["schemas"]["AnalyticsResultREST"];
+                        "text/json; ver=0.1": components["schemas"]["AnalyticsResultREST"];
+                    };
+                };
+                /** @description Unknown direction/parameter values, out-of-ceiling maxIterations/maxResults/timeBudgetSeconds, or a bad write-back property key */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unknown algorithm name */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description The wall-clock budget exhausted with no usable result */
+                408: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description All concurrent-run slots are taken */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analytics/{algorithmName}/partition/{partitionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Returns one partition's membership page from a fresh run of a partition algorithm
+         * @description Analytics runs are one-shot (no job store), so the page comes from a FRESH run with
+         *     the same specification - deterministic for a quiescent graph. Use offset+maxResults
+         *     to page; the page ceiling is 10000 rows.
+         */
+        post: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path: {
+                    /** @description A partition algorithm (WCC or LABELPROPAGATION) */
+                    algorithmName: string;
+                    /** @description The partition id from a previous run's summaries */
+                    partitionId: number | string;
+                };
+                cookie?: never;
+            };
+            /** @description The same run specification, plus the page offset */
+            requestBody: {
+                content: {
+                    "application/json; ver=0.1": components["schemas"]["AnalyticsSpecification"];
+                    "application/*+json; ver=0.1": components["schemas"]["AnalyticsSpecification"];
+                };
+            };
+            responses: {
+                /** @description The membership page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["PartitionMembersREST"];
+                        "application/json; ver=0.1": components["schemas"]["PartitionMembersREST"];
+                        "text/json; ver=0.1": components["schemas"]["PartitionMembersREST"];
+                    };
+                };
+                /** @description Invalid specification, a negative offset, writeBack (not supported here), or a score algorithm */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unknown algorithm or a partition id the run did not produce (including an empty scope) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description The wall-clock budget exhausted with no usable result */
+                408: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description All concurrent-run slots are taken */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/generate": {
         parameters: {
             query?: never;
@@ -619,6 +885,305 @@ export interface paths {
                     content: {
                         "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
                         "application/json": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bulk/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Streams the graph (or a label-filtered subset) as newline-delimited JSON.
+         * @description The stream is fallen8-jsonl version 1: one meta line (format version + exact counts),
+         *     then vertex lines, then edge lines. Edges whose endpoints are not both in the exported
+         *     vertex set are omitted, so EVERY exported file is internally consistent and importable
+         *     by construction.
+         *
+         *     CONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads
+         *     are lock-free; a write committed during the export may or may not appear. The
+         *     guarantee is internal consistency plus "everything committed before the export began
+         *     is present" (subject to the label filters). For a point-in-time backup, quiesce writes
+         *     or use the save-game machinery. The same contract covers a property that an
+         *     embedded/plugin writer adds DURING the stream: if it is not exportable it is omitted
+         *     from its element rather than aborting the response (the REST write path cannot create
+         *     such properties; the pre-stream 422 covers everything present at capture).
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Optional: export only vertices with exactly this label */
+                    vertexLabel?: string;
+                    /** @description Optional: export only edges with exactly this label */
+                    edgeLabel?: string;
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The NDJSON stream (application/x-ndjson) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/x-ndjson": unknown;
+                    };
+                };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/x-ndjson; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/x-ndjson": unknown;
+                    };
+                };
+                /**
+                 * @description An element carries a property outside the exportable type
+                 *          allow-list (or a null value); the body names the element and property. Sent BEFORE any
+                 *          streaming, so a failed export is never a half-written file
+                 */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/x-ndjson; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/x-ndjson": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/bulk/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Imports a fallen8-jsonl stream into an EMPTY graph, assigning fresh engine ids.
+         * @description The body is read as a stream and processed line by line; lines batch into large
+         *     create transactions (Fallen8:BulkIO:ImportBatchSize per transaction = one WAL entry +
+         *     one fsync each). File ids are remapped unconditionally: they are references within the
+         *     file, resolved for edge endpoints, never preserved as engine ids. A leading meta line
+         *     is optional (grep-filtered subset files stay valid); when present, its counts act as a
+         *     truncation guard.
+         *
+         *     FAIL-FAST (honest): the first invalid line aborts the import with its exact line
+         *     number. Batches committed before the failure STAY COMMITTED (each batch is atomic and
+         *     WAL-logged; the file is not one transaction) - the error body reports the committed
+         *     counts, and because import requires an empty graph, recovery is always "/tabularasa,
+         *     fix the line, retry".
+         *
+         *     NOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real
+         *     Kestrel host may enforce it at the transport layer and answer 413 before this action's
+         *     own check runs - the status is the same, but the problem body with committed counts is
+         *     only guaranteed when the application-level check fires first.
+         */
+        post: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The import completed; the body carries created counts */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["BulkImportResultREST"];
+                        "application/json; ver=0.1": components["schemas"]["BulkImportResultREST"];
+                        "text/json; ver=0.1": components["schemas"]["BulkImportResultREST"];
+                    };
+                };
+                /**
+                 * @description A line was invalid (malformed JSON, unknown fields, bad property
+                 *          type/value, duplicate file id, unresolved edge endpoint, over-long line, meta-count
+                 *          mismatch) - the problem body carries lineNumber and the committed counts
+                 */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /**
+                 * @description The graph is not empty (import requires an empty target; use
+                 *          /tabularasa or a fresh instance)
+                 */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description The request body exceeds the configured Fallen8:BulkIO:MaxImportRequestBytes */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description A batch transaction faulted internally; committed counts are reported */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/changefeed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Streams committed graph mutations as Server-Sent Events, with declarative server-side filtering and catch-up.
+         * @description The stream format per event:
+         *
+         *         id: &lt;epoch-guid&gt;:&lt;seq&gt;
+         *         event: &lt;kind&gt;
+         *         data: {"seq":4712,"ts":"2026-07-15T12:34:56.789Z","kind":"propertySet","element":"vertex","id":42,"label":"person","key":"name"}
+         *
+         *     Delivery: events arrive in commit order (ascending seq), at most once per connection.
+         *     A comment line (": keepalive") is written every KeepAliveSeconds so proxies do not idle
+         *     the stream out. Filters combine with AND across dimensions and OR within one dimension;
+         *     resync events bypass every filter (continuity loss must always reach the client). On
+         *     any resync, re-fetch the state you display; for reason trim/tabulaRasa/load, treat all
+         *     held element ids as invalid.
+         *
+         *     The feed is fully functional with dynamic code execution disabled - filters are
+         *     declarative parameters, never compiled code. Payloads never contain property values;
+         *     re-fetch the element when the value is needed.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Event kinds to include (repeatable or comma-separated): vertexCreated, vertexRemoved, edgeCreated, edgeRemoved, propertySet, propertyRemoved. Unset = all kinds. resync events always pass. */
+                    kinds?: string[];
+                    /** @description Element types to include: vertex, edge. Unset = both. */
+                    elements?: string[];
+                    /** @description Element labels to include (exact, case-sensitive). Unset = any label. An unlabeled element never matches a labels filter. */
+                    labels?: string[];
+                    /** @description Property keys to include (exact, case-sensitive). Only property events carry a key, so setting this excludes create/remove events. */
+                    keys?: string[];
+                    /** @description Catch-up position: the last seen SSE id ("&lt;epoch&gt;:&lt;seq&gt;") or a bare sequence number. Buffered missed events replay first; a position outside the buffered window (or from another process epoch) starts the stream with resync(seekOutOfRange). The Last-Event-ID header (native EventSource reconnect) is honoured when this parameter is unset. */
+                    since?: string;
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The SSE stream (text/event-stream); it stays open until the client disconnects */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": unknown;
+                    };
+                };
+                /** @description An unknown kind/element value or a malformed since position */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/event-stream": unknown;
+                    };
+                };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/event-stream": unknown;
+                    };
+                };
+                /** @description The change feed is disabled (Fallen8:ChangeFeed:Enabled=false) or the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": unknown;
                     };
                 };
             };
@@ -1782,6 +2347,182 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/index/vector/{indexId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Adds (or replaces) an element's embedding vector in a vector index
+         * @description One vector per element: adding again replaces. The generic PUT /index/{indexId} add
+         *     path cannot express a float[] key, which is why the vector family has this typed
+         *     endpoint (like fulltext and spatial have theirs).
+         *
+         *     Sample request (explicit mode):
+         *
+         *         PUT /index/vector/myEmbeddings
+         *         {
+         *            "graphElementId": 42,
+         *            "vector": [0.12, -0.5, 0.33]
+         *         }
+         *
+         *     Sample request (property mode - reads the element's float[] property):
+         *
+         *         PUT /index/vector/myEmbeddings
+         *         {
+         *            "graphElementId": 42,
+         *            "propertyId": "embedding"
+         *         }
+         */
+        put: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path: {
+                    /** @description The ID of the vector index */
+                    indexId: string;
+                };
+                cookie?: never;
+            };
+            /** @description The element and its vector - explicit ("vector") or read from a float[] property ("propertyId") */
+            requestBody: {
+                content: {
+                    "application/json; ver=0.1": components["schemas"]["VectorIndexAddSpecification"];
+                    "application/*+json; ver=0.1": components["schemas"]["VectorIndexAddSpecification"];
+                };
+            };
+            responses: {
+                /** @description The vector was indexed (add-again replaced the previous vector) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": boolean;
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Not a vector index, neither/both modes supplied, wrong dimension, NaN/Infinity components, zero-norm vector under Cosine, or the named property is missing / not a float[] */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description The index or the graph element does not exist */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scan/index/vector": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finds the k nearest neighbours of a query vector in a vector index
+         * @description Exact brute-force kNN (SIMD): deterministic ordering - best score first, ties broken
+         *     by ascending element id. Constraints are applied BEFORE scoring, so the returned k are
+         *     k MATCHING elements. Removed elements never appear. The GraphRAG recipe: feed the
+         *     returned element ids into the existing traversal surface (POST /path, PUT /subgraph,
+         *     property reads) - similarity search lands ON the graph.
+         *
+         *     Sample request:
+         *
+         *         POST /scan/index/vector
+         *         {
+         *            "indexId": "myEmbeddings",
+         *            "query": [0.1, 0.2, 0.3],
+         *            "k": 10,
+         *            "kind": "vertex",
+         *            "label": "person"
+         *         }
+         */
+        post: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The kNN query: index, query vector, k, optional kind/label constraints */
+            requestBody: {
+                content: {
+                    "application/json; ver=0.1": components["schemas"]["VectorIndexScanSpecification"];
+                    "application/*+json; ver=0.1": components["schemas"]["VectorIndexScanSpecification"];
+                };
+            };
+            responses: {
+                /** @description Returns the k best-scoring matching elements (fewer when the corpus is smaller) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["VectorSearchResultREST"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Not a vector index, wrong query dimension, NaN/Infinity components, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description The index does not exist */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scan/index/spatial": {
         parameters: {
             query?: never;
@@ -2290,7 +3031,7 @@ export interface paths {
                         "application/json": unknown;
                     };
                 };
-                /** @description Invalid path specification */
+                /** @description Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -2310,7 +3051,7 @@ export interface paths {
                         "application/json": unknown;
                     };
                 };
-                /** @description Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) */
+                /** @description The request carries inline filter/cost fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery - or carrying no fragments at all - are NOT gated by that switch. */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2320,8 +3061,18 @@ export interface paths {
                         "application/json": unknown;
                     };
                 };
-                /** @description Source or target vertex not found */
+                /** @description Source or target vertex not found, or no stored query with the referenced name exists */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name}) */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2896,6 +3647,354 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/statistics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Returns a graph-shape snapshot: counts, cardinalities, degrees, indices, memory
+         * @description The result is an ADVISORY snapshot, not transactionally consistent: reads are
+         *     lock-free over the volatile element snapshot, so a write committed during the pass
+         *     may or may not appear.
+         *
+         *     COST (honest): counts and memory are O(1); labels and property keys are one pass
+         *     over the element snapshot; degrees are O(1) adjacency-count reads per vertex. When
+         *     V+E exceeds the configured element budget (Fallen8:Observability:StatisticsElementBudget,
+         *     default 1,000,000) the pass samples with a uniform stride and the response says so:
+         *     sampled=true, sampleStride, per-name counts as counted IN THE SAMPLE (multiply by
+         *     the stride to extrapolate), distinctTotal = distinct within the sample (sampling
+         *     honestly undercounts distinct values). Degree percentiles from a strided sample are
+         *     statistically sound. Memory numbers never force a GC.
+         *
+         *     This endpoint exposes SCHEMA-SHAPED data (label names, property keys, index names),
+         *     so it sits behind the normal API-key policy - unlike /metrics, whose inventory is
+         *     aggregate numbers only - and under the sensitive rate limiter so a misconfigured
+         *     scrape loop cannot turn an O(V+E) pass into a DoS.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The snapshot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["GraphStatisticsREST"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Rate limited (the sensitive fixed-window limiter) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/storedquery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists all registered stored queries. */
+        get: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Returns the stored query summaries */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["StoredQuerySummaryREST"][];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Registers a stored query: validates and compiles the specification, then publishes it under a unique name.
+         * @description Exactly one of "path" / "subGraph" must be present and must match "kind". The code
+         *     fragments are compiled ONCE here, with the same bounds as the inline endpoints; a
+         *     compile failure rejects the registration with the compiler diagnostics. Entries are
+         *     immutable: to change one, delete and re-register.
+         *
+         *     Sample request:
+         *
+         *         POST /storedquery
+         *         {
+         *            "name": "adults-shortest",
+         *            "kind": "Path",
+         *            "description": "age&gt;30 vertices, weight-by-distance",
+         *            "path": {
+         *              "filter": { "vertexFilter": "return (v) =&gt; v.TryGetProperty(out int age, \"age\") &amp;&amp; age &gt; 30;" },
+         *              "cost":   { "edgeCost": "return (e) =&gt; 1.0;" }
+         *            }
+         *         }
+         */
+        post: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            /** @description The stored query specification (name, kind, and the matching path/subGraph block) */
+            requestBody: {
+                content: {
+                    "application/json; ver=0.1": components["schemas"]["StoredQuerySpecification"];
+                    "application/*+json; ver=0.1": components["schemas"]["StoredQuerySpecification"];
+                };
+            };
+            responses: {
+                /** @description The stored query was compiled and registered */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["StoredQuerySummaryREST"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description The specification was malformed (name/kind/block), or a fragment failed to compile (the body carries the compiler diagnostics) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) - registration introduces code and is always gated */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description A stored query with the same name already exists, or the library quota (Fallen8:StoredQueries:MaxCount) was reached */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description The registration transaction faulted with an internal error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/storedquery/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Gets the full definition of a stored query, including its source specification.
+         * @description The response includes the stored specification JSON (the registration request's
+         *     path/subGraph block), which also covers manual migration between instances, and - for
+         *     a Failed entry - the recompile diagnostics.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path: {
+                    /** @description The stored query name */
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Returns the stored query detail */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["StoredQueryDetailREST"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+                /** @description No stored query with the given name exists */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /**
+         * Deletes (deregisters) a stored query.
+         * @description Deletion drops the pinned compiled artifact so its collectible load context can unload
+         *     once in-flight invocations finish. NOT gated by the dynamic-code switch: removal
+         *     compiles nothing and must stay possible while the switch is off.
+         */
+        delete: {
+            parameters: {
+                query?: {
+                    "api-version"?: string;
+                };
+                header?: {
+                    "X-Version"?: string;
+                };
+                path: {
+                    /** @description The stored query name */
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The stored query was deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No valid credential was supplied */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description No stored query with the given name exists */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "application/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                        "text/json; ver=0.1": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description The removal transaction was rolled back and did not complete */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/subgraph": {
         parameters: {
             query?: never;
@@ -2978,7 +4077,7 @@ export interface paths {
                         "application/json": unknown;
                     };
                 };
-                /** @description The specification was invalid, the pattern was structurally invalid, or a filter failed to compile */
+                /** @description The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -2998,7 +4097,7 @@ export interface paths {
                         "application/json": unknown;
                     };
                 };
-                /** @description Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) */
+                /** @description The request carries inline filter/pattern fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery are NOT gated by that switch. */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -3008,7 +4107,7 @@ export interface paths {
                         "application/json": unknown;
                     };
                 };
-                /** @description The source subgraph named by fromSubGraph does not exist */
+                /** @description The source subgraph named by fromSubGraph does not exist, or no stored query with the referenced name exists */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -3018,7 +4117,7 @@ export interface paths {
                         "application/json": unknown;
                     };
                 };
-                /** @description A subgraph with the same name already exists, or a resource quota (subgraph count or materialized-element ceiling) was exceeded */
+                /** @description A subgraph with the same name already exists, a resource quota (subgraph count or materialized-element ceiling) was exceeded, or the referenced stored query is not invocable (its recompile on load failed) */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -3301,6 +4400,146 @@ export interface components {
             /** @description The collection of properties (key-value pairs) associated with the graph element */
             properties?: null | components["schemas"]["PropertySpecification"][];
         };
+        /**
+         * @description One analytics run's response: run metadata, statistics, and the BOUNDED projection of
+         *     the per-vertex result (top-K scores or partition summaries - the full result set's
+         *     delivery vehicle is write-back).
+         */
+        AnalyticsResultREST: {
+            /**
+             * @description The plugin that ran.
+             * @example PAGERANK
+             */
+            algorithm?: null | string;
+            /**
+             * @description Whether the iterative algorithm converged (single-pass algorithms: true).
+             *         False with usable values when the iteration cap stopped the run.
+             * @example true
+             */
+            converged?: boolean;
+            /**
+             * Format: int32
+             * @description Completed iterations.
+             * @example 23
+             */
+            iterationsRun?: number | string;
+            /**
+             * Format: double
+             * @description Wall-clock duration in milliseconds.
+             * @example 184.2
+             */
+            elapsedMs?: number | string;
+            /**
+             * @description True when the time budget or cancellation stopped the run and the values
+             *         are the last completed iteration's (partial relative to the requested work).
+             * @example false
+             */
+            budgetExhausted?: boolean;
+            /**
+             * Format: int32
+             * @description How many vertices were in scope for the run.
+             * @example 2500000
+             */
+            vertexCount?: number | string;
+            /**
+             * @description Run-level aggregates: TriangleCount, ComponentCount, CommunityCount,
+             *         degree Min/Max/Mean.
+             */
+            statistics?: null | {
+                [key: string]: number | string;
+            };
+            /** @description Top-K scored vertices (score algorithms only), best first. */
+            results?: null | components["schemas"]["ScoredVertexREST"][];
+            /** @description Partition summaries (partition algorithms only), largest first. */
+            partitions?: null | components["schemas"]["PartitionSummaryREST"][];
+            /** @description The write-back report; null when the request did not opt in. */
+            writeBack?: components["schemas"]["WriteBackResultREST"];
+        };
+        /**
+         * @description One analytics run request (feature graph-analytics): data-only scoping, budgets,
+         *     algorithm parameters, the bounded-result knob and the opt-in property write-back.
+         *     No dynamic code anywhere - these endpoints work with the dynamic-code switch off.
+         * @example {
+         *       "vertexLabel": "person",
+         *       "maxResults": 10,
+         *       "parameters": {
+         *         "DampingFactor": 0.85
+         *       }
+         *     }
+         */
+        AnalyticsSpecification: {
+            /**
+             * @description Only vertices with exactly this label participate (induced-subgraph
+             *         scoping); null = whole graph.
+             * @example person
+             */
+            vertexLabel?: null | string;
+            /**
+             * @description Only edges in this adjacency group (edge-property-id) are traversed;
+             *         null = all edges.
+             * @example knows
+             */
+            edgePropertyId?: null | string;
+            /**
+             * @description Edge-direction interpretation: "in", "out" or "both". Null selects the
+             *         algorithm's default (PAGERANK: out; DEGREE and LABELPROPAGATION: both; WCC and
+             *         TRIANGLECOUNT ignore direction).
+             * @example out
+             */
+            direction?: null | string;
+            /**
+             * Format: int32
+             * @description Iteration cap for iterative algorithms (PAGERANK default 100,
+             *         LABELPROPAGATION default 20; ceiling 10000). Reaching the cap is a normal outcome:
+             *         converged=false, values usable.
+             * @example 100
+             */
+            maxIterations?: number | string;
+            /**
+             * Format: double
+             * @description PageRank convergence threshold (L1 delta); 0 selects the default 1e-6.
+             * @example 0.000001
+             */
+            epsilon?: number | string;
+            /**
+             * Format: int32
+             * @description Wall-clock budget in seconds; null selects the configured default (30 s).
+             *         Values above the configured ceiling are a 400.
+             * @example 30
+             */
+            timeBudgetSeconds?: null | number | string;
+            /** @description Algorithm-specific numeric knobs, e.g. {"DampingFactor": 0.85}. */
+            parameters?: null | {
+                [key: string]: number | string;
+            };
+            /**
+             * Format: int32
+             * @description How many rows the response carries (top-K scores or partition summaries).
+             *         Default 100, ceiling 10000 - the full result set's delivery vehicle is write-back,
+             *         not pagination through millions.
+             * @example 100
+             */
+            maxResults?: null | number | string;
+            /**
+             * Format: int32
+             * @description Offset into a partition's membership page (partition endpoint only).
+             * @example 0
+             */
+            offset?: number | string;
+            /**
+             * @description Opt-in: write each in-scope vertex's value as a property through chunked
+             *         plugin write transactions. Snapshot-durable only (a WAL-only replay loses the
+             *         properties; re-run to restore) - the mode-(a) contract of DelegateTransaction.
+             * @example false
+             */
+            writeBack?: boolean;
+            /**
+             * @description Overrides the convention property key (e.g. "analytics.pagerank");
+             *         non-empty, at most 256 chars.
+             * @example analytics.pagerank
+             */
+            writeBackPropertyKey?: null | string;
+        };
         /** @description Structured result of the edge-traversal benchmark (GET /benchmark) */
         BenchmarkResultREST: {
             /**
@@ -3330,6 +4569,78 @@ export interface components {
             standardDeviationTps?: number | string;
         };
         BinaryOperator: number;
+        /** @description The success summary of a bulk JSONL import (feature bulk-import-export). */
+        BulkImportResultREST: {
+            /**
+             * Format: int32
+             * @description The number of vertices created.
+             * @example 10000
+             */
+            verticesCreated?: number | string;
+            /**
+             * Format: int32
+             * @description The number of edges created.
+             * @example 25000
+             */
+            edgesCreated?: number | string;
+            /**
+             * Format: int64
+             * @description The number of lines read from the request body (including meta and blank lines).
+             * @example 35001
+             */
+            linesRead?: number | string;
+        };
+        /**
+         * @description Top-N names by count plus the distinct total. Sampling honestly UNDERCOUNTS
+         *         distinct values: when sampled=true, distinctTotal is distinct-within-the-sample - the
+         *         DTO documents that rather than pretending to estimate.
+         */
+        CardinalityStatsREST: {
+            /** @description The top-N entries, count-descending. */
+            top?: null | components["schemas"]["NamedCountREST"][];
+            /**
+             * Format: int32
+             * @description Distinct names seen (within the sample when sampled=true).
+             * @example 17
+             */
+            distinctTotal?: number | string;
+        };
+        /**
+         * @description Degree distribution over the sampled vertices - strided-sample percentiles are
+         *         statistically sound.
+         */
+        DegreeStatsREST: {
+            /**
+             * Format: int64
+             * @example 0
+             */
+            min?: number | string;
+            /**
+             * Format: int64
+             * @example 420
+             */
+            max?: number | string;
+            /**
+             * Format: double
+             * @example 3.7
+             */
+            mean?: number | string;
+            /**
+             * Format: int64
+             * @example 2
+             */
+            p50?: number | string;
+            /**
+             * Format: int64
+             * @example 9
+             */
+            p90?: number | string;
+            /**
+             * Format: int64
+             * @example 40
+             */
+            p99?: number | string;
+        };
         /** @description A single compiler diagnostic in fragment coordinates (feature web-ui, gap G-2) */
         DelegateDiagnosticREST: {
             /**
@@ -3604,6 +4915,60 @@ export interface components {
             vertices?: null | components["schemas"]["Vertex"][];
         };
         /**
+         * @description The graph-shape snapshot behind GET /statistics (feature observability). An ADVISORY,
+         *     lock-free snapshot - not transactionally consistent - computed on demand under an
+         *     element budget: exact when V+E fits the budget, uniformly strided (and flagged) above it.
+         */
+        GraphStatisticsREST: {
+            /**
+             * Format: int32
+             * @example 2500000
+             */
+            vertexCount?: number | string;
+            /**
+             * Format: int32
+             * @example 10000000
+             */
+            edgeCount?: number | string;
+            /** @description Vertex label cardinalities (top-N + distinct). */
+            vertexLabels?: components["schemas"]["CardinalityStatsREST"];
+            /** @description Edge label cardinalities (top-N + distinct). */
+            edgeLabels?: components["schemas"]["CardinalityStatsREST"];
+            /** @description In-degree distribution over the sampled vertices. */
+            inDegree?: components["schemas"]["DegreeStatsREST"];
+            /** @description Out-degree distribution over the sampled vertices. */
+            outDegree?: components["schemas"]["DegreeStatsREST"];
+            /** @description Total (in+out) degree distribution over the sampled vertices. */
+            totalDegree?: components["schemas"]["DegreeStatsREST"];
+            /**
+             * @description Property-key cardinalities by element count (top-N + distinct) - the
+             *         heaviest stat (O(total properties) over the sampled elements).
+             */
+            propertyKeys?: components["schemas"]["CardinalityStatsREST"];
+            /** @description The registered indices. */
+            indices?: null | components["schemas"]["IndexStatsREST"][];
+            /** @description Free process/GC memory reads (never a forced GC). */
+            memory?: components["schemas"]["MemoryStatsREST"];
+            /**
+             * Format: double
+             * @description Wall-clock cost of computing this snapshot.
+             * @example 184.2
+             */
+            computedInMs?: number | string;
+            /**
+             * @description True when V+E exceeded the element budget and the pass sampled with a
+             *         uniform stride; per-name counts are then within-sample.
+             * @example false
+             */
+            sampled?: boolean;
+            /**
+             * Format: int32
+             * @description The uniform stride used (1 when exact).
+             * @example 1
+             */
+            sampleStride?: number | string;
+        };
+        /**
          * @description Specification for adding or updating a graph element in an index
          * @example {
          *       "graphElementId": 123,
@@ -3662,6 +5027,31 @@ export interface components {
              */
             resultType: components["schemas"]["ResultTypeSpecification"];
         };
+        /** @description One registered index. */
+        IndexStatsREST: {
+            /**
+             * @description The index name.
+             * @example myIndex
+             */
+            name?: null | string;
+            /**
+             * @description The plugin type name.
+             * @example DictionaryIndex
+             */
+            type?: null | string;
+            /**
+             * Format: int32
+             * @description CountOfKeys().
+             * @example 1000
+             */
+            keys?: number | string;
+            /**
+             * Format: int32
+             * @description CountOfValues().
+             * @example 1200
+             */
+            values?: number | string;
+        };
         /**
          * @description Specification for literal values used in graph queries and scans
          * @example {
@@ -3702,6 +5092,95 @@ export interface components {
              * @example C:/Fallen8/database.f8s
              */
             saveGameLocation: null | string;
+        };
+        /**
+         * @description Process/GC memory numbers that are FREE to read - this endpoint never forces a
+         *         GC (deliberate contrast with the benchmark-only GC.GetTotalMemory(true)).
+         */
+        MemoryStatsREST: {
+            /**
+             * Format: int64
+             * @description Process working set.
+             * @example 1073741824
+             */
+            processWorkingSetBytes?: number | string;
+            /**
+             * Format: int64
+             * @description GC.GetTotalMemory(false) - allocated managed memory, no forced collection.
+             * @example 805306368
+             */
+            gcHeapBytes?: number | string;
+            /**
+             * Format: int64
+             * @description GCMemoryInfo.HeapSizeBytes from the last GC.
+             * @example 805306368
+             */
+            gcLastHeapSizeBytes?: number | string;
+            /**
+             * Format: int64
+             * @description GCMemoryInfo.FragmentedBytes from the last GC.
+             * @example 52428800
+             */
+            gcFragmentedBytes?: number | string;
+        };
+        /**
+         * @description One label (or property key) with its element count. When the response is
+         *         sampled, counts are AS COUNTED IN THE SAMPLE (multiply by sampleStride to extrapolate).
+         */
+        NamedCountREST: {
+            /**
+             * @description The label / property key.
+             * @example person
+             */
+            name?: null | string;
+            /**
+             * Format: int64
+             * @description How many sampled elements carry it.
+             * @example 1200
+             */
+            count?: number | string;
+        };
+        /** @description One partition's membership page (partition algorithms). */
+        PartitionMembersREST: {
+            /**
+             * Format: int32
+             * @description The partition id.
+             * @example 0
+             */
+            partitionId?: number | string;
+            /**
+             * Format: int32
+             * @description The partition's total size (across all pages).
+             * @example 42
+             */
+            size?: number | string;
+            /**
+             * Format: int32
+             * @description This page's offset into the ascending-id member list.
+             * @example 0
+             */
+            offset?: number | string;
+            /** @description The member vertex ids on this page, ascending. */
+            members?: null | (number | string)[];
+        };
+        /**
+         * @description One partition summary (partition algorithms), rows ordered size-descending
+         *         with ascending-partition-id tie-break.
+         */
+        PartitionSummaryREST: {
+            /**
+             * Format: int32
+             * @description The partition id (WCC: smallest member vertex id; LABELPROPAGATION: the
+             *         community's label, itself a vertex id).
+             * @example 0
+             */
+            partitionId?: number | string;
+            /**
+             * Format: int32
+             * @description The number of vertices in the partition.
+             * @example 42
+             */
+            size?: number | string;
         };
         /**
          * @description Specification for defining cost functions used in path calculations
@@ -3891,6 +5370,15 @@ export interface components {
             filter?: components["schemas"]["PathFilterSpecification"];
             /** @description Cost function specifications for weighting paths */
             cost?: components["schemas"]["PathCostSpecification"];
+            /**
+             * @description The name of a registered stored query of kind `Path` to use instead of inline
+             *     PathFilterSpecification PathSpecification.Filter/PathCostSpecification PathSpecification.Cost fragments (feature stored-query-library).
+             *     Mutually exclusive with them (400 when mixed). A stored-query request compiles
+             *     nothing and works with dynamic code execution disabled; the numeric bounds and
+             *     string PathSpecification.PathAlgorithmName stay per-request.
+             * @example adults-shortest
+             */
+            storedQuery?: null | string;
         };
         /** @description A single element of a subgraph pattern sequence. */
         PatternSpecification: {
@@ -4178,6 +5666,24 @@ export interface components {
             resultType: components["schemas"]["ResultTypeSpecification"];
         };
         /**
+         * @description One scored vertex (score algorithms), rows ordered score-descending with
+         *         ascending-id tie-break.
+         */
+        ScoredVertexREST: {
+            /**
+             * Format: int32
+             * @description The vertex id.
+             * @example 7
+             */
+            graphElementId?: number | string;
+            /**
+             * Format: double
+             * @description The raw score (PageRank mass, degree, triangle count).
+             * @example 0.25
+             */
+            score?: number | string;
+        };
+        /**
          * @description Specification for performing spatial distance searches in the graph
          * @example {
          *       "indexId": "locationIndex",
@@ -4220,6 +5726,10 @@ export interface components {
          *       "availablePathPlugins": [
          *         "Dijkstra",
          *         "AStar"
+         *       ],
+         *       "availableAnalyticsPlugins": [
+         *         "PAGERANK",
+         *         "WCC"
          *       ],
          *       "availableServicePlugins": [
          *         "ImportService",
@@ -4268,6 +5778,17 @@ export interface components {
              */
             availablePathPlugins?: null | string[];
             /**
+             * @description List of available graph-analytics algorithm plugins
+             * @example [
+             *       "PAGERANK",
+             *       "WCC",
+             *       "LABELPROPAGATION",
+             *       "DEGREE",
+             *       "TRIANGLECOUNT"
+             *     ]
+             */
+            availableAnalyticsPlugins?: null | string[];
+            /**
              * @description List of available service plugins that can be started with the database
              * @example [
              *       "ImportService",
@@ -4276,6 +5797,154 @@ export interface components {
              *     ]
              */
             availableServicePlugins?: null | string[];
+        };
+        /**
+         * @description The stored form of a path query: the `filter`/`cost` blocks of a
+         *     PathSpecification. The numeric bounds (`maxDepth`, `maxResults`,
+         *     `maxPathWeight`) and the algorithm name stay per-request.
+         */
+        StoredPathQueryBlock: {
+            /** @description Filtering criteria for elements to include in path calculations. */
+            filter?: components["schemas"]["PathFilterSpecification"];
+            /** @description Cost function specifications for weighting paths. */
+            cost?: components["schemas"]["PathCostSpecification"];
+        };
+        /**
+         * @description Full detail of a registered stored query, INCLUDING its source specification - the
+         *     library is transparent to its operator (and `GET` covers manual migration between
+         *     instances).
+         */
+        StoredQueryDetailREST: {
+            /**
+             * @description The stored specification document (JSON text): the registration request's
+             *     `path` / `subGraph` block exactly as stored.
+             */
+            specificationJson?: null | string;
+            /**
+             * @description The compiler diagnostics of a failed rehydration recompile; null unless
+             *     string StoredQuerySummaryREST.CompileState is `Failed`.
+             */
+            compileDiagnostics?: null | string;
+            /**
+             * @description The stored query name.
+             * @example adults-shortest
+             */
+            name?: null | string;
+            /**
+             * @description The stored query kind (`Path` or `SubGraph`).
+             * @example Path
+             */
+            kind?: null | string;
+            /** @description The optional description. */
+            description?: null | string;
+            /**
+             * Format: date-time
+             * @description When the query was registered (UTC).
+             */
+            createdAt?: string;
+            /**
+             * @description The compile state: `Compiled` (invocable), `Failed` (a rehydration
+             *     recompile failed - see the detail response's diagnostics; invoking returns 409), or
+             *     `SourceOnly` (loaded without a compiler).
+             * @example Compiled
+             */
+            compileState?: null | string;
+        };
+        /**
+         * @description Specification for registering a stored query (feature stored-query-library): a named,
+         *     validated, pre-compiled query definition that the path/subgraph endpoints can afterwards
+         *     reference by name - including when dynamic code execution is disabled.
+         * @example {
+         *       "name": "adults-shortest",
+         *       "kind": "Path",
+         *       "description": "age&gt;30 vertices, weight-by-distance",
+         *       "path": {
+         *         "filter": {
+         *           "vertexFilter": "return (v) =&gt; v.TryGetProperty(out int age, \"age\") &amp;&amp; age &gt; 30;"
+         *         },
+         *         "cost": {
+         *           "edgeCost": "return (e) =&gt; 1.0;"
+         *         }
+         *       }
+         *     }
+         */
+        StoredQuerySpecification: {
+            /**
+             * @description The unique name to register the query under. Restricted to
+             *     `^[A-Za-z0-9_-]{1,128}$` (always a safe URL path segment); compared
+             *     case-sensitively.
+             * @example adults-shortest
+             */
+            name: null | string;
+            /**
+             * @description The stored query kind: `Path` (a filter/cost set for `POST /path`) or
+             *     `SubGraph` (a pattern template for `PUT /subgraph`).
+             * @example Path
+             */
+            kind: null | string;
+            /**
+             * @description An optional human-readable description.
+             * @example age&gt;30 vertices, weight-by-distance
+             */
+            description?: null | string;
+            /** @description The path filter/cost block (required iff string StoredQuerySpecification.Kind is `Path`). */
+            path?: components["schemas"]["StoredPathQueryBlock"];
+            /**
+             * @description The subgraph pattern template block (required iff string StoredQuerySpecification.Kind is
+             *     `SubGraph`). The subgraph instance name and additional information stay
+             *     per-request on `PUT /subgraph` and are not part of the stored template.
+             */
+            subGraph?: components["schemas"]["StoredSubGraphQueryBlock"];
+        };
+        /** @description Summary of a registered stored query (list/detail responses). */
+        StoredQuerySummaryREST: {
+            /**
+             * @description The stored query name.
+             * @example adults-shortest
+             */
+            name?: null | string;
+            /**
+             * @description The stored query kind (`Path` or `SubGraph`).
+             * @example Path
+             */
+            kind?: null | string;
+            /** @description The optional description. */
+            description?: null | string;
+            /**
+             * Format: date-time
+             * @description When the query was registered (UTC).
+             */
+            createdAt?: string;
+            /**
+             * @description The compile state: `Compiled` (invocable), `Failed` (a rehydration
+             *     recompile failed - see the detail response's diagnostics; invoking returns 409), or
+             *     `SourceOnly` (loaded without a compiler).
+             * @example Compiled
+             */
+            compileState?: null | string;
+        };
+        /**
+         * @description The stored form of a subgraph query: a SubGraphSpecification WITHOUT the
+         *     per-instance `name`/`additionalInformation` fields.
+         */
+        StoredSubGraphQueryBlock: {
+            /**
+             * @description Optional pre-filter selecting which vertices are copied into the subgraph
+             *     (a C# fragment receiving an `AGraphElementModel`).
+             * @example return (ge) =&gt; ge.Label == "person";
+             */
+            vertexFilter?: null | string;
+            /**
+             * @description Optional pre-filter selecting which edges are copied into the subgraph
+             *     (a C# fragment receiving an `AGraphElementModel`).
+             * @example return (ge) =&gt; ge.Label == "knows";
+             */
+            edgeFilter?: null | string;
+            /**
+             * @description Ordered pattern sequence describing the paths to keep (see
+             *     List&lt;PatternSpecification&gt; SubGraphSpecification.Patterns).
+             */
+            patterns?: null | components["schemas"]["PatternSpecification"][];
         };
         /** Format: binary */
         Stream: string;
@@ -4334,6 +6003,16 @@ export interface components {
              *     vertex ↔ edge and start with a vertex pattern. Empty means "no pruning".
              */
             patterns?: null | components["schemas"]["PatternSpecification"][];
+            /**
+             * @description The name of a registered stored query of kind `SubGraph` to instantiate instead
+             *     of inline string SubGraphSpecification.VertexFilter/string SubGraphSpecification.EdgeFilter/List&lt;PatternSpecification&gt; SubGraphSpecification.Patterns
+             *     fragments (feature stored-query-library). Mutually exclusive with them (400 when
+             *     mixed); string SubGraphSpecification.Name (and optional Dictionary&lt;string, string&gt; SubGraphSpecification.AdditionalInformation) stay
+             *     required per instance. A stored-query request compiles nothing and works with
+             *     dynamic code execution disabled.
+             * @example person-net
+             */
+            storedQuery?: null | string;
         };
         /**
          * @description A lightweight summary of a registered subgraph (metadata and element counts),
@@ -4396,6 +6075,108 @@ export interface components {
              * @example return (v) =&gt; v.Label == "person";
              */
             fragment?: null | string;
+        };
+        /**
+         * @description Adds (or replaces) an element's vector in a vector index (feature vector-index).
+         *     Exactly one mode: an explicit float[] VectorIndexAddSpecification.Vector, or string VectorIndexAddSpecification.PropertyId naming
+         *     a `float[]` property on the element to read the vector from.
+         * @example {
+         *       "graphElementId": 42,
+         *       "vector": [
+         *         0.12,
+         *         -0.5,
+         *         0.33
+         *       ]
+         *     }
+         */
+        VectorIndexAddSpecification: {
+            /**
+             * Format: int32
+             * @description The element to index.
+             * @example 42
+             */
+            graphElementId: number | string;
+            /** @description The embedding vector (explicit mode). Must match the index dimension. */
+            vector?: null | (number | string)[];
+            /**
+             * @description The element property holding the vector (property mode); the property must
+             *         be a float[] of the index dimension.
+             * @example embedding
+             */
+            propertyId?: null | string;
+        };
+        /**
+         * @description A k-nearest-neighbour query against a vector index (feature vector-index).
+         * @example {
+         *       "indexId": "myEmbeddings",
+         *       "query": [
+         *         0.1,
+         *         0.2,
+         *         0.3
+         *       ],
+         *       "k": 10,
+         *       "kind": "vertex",
+         *       "label": "person"
+         *     }
+         */
+        VectorIndexScanSpecification: {
+            /**
+             * @description The vector index to query.
+             * @example myEmbeddings
+             */
+            indexId: null | string;
+            /** @description The query vector; must match the index dimension. */
+            query: null | (number | string)[];
+            /**
+             * Format: int32
+             * @description How many nearest neighbours to return (1..1024).
+             * @example 10
+             */
+            k: number | string;
+            /**
+             * @description Optional element-kind constraint: vertex, edge, or any (default).
+             * @example vertex
+             */
+            kind?: null | string;
+            /**
+             * @description Optional exact (case-sensitive) label constraint; an unlabeled element never
+             *         matches.
+             * @example person
+             */
+            label?: null | string;
+        };
+        /** @description One kNN hit: the element id and its RAW score under the index metric. */
+        VectorScoredElementREST: {
+            /**
+             * Format: int32
+             * @description The element id.
+             * @example 7
+             */
+            graphElementId?: number | string;
+            /**
+             * Format: float
+             * @description The raw score (no normalization; interpret via metric/higherIsBetter).
+             * @example 0.93
+             */
+            score?: number | string;
+        };
+        /**
+         * @description A kNN result: hits best-first plus the metric and its direction, so an L2 distance can
+         *     never be misread as a similarity.
+         */
+        VectorSearchResultREST: {
+            /**
+             * @description The index's metric: Cosine, DotProduct or L2.
+             * @example Cosine
+             */
+            metric?: null | string;
+            /**
+             * @description Whether a HIGHER score is better (false for L2).
+             * @example true
+             */
+            higherIsBetter?: boolean;
+            /** @description The hits, best first; ties broken by ascending element id. */
+            results?: null | components["schemas"]["VectorScoredElementREST"][];
         };
         /**
          * @description Represents a vertex (node) in the graph with its properties and connected edges
@@ -4492,6 +6273,29 @@ export interface components {
             label?: null | string;
             /** @description The properties of the vertex as key-value pairs */
             properties?: null | components["schemas"]["PropertySpecification"][];
+        };
+        /** @description The write-back report when the request opted in. */
+        WriteBackResultREST: {
+            /**
+             * @description The property key the values were written under.
+             * @example analytics.pagerank
+             */
+            propertyKey?: null | string;
+            /**
+             * Format: int32
+             * @description How many vertex writes the committed chunks carried. A vertex removed
+             *         concurrently between the run and its chunk is a silent no-op on the writer yet
+             *         still counted - the fuzzy-consistency story applies to write-back too.
+             * @example 2500000
+             */
+            verticesWritten?: number | string;
+            /**
+             * Format: int32
+             * @description How many DelegateTransaction chunks carried the write-back (each chunk is
+             *         atomic; the whole write-back is not - re-run to remedy a mid-way failure).
+             * @example 50
+             */
+            chunks?: number | string;
         };
     };
     responses: never;

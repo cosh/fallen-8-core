@@ -7122,6 +7122,23 @@
               "BellmanFord"
             ]
           },
+          "availableAnalyticsPlugins": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "List of available graph-analytics algorithm plugins",
+            "example": [
+              "PAGERANK",
+              "WCC",
+              "LABELPROPAGATION",
+              "DEGREE",
+              "TRIANGLECOUNT"
+            ]
+          },
           "availableServicePlugins": {
             "type": [
               "null",
@@ -7150,6 +7167,10 @@
           "availablePathPlugins": [
             "Dijkstra",
             "AStar"
+          ],
+          "availableAnalyticsPlugins": [
+            "PAGERANK",
+            "WCC"
           ],
           "availableServicePlugins": [
             "ImportService",

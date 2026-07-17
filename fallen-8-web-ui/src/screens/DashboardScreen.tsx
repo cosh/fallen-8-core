@@ -168,9 +168,13 @@ export function DashboardScreen() {
         <Stat label="used memory" value={`${(data.usedMemory / 1024 / 1024).toFixed(1)} MiB`} />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <PluginList title="Index plugins" plugins={data.availableIndexPlugins ?? []} />
         <PluginList title="Path plugins" plugins={data.availablePathPlugins ?? []} />
+        <PluginList
+          title="Analytics plugins"
+          plugins={data.availableAnalyticsPlugins ?? []}
+        />
         <PluginList title="Service plugins" plugins={data.availableServicePlugins ?? []} />
       </div>
 
