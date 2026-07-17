@@ -1,8 +1,8 @@
 import type { DelegateDiagnostic, DelegateKind } from "../../api/types";
 import { firstTopLevelSemicolon } from "./format";
-import { KIND_INFO } from "../kinds";
+import { KIND_INFO, TRY_GET_PROPERTY_IDIOM } from "../kinds";
 import { membersForType } from "../providers";
-import { snippetCodeFor, snippetsForKind } from "../snippets";
+import { rewriteParameterName, snippetCodeFor, snippetsForKind } from "../snippets";
 
 /**
  * Generation-prompt assembly (nl-assist spec FR-26.5). The contract fixes the order:
@@ -41,17 +41,25 @@ export function buildGenerationPrompt(
     "You draft a single C# fragment for a Fallen-8 graph query: a METHOD BODY that returns a lambda.",
     "Output ONLY the C# fragment - no prose, no markdown fences, no explanations.",
     'The fragment must start with "return" and end with ";".',
-    // (b) lambda shape
+    // (b) lambda shape. The single-lambda rule is part of the shape: a real session
+    // (phi4-mini, 2026-07-17) wrapped the TryGetProperty idiom in an inline-invoked
+    // lambda - `((v) => v.TryGetProperty(out int age, "age"))(ge)` - which neither
+    // compiles nor keeps `age` in scope for the next clause.
     `Delegate kind: ${kind}. The lambda shape is exactly: ${info.lambdaShape}. Use the parameter name "${info.parameterName}".`,
+    // The counter-example is spelled in the slot's own parameter: small models copy
+    // negated examples, and a `v` here would re-seed the very mismatch being forbidden.
+    `The fragment is that ONE lambda and nothing else. NEVER define a second lambda inside it and NEVER invoke a lambda inline like ((${info.parameterName}) => ...)(${info.parameterName}) - call members directly on "${info.parameterName}". An out variable declared in one && clause stays usable in the clauses after it.`,
     // (c) usings
     `Available usings: ${info.usings.join(", ")}. Nothing else is importable.`,
     // (d) type surface + idiom
     `Members reachable on the parameter (type ${info.parameterType}):\n${members}`,
-    `The canonical typed property access is TryGetProperty: ${TRY_GET_PROPERTY_IDIOM_LINE}`,
-    // Built-in vs user-defined properties (nl-assist-ux FR-10): without this, small
-    // models reach for TryGetProperty(out string label, "label") instead of .Label.
+    // The idiom and the built-in-vs-user-property steering (nl-assist-ux FR-10) apply
+    // only where TryGetProperty exists - a string parameter has neither. Both examples
+    // are rewritten to the slot's parameter name; a `v` example in a `ge` slot is what
+    // triggered the inline-lambda failure above.
     ...(info.parameterType !== "string"
       ? [
+          `The canonical typed property access is TryGetProperty, called directly on "${info.parameterName}": ${rewriteParameterName(TRY_GET_PROPERTY_IDIOM, info.parameterName)}`,
           `Label and Id are BUILT-IN members - test them directly: ${info.parameterName}.Label == "person", ${info.parameterName}.Id < 10. NEVER call TryGetProperty for "label" or "id"; TryGetProperty is only for user-defined properties such as "age" or "name".`,
         ]
       : []),
@@ -77,15 +85,13 @@ export function buildGenerationPrompt(
   return { system, user };
 }
 
-const TRY_GET_PROPERTY_IDIOM_LINE =
-  'return (v) => v.TryGetProperty(out int age, "age") && age > 30;';
-
 /** Follow-up turn for the refine loop (FR-26.7): failed fragment + its diagnostics. */
 export function buildRefinePrompt(
   kind: DelegateKind,
   fragment: string,
   diagnostics: DelegateDiagnostic[],
 ): string {
+  const info = KIND_INFO[kind];
   const list = diagnostics
     .filter((d) => d.severity === "error")
     .map((d) => `- line ${d.line}, col ${d.column}: ${d.id} ${d.message}`)
@@ -96,7 +102,8 @@ export function buildRefinePrompt(
     fragment,
     "Compiler errors:",
     list,
-    "Fix it. Output ONLY the corrected C# fragment, no prose, no markdown.",
+    // Small models rarely restructure from bare diagnostics; restate the shape rule.
+    `Fix it. The fragment must stay a single ${info.lambdaShape} lambda calling members directly on "${info.parameterName}" - no nested or inline-invoked lambdas. Output ONLY the corrected C# fragment, no prose, no markdown.`,
   ].join("\n");
 }
 

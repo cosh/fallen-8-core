@@ -10,7 +10,8 @@ import type { DelegateKind } from "../src/api/types";
 /**
  * NL-assist prompt contract (nl-assist spec FR-26.5 + §13): per kind, the generation
  * prompt must include - in order - the instruction, the exact §6.1 lambda shape, the
- * usings, the §6.2 member surface incl. the TryGetProperty idiom, and matching few-shot
+ * usings, the §6.2 member surface incl. the TryGetProperty idiom (where the parameter
+ * type carries it - string slots have no TryGetProperty), and matching few-shot
  * examples; the user's intent travels in the user turn.
  */
 
@@ -36,8 +37,18 @@ describe("generation prompt assembly", () => {
     for (const using of info.usings) {
       expect(prompt.system).toContain(using);
     }
-    // (d) idiom
-    expect(prompt.system).toContain("TryGetProperty");
+    // (d) idiom - only where the parameter type has TryGetProperty, and always
+    // spelled with the slot's own parameter name (the 2026-07-17 field failure:
+    // a `v` idiom in a `ge` slot made phi4-mini emit an inline-invoked lambda).
+    if (info.parameterType !== "string") {
+      expect(prompt.system).toContain(
+        `${info.parameterName}.TryGetProperty(out int age, "age")`,
+      );
+    } else {
+      // A string parameter has no TryGetProperty - teaching the idiom there is the
+      // same "member that does not exist on this parameter" trap.
+      expect(prompt.system).not.toContain("TryGetProperty");
+    }
     // (e) at least one few-shot example
     expect(prompt.system).toMatch(/return \(.+\) =>/);
     // (f) intent in the user turn
@@ -71,6 +82,19 @@ describe("generation prompt assembly", () => {
     expect(edgePrompt).toContain("SourceVertex");
     expect(edgePrompt).not.toContain("GetAllNeighbors");
   });
+
+  it.each(ALL_KINDS)(
+    "forbids nested/inline-invoked lambdas, naming the slot's parameter (%s)",
+    (kind) => {
+      const info = KIND_INFO[kind];
+      const { system } = buildGenerationPrompt(kind, "x");
+      expect(system).toContain("NEVER invoke a lambda inline");
+      expect(system).toContain(
+        `((${info.parameterName}) => ...)(${info.parameterName})`,
+      );
+      expect(system).toMatch(/out variable declared in one && clause/);
+    },
+  );
 
   it("steers built-in members away from TryGetProperty (nl-assist-ux FR-10)", () => {
     const { system } = buildGenerationPrompt("GraphElementFilter", "x");
@@ -127,6 +151,13 @@ describe("refine prompt", () => {
     expect(refine).toContain("return (v) => v.Nope;");
     expect(refine).toContain("CS1061");
     expect(refine).toContain("line 1, col 17");
+  });
+
+  it("restates the single-lambda shape rule with the slot's parameter", () => {
+    const refine = buildRefinePrompt("GraphElementFilter", "return (ge) => true;", []);
+    expect(refine).toContain("single (AGraphElementModel ge) => bool lambda");
+    expect(refine).toContain('directly on "ge"');
+    expect(refine).toMatch(/no nested or inline-invoked lambdas/);
   });
 });
 
