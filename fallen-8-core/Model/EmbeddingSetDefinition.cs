@@ -57,5 +57,16 @@ namespace NoSQL.GraphDB.Core.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   The model-identity stamp to store NEXT TO the vector (feature embedding-provider),
+        ///   or <c>null</c>. Every embedding write replaces the stamp state - a provider write
+        ///   carries its stamp, a bring-your-own-vector write clears any stale one - so the
+        ///   stamp always reflects the LAST write and can never lie about provenance.
+        /// </summary>
+        public String ModelStamp
+        {
+            get; set;
+        }
     }
 }

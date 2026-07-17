@@ -81,9 +81,16 @@ namespace NoSQL.GraphDB.Core.Transaction
             }
         }
 
-        public SetEmbeddingsTransaction SetEmbedding(Int32 graphElementId, String name, Single[] vector)
+        public SetEmbeddingsTransaction SetEmbedding(Int32 graphElementId, String name, Single[] vector,
+            String modelStamp = null)
         {
-            Embeddings.Add(new EmbeddingSetDefinition { GraphElementId = graphElementId, Name = name, Vector = vector });
+            Embeddings.Add(new EmbeddingSetDefinition
+            {
+                GraphElementId = graphElementId,
+                Name = name,
+                Vector = vector,
+                ModelStamp = modelStamp
+            });
 
             return this;
         }
