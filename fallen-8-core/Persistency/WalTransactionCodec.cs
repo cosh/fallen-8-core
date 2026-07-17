@@ -90,6 +90,8 @@ namespace NoSQL.GraphDB.Core.Persistency
                 case RegisterStoredQueryTransaction _: type = WalEntryType.RegisterStoredQuery; return true;
                 case RemoveStoredQueryTransaction _: type = WalEntryType.RemoveStoredQuery; return true;
 
+                case SetEmbeddingsTransaction _: type = WalEntryType.SetEmbeddings; return true;
+
                 default: type = default; return false;
             }
         }
@@ -210,6 +212,25 @@ namespace NoSQL.GraphDB.Core.Persistency
                         writer.WriteOptimized(((RemoveStoredQueryTransaction)tx).Name ?? String.Empty);
                         break;
 
+                    case WalEntryType.SetEmbeddings:
+                        {
+                            var list = ((SetEmbeddingsTransaction)tx).Embeddings ?? new List<EmbeddingSetDefinition>();
+                            writer.WriteVarInt32(list.Count);
+                            foreach (var def in list)
+                            {
+                                writer.WriteVarInt32(def.GraphElementId);
+                                writer.WriteOptimized(def.Name);
+                                // A removal (null vector) is a false marker; Write(float[]) cannot
+                                // itself encode "absent" distinguishably from empty.
+                                writer.Write(def.Vector != null);
+                                if (def.Vector != null)
+                                {
+                                    writer.Write(def.Vector);
+                                }
+                            }
+                            break;
+                        }
+
                     case WalEntryType.Trim:
                     case WalEntryType.TabulaRasa:
                         // Markers: the type byte is the whole payload.
@@ -311,6 +332,20 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 case WalEntryType.RemoveStoredQuery:
                     return new RemoveStoredQueryTransaction { Name = reader.ReadOptimizedString() };
+
+                case WalEntryType.SetEmbeddings:
+                    {
+                        var count = reader.ReadOptimizedInt32Checked("wal embedding definitions");
+                        var list = new List<EmbeddingSetDefinition>(count);
+                        for (var i = 0; i < count; i++)
+                        {
+                            var id = reader.ReadOptimizedInt32();
+                            var name = reader.ReadOptimizedString();
+                            var vector = reader.ReadBoolean() ? reader.ReadSingleArray() : null;
+                            list.Add(new EmbeddingSetDefinition { GraphElementId = id, Name = name, Vector = vector });
+                        }
+                        return new SetEmbeddingsTransaction { Embeddings = list };
+                    }
 
                 case WalEntryType.Trim:
                 case WalEntryType.TabulaRasa:

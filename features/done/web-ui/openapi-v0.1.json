@@ -2695,6 +2695,310 @@
         }
       }
     },
+    "/graphelement/{graphElementIdentifier}/embedding/{embeddingName}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Sets (or replaces) a named embedding on a graph element",
+        "description": "The element is the source of truth for its embedding (feature element-embeddings):\r\nthe write is WAL-durable element state, and every vector index BOUND to this\r\nembedding name updates its projection on commit - no separate index add. Replace\r\nsemantics: one current vector per name.\r\n\r\nSample request:\r\n\r\n    PUT /graphelement/42/embedding/default\r\n    { \"vector\": [0.12, -0.5, 0.33] }",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "embeddingName",
+            "in": "path",
+            "description": "The embedding name (letters, digits, '_', '-'; max 64 chars)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The embedding vector",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingWriteSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingWriteSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Embedding write accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid embedding name, missing/empty vector, non-finite components, a dimension conflicting with a vector index bound to this name, or a zero-norm vector while a bound Cosine index exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a named embedding from a graph element",
+        "description": "Bound vector indices purge the element's projection on commit. Removing an absent\r\nembedding is a committed no-op, matching the property surface.",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "embeddingName",
+            "in": "path",
+            "description": "The embedding name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Embedding removal accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid embedding name",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets a named embedding of a graph element",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "embeddingName",
+            "in": "path",
+            "description": "The embedding name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored embedding",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ElementEmbeddingREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid embedding name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist or carries no embedding of that name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/scan/index/vector": {
       "post": {
         "tags": [
@@ -5549,6 +5853,74 @@
           ]
         }
       },
+      "ElementEmbeddingREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The embedding name.",
+            "example": "default"
+          },
+          "vector": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The stored vector."
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The model-identity stamp written by the embedding provider, or null for a\r\n    bring-your-own-vector embedding.",
+            "example": "bge-micro-v2#384#Cosine"
+          }
+        },
+        "description": "A stored element embedding (feature element-embeddings)."
+      },
+      "EmbeddingWriteSpecification": {
+        "required": [
+          "vector"
+        ],
+        "type": "object",
+        "properties": {
+          "vector": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The embedding vector; finite components, dimension within [1, 4096]."
+          }
+        },
+        "description": "Sets (replace semantics) a named element embedding (feature element-embeddings).",
+        "example": {
+          "vector": [
+            0.12,
+            -0.5,
+            0.33
+          ]
+        }
+      },
       "FulltextIndexScanSpecification": {
         "required": [
           "indexId",
@@ -6452,6 +6824,10 @@
             ],
             "description": "The name of a registered stored query of kind `Path` to use instead of inline\r\nPathFilterSpecification PathSpecification.Filter/PathCostSpecification PathSpecification.Cost fragments (feature stored-query-library).\r\nMutually exclusive with them (400 when mixed). A stored-query request compiles\r\nnothing and works with dynamic code execution disabled; the numeric bounds and\r\nstring PathSpecification.PathAlgorithmName stay per-request.",
             "example": "adults-shortest"
+          },
+          "semantic": {
+            "description": "The declarative semantic block (feature element-embeddings): the query vector for\r\nthe traversal context plus optional code-free similarity filter/cost. Pure data -\r\nnever gated by the dynamic-code switch, and deliberately NOT part of the compile\r\ncache key (the context is a factory parameter, not source).",
+            "$ref": "#/components/schemas/SemanticTraversalSpecification"
           }
         },
         "description": "Specification for finding paths between vertices in the graph",
@@ -7060,6 +7436,68 @@
           "distance": 5.0
         }
       },
+      "SemanticTraversalSpecification": {
+        "type": "object",
+        "properties": {
+          "queryVector": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The query vector to score elements against."
+          },
+          "embeddingName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The embedding name to score (default \"default\").",
+            "example": "default"
+          },
+          "metric": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The metric: Cosine (default), DotProduct or L2.",
+            "example": "Cosine"
+          },
+          "minScore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "Optional declarative filter threshold: an element passes when its named embedding\r\nscores at least this well (at most, under L2); elements without the embedding are\r\nfiltered.",
+            "format": "double",
+            "example": 0.7
+          },
+          "costBySimilarity": {
+            "type": "boolean",
+            "description": "Optional declarative vertex cost (path requests only): Cosine maps to\r\n`1 - score`, L2 to the distance itself; DotProduct has no honest non-negative\r\nmapping and is rejected. Vertices without the embedding are filtered.",
+            "example": true
+          }
+        },
+        "description": "The declarative semantic block of a path or subgraph request (feature\r\nelement-embeddings). Carries the query vector for the traversal context - embedded\r\nONCE, before the traversal starts - plus optional code-free filter/cost derivations.\r\nPure data, so it needs no dynamic-code capability; conflicts with a C# fragment or a\r\nstored query owning the same delegate slot are rejected (one owner per slot).",
+        "example": {
+          "queryVector": [
+            0.1,
+            0.2
+          ],
+          "embeddingName": "default",
+          "metric": "Cosine",
+          "minScore": 0.7
+        }
+      },
       "StatusREST": {
         "type": "object",
         "properties": {
@@ -7470,6 +7908,10 @@
             ],
             "description": "The name of a registered stored query of kind `SubGraph` to instantiate instead\r\nof inline string SubGraphSpecification.VertexFilter/string SubGraphSpecification.EdgeFilter/List&lt;PatternSpecification&gt; SubGraphSpecification.Patterns\r\nfragments (feature stored-query-library). Mutually exclusive with them (400 when\r\nmixed); string SubGraphSpecification.Name (and optional Dictionary&lt;string, string&gt; SubGraphSpecification.AdditionalInformation) stay\r\nrequired per instance. A stored-query request compiles nothing and works with\r\ndynamic code execution disabled.",
             "example": "person-net"
+          },
+          "semantic": {
+            "description": "The declarative semantic block (feature element-embeddings): the query vector the\r\ncompiled filters' traversal context carries, plus an optional code-free\r\n`minScore` vertex pre-filter. Bound at REGISTRATION time - recalculation\r\nreuses the same delegates and never embeds anything. Pure data (not gated by the\r\ndynamic-code switch); mutually exclusive with string SubGraphSpecification.StoredQuery and, when\r\n`minScore` is set, with an inline string SubGraphSpecification.VertexFilter fragment.",
+            "$ref": "#/components/schemas/SemanticTraversalSpecification"
           }
         },
         "description": "Specification for creating a subgraph by pattern matching against the graph.",

@@ -229,7 +229,11 @@ namespace NoSQL.GraphDB.Core.App.Helper
             @namespace = @namespace.AddUsings(
                 SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System")),
                 SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Linq")),
-                SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("NoSQL.GraphDB.Core.Model"))
+                SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("NoSQL.GraphDB.Core.Model")),
+                // Fragments may score embeddings via the traversal context (feature
+                // element-embeddings): VectorMath/VectorDistanceMetric come from Index.Vector;
+                // TraversalContext resolves through the Algorithms namespace ancestry.
+                SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("NoSQL.GraphDB.Core.Index.Vector"))
                 );
 
             var classDeclaration = SyntaxFactory.ClassDeclaration(PathDelegateClassName);
@@ -296,11 +300,17 @@ namespace NoSQL.GraphDB.Core.App.Helper
             // Create a stament with the body of a method.
             var syntax = SyntaxFactory.ParseStatement(codeToCompile);
 
-            // Create a method
+            // Create a method. Every factory method takes the request's TraversalContext
+            // (feature element-embeddings) so a fragment can close over the query vector;
+            // fragments that ignore it compile unchanged, and the cache key (the fragments)
+            // is untouched because the context is a parameter, not part of the source.
             return SyntaxFactory.MethodDeclaration(SyntaxFactory.ParseTypeName(returnType), methodname)
                .AddModifiers(
                    SyntaxFactory.Token(SyntaxKind.PublicKeyword)
                    )
+               .AddParameterListParameters(
+                   SyntaxFactory.Parameter(SyntaxFactory.Identifier("context"))
+                       .WithType(SyntaxFactory.ParseTypeName("TraversalContext")))
                .WithBody(SyntaxFactory.Block(syntax));
         }
 
@@ -430,6 +440,14 @@ namespace NoSQL.GraphDB.Core.App.Helper
         /// <c>null</c> on success; otherwise a human-readable error message (invalid
         /// specification or compiler diagnostics).
         /// </returns>
+        /// <remarks>
+        /// The specification's semantic block (feature element-embeddings) is handled here, so
+        /// every producer of a definition - the /subgraph endpoint, the persisted-recipe
+        /// compiler, the stored-query compiler - binds it identically: the traversal context is
+        /// built ONCE and closed over by the compiled delegates at registration time
+        /// (recalculation and WAL replay never embed anything), and a declarative
+        /// <c>minScore</c> becomes the vertex pre-filter.
+        /// </remarks>
         public static String TryGenerateSubGraphDefinition(SubGraphSpecification specification, out SubGraphDefinition definition)
         {
             definition = null;
@@ -442,6 +460,17 @@ namespace NoSQL.GraphDB.Core.App.Helper
             if (String.IsNullOrWhiteSpace(specification.Name))
             {
                 return "Subgraph specification requires a name.";
+            }
+
+            var semanticError = SemanticTraversalHelper.TryBuild(specification.Semantic, allowCost: false, out var semantic);
+            if (semanticError != null)
+            {
+                return semanticError;
+            }
+
+            if (semantic.GraphElementFilter != null && !String.IsNullOrWhiteSpace(specification.VertexFilter))
+            {
+                return "semantic.minScore and a vertexFilter fragment own the same pre-filter slot; use one.";
             }
 
             var slots = new List<GeneratedDelegateSlot>();
@@ -485,10 +514,16 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 }
             }
 
-            var compileError = CompileDelegates(slots);
+            var compileError = CompileDelegates(slots, semantic.Context);
             if (compileError != null)
             {
                 return compileError;
+            }
+
+            // The declarative pre-filter fills the (verified-empty) vertex pre-filter slot.
+            if (semantic.GraphElementFilter != null)
+            {
+                def.VertexFilter = new VertexPattern { GraphElement = semantic.GraphElementFilter };
             }
 
             definition = def;
@@ -637,7 +672,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
         [UnconditionalSuppressMessage("Trimming", "IL2072:Target parameter argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.", Justification = "Dynamic code generation requires runtime type creation")]
         [UnconditionalSuppressMessage("Trimming", "IL2075:'this' argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method. The return value of the source method does not have matching annotations.", Justification = "Generated provider type is created at runtime and its methods are invoked by name")]
         [UnconditionalSuppressMessage("Trimming", "IL2080:'this' argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method.", Justification = "Cached generated provider type is invoked by name at runtime; trimming is disabled for this application")]
-        private static String CompileDelegates(List<GeneratedDelegateSlot> slots)
+        private static String CompileDelegates(List<GeneratedDelegateSlot> slots, TraversalContext context)
         {
             if (slots.Count == 0)
             {
@@ -669,7 +704,10 @@ namespace NoSQL.GraphDB.Core.App.Helper
             foreach (var slot in slots)
             {
                 var method = provider.Type.GetMethod(slot.MethodName);
-                var compiledDelegate = method.Invoke(provider.Instance, null);
+                // The factory methods take the traversal context (feature element-embeddings);
+                // the materialized delegates close over it, so a cached provider (keyed on
+                // source) still binds a fresh context per registration.
+                var compiledDelegate = method.Invoke(provider.Instance, new Object[] { context });
                 slot.Assign(compiledDelegate);
             }
 
@@ -741,6 +779,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
             sb.AppendLine("using System.Linq;");
             sb.AppendLine("using NoSQL.GraphDB.Core.Model;");
             sb.AppendLine("using NoSQL.GraphDB.Core.Algorithms;");
+            sb.AppendLine("using NoSQL.GraphDB.Core.Index.Vector;");
             sb.AppendLine("namespace " + SubGraphProviderNamespace);
             sb.AppendLine("{");
             sb.AppendLine("    public sealed class " + SubGraphProviderClassName);
@@ -748,7 +787,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             foreach (var slot in slots)
             {
-                sb.AppendLine("        public " + slot.ReturnType + " " + slot.MethodName + "()");
+                sb.AppendLine("        public " + slot.ReturnType + " " + slot.MethodName + "(TraversalContext context)");
                 sb.AppendLine("        {");
                 sb.AppendLine("            " + slot.Code);
                 sb.AppendLine("        }");

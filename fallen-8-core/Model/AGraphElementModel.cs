@@ -301,6 +301,142 @@ namespace NoSQL.GraphDB.Core.Model
 
         #endregion
 
+        #region embeddings (feature element-embeddings)
+
+        /// <summary>
+        ///   The reserved property-key prefix behind which named embeddings are stored in v1
+        ///   (feature element-embeddings). The PHYSICAL representation is an implementation detail
+        ///   owned entirely by this class: every caller goes through
+        ///   <see cref="TryGetEmbedding" />, so the layout can be promoted to a dedicated field
+        ///   later without touching a single call site. Storing the vector as a property makes it
+        ///   element state - checkpointed, WAL-covered, and bulk-import/exportable - for free.
+        /// </summary>
+        public const String EmbeddingPropertyPrefix = "$embedding:";
+
+        /// <summary>
+        ///   The reserved property-key prefix of the model-identity stamp an embedding provider
+        ///   writes NEXT TO a generated embedding (feature embedding-provider), so query-time
+        ///   drift after a model change is detectable. Stored/read through the same accessor
+        ///   discipline as the vector itself.
+        /// </summary>
+        public const String EmbeddingModelStampPrefix = "$embeddingModel:";
+
+        /// <summary>The default embedding name.</summary>
+        public const String DefaultEmbeddingName = "default";
+
+        /// <summary>Maximum length of an embedding name.</summary>
+        public const Int32 MaxEmbeddingNameLength = 64;
+
+        /// <summary>The precomputed property id of the default embedding (hot-path, no concat).</summary>
+        private static readonly String DefaultEmbeddingPropertyId = EmbeddingPropertyPrefix + DefaultEmbeddingName;
+
+        /// <summary>
+        ///   Whether <paramref name="name" /> is a valid embedding name:
+        ///   <c>^[A-Za-z0-9_-]{1,64}$</c> (the stored-query name grammar, shortened).
+        /// </summary>
+        public static Boolean IsValidEmbeddingName(String name)
+        {
+            if (String.IsNullOrEmpty(name) || name.Length > MaxEmbeddingNameLength)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < name.Length; i++)
+            {
+                var c = name[i];
+                var valid = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                            (c >= '0' && c <= '9') || c == '_' || c == '-';
+                if (!valid)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>The reserved property id carrying the named embedding.</summary>
+        internal static String GetEmbeddingPropertyId(String name)
+        {
+            return String.Equals(name, DefaultEmbeddingName, StringComparison.Ordinal)
+                ? DefaultEmbeddingPropertyId
+                : EmbeddingPropertyPrefix + name;
+        }
+
+        /// <summary>
+        ///   When <paramref name="propertyId" /> is a reserved embedding property id, yields the
+        ///   embedding name it carries (used by the engine's bound-index projection hooks).
+        /// </summary>
+        internal static Boolean TryGetEmbeddingName(String propertyId, out String name)
+        {
+            if (propertyId != null &&
+                propertyId.Length > EmbeddingPropertyPrefix.Length &&
+                propertyId.StartsWith(EmbeddingPropertyPrefix, StringComparison.Ordinal))
+            {
+                name = propertyId.Substring(EmbeddingPropertyPrefix.Length);
+                return true;
+            }
+
+            name = null;
+            return false;
+        }
+
+        /// <summary>
+        ///   Tries to get the element's named embedding. This is the ONLY coupling point to the
+        ///   physical embedding representation (feature element-embeddings). The returned span
+        ///   aliases the stored vector, which is replaced (never mutated in place) on update -
+        ///   the same copy-on-write publication discipline as every property read, so a lock-free
+        ///   reader always sees a fully built vector. Callers must not hold the span across a
+        ///   point where they need the LATEST value.
+        /// </summary>
+        /// <param name="vector"> The embedding vector. </param>
+        /// <param name="name"> The embedding name. </param>
+        /// <returns> <c>true</c> if the element carries the named embedding; otherwise <c>false</c>. </returns>
+        public Boolean TryGetEmbedding(out ReadOnlySpan<Single> vector, String name = DefaultEmbeddingName)
+        {
+            return TryGetEmbeddingByPropertyId(out vector, GetEmbeddingPropertyId(name));
+        }
+
+        /// <summary>
+        ///   Hot-path variant taking the precomputed reserved property id (no string concat per
+        ///   element); never throws on a non-vector value stored under the reserved key.
+        /// </summary>
+        internal Boolean TryGetEmbeddingByPropertyId(out ReadOnlySpan<Single> vector, String embeddingPropertyId)
+        {
+            if (TryGetProperty<Object>(out var value, embeddingPropertyId) && value is Single[] array)
+            {
+                vector = array;
+                return true;
+            }
+
+            vector = default;
+            return false;
+        }
+
+        /// <summary>The reserved property id carrying the named embedding's model stamp.</summary>
+        internal static String GetEmbeddingModelStampPropertyId(String name)
+        {
+            return EmbeddingModelStampPrefix + name;
+        }
+
+        /// <summary>
+        ///   Tries to get the model-identity stamp stored next to the named embedding (written
+        ///   by the embedding provider; absent for bring-your-own-vector embeddings).
+        /// </summary>
+        public Boolean TryGetEmbeddingModelStamp(out String stamp, String name = DefaultEmbeddingName)
+        {
+            if (TryGetProperty<Object>(out var value, GetEmbeddingModelStampPropertyId(name)) && value is String text)
+            {
+                stamp = text;
+                return true;
+            }
+
+            stamp = null;
+            return false;
+        }
+
+        #endregion
+
         #region internal methods
 
         /// <summary>

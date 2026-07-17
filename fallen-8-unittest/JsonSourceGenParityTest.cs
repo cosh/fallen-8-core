@@ -510,10 +510,36 @@ namespace NoSQL.GraphDB.Tests
                     MaxResults = 10,
                     MaxPathWeight = 100.0,
                     Filter = new PathFilterSpecification(),
-                    Cost = new PathCostSpecification()
+                    Cost = new PathCostSpecification(),
+                    Semantic = new SemanticTraversalSpecification
+                    {
+                        QueryVector = new[] { 0.1f, -0.5f },
+                        EmbeddingName = "default",
+                        Metric = "Cosine",
+                        MinScore = 0.7,
+                        CostBySimilarity = true
+                    }
                 }, "PathSpecification"),
                 (new PathFilterSpecification(), "PathFilterSpecification"),
                 (new PathCostSpecification(), "PathCostSpecification"),
+                (new SemanticTraversalSpecification
+                {
+                    QueryVector = new[] { 0.25f, 0.75f, -1f },
+                    EmbeddingName = "title",
+                    Metric = "L2",
+                    MinScore = null, // exercises null-writing
+                    CostBySimilarity = false
+                }, "SemanticTraversalSpecification"),
+                (new EmbeddingWriteSpecification
+                {
+                    Vector = new[] { 0.12f, -0.5f, 0.33f }
+                }, "EmbeddingWriteSpecification"),
+                (new ElementEmbeddingREST
+                {
+                    Name = "default",
+                    Vector = new[] { 0.12f, -0.5f },
+                    Model = "bge-micro-v2#384#Cosine"
+                }, "ElementEmbeddingREST"),
                 (new VectorIndexAddSpecification
                 {
                     GraphElementId = 42,

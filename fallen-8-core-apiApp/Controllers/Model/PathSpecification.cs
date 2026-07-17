@@ -162,6 +162,18 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
+        /// <summary>
+        ///   The declarative semantic block (feature element-embeddings): the query vector for
+        ///   the traversal context plus optional code-free similarity filter/cost. Pure data -
+        ///   never gated by the dynamic-code switch, and deliberately NOT part of the compile
+        ///   cache key (the context is a factory parameter, not source).
+        /// </summary>
+        [JsonPropertyName("semantic")]
+        public SemanticTraversalSpecification Semantic
+        {
+            get; set;
+        }
+
         public override Boolean Equals(Object obj)
         {
             return Equals(obj as PathSpecification);
@@ -176,12 +188,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                    MaxPathWeight == other.MaxPathWeight &&
                    EqualityComparer<PathFilterSpecification>.Default.Equals(Filter, other.Filter) &&
                    EqualityComparer<PathCostSpecification>.Default.Equals(Cost, other.Cost) &&
-                   StoredQuery == other.StoredQuery;
+                   StoredQuery == other.StoredQuery &&
+                   EqualityComparer<SemanticTraversalSpecification>.Default.Equals(Semantic, other.Semantic);
         }
 
         public override Int32 GetHashCode()
         {
-            return HashCode.Combine(PathAlgorithmName, MaxDepth, MaxResults, MaxPathWeight, Filter, Cost, StoredQuery);
+            return HashCode.Combine(PathAlgorithmName, MaxDepth, MaxResults, MaxPathWeight, Filter, Cost, StoredQuery, Semantic);
         }
     }
 }

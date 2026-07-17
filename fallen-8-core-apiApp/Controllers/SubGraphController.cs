@@ -254,6 +254,14 @@ namespace NoSQL.GraphDB.App.Controllers
                         return BadRequest("'storedQuery' is mutually exclusive with inline 'vertexFilter'/'edgeFilter'/'patterns' fragments.");
                     }
 
+                    // A stored template's artifact pins delegates materialized at REGISTRATION;
+                    // rebinding them with a per-invocation context is out of scope (feature
+                    // element-embeddings, spec non-goal with trigger).
+                    if (specification.Semantic != null)
+                    {
+                        return BadRequest("'semantic' is not available on a stored-query subgraph invocation; inline the filters instead.");
+                    }
+
                     var resolutionError = StoredQueryResolver.TryResolveSubGraphTemplate(
                         _fallen8, specification.StoredQuery, out var template, out var templateBlock);
                     if (resolutionError != null)

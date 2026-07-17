@@ -27,7 +27,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
-using System.Numerics.Tensors;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
@@ -87,6 +86,19 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             get; private set;
         }
 
+        /// <summary>The bound embedding name, or null for an unbound (raw) index - the contract
+        /// lives on <see cref="IVectorIndex.EmbeddingName" />.</summary>
+        public String EmbeddingName
+        {
+            get; private set;
+        }
+
+        /// <summary>The declared model identity, or null (<see cref="IVectorIndex.Model" />).</summary>
+        public String Model
+        {
+            get; private set;
+        }
+
         #region IPlugin implementation
 
         public void Initialize(IFallen8 fallen8, IDictionary<String, Object> parameter)
@@ -128,12 +140,79 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                 }
             }
 
+            String embeddingName = null;
+            if (parameter.TryGetValue("embeddingName", out var embeddingNameValue) && embeddingNameValue != null)
+            {
+                embeddingName = embeddingNameValue.ToString();
+                if (!AGraphElementModel.IsValidEmbeddingName(embeddingName))
+                {
+                    throw new ArgumentException(String.Format(
+                        "'{0}' is not a valid embedding name to bind a vector index to.", embeddingName));
+                }
+            }
+
+            String model = null;
+            if (parameter.TryGetValue("model", out var modelValue) && modelValue != null)
+            {
+                model = modelValue.ToString();
+            }
+
             Dimension = dimension;
             Metric = metric;
+            EmbeddingName = embeddingName;
+            Model = model;
             _vectors = new float[dimension * 16];
             _elements = new AGraphElementModel[16];
             _slotByElement = new Dictionary<AGraphElementModel, Int32>();
             _count = 0;
+
+            // A BOUND index created over existing data materializes its projection immediately
+            // (membership = every live element carrying the named embedding). An embedding
+            // committed between this scan and the factory's registration is picked up on its
+            // next write or the next load-rebuild - the same create-then-populate window every
+            // index family has today.
+            if (EmbeddingName != null && fallen8 != null)
+            {
+                RebuildProjection(fallen8);
+            }
+        }
+
+        /// <summary>
+        ///   Rebuilds the bound projection from element state: one pass over the live elements,
+        ///   inserting every valid embedding of the bound name. Invalid embeddings (wrong
+        ///   dimension, non-finite, zero-norm under Cosine - reachable via raw property writes)
+        ///   are skipped and summarized in one log line, the family's silent-skip contract.
+        ///   Lock-free by design: callers are Initialize (unpublished index) and Load (write
+        ///   lock held).
+        /// </summary>
+        private void RebuildProjection(IFallen8 fallen8)
+        {
+            var embeddingPropertyId = AGraphElementModel.GetEmbeddingPropertyId(EmbeddingName);
+            var skipped = 0;
+
+            foreach (var element in fallen8.GetAllGraphElements())
+            {
+                if (!element.TryGetEmbeddingByPropertyId(out var vector, embeddingPropertyId))
+                {
+                    continue;
+                }
+
+                if (vector.Length != Dimension || HasNonFiniteComponent(vector) ||
+                    (Metric == VectorDistanceMetric.Cosine && IsZeroNorm(vector)))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                AddOrUpdateCore(vector.ToArray(), element);
+            }
+
+            if (skipped > 0)
+            {
+                _logger?.LogWarning(
+                    "Vector index projection rebuild for embedding '{EmbeddingName}' skipped {Skipped} element(s) with an invalid vector (wrong dimension, non-finite, or zero-norm under Cosine).",
+                    EmbeddingName, skipped);
+            }
         }
 
         public String PluginName => "VectorIndex";
@@ -222,44 +301,7 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             {
                 try
                 {
-                    // Close the purge/re-add race: an element tombstoned by a committed removal
-                    // must never (re-)enter a slot, or it would be pinned forever (the engine's
-                    // write-end purge runs once per removal and will not come back for it).
-                    if (graphElement._removed)
-                    {
-                        _logger?.LogWarning(
-                            "VectorIndex.AddOrUpdate for element {ElementId} skipped: the element is removed.",
-                            graphElement.Id);
-                        return;
-                    }
-
-                    if (_slotByElement.TryGetValue(graphElement, out var existingSlot))
-                    {
-                        // One vector per element: add-again replaces in place.
-                        Array.Copy(vector, 0, _vectors, existingSlot * Dimension, Dimension);
-                        return;
-                    }
-
-                    if (_count == _elements.Length)
-                    {
-                        // Grow the SLAB first: it is the large, failure-prone allocation, and a
-                        // failed resize must leave the slots/slab invariant intact (retryable).
-                        var newCapacity = _elements.Length * 2;
-                        var newSlabLength = (Int64)newCapacity * Dimension;
-                        if (newSlabLength > Int32.MaxValue)
-                        {
-                            throw new InvalidOperationException(String.Format(
-                                "The vector slab cannot grow beyond {0} slots at dimension {1}.",
-                                _elements.Length, Dimension));
-                        }
-                        Array.Resize(ref _vectors, (Int32)newSlabLength);
-                        Array.Resize(ref _elements, newCapacity);
-                    }
-
-                    Array.Copy(vector, 0, _vectors, _count * Dimension, Dimension);
-                    _elements[_count] = graphElement;
-                    _slotByElement[graphElement] = _count;
-                    _count++;
+                    AddOrUpdateCore(vector, graphElement);
                 }
                 finally
                 {
@@ -270,6 +312,50 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             }
 
             throw new CollisionException();
+        }
+
+        /// <summary>Insert/replace without locking - the caller holds the write lock or has
+        /// exclusive access (Initialize/Load rebuild of an unpublished or lock-held index).</summary>
+        private void AddOrUpdateCore(float[] vector, AGraphElementModel graphElement)
+        {
+            // Close the purge/re-add race: an element tombstoned by a committed removal
+            // must never (re-)enter a slot, or it would be pinned forever (the engine's
+            // write-end purge runs once per removal and will not come back for it).
+            if (graphElement._removed)
+            {
+                _logger?.LogWarning(
+                    "VectorIndex.AddOrUpdate for element {ElementId} skipped: the element is removed.",
+                    graphElement.Id);
+                return;
+            }
+
+            if (_slotByElement.TryGetValue(graphElement, out var existingSlot))
+            {
+                // One vector per element: add-again replaces in place.
+                Array.Copy(vector, 0, _vectors, existingSlot * Dimension, Dimension);
+                return;
+            }
+
+            if (_count == _elements.Length)
+            {
+                // Grow the SLAB first: it is the large, failure-prone allocation, and a
+                // failed resize must leave the slots/slab invariant intact (retryable).
+                var newCapacity = _elements.Length * 2;
+                var newSlabLength = (Int64)newCapacity * Dimension;
+                if (newSlabLength > Int32.MaxValue)
+                {
+                    throw new InvalidOperationException(String.Format(
+                        "The vector slab cannot grow beyond {0} slots at dimension {1}.",
+                        _elements.Length, Dimension));
+                }
+                Array.Resize(ref _vectors, (Int32)newSlabLength);
+                Array.Resize(ref _elements, newCapacity);
+            }
+
+            Array.Copy(vector, 0, _vectors, _count * Dimension, Dimension);
+            _elements[_count] = graphElement;
+            _slotByElement[graphElement] = _count;
+            _count++;
         }
 
         public void RemoveValue(AGraphElementModel graphElement)
@@ -520,12 +606,9 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                         }
 
                         var candidate = _vectors.AsSpan(slot * Dimension, Dimension);
-                        float score = Metric switch
-                        {
-                            VectorDistanceMetric.Cosine => TensorPrimitives.CosineSimilarity(query, candidate),
-                            VectorDistanceMetric.DotProduct => TensorPrimitives.Dot(query, candidate),
-                            _ => TensorPrimitives.Distance(query, candidate)
-                        };
+                        // The shared primitive (feature element-embeddings): index kNN and
+                        // in-traversal similarity are bit-identical because both are this call.
+                        float score = VectorMath.Score(query, candidate, Metric);
 
                         // A non-finite score must never enter the heap: NaN is not totally
                         // ordered (it would freeze the root and degrade "top-k" to scan order),
@@ -677,6 +760,13 @@ namespace NoSQL.GraphDB.Core.Index.Vector
 
         #region IFallen8Serializable implementation
 
+        /// <summary>The sentinel replacing the legacy slot count: an EXTENDED header
+        /// (format version, binding, model) follows (feature element-embeddings).</summary>
+        private const Int32 ExtendedHeaderSentinel = -1;
+
+        /// <summary>The current extended-header format version.</summary>
+        private const Byte ExtendedHeaderVersion = 1;
+
         public void Save(SerializationWriter writer)
         {
             if (ReadResource())
@@ -685,6 +775,23 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                 {
                     writer.Write(Dimension);
                     writer.Write((Byte)Metric);
+
+                    // Extended header (feature element-embeddings). Legacy sidecars wrote the
+                    // slot count here; a count can never be negative, so the sentinel keys the
+                    // new format while every pre-feature checkpoint still loads.
+                    writer.Write(ExtendedHeaderSentinel);
+                    writer.Write(ExtendedHeaderVersion);
+                    writer.WriteOptimized(EmbeddingName ?? String.Empty);
+                    writer.WriteOptimized(Model ?? String.Empty);
+
+                    if (EmbeddingName != null)
+                    {
+                        // A bound index is a pure derived cache: the vectors live on the
+                        // elements (WAL-covered), so the sidecar carries the header only and
+                        // Load rebuilds the slab by scanning element state.
+                        return;
+                    }
+
                     writer.Write(_count);
                     for (var slot = 0; slot < _count; slot++)
                     {
@@ -736,6 +843,46 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                     Metric = (VectorDistanceMetric)metricByte;
 
                     var persistedCount = reader.ReadInt32();
+
+                    // Extended header (feature element-embeddings): binding + model identity;
+                    // a legacy sidecar goes straight to its slots (persistedCount >= 0).
+                    if (persistedCount == ExtendedHeaderSentinel)
+                    {
+                        var version = reader.ReadByte();
+                        if (version != ExtendedHeaderVersion)
+                        {
+                            _logger?.LogError("A persisted vector index carries an unknown format version ({Version}); the index is skipped.", version);
+                            throw new System.IO.InvalidDataException(String.Format(
+                                "Unknown persisted vector index format version: {0}.", version));
+                        }
+
+                        var embeddingName = reader.ReadOptimizedString();
+                        var model = reader.ReadOptimizedString();
+                        EmbeddingName = String.IsNullOrEmpty(embeddingName) ? null : embeddingName;
+                        Model = String.IsNullOrEmpty(model) ? null : model;
+
+                        if (EmbeddingName != null)
+                        {
+                            // A bound index persists no vectors: rebuild the projection from
+                            // element state (already loaded at this point of the checkpoint).
+                            _vectors = new float[dimension * 16];
+                            _elements = new AGraphElementModel[16];
+                            _slotByElement = new Dictionary<AGraphElementModel, Int32>();
+                            _count = 0;
+                            RebuildProjection(fallen8);
+                            return;
+                        }
+
+                        persistedCount = reader.ReadInt32();
+                    }
+
+                    if (persistedCount < 0)
+                    {
+                        _logger?.LogError("A persisted vector index carries an invalid entry count ({Count}); the index is skipped.", persistedCount);
+                        throw new System.IO.InvalidDataException(String.Format(
+                            "Invalid persisted vector index entry count: {0}.", persistedCount));
+                    }
+
                     _vectors = new float[Math.Max(16, persistedCount) * dimension];
                     _elements = new AGraphElementModel[Math.Max(16, persistedCount)];
                     _slotByElement = new Dictionary<AGraphElementModel, Int32>(persistedCount);
