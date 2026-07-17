@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
+import { shapeSuggestions, useGraphShape } from "../state/graphShape";
 import {
+  addVectorToIndex,
   createIndex,
   deleteIndex,
   scanFulltext,
@@ -9,10 +11,18 @@ import {
   scanIndexRange,
   scanProperty,
   scanSpatial,
+  scanVector,
 } from "../api/endpoints";
-import type { EdgeREST, FulltextSearchResultREST, VertexREST } from "../api/types";
+import type {
+  EdgeREST,
+  FulltextSearchResultREST,
+  VectorIndexAddSpecification,
+  VectorSearchResultREST,
+  VertexREST,
+} from "../api/types";
 import { BINARY_OPERATORS, type BinaryOperatorName } from "../api/types";
 import { toLiteral, type TypedValue } from "../lib/literals";
+import { parseVector } from "../lib/vector";
 import { hydrateElements, isEdge, type HydrationProgress } from "../lib/hydrate";
 import { TypedLiteralEditor } from "../components/TypedLiteralEditor";
 import { ElementTable } from "../components/ElementTable";
@@ -20,12 +30,15 @@ import { ErrorBox } from "../components/ErrorBox";
 import { getInstanceStore } from "../state/instanceStore";
 
 /**
- * Query workspace (FR-8/9/10/11): the five scan types with typed literals, id-list
+ * Query workspace (FR-8/9/10/11): the scan types with typed literals, id-list
  * hydration with progress, open-as-table + send-to-canvas, and index management.
- * Label/property/index discovery is client-side (gap G-3): free-form inputs.
+ * Identifier inputs are free-form with <datalist> suggestions fed by the Graph shape
+ * snapshot (feature studio-coverage — closes gap G-3 when a snapshot exists).
  */
 
-type ScanKind = "property" | "index" | "range" | "fulltext" | "spatial";
+type ScanKind = "property" | "index" | "range" | "fulltext" | "spatial" | "vector";
+
+const VECTOR_KINDS = ["any", "vertex", "edge"] as const;
 
 const OPERATORS = Object.keys(BINARY_OPERATORS) as BinaryOperatorName[];
 
@@ -54,17 +67,36 @@ export function QueryScreen() {
   const [fulltextQuery, setFulltextQuery] = useState("");
   const [spatialElementId, setSpatialElementId] = useState("");
   const [spatialDistance, setSpatialDistance] = useState("10");
+  const [vectorText, setVectorText] = useState("");
+  const [vectorK, setVectorK] = useState("10");
+  const [vectorKind, setVectorKind] = useState<(typeof VECTOR_KINDS)[number]>("any");
+  const [vectorLabel, setVectorLabel] = useState("");
 
   const [progress, setProgress] = useState<HydrationProgress | null>(null);
   const [elements, setElements] = useState<(VertexREST | EdgeREST)[]>([]);
   const [fulltextResult, setFulltextResult] = useState<FulltextSearchResultREST | null>(null);
+  const [vectorResult, setVectorResult] = useState<VectorSearchResultREST | null>(null);
   const [idCount, setIdCount] = useState<number | null>(null);
   const [capped, setCapped] = useState(false);
+
+  const suggestions = shapeSuggestions(useGraphShape(instance).data);
+
+  // Consume a one-shot prefill (e.g. Graph shape index row → "Scan").
+  const scanPrefill = store((s) => s.scanPrefill);
+  const setScanPrefill = store((s) => s.setScanPrefill);
+  useEffect(() => {
+    if (scanPrefill) {
+      setKind(scanPrefill.kind);
+      setIndexId(scanPrefill.indexId);
+      setScanPrefill(null);
+    }
+  }, [scanPrefill, setScanPrefill]);
 
   const scan = useMutation({
     mutationFn: async () => {
       setElements([]);
       setFulltextResult(null);
+      setVectorResult(null);
       setIdCount(null);
       setCapped(false);
       setProgress(null);
@@ -102,6 +134,20 @@ export function QueryScreen() {
         });
         setFulltextResult(result);
         ids = result?.elements.map((e) => e.graphElementId) ?? [];
+      } else if (kind === "vector") {
+        const parsed = parseVector(vectorText);
+        if (!parsed.ok) {
+          throw new Error(`Query vector: ${parsed.error}.`);
+        }
+        const result = await scanVector(instance, {
+          indexId,
+          query: parsed.vector,
+          k: Number(vectorK),
+          kind: vectorKind === "any" ? undefined : vectorKind,
+          label: vectorLabel || undefined,
+        });
+        setVectorResult(result);
+        ids = result?.results?.map((r) => r.graphElementId) ?? [];
       } else {
         ids =
           (await scanSpatial(instance, {
@@ -123,6 +169,7 @@ export function QueryScreen() {
 
   const needsIndex = kind !== "property";
   const needsLiteral = kind === "property" || kind === "index";
+  const parsedVector = kind === "vector" ? parseVector(vectorText) : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -152,6 +199,7 @@ export function QueryScreen() {
                 <option value="range">index range</option>
                 <option value="fulltext">fulltext</option>
                 <option value="spatial">spatial</option>
+                <option value="vector">vector (kNN)</option>
               </select>
             </div>
 
@@ -164,6 +212,7 @@ export function QueryScreen() {
                   id="scan-property"
                   data-testid="scan-property"
                   className="input w-40"
+                  list="shape-property-keys"
                   value={propertyId}
                   onChange={(e) => setPropertyId(e.target.value)}
                   placeholder="age"
@@ -179,6 +228,7 @@ export function QueryScreen() {
                 <input
                   id="scan-index"
                   className="input w-40"
+                  list="shape-index-ids"
                   value={indexId}
                   onChange={(e) => setIndexId(e.target.value)}
                   placeholder="myIndex"
@@ -287,6 +337,78 @@ export function QueryScreen() {
               </>
             )}
 
+            {kind === "vector" && (
+              <>
+                <div className="grow basis-full">
+                  <label className="label" htmlFor="vector-query">
+                    query vector (JSON array or comma-separated floats)
+                  </label>
+                  <textarea
+                    id="vector-query"
+                    data-testid="vector-query"
+                    className="input h-16 w-full font-mono"
+                    value={vectorText}
+                    onChange={(e) => setVectorText(e.target.value)}
+                    placeholder="[0.12, -0.5, 0.33]"
+                  />
+                  <div className="text-fg-faint text-[11px]" data-testid="vector-dimension">
+                    {!vectorText.trim()
+                      ? "paste the embedding your pipeline logged"
+                      : parsedVector?.ok
+                        ? `d=${parsedVector.vector.length} — must match the index dimension`
+                        : parsedVector?.error}
+                  </div>
+                </div>
+                <div>
+                  <label className="label" htmlFor="vector-k">
+                    k (1–1024)
+                  </label>
+                  <input
+                    id="vector-k"
+                    className="input w-20"
+                    type="number"
+                    min={1}
+                    max={1024}
+                    value={vectorK}
+                    onChange={(e) => setVectorK(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="vector-kind">
+                    element kind
+                  </label>
+                  <select
+                    id="vector-kind"
+                    className="input w-auto"
+                    value={vectorKind}
+                    onChange={(e) =>
+                      setVectorKind(e.target.value as (typeof VECTOR_KINDS)[number])
+                    }
+                  >
+                    {VECTOR_KINDS.map((k) => (
+                      <option key={k}>{k}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label" htmlFor="vector-label">
+                    label constraint
+                  </label>
+                  <input
+                    id="vector-label"
+                    className="input w-32"
+                    list="shape-labels"
+                    value={vectorLabel}
+                    onChange={(e) => setVectorLabel(e.target.value)}
+                    placeholder="person"
+                  />
+                </div>
+                <p className="text-fg-faint basis-full text-[11px]">
+                  constraints apply before top-k — you get k matching elements.
+                </p>
+              </>
+            )}
+
             {needsLiteral && (
               <div>
                 <label className="label" htmlFor="scan-result-type">
@@ -311,7 +433,7 @@ export function QueryScreen() {
               type="submit"
               className="btn btn-accent"
               data-testid="scan-run"
-              disabled={scan.isPending}
+              disabled={scan.isPending || (kind === "vector" && !parsedVector?.ok)}
             >
               {scan.isPending ? "Scanning…" : "Run scan"}
             </button>
@@ -334,6 +456,12 @@ export function QueryScreen() {
         <section className="panel">
           <div className="panel-title">
             results — {idCount} ids
+            {vectorResult && (
+              <span className="text-fg-faint normal-case" data-testid="vector-legend">
+                {vectorResult.metric ?? "?"} ·{" "}
+                {vectorResult.higherIsBetter ? "higher is better" : "lower is better"}
+              </span>
+            )}
             {capped && <span className="text-warn">(hydration capped at 500)</span>}
             <button
               type="button"
@@ -362,11 +490,40 @@ export function QueryScreen() {
               ))}
             </div>
           )}
-          <ElementTable elements={elements} />
+          <ElementTable
+            elements={elements}
+            scores={
+              vectorResult
+                ? new Map(
+                    (vectorResult.results ?? []).map((r) => [r.graphElementId, r.score]),
+                  )
+                : undefined
+            }
+            scoreHeader={vectorResult?.metric?.toLowerCase() ?? "score"}
+          />
         </section>
       )}
 
       <IndexManagement />
+
+      {/* Shared identifier suggestions from the Graph shape snapshot (empty until computed). */}
+      <datalist id="shape-property-keys">
+        {suggestions.propertyKeys.map((key) => (
+          <option key={key} value={key} />
+        ))}
+      </datalist>
+      <datalist id="shape-index-ids">
+        {suggestions.indexIds.map((id) => (
+          <option key={id} value={id} />
+        ))}
+      </datalist>
+      <datalist id="shape-labels">
+        {[...new Set([...suggestions.vertexLabels, ...suggestions.edgeLabels])].map(
+          (label) => (
+            <option key={label} value={label} />
+          ),
+        )}
+      </datalist>
     </div>
   );
 }
@@ -376,15 +533,64 @@ function IndexManagement() {
   const [indexId, setIndexId] = useState("");
   const [indexType, setIndexType] = useState("DictionaryIndex");
   const [message, setMessage] = useState<string | null>(null);
+  const [dimension, setDimension] = useState("384");
+  const [metric, setMetric] = useState("Cosine");
+  const [showVectorAdd, setShowVectorAdd] = useState(false);
+  const [vaElementId, setVaElementId] = useState("");
+  const [vaMode, setVaMode] = useState<"property" | "explicit">("property");
+  const [vaPropertyId, setVaPropertyId] = useState("embedding");
+  const [vaVectorText, setVaVectorText] = useState("");
+
+  const isVectorIndex = indexType.trim() === "VectorIndex";
 
   const create = useMutation({
     mutationFn: () =>
-      createIndex(instance, { uniqueId: indexId, pluginType: indexType }),
+      createIndex(instance, {
+        uniqueId: indexId,
+        pluginType: indexType,
+        // VectorIndex options travel as typed literals (vector-index README §creation).
+        pluginOptions: isVectorIndex
+          ? {
+              dimension: {
+                propertyId: "dimension",
+                propertyValue: dimension,
+                fullQualifiedTypeName: "System.Int32",
+              },
+              metric: {
+                propertyId: "metric",
+                propertyValue: metric,
+                fullQualifiedTypeName: "System.String",
+              },
+            }
+          : undefined,
+      }),
     onSuccess: () => setMessage(`Index '${indexId}' created.`),
   });
   const remove = useMutation({
     mutationFn: () => deleteIndex(instance, indexId),
     onSuccess: () => setMessage(`Index '${indexId}' deleted.`),
+  });
+
+  const vectorAdd = useMutation({
+    mutationFn: () => {
+      const spec: VectorIndexAddSpecification = {
+        graphElementId: Number(vaElementId),
+      };
+      if (vaMode === "property") {
+        spec.propertyId = vaPropertyId.trim();
+      } else {
+        const parsed = parseVector(vaVectorText);
+        if (!parsed.ok) throw new Error(`Vector: ${parsed.error}.`);
+        spec.vector = parsed.vector;
+      }
+      return addVectorToIndex(instance, indexId, spec);
+    },
+    onSuccess: (ok) =>
+      setMessage(
+        ok
+          ? `Vector for element ${vaElementId} added to '${indexId}'.`
+          : `Element ${vaElementId} was not added — check the element id, property, and dimension.`,
+      ),
   });
 
   return (
@@ -398,6 +604,7 @@ function IndexManagement() {
           <input
             id="index-id"
             className="input w-40"
+            list="shape-index-ids"
             value={indexId}
             onChange={(e) => setIndexId(e.target.value)}
             placeholder="myIndex"
@@ -415,6 +622,39 @@ function IndexManagement() {
             placeholder="DictionaryIndex"
           />
         </div>
+        {isVectorIndex && (
+          <>
+            <div>
+              <label className="label" htmlFor="vector-dimension-opt">
+                dimension (1–4096)
+              </label>
+              <input
+                id="vector-dimension-opt"
+                className="input w-24"
+                type="number"
+                min={1}
+                max={4096}
+                value={dimension}
+                onChange={(e) => setDimension(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="vector-metric">
+                metric
+              </label>
+              <select
+                id="vector-metric"
+                className="input w-auto"
+                value={metric}
+                onChange={(e) => setMetric(e.target.value)}
+              >
+                <option>Cosine</option>
+                <option>DotProduct</option>
+                <option>L2</option>
+              </select>
+            </div>
+          </>
+        )}
         <button
           type="button"
           className="btn btn-accent"
@@ -433,14 +673,101 @@ function IndexManagement() {
         </button>
         {message && <span className="text-accent text-[12px]">{message}</span>}
       </div>
-      {(create.isError || remove.isError) && (
+      <div className="px-3 pb-3">
+        <button
+          type="button"
+          className="btn"
+          data-testid="toggle-vector-add"
+          onClick={() => setShowVectorAdd((s) => !s)}
+        >
+          {showVectorAdd ? "Hide" : "Show"} vector add
+        </button>
+        {showVectorAdd && (
+          <div className="mt-2 flex flex-wrap items-end gap-2" data-testid="vector-add">
+            <div>
+              <label className="label" htmlFor="va-element">
+                element id
+              </label>
+              <input
+                id="va-element"
+                className="input w-28"
+                value={vaElementId}
+                onChange={(e) => setVaElementId(e.target.value)}
+              />
+            </div>
+            <div className="border-line flex overflow-hidden rounded border">
+              {(["property", "explicit"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  data-testid={`vector-add-mode-${mode}`}
+                  className={`px-2 py-1 text-[11px] ${
+                    vaMode === mode
+                      ? "bg-panel-2 text-accent"
+                      : "text-fg-dim hover:text-fg"
+                  }`}
+                  onClick={() => setVaMode(mode)}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+            {vaMode === "property" ? (
+              <div>
+                <label className="label" htmlFor="va-property">
+                  property id
+                </label>
+                <input
+                  id="va-property"
+                  className="input w-32"
+                  list="shape-property-keys"
+                  value={vaPropertyId}
+                  onChange={(e) => setVaPropertyId(e.target.value)}
+                  placeholder="embedding"
+                />
+              </div>
+            ) : (
+              <div className="grow">
+                <label className="label" htmlFor="va-vector">
+                  vector
+                </label>
+                <input
+                  id="va-vector"
+                  className="input w-full font-mono"
+                  value={vaVectorText}
+                  onChange={(e) => setVaVectorText(e.target.value)}
+                  placeholder="[0.12, -0.5, 0.33]"
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              className="btn btn-accent"
+              disabled={
+                !indexId.trim() ||
+                !vaElementId.trim() ||
+                (vaMode === "property" ? !vaPropertyId.trim() : !vaVectorText.trim()) ||
+                vectorAdd.isPending
+              }
+              onClick={() => vectorAdd.mutate()}
+            >
+              Add vector
+            </button>
+            <p className="text-fg-faint basis-full text-[11px]">
+              targets the index id above · property mode is WAL-recoverable — the honest
+              default; bulk embedding loads belong to your pipeline, not a browser.
+            </p>
+          </div>
+        )}
+      </div>
+      {(create.isError || remove.isError || vectorAdd.isError) && (
         <div className="px-3 pb-3">
-          <ErrorBox error={create.error ?? remove.error} />
+          <ErrorBox error={create.error ?? remove.error ?? vectorAdd.error} />
         </div>
       )}
       <p className="text-fg-faint px-3 pb-3 text-[11px]">
-        The API has no index/label discovery (gap G-3) — ids here are free-form; scans
-        derive suggestions from elements you have already loaded.
+        Ids here are free-form; compute the Graph shape snapshot on the Analytics screen
+        to feed property/index suggestions into these inputs (gap G-3).
       </p>
     </section>
   );

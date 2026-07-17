@@ -34,6 +34,13 @@ export interface SaveGame {
   kpis: SaveGameKpis;
 }
 
+/** POST /bulk/import success summary (feature bulk-import-export). */
+export interface BulkImportResultREST {
+  verticesCreated: number;
+  edgesCreated: number;
+  linesRead: number;
+}
+
 /** GET /benchmark - structured edge-traversal statistics (TPS = traversals/second). */
 export interface BenchmarkResult {
   iterations: number;
@@ -47,7 +54,6 @@ export interface StatusREST {
   vertexCount: number;
   edgeCount: number;
   usedMemory: number;
-  freeMemory: number;
   availableIndexPlugins: string[];
   availablePathPlugins: string[];
   availableServicePlugins: string[];
@@ -85,6 +91,60 @@ export type CanvasEdgeInput = EdgeREST & { edgePropertyId?: string | null };
 export interface GraphREST {
   vertices: VertexREST[];
   edges: EdgeREST[];
+}
+
+/**
+ * GET /statistics — graph-shape snapshot (feature observability; surfaced by feature
+ * studio-coverage). When sampled=true, per-name counts and distinct totals are
+ * within-the-sample; multiply counts by sampleStride to extrapolate.
+ */
+export interface NamedCountREST {
+  name: string | null;
+  count: number;
+}
+
+export interface CardinalityStatsREST {
+  top: NamedCountREST[] | null;
+  distinctTotal: number;
+}
+
+export interface DegreeStatsREST {
+  min: number;
+  max: number;
+  mean: number;
+  p50: number;
+  p90: number;
+  p99: number;
+}
+
+export interface IndexStatsREST {
+  name: string | null;
+  type: string | null;
+  keys: number;
+  values: number;
+}
+
+export interface MemoryStatsREST {
+  processWorkingSetBytes: number;
+  gcHeapBytes: number;
+  gcLastHeapSizeBytes: number;
+  gcFragmentedBytes: number;
+}
+
+export interface GraphStatisticsREST {
+  vertexCount: number;
+  edgeCount: number;
+  vertexLabels: CardinalityStatsREST;
+  edgeLabels: CardinalityStatsREST;
+  inDegree: DegreeStatsREST;
+  outDegree: DegreeStatsREST;
+  totalDegree: DegreeStatsREST;
+  propertyKeys: CardinalityStatsREST;
+  indices: IndexStatsREST[] | null;
+  memory: MemoryStatsREST;
+  computedInMs: number;
+  sampled: boolean;
+  sampleStride: number;
 }
 
 /** Typed literal (FR-9): { value | propertyValue, fullQualifiedTypeName } */
@@ -177,6 +237,36 @@ export interface PluginSpecification {
   pluginOptions?: Record<string, PropertySpecification>;
 }
 
+/**
+ * Vector index (feature vector-index; surfaced by studio-coverage). Scores are RAW —
+ * interpret via metric/higherIsBetter (L2: lower is better), never re-derive client-side.
+ */
+export interface VectorIndexScanSpecification {
+  indexId: string;
+  query: number[];
+  k: number;
+  kind?: "vertex" | "edge" | "any";
+  label?: string;
+}
+
+export interface VectorScoredElementREST {
+  graphElementId: number;
+  score: number;
+}
+
+export interface VectorSearchResultREST {
+  metric: string | null;
+  higherIsBetter: boolean;
+  results: VectorScoredElementREST[] | null;
+}
+
+/** Exactly one mode: explicit vector, or propertyId naming a float[] property. */
+export interface VectorIndexAddSpecification {
+  graphElementId: number;
+  vector?: number[];
+  propertyId?: string;
+}
+
 export interface IndexAddToSpecification {
   graphElementId: number;
   key: LiteralSpecification;
@@ -200,6 +290,8 @@ export interface PathSpecification {
   maxPathWeight: number;
   filter?: PathFilterSpecification;
   cost?: PathCostSpecification;
+  /** Stored query of kind Path — mutually exclusive with filter/cost (server 400s on mix). */
+  storedQuery?: string;
 }
 
 export interface PathElementREST {
@@ -235,6 +327,8 @@ export interface SubGraphSpecification {
   vertexFilter?: string;
   edgeFilter?: string;
   patterns?: PatternSpecification[];
+  /** Stored query of kind SubGraph — mutually exclusive with filters/patterns (server 400s on mix). */
+  storedQuery?: string;
 }
 
 export interface SubGraphSummary {
@@ -245,6 +339,103 @@ export interface SubGraphSummary {
   sourceFallen8Id?: string | null;
   canRecalculate?: boolean;
   additionalInformation?: string | null;
+}
+
+/**
+ * Stored query library (feature stored-query-library; surfaced by studio-coverage).
+ * Blocks hold exactly the per-template parts; numeric bounds and instance names stay
+ * per-request. Entries are immutable: delete + re-register is the edit flow.
+ */
+export type StoredQueryKind = "Path" | "SubGraph";
+
+export interface StoredPathQueryBlock {
+  filter?: PathFilterSpecification;
+  cost?: PathCostSpecification;
+}
+
+export interface StoredSubGraphQueryBlock {
+  vertexFilter?: string;
+  edgeFilter?: string;
+  patterns?: PatternSpecification[];
+}
+
+export interface StoredQuerySpecification {
+  name: string;
+  kind: StoredQueryKind;
+  description?: string;
+  path?: StoredPathQueryBlock;
+  subGraph?: StoredSubGraphQueryBlock;
+}
+
+/** compileState: Compiled (invocable) | Failed (invoking 409s) | SourceOnly. */
+export interface StoredQuerySummaryREST {
+  name: string | null;
+  kind: string | null;
+  description: string | null;
+  createdAt: string;
+  compileState: string | null;
+}
+
+export interface StoredQueryDetailREST extends StoredQuerySummaryREST {
+  specificationJson: string | null;
+  compileDiagnostics: string | null;
+}
+
+/**
+ * Graph analytics (feature graph-analytics; surfaced by studio-coverage). Runs are
+ * synchronous one-shots with budgets — there is no job store, and the UI must not
+ * fabricate one. Top-K/partition rows are the response; full results travel via
+ * write-back (snapshot-durable only).
+ */
+export interface AnalyticsSpecification {
+  vertexLabel?: string;
+  edgePropertyId?: string;
+  direction?: "in" | "out" | "both";
+  maxIterations?: number;
+  epsilon?: number;
+  timeBudgetSeconds?: number;
+  parameters?: Record<string, number>;
+  maxResults?: number;
+  offset?: number;
+  writeBack?: boolean;
+  writeBackPropertyKey?: string;
+}
+
+export interface ScoredVertexREST {
+  graphElementId: number;
+  score: number;
+}
+
+export interface PartitionSummaryREST {
+  partitionId: number;
+  size: number;
+}
+
+export interface WriteBackResultREST {
+  propertyKey: string | null;
+  verticesWritten: number;
+  chunks: number;
+}
+
+export interface AnalyticsResultREST {
+  algorithm: string | null;
+  converged: boolean;
+  iterationsRun: number;
+  elapsedMs: number;
+  budgetExhausted: boolean;
+  vertexCount: number;
+  statistics: Record<string, number> | null;
+  results: ScoredVertexREST[] | null;
+  partitions: PartitionSummaryREST[] | null;
+  writeBack: WriteBackResultREST | null;
+}
+
+/** One partition's membership page — re-runs the specification (exact only when quiescent). */
+export interface PartitionMembersREST {
+  partitionId: number;
+  size: number;
+  offset: number;
+  members: number[] | null;
 }
 
 /** POST /delegates/validate (gap G-2, added by this feature) */

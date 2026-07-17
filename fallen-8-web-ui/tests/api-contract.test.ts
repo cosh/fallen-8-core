@@ -160,6 +160,57 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     await endpoints.tabulaRasa(instance);
     await endpoints.generateSampleGraph(instance);
     await endpoints.runBenchmark(instance);
+    await endpoints.getStatistics(instance);
+    await endpoints.listStoredQueries(instance);
+    await endpoints.getStoredQuery(instance, "q");
+    await endpoints.registerStoredQuery(instance, {
+      name: "q",
+      kind: "Path",
+      path: { filter: { vertexFilter: "return (v) => true;" } },
+    });
+    await endpoints.deleteStoredQuery(instance, "q");
+    await endpoints.findPaths(instance, 1, 2, {
+      pathAlgorithmName: "BLS",
+      maxDepth: 7,
+      maxResults: 1,
+      maxPathWeight: 1,
+      storedQuery: "q",
+    });
+    await endpoints.createSubGraph(instance, { name: "s", storedQuery: "q" });
+    await endpoints.scanVector(instance, {
+      indexId: "emb",
+      query: [0.1, 0.2],
+      k: 10,
+      kind: "vertex",
+      label: "person",
+    });
+    await endpoints.addVectorToIndex(instance, "emb", {
+      graphElementId: 1,
+      propertyId: "embedding",
+    });
+    await endpoints.listAnalyticsAlgorithms(instance);
+    await endpoints.runAnalytics(instance, "PAGERANK", {
+      vertexLabel: "person",
+      maxResults: 100,
+      writeBack: true,
+      writeBackPropertyKey: "analytics.pagerank",
+    });
+    await endpoints.getPartitionMembers(instance, "WCC", 0, { maxResults: 100, offset: 0 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const parsed = new URL(url);
+        recorded.push({
+          method: init?.method ?? "GET",
+          path: parsed.pathname,
+          query: parsed.searchParams,
+          body: undefined,
+        });
+        return new Response("", { status: 200 });
+      }),
+    );
+    await endpoints.exportBulk(instance, { vertexLabel: "person" });
+    await endpoints.importBulk(instance, new Blob(['{"type":"meta"}\n']));
 
     expect(recorded.length).toBeGreaterThan(30);
     for (const call of recorded) {
@@ -215,6 +266,32 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       delegateKind: "VertexFilter",
       fragment: "return (v) => true;",
     });
+  });
+
+  it("bulk interchange: export carries label filters, import sends x-ndjson", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, init });
+        return new Response("", { status: 200 });
+      }),
+    );
+    await endpoints.exportBulk(instance, { vertexLabel: "person", edgeLabel: "knows" });
+    await endpoints.exportBulk(instance);
+    await endpoints.importBulk(instance, new Blob(['{"type":"meta"}\n']));
+
+    const exportUrl = new URL(calls[0].url);
+    expect(exportUrl.pathname).toBe("/bulk/export");
+    expect(exportUrl.searchParams.get("vertexLabel")).toBe("person");
+    expect(exportUrl.searchParams.get("edgeLabel")).toBe("knows");
+    // Unfiltered export sends NO filter params (server treats absent ≠ empty string).
+    expect(new URL(calls[1].url).search).toBe("");
+    expect(calls[2].init?.method).toBe("POST");
+    expect(new URL(calls[2].url).pathname).toBe("/bulk/import");
+    expect(
+      (calls[2].init?.headers as Record<string, string>)["Content-Type"],
+    ).toBe("application/x-ndjson");
   });
 
   it("treats 204/empty bodies as null, not an error", async () => {

@@ -3,9 +3,20 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useActiveInstance } from "../instances/registry";
 import { findPaths, getGraphElement } from "../api/endpoints";
-import type { PathREST, PathSpecification, VertexREST } from "../api/types";
+import { ApiError } from "../api/client";
+import type { PathREST, VertexREST } from "../api/types";
 import { getInstanceStore } from "../state/instanceStore";
+import {
+  buildPathSpecification,
+  hasAnyPathFragment,
+  pathBlockFromDraft,
+} from "../lib/storedQueries";
 import { DelegateSlot } from "../delegate/DelegateSlot";
+import {
+  FilterSourceToggle,
+  SaveAsStoredQuery,
+  StoredQueryPicker,
+} from "../components/StoredQueryControls";
 import { ErrorBox } from "../components/ErrorBox";
 
 /**
@@ -13,7 +24,8 @@ import { ErrorBox } from "../components/ErrorBox";
  * the five delegate slots as the advanced tier (all optional, empty by default), results
  * as ordered element lists + canvas overlay. Fragments were already validated in the
  * editor - /path swallows compile errors, so an empty result here is "no paths found",
- * never an error (FR-13).
+ * never an error (FR-13). Filters come from inline fragments or a stored query — the
+ * source toggle keeps the two mutually exclusive (concept spec §5.1).
  */
 export function PathScreen() {
   const instance = useActiveInstance()!;
@@ -40,22 +52,7 @@ export function PathScreen() {
       if (!Number.isInteger(from) || !Number.isInteger(to)) {
         throw new Error("Enter numeric source and target vertex ids.");
       }
-      const spec: PathSpecification = {
-        pathAlgorithmName: draft.algorithm,
-        maxDepth: draft.maxDepth,
-        maxResults: draft.maxResults,
-        maxPathWeight: draft.maxPathWeight,
-        filter: {
-          vertexFilter: draft.vertexFilter || undefined,
-          edgeFilter: draft.edgeFilter || undefined,
-          edgePropertyFilter: draft.edgePropertyFilter || undefined,
-        },
-        cost: {
-          vertexCost: draft.vertexCost || undefined,
-          edgeCost: draft.edgeCost || undefined,
-        },
-      };
-      return (await findPaths(instance, from, to, spec)) ?? [];
+      return (await findPaths(instance, from, to, buildPathSpecification(draft))) ?? [];
     },
   });
 
@@ -192,7 +189,15 @@ export function PathScreen() {
               type="submit"
               className="btn btn-accent"
               data-testid="path-run"
-              disabled={search.isPending}
+              disabled={
+                search.isPending ||
+                (draft.filterSource === "stored" && !draft.storedQuery)
+              }
+              title={
+                draft.filterSource === "stored" && !draft.storedQuery
+                  ? "pick a stored query first"
+                  : undefined
+              }
             >
               {search.isPending ? "Searching…" : "Find paths"}
             </button>
@@ -204,16 +209,32 @@ export function PathScreen() {
             the K in K-shortest-paths.
           </p>
 
-          <button
-            type="button"
-            className="btn"
-            data-testid="toggle-advanced"
-            onClick={() => setShowAdvanced((s) => !s)}
-          >
-            {showAdvanced ? "Hide" : "Show"} advanced filters &amp; costs
-          </button>
+          <FilterSourceToggle
+            value={draft.filterSource}
+            onChange={(filterSource) => setDraft({ filterSource })}
+          />
 
-          {showAdvanced && (
+          {draft.filterSource === "stored" && (
+            <StoredQueryPicker
+              instance={instance}
+              kind="Path"
+              value={draft.storedQuery}
+              onChange={(storedQuery) => setDraft({ storedQuery })}
+            />
+          )}
+
+          {draft.filterSource === "inline" && (
+            <button
+              type="button"
+              className="btn"
+              data-testid="toggle-advanced"
+              onClick={() => setShowAdvanced((s) => !s)}
+            >
+              {showAdvanced ? "Hide" : "Show"} advanced filters &amp; costs
+            </button>
+          )}
+
+          {draft.filterSource === "inline" && showAdvanced && (
             <div className="space-y-2" data-testid="advanced-slots">
               <DelegateSlot
                 instance={instance}
@@ -255,12 +276,30 @@ export function PathScreen() {
                 value={draft.edgeCost}
                 onChange={(fragment) => setDraft({ edgeCost: fragment })}
               />
+              <SaveAsStoredQuery
+                instance={instance}
+                kind="Path"
+                buildBlock={() => pathBlockFromDraft(draft)}
+                disabled={!hasAnyPathFragment(draft)}
+                disabledReason="commit at least one fragment first"
+                onSaved={(name) =>
+                  setDraft({ filterSource: "stored", storedQuery: name })
+                }
+              />
             </div>
           )}
         </form>
         {search.isError && (
-          <div className="px-3 pb-3">
+          <div className="space-y-2 px-3 pb-3">
             <ErrorBox error={search.error} />
+            {search.error instanceof ApiError &&
+              search.error.status === 403 &&
+              draft.filterSource === "inline" && (
+                <p className="text-fg-dim text-[12px]" data-testid="path-403-hint">
+                  Dynamic code execution is off on this instance — switch filters to a
+                  stored query instead.
+                </p>
+              )}
           </div>
         )}
       </section>

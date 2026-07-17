@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useActiveInstance } from "../instances/registry";
@@ -12,15 +12,22 @@ import {
 import type { PatternSpecification, SubGraphSpecification } from "../api/types";
 import { ApiError } from "../api/client";
 import { validatePatternSequence } from "../lib/patternValidation";
+import { normalizePatterns, subGraphBlock } from "../lib/storedQueries";
 import { DelegateSlot } from "../delegate/DelegateSlot";
+import {
+  FilterSourceToggle,
+  SaveAsStoredQuery,
+  StoredQueryPicker,
+} from "../components/StoredQueryControls";
 import { ErrorBox } from "../components/ErrorBox";
-import { getInstanceStore } from "../state/instanceStore";
+import { getInstanceStore, type FilterSource } from "../state/instanceStore";
 
 /**
  * Subgraph studio (FR-15/16/17): lifecycle + pattern builder. The builder enforces the
  * alternation rules client-side (lib/patternValidation) and still surfaces the server's
  * 400. Status codes map to distinct, actionable messages; an EMPTY subgraph is a valid
- * 201 outcome, not an error.
+ * 201 outcome, not an error. Filters/patterns come inline or from a stored query of
+ * kind SubGraph — the source toggle keeps the two mutually exclusive (concept spec §5.1).
  */
 
 interface PatternDraft extends PatternSpecification {
@@ -53,6 +60,11 @@ function describeCreateError(error: unknown): { title: string; body: string } {
           title: "Source subgraph not found (404)",
           body: "The fromSubGraph you referenced does not exist on this instance.",
         };
+      case 403:
+        return {
+          title: "Dynamic code execution is off (403)",
+          body: "Inline fragments cannot run on this instance — use a stored query (kind SubGraph) instead.",
+        };
       case 409:
         return {
           title: "Conflict (409)",
@@ -80,9 +92,22 @@ export function SubgraphScreen() {
   const [vertexFilter, setVertexFilter] = useState("");
   const [edgeFilter, setEdgeFilter] = useState("");
   const [patterns, setPatterns] = useState<PatternDraft[]>([]);
+  const [filterSource, setFilterSource] = useState<FilterSource>("inline");
+  const [storedQuery, setStoredQuery] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
-  const sequenceError = validatePatternSequence(patterns);
+  // Consume a one-shot prefill (Dashboard → Stored queries → "Open in Subgraph").
+  const subgraphPrefill = store((s) => s.subgraphPrefill);
+  const setSubgraphPrefill = store((s) => s.setSubgraphPrefill);
+  useEffect(() => {
+    if (subgraphPrefill) {
+      setFilterSource("stored");
+      setStoredQuery(subgraphPrefill.storedQuery);
+      setSubgraphPrefill(null);
+    }
+  }, [subgraphPrefill, setSubgraphPrefill]);
+
+  const sequenceError = filterSource === "inline" ? validatePatternSequence(patterns) : null;
 
   const list = useQuery({
     queryKey: [instance.id, "subgraphs"],
@@ -94,19 +119,17 @@ export function SubgraphScreen() {
 
   const create = useMutation({
     mutationFn: async () => {
-      const spec: SubGraphSpecification = {
-        name: name.trim(),
-        fromSubGraph: fromSubGraph.trim() || undefined,
-        vertexFilter: vertexFilter || undefined,
-        edgeFilter: edgeFilter || undefined,
-        patterns: patterns.map(({ key: _key, ...pattern }) => ({
-          ...pattern,
-          patternName: pattern.patternName || undefined,
-          minLength: pattern.type === "VariableLengthEdge" ? pattern.minLength : undefined,
-          maxLength: pattern.type === "VariableLengthEdge" ? pattern.maxLength : undefined,
-          direction: pattern.type === "Vertex" ? undefined : pattern.direction,
-        })),
-      };
+      // Stored and inline fragments never travel together (server 400s on mix).
+      const spec: SubGraphSpecification =
+        filterSource === "stored"
+          ? { name: name.trim(), storedQuery }
+          : {
+              name: name.trim(),
+              fromSubGraph: fromSubGraph.trim() || undefined,
+              vertexFilter: vertexFilter || undefined,
+              edgeFilter: edgeFilter || undefined,
+              patterns: normalizePatterns(patterns),
+            };
       return await createSubGraph(instance, spec);
     },
     onSuccess: (summary) => {
@@ -260,6 +283,19 @@ export function SubgraphScreen() {
             </div>
           </div>
 
+          <FilterSourceToggle value={filterSource} onChange={setFilterSource} />
+
+          {filterSource === "stored" && (
+            <StoredQueryPicker
+              instance={instance}
+              kind="SubGraph"
+              value={storedQuery}
+              onChange={setStoredQuery}
+            />
+          )}
+
+          {filterSource === "inline" && (
+          <>
           <div className="space-y-2">
             <DelegateSlot
               instance={instance}
@@ -493,11 +529,37 @@ export function SubgraphScreen() {
             </div>
           </div>
 
+          <SaveAsStoredQuery
+            instance={instance}
+            kind="SubGraph"
+            buildBlock={() =>
+              subGraphBlock(vertexFilter, edgeFilter, normalizePatterns(patterns))
+            }
+            disabled={!vertexFilter && !edgeFilter && patterns.length === 0}
+            disabledReason="add a filter or a pattern step first"
+            onSaved={(savedName) => {
+              setFilterSource("stored");
+              setStoredQuery(savedName);
+            }}
+          />
+          </>
+          )}
+
           <button
             type="submit"
             className="btn btn-accent"
             data-testid="sg-create"
-            disabled={!name.trim() || sequenceError !== null || create.isPending}
+            disabled={
+              !name.trim() ||
+              sequenceError !== null ||
+              (filterSource === "stored" && !storedQuery) ||
+              create.isPending
+            }
+            title={
+              filterSource === "stored" && !storedQuery
+                ? "pick a stored query first"
+                : undefined
+            }
           >
             {create.isPending ? "Creating…" : "Create subgraph"}
           </button>

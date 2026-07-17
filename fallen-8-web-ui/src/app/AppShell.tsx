@@ -14,6 +14,7 @@ const NAV = [
   { to: "/query", label: "Query", icon: "∴" },
   { to: "/path", label: "Path", icon: "↝" },
   { to: "/subgraphs", label: "Subgraph", icon: "◫" },
+  { to: "/analytics", label: "Analytics", icon: "∑" },
   { to: "/canvas", label: "Canvas", icon: "❉" },
 ] as const;
 

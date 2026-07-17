@@ -1,7 +1,10 @@
-import { apiRequest } from "./client";
+import { ApiError, apiRequest, authHeaders, buildUrl } from "./client";
 import type { InstanceConfig } from "../instances/types";
 import type {
+  AnalyticsResultREST,
+  AnalyticsSpecification,
   BenchmarkResult,
+  BulkImportResultREST,
   DelegateKind,
   DelegateValidationResult,
   EdgeREST,
@@ -10,8 +13,10 @@ import type {
   FulltextIndexScanSpecification,
   FulltextSearchResultREST,
   GraphREST,
+  GraphStatisticsREST,
   IndexAddToSpecification,
   IndexScanSpecification,
+  PartitionMembersREST,
   PathREST,
   PathSpecification,
   PluginSpecification,
@@ -20,8 +25,14 @@ import type {
   ScanSpecification,
   SearchDistanceSpecification,
   StatusREST,
+  StoredQueryDetailREST,
+  StoredQuerySpecification,
+  StoredQuerySummaryREST,
   SubGraphSpecification,
   SubGraphSummary,
+  VectorIndexAddSpecification,
+  VectorIndexScanSpecification,
+  VectorSearchResultREST,
   VertexREST,
   VertexSpecification,
 } from "./types";
@@ -38,6 +49,13 @@ const WAIT = { waitForCompletion: true } as const;
 
 export const getStatus = (i: InstanceConfig, signal?: AbortSignal) =>
   apiRequest<StatusREST>(i, "/status", { signal });
+
+/**
+ * Graph-shape snapshot (feature studio-coverage): O(V+E), budgeted and rate-limited
+ * server-side — only ever fetched on explicit demand (the Graph shape panel's Compute).
+ */
+export const getStatistics = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<GraphStatisticsREST>(i, "/statistics", { signal });
 
 export const saveGraph = (i: InstanceConfig, path?: string) =>
   apiRequest<SaveGame>(i, "/save", {
@@ -84,6 +102,44 @@ export const generateSampleGraph = (i: InstanceConfig, nodeCount = 200, edgeCoun
 
 export const runBenchmark = (i: InstanceConfig, iterations = 1000) =>
   apiRequest<BenchmarkResult>(i, "/benchmark", { query: { iterations } });
+
+// ---- bulk interchange (concept spec §7) ----
+// Raw fetch, not apiRequest: the payload is application/x-ndjson, not JSON.
+
+/** Streams the graph (or a label-filtered subset) to a Blob for a browser download. */
+export async function exportBulk(
+  i: InstanceConfig,
+  filters?: { vertexLabel?: string; edgeLabel?: string },
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const url = buildUrl(i.baseUrl, "/bulk/export", {
+    vertexLabel: filters?.vertexLabel,
+    edgeLabel: filters?.edgeLabel,
+  });
+  const response = await fetch(url, { headers: authHeaders(i), signal });
+  if (!response.ok) {
+    throw new ApiError(response.status, url, await response.text().catch(() => ""));
+  }
+  return await response.blob();
+}
+
+/** Imports into an EMPTY graph (server 409s otherwise); fail-fast with a line number. */
+export async function importBulk(
+  i: InstanceConfig,
+  file: Blob,
+): Promise<BulkImportResultREST | null> {
+  const url = buildUrl(i.baseUrl, "/bulk/import", undefined);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { ...authHeaders(i), "Content-Type": "application/x-ndjson" },
+    body: file,
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, url, await response.text().catch(() => ""));
+  }
+  const text = await response.text();
+  return text && text !== "null" ? (JSON.parse(text) as BulkImportResultREST) : null;
+}
 
 // ---- elements (FR-5/6/7) ----
 
@@ -158,6 +214,23 @@ export const scanFulltext = (i: InstanceConfig, spec: FulltextIndexScanSpecifica
 export const scanSpatial = (i: InstanceConfig, spec: SearchDistanceSpecification) =>
   apiRequest<number[]>(i, "/scan/index/spatial", { method: "POST", body: spec });
 
+export const scanVector = (i: InstanceConfig, spec: VectorIndexScanSpecification) =>
+  apiRequest<VectorSearchResultREST>(i, "/scan/index/vector", {
+    method: "POST",
+    body: spec,
+  });
+
+/** Single-element add/replace; bulk embedding ingestion is deliberately curl territory. */
+export const addVectorToIndex = (
+  i: InstanceConfig,
+  indexId: string,
+  spec: VectorIndexAddSpecification,
+) =>
+  apiRequest<boolean>(i, `/index/vector/${encodeURIComponent(indexId)}`, {
+    method: "PUT",
+    body: spec,
+  });
+
 // ---- index management (FR-10) ----
 
 export const createIndex = (i: InstanceConfig, spec: PluginSpecification) =>
@@ -230,6 +303,51 @@ export const recalculateSubGraph = (i: InstanceConfig, name: string) =>
 
 export const deleteSubGraph = (i: InstanceConfig, name: string) =>
   apiRequest<void>(i, `/subgraph/${encodeURIComponent(name)}`, { method: "DELETE" });
+
+// ---- graph analytics (concept spec §3) ----
+
+/** Map of algorithm name → one-line description; the picker IS the discovery surface. */
+export const listAnalyticsAlgorithms = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<Record<string, string>>(i, "/analytics/algorithms", { signal });
+
+export const runAnalytics = (
+  i: InstanceConfig,
+  algorithmName: string,
+  spec: AnalyticsSpecification,
+) =>
+  apiRequest<AnalyticsResultREST>(i, `/analytics/${encodeURIComponent(algorithmName)}`, {
+    method: "POST",
+    body: spec,
+  });
+
+export const getPartitionMembers = (
+  i: InstanceConfig,
+  algorithmName: string,
+  partitionId: number,
+  spec: AnalyticsSpecification,
+) =>
+  apiRequest<PartitionMembersREST>(
+    i,
+    `/analytics/${encodeURIComponent(algorithmName)}/partition/${partitionId}`,
+    { method: "POST", body: spec },
+  );
+
+// ---- stored query library (concept spec §5) ----
+
+export const listStoredQueries = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<StoredQuerySummaryREST[]>(i, "/storedquery", { signal });
+
+export const getStoredQuery = (i: InstanceConfig, name: string, signal?: AbortSignal) =>
+  apiRequest<StoredQueryDetailREST>(i, `/storedquery/${encodeURIComponent(name)}`, {
+    signal,
+  });
+
+/** Requires EnableDynamicCodeExecution (403 otherwise); invocation by name does not. */
+export const registerStoredQuery = (i: InstanceConfig, spec: StoredQuerySpecification) =>
+  apiRequest<StoredQuerySummaryREST>(i, "/storedquery", { method: "POST", body: spec });
+
+export const deleteStoredQuery = (i: InstanceConfig, name: string) =>
+  apiRequest<void>(i, `/storedquery/${encodeURIComponent(name)}`, { method: "DELETE" });
 
 // ---- mutations (FR-21) ----
 
