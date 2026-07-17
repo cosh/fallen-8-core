@@ -23,13 +23,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DelegateKind } from "../../fallen-8-web-ui/src/api/types";
-import type { NlAssistConfig } from "../../fallen-8-web-ui/src/delegate/nl/config";
 import { formatFragment } from "../../fallen-8-web-ui/src/delegate/nl/format";
-import {
-  chatWithModel,
-  initialMessages,
-  type NlGenerationStats,
-} from "../../fallen-8-web-ui/src/delegate/nl/generate";
+import { initialMessages, type ChatTurn } from "../../fallen-8-web-ui/src/delegate/nl/generate";
 import {
   buildGenerationPrompt,
   extractFragment,
@@ -41,15 +36,6 @@ const MODEL = process.env.NL_EVAL_MODEL ?? "phi4-mini";
 const ENDPOINT = process.env.NL_EVAL_ENDPOINT ?? "http://localhost:11434";
 const F8 = process.env.NL_EVAL_F8 ?? "http://localhost:5000";
 const PER_CALL_TIMEOUT_MS = 6 * 60 * 1000; // CPU inference is slow; be generous.
-
-const config: NlAssistConfig = {
-  mode: "custom",
-  endpoint: ENDPOINT,
-  apiKind: "ollama",
-  model: MODEL,
-  temperature: 0.1,
-  maxRetries: 0,
-};
 
 interface EvalRow {
   id: string;
@@ -69,10 +55,73 @@ interface RowResult {
   compileErrors: string[];
   failedChecks: string[];
   pass: boolean;
-  stats: Pick<
-    NlGenerationStats,
-    "promptTokens" | "completionTokens" | "durationMs" | "tokensPerSecond"
-  > | null;
+  stats: {
+    promptTokens?: number;
+    completionTokens?: number;
+    durationMs?: number;
+    tokensPerSecond?: number;
+  } | null;
+}
+
+/**
+ * Streaming Ollama chat for the harness. The web UI's chatWithModel is non-streaming,
+ * which is fine in a browser but trips Node/undici's 5-minute headers timeout on slow
+ * CPU generations (headers only arrive when the full body is ready). Streaming delivers
+ * headers immediately and chunks every token; the final chunk carries the stats.
+ */
+async function ollamaChat(
+  messages: ChatTurn[],
+): Promise<{ content: string; stats: RowResult["stats"] }> {
+  const response = await fetch(`${ENDPOINT.replace(/\/+$/, "")}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: MODEL,
+      messages,
+      stream: true,
+      options: { temperature: 0.1 },
+    }),
+    signal: AbortSignal.timeout(PER_CALL_TIMEOUT_MS),
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`Model endpoint returned HTTP ${response.status}.`);
+  }
+
+  let content = "";
+  let stats: RowResult["stats"] = null;
+  let buffered = "";
+  const decoder = new TextDecoder();
+  for await (const chunk of response.body) {
+    buffered += decoder.decode(chunk as Uint8Array, { stream: true });
+    let newline: number;
+    while ((newline = buffered.indexOf("\n")) >= 0) {
+      const line = buffered.slice(0, newline).trim();
+      buffered = buffered.slice(newline + 1);
+      if (!line) continue;
+      const parsed = JSON.parse(line) as {
+        message?: { content?: string };
+        done?: boolean;
+        total_duration?: number;
+        prompt_eval_count?: number;
+        eval_count?: number;
+        eval_duration?: number;
+      };
+      content += parsed.message?.content ?? "";
+      if (parsed.done) {
+        stats = {
+          promptTokens: parsed.prompt_eval_count,
+          completionTokens: parsed.eval_count,
+          durationMs:
+            parsed.total_duration !== undefined ? parsed.total_duration / 1e6 : undefined,
+          tokensPerSecond:
+            parsed.eval_count !== undefined && parsed.eval_duration
+              ? parsed.eval_count / (parsed.eval_duration / 1e9)
+              : undefined,
+        };
+      }
+    }
+  }
+  return { content, stats };
 }
 
 async function validate(kind: DelegateKind, fragment: string) {
@@ -133,11 +182,7 @@ async function main() {
   for (const row of rows) {
     if (done.has(row.id)) continue;
     const prompt = buildGenerationPrompt(row.kind, row.intent);
-    const { content, stats } = await chatWithModel(
-      config,
-      initialMessages(prompt),
-      AbortSignal.timeout(PER_CALL_TIMEOUT_MS),
-    );
+    const { content, stats } = await ollamaChat(initialMessages(prompt));
     const fragment = formatFragment(extractFragment(content));
     const validation = await validate(row.kind, fragment);
     const failedChecks = runChecks(row, fragment);
@@ -152,14 +197,7 @@ async function main() {
         .map((d) => `${d.id} ${d.message}`),
       failedChecks,
       pass: validation.valid && failedChecks.length === 0,
-      stats: stats
-        ? {
-            promptTokens: stats.promptTokens,
-            completionTokens: stats.completionTokens,
-            durationMs: stats.durationMs,
-            tokensPerSecond: stats.tokensPerSecond,
-          }
-        : null,
+      stats,
     };
     results.push(result);
     writeFileSync(outFile, JSON.stringify({ model: MODEL, rows: results }, null, 2));
