@@ -93,6 +93,18 @@ function collapseWhitespace(text: string): string {
   return result;
 }
 
+/**
+ * Index of the first statement-terminating `;` (top level, outside literals), or -1.
+ * Used by extractFragment to cut trailing prose a model appends after the fragment.
+ */
+export function firstTopLevelSemicolon(text: string): number {
+  let found = -1;
+  scan(text, (i) => {
+    if (found < 0 && text[i] === ";") found = i;
+  });
+  return found;
+}
+
 /** Index of the outer lambda's `=>` (top level, outside literals), or -1. */
 function topLevelArrowIndex(text: string): number {
   let found = -1;

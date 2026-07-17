@@ -1,4 +1,5 @@
 import type { DelegateDiagnostic, DelegateKind } from "../../api/types";
+import { firstTopLevelSemicolon } from "./format";
 import { KIND_INFO } from "../kinds";
 import { membersForType } from "../providers";
 import { snippetCodeFor, snippetsForKind } from "../snippets";
@@ -101,17 +102,18 @@ export function buildRefinePrompt(
 
 /**
  * Output handling (FR-26.6): strip markdown fences and stray prose. A fenced block wins;
- * otherwise cut leading prose before the first "return".
+ * otherwise cut leading prose before the first "return" and trailing prose after the
+ * statement's closing `;` (models append parenthetical notes there - seen in the field).
  */
 export function extractFragment(raw: string): string {
   const fenced = /```(?:csharp|cs|c#)?\s*\n?([\s\S]*?)```/i.exec(raw);
-  if (fenced) return fenced[1].trim();
+  const candidate = fenced ? fenced[1].trim() : raw.trim();
 
-  const trimmed = raw.trim();
-  const returnIndex = trimmed.indexOf("return");
-  if (returnIndex > 0) {
-    // Leading prose before the method body - drop it.
-    return trimmed.slice(returnIndex).trim();
-  }
-  return trimmed;
+  const returnIndex = candidate.indexOf("return");
+  const fromReturn = returnIndex > 0 ? candidate.slice(returnIndex) : candidate;
+
+  // The fragment is a single statement: everything after its first top-level `;` is
+  // prose (`;` inside string literals or brackets is skipped by the scanner).
+  const end = firstTopLevelSemicolon(fromReturn);
+  return (end >= 0 ? fromReturn.slice(0, end + 1) : fromReturn).trim();
 }
