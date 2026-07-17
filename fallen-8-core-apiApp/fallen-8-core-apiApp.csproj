@@ -60,9 +60,7 @@
          inference; the Ollama backend carries none. Nothing loads until the capability
          flag is on AND first use arrives. -->
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.0" />
-    <!-- ExcludeAssets=analyzers: the package's consumer-side source generator requires a
-         newer Roslyn than the pinned SDK; the client library itself does not need it. -->
-    <PackageReference Include="OllamaSharp" Version="5.4.10" ExcludeAssets="analyzers" />
+    <PackageReference Include="OllamaSharp" Version="5.4.27" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
     <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
     <PackageReference Include="LLamaSharp" Version="0.27.0" />
@@ -74,4 +72,5 @@
   </ItemGroup>
 
 </Project>
+
 

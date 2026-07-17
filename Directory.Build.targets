@@ -1,0 +1,15 @@
+<Project>
+
+  <!-- OllamaSharp ships a CONSUMER-side source generator built against a newer Roslyn than
+       this SDK's compiler (CS9057 on build); the client library itself does not need it,
+       and neither ExcludeAssets=analyzers nor PrivateAssets strips it (it also flows into
+       referencing projects, so the unittest project trips over it too - hence repo-level).
+       Remove it from every project's analyzer inputs so the latest package version stays
+       usable; drop this target once the SDK's Roslyn catches up with the generator. -->
+  <Target Name="RemoveOllamaSharpSourceGenerators" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Analyzer Remove="@(Analyzer)" Condition="$([System.String]::Copy('%(Analyzer.FullPath)').ToLowerInvariant().Contains('ollamasharp'))" />
+    </ItemGroup>
+  </Target>
+
+</Project>
