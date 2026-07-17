@@ -53,6 +53,20 @@
     <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.17.0-beta.1" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.1.17" />
+    <!-- Embedding provider (feature embedding-provider). The abstraction IS
+         Microsoft.Extensions.AI's IEmbeddingGenerator; the three interchangeable local
+         backends are all MIT-licensed. The in-process backends ship native binaries
+         (OnnxRuntime, LLamaSharp CPU) - the publish-size price of self-contained local
+         inference; the Ollama backend carries none. Nothing loads until the capability
+         flag is on AND first use arrives. -->
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.0" />
+    <!-- ExcludeAssets=analyzers: the package's consumer-side source generator requires a
+         newer Roslyn than the pinned SDK; the client library itself does not need it. -->
+    <PackageReference Include="OllamaSharp" Version="5.4.10" ExcludeAssets="analyzers" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+    <PackageReference Include="LLamaSharp" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -60,3 +74,4 @@
   </ItemGroup>
 
 </Project>
+
