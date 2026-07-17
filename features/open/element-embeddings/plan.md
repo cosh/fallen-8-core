@@ -45,17 +45,22 @@ Intent: one scoring implementation, bit-identical everywhere.
 
 Intent: the query vector reaches every delegate, with and without dynamic code.
 
-- [ ] `TraversalContext` (+ `TrySimilarity`); `IPathTraverser` methods gain the context
+- [x] `TraversalContext` (+ `TrySimilarity`); `IPathTraverser` methods gain the context
   parameter; `CodeGenerationHelper` emits it (path + subgraph providers, new usings);
-  `GraphController`/`SubGraphController`/`StoredQueryCompiler` call sites updated;
+  `DelegateValidationHelper` wrapper matched; `GraphController` call sites updated;
   `GeneratedCodeCache` keying untouched.
-- [ ] `SemanticTraversalSpecification` DTO (+ `AppJsonContext` + parity representative);
+- [x] `SemanticTraversalSpecification` DTO (+ `AppJsonContext` + parity representative);
   declarative `minScore` filter and `costBySimilarity` cost as native closures; every
-  400 conflict from spec §3.4; subgraph binds the context at registration.
-- [ ] Tests: fragment-vs-declarative equivalence on a fixture graph, dynamic-code-off
-  declarative run, DotProduct-cost rejection, missing-embedding semantics, stored path
-  query with context invoked ungated, rehydrate-recompile after the interface change,
-  subgraph recalculation without re-embedding.
+  400 conflict from spec §3.4. Better than planned: the semantic block is handled INSIDE
+  `TryGenerateSubGraphDefinition`, so the persisted-recipe compiler binds it identically
+  on load/WAL replay — a declarative semantic subgraph is fully durable, not
+  delegate-only.
+- [x] Tests (`SemanticTraversalTest`, 10): fragment-vs-declarative equivalence on a
+  diamond fixture, dynamic-code-off declarative path + subgraph, the 400 table
+  (DotProduct cost, zero-norm, bad name/metric, slot conflicts, semantic-on-stored-
+  subgraph), stored path query reading the invocation context (and the empty-context
+  no-vector case), subgraph recalculation picking up new embedded vertices without
+  re-embedding. Full suite green (762).
 
 ## Phase 3 — Bound index projection (FR-9, FR-10)
 

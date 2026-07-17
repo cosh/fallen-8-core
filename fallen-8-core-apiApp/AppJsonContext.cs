@@ -73,6 +73,7 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(FulltextSearchResultElementREST))]
     [JsonSerializable(typeof(SearchDistanceSpecification))]
     [JsonSerializable(typeof(PathSpecification))]
+    [JsonSerializable(typeof(SemanticTraversalSpecification))]
     [JsonSerializable(typeof(PathREST))]
     [JsonSerializable(typeof(PathElementREST))]
     [JsonSerializable(typeof(PathFilterSpecification))]

@@ -1452,6 +1452,30 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (traverser != null)
                 {
+                    // Declarative semantic block (feature element-embeddings): validates and
+                    // builds the traversal context (the query vector, embedded once, up front)
+                    // plus the optional code-free filter/cost closures. Pure data - never gated
+                    // by the dynamic-code capability.
+                    var semanticError = SemanticTraversalHelper.TryBuild(definition.Semantic, allowCost: true, out var semantic);
+                    if (semanticError != null)
+                    {
+                        return BadRequest(semanticError);
+                    }
+
+                    // The context reaches every compiled fragment through the factory calls; the
+                    // declarative closures fill EMPTY slots only (one owner per delegate slot).
+                    var vertexFilter = traverser.VertexFilter(semantic.Context);
+                    if (semantic.VertexFilter != null && vertexFilter != null)
+                    {
+                        return BadRequest("semantic.minScore/costBySimilarity and a vertex filter fragment own the same delegate slot; use one.");
+                    }
+
+                    var vertexCost = traverser.VertexCost(semantic.Context);
+                    if (semantic.VertexCost != null && vertexCost != null)
+                    {
+                        return BadRequest("semantic.costBySimilarity and a vertex cost fragment own the same delegate slot; use one.");
+                    }
+
                     var pathDefinition = new ShortestPathDefinition
                     {
                         SourceVertexId = from,
@@ -1459,11 +1483,11 @@ namespace NoSQL.GraphDB.App.Controllers
                         MaxDepth = definition.MaxDepth,
                         MaxPathWeight = definition.MaxPathWeight,
                         MaxResults = definition.MaxResults,
-                        EdgePropertyFilter = traverser.EdgePropertyFilter(),
-                        VertexFilter = traverser.VertexFilter(),
-                        EdgeFilter = traverser.EdgeFilter(),
-                        EdgeCost = traverser.EdgeCost(),
-                        VertexCost = traverser.VertexCost()
+                        EdgePropertyFilter = traverser.EdgePropertyFilter(semantic.Context),
+                        VertexFilter = vertexFilter ?? semantic.VertexFilter,
+                        EdgeFilter = traverser.EdgeFilter(semantic.Context),
+                        EdgeCost = traverser.EdgeCost(semantic.Context),
+                        VertexCost = vertexCost ?? semantic.VertexCost
                     };
 
                     // Feature observability: the algorithm-run span. The algorithm tag is set

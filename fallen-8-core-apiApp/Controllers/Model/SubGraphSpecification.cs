@@ -123,5 +123,19 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   The declarative semantic block (feature element-embeddings): the query vector the
+        ///   compiled filters' traversal context carries, plus an optional code-free
+        ///   <c>minScore</c> vertex pre-filter. Bound at REGISTRATION time - recalculation
+        ///   reuses the same delegates and never embeds anything. Pure data (not gated by the
+        ///   dynamic-code switch); mutually exclusive with <see cref="StoredQuery"/> and, when
+        ///   <c>minScore</c> is set, with an inline <see cref="VertexFilter"/> fragment.
+        /// </summary>
+        [JsonPropertyName("semantic")]
+        public SemanticTraversalSpecification Semantic
+        {
+            get; set;
+        }
     }
 }
