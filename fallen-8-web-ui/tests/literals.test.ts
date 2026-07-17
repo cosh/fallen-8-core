@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseCreationDate,
   toLiteral,
   toPropertySpec,
   toWireValue,
@@ -48,5 +49,32 @@ describe("typed literal conversions", () => {
       propertyValue: "30",
       fullQualifiedTypeName: "System.Int32",
     });
+  });
+});
+
+/** Creation-date input on the mutation forms (feature studio-mutations-ux). */
+describe("parseCreationDate", () => {
+  it("empty keeps today's behaviour: 0 (epoch)", () => {
+    expect(parseCreationDate("")).toEqual({ ok: true, seconds: 0 });
+    expect(parseCreationDate("   ")).toEqual({ ok: true, seconds: 0 });
+  });
+
+  it("digit input is taken as unix SECONDS verbatim, bounded to uint", () => {
+    expect(parseCreationDate("1713862800")).toEqual({ ok: true, seconds: 1713862800 });
+    expect(parseCreationDate(" 0 ")).toEqual({ ok: true, seconds: 0 });
+    expect(parseCreationDate("4294967295")).toEqual({ ok: true, seconds: 4294967295 });
+    expect(parseCreationDate("4294967296").ok).toBe(false);
+  });
+
+  it("ISO date/times convert to unix seconds", () => {
+    expect(parseCreationDate("1970-01-01T00:02:00Z")).toEqual({ ok: true, seconds: 120 });
+    const result = parseCreationDate("2026-07-17T12:00:00Z");
+    expect(result).toEqual({ ok: true, seconds: Date.UTC(2026, 6, 17, 12) / 1000 });
+  });
+
+  it("rejects garbage, negatives, and pre-epoch dates", () => {
+    expect(parseCreationDate("not a date").ok).toBe(false);
+    expect(parseCreationDate("-5").ok).toBe(false);
+    expect(parseCreationDate("1900-01-01T00:00:00Z").ok).toBe(false);
   });
 });
