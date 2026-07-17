@@ -13,7 +13,7 @@ import {
   trimGraph,
 } from "../api/endpoints";
 import { ApiError } from "../api/client";
-import { shapeSuggestions, useGraphShape } from "../state/graphShape";
+import { embeddingProvider, shapeSuggestions, useGraphShape } from "../state/graphShape";
 import { useStatus } from "../state/status";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
@@ -55,7 +55,9 @@ export function DashboardScreen() {
   const [exportVertexLabel, setExportVertexLabel] = useState("");
   const [exportEdgeLabel, setExportEdgeLabel] = useState("");
   const importFileRef = useRef<HTMLInputElement>(null);
-  const suggestions = shapeSuggestions(useGraphShape(instance).data);
+  const shape = useGraphShape(instance).data;
+  const suggestions = shapeSuggestions(shape);
+  const provider = embeddingProvider(shape);
 
   const status = useStatus(instance);
 
@@ -175,6 +177,43 @@ export function DashboardScreen() {
         />
         <PluginList title="Service plugins" plugins={data.availableServicePlugins ?? []} />
       </div>
+
+      <section className="panel" data-testid="embedding-provider-card">
+        <div className="panel-title">
+          Embedding provider
+          <span className="text-fg-faint normal-case">feature element-embeddings</span>
+        </div>
+        {provider === null ? (
+          <p className="text-fg-faint p-3 text-[12px]" data-testid="provider-unknown">
+            Provider status is part of the Graph shape snapshot — Compute it on the
+            Analytics screen to see the active backend and model. (Pasting vectors and
+            bound indices work regardless.)
+          </p>
+        ) : !provider.enabled ? (
+          <p className="text-fg-dim p-3 text-[12px]" data-testid="provider-disabled">
+            Off on this instance (Fallen8:Embedding:Enabled). Text-in embedding and semantic
+            search are disabled; bring-your-own-vector paths work as normal.
+          </p>
+        ) : (
+          <div
+            className="grid grid-cols-2 gap-3 p-3 md:grid-cols-3"
+            data-testid="provider-enabled"
+          >
+            <Stat label="backend" value={provider.backend ?? "—"} />
+            <Stat
+              label="model"
+              value={
+                provider.modelName
+                  ? provider.modelName + (provider.modelVersion ? `@${provider.modelVersion}` : "")
+                  : "—"
+              }
+            />
+            <Stat label="dimension" value={String(provider.dimension)} />
+            <Stat label="metric" value={provider.intendedMetric ?? "—"} />
+            <Stat label="loaded" value={provider.loaded ? "yes" : "not yet"} />
+          </div>
+        )}
+      </section>
 
       <section className="panel">
         <div className="panel-title">Playground</div>

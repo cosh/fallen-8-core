@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { getStatistics } from "../api/endpoints";
-import type { GraphStatisticsREST } from "../api/types";
+import type { EmbeddingProviderStatsREST, GraphStatisticsREST } from "../api/types";
 import type { InstanceConfig } from "../instances/types";
+
+/** The reserved property-key prefix element embeddings are stored under (server contract). */
+export const EMBEDDING_PROPERTY_PREFIX = "$embedding:";
 
 /**
  * The per-instance graph-shape snapshot (feature studio-coverage): one react-query cache
@@ -27,6 +30,12 @@ export interface ShapeSuggestions {
   edgeLabels: string[];
   propertyKeys: string[];
   indexIds: string[];
+  /**
+   * Embedding names seen on the graph (feature element-embeddings): derived from the
+   * reserved "$embedding:<name>" property keys in the shape snapshot, since embeddings
+   * are stored as reserved properties. Empty until a shape is computed.
+   */
+  embeddingNames: string[];
 }
 
 /** Datalist feeds from a snapshot; all empty when none has been computed yet. */
@@ -35,12 +44,31 @@ export function shapeSuggestions(
 ): ShapeSuggestions {
   const names = (top: { name: string | null }[] | null | undefined) =>
     (top ?? []).map((t) => t.name).filter((n): n is string => Boolean(n));
+  const propertyKeys = names(shape?.propertyKeys?.top);
   return {
     vertexLabels: names(shape?.vertexLabels?.top),
     edgeLabels: names(shape?.edgeLabels?.top),
-    propertyKeys: names(shape?.propertyKeys?.top),
+    // The reserved embedding keys are folded out of the plain property-key suggestions —
+    // a user picking a property to scan should not see "$embedding:default".
+    propertyKeys: propertyKeys.filter((k) => !k.startsWith(EMBEDDING_PROPERTY_PREFIX)),
+    embeddingNames: propertyKeys
+      .filter((k) => k.startsWith(EMBEDDING_PROPERTY_PREFIX))
+      .map((k) => k.slice(EMBEDDING_PROPERTY_PREFIX.length))
+      .filter(Boolean),
     indexIds: (shape?.indices ?? [])
       .map((i) => i.name)
       .filter((n): n is string => Boolean(n)),
   };
+}
+
+/**
+ * The embedding-provider snapshot from a computed graph shape (feature embedding-provider).
+ * null when no shape has been computed OR the server predates the provider feature — the
+ * UI treats "unknown" like "not confirmed enabled": text-in controls stay disabled with a
+ * hint to Compute the Graph shape, while bring-your-own-vector paths always work.
+ */
+export function embeddingProvider(
+  shape: GraphStatisticsREST | null | undefined,
+): EmbeddingProviderStatsREST | null {
+  return shape?.embedding ?? null;
 }

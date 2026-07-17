@@ -74,6 +74,38 @@ export const FIELD_HELP = {
     "Property on the element that holds the embedding; the index reads the vector from there (WAL-recoverable, the honest default).",
   vectorAddVector:
     "The embedding itself, pasted as a JSON array or comma-separated floats — stored only in the index, not on the element.",
+  vectorBindEmbeddingName:
+    "Optional: bind this vector index to a named element embedding. A bound index maintains itself as a projection of that embedding — you write embeddings on the elements and the index follows; explicit vector-adds are rejected. Leave empty for a raw (bring-your-own-vector) index.",
+  vectorModel:
+    "Optional model-identity string this index expects its vectors to come from (e.g. 'bge-micro-v2#384#Cosine'). The embedding provider refuses to write mismatched vectors; a search whose provider identity differs answers 409. Diagnostic only for a raw index.",
+  embeddingSearchText:
+    "Search text. The embedding provider embeds it once (server-side), then runs kNN — you never handle the vector. Needs the provider enabled on this instance.",
+
+  // ---- browser: element embeddings ----
+  embeddingName:
+    "Name of the embedding to read/write on this element, e.g. 'default'. Letters, digits, underscore, dash; max 64 chars. Different names hold independent vectors (and may differ in dimension).",
+  embeddingVectorPaste:
+    "The embedding vector, pasted as a JSON array or comma-separated floats. The element is the source of truth; any vector index bound to this name updates automatically on save.",
+  embeddingText:
+    "Text to embed onto this element via the server's embedding provider (stored with a model-identity stamp). Needs the provider enabled; otherwise paste a vector.",
+  embeddingShowReserved:
+    "Show the raw reserved properties ($embedding:… and $embeddingModel:…) in the plain property table. They are normally folded into the Embeddings tab.",
+
+  // ---- semantic traversal block (path + subgraph) ----
+  semanticQuerySource:
+    "Where the query vector comes from: paste a vector, or type text the embedding provider embeds once before the traversal starts (provider-gated).",
+  semanticQueryVector:
+    "The query vector elements are scored against, pasted as a JSON array or comma-separated floats. Embedded once, up front — the traversal itself runs no model.",
+  semanticQueryText:
+    "Query text the embedding provider embeds once before the traversal. Mutually exclusive with a pasted vector; needs the provider enabled (else the server 403s).",
+  semanticEmbeddingName:
+    "Which named element embedding to score against (default 'default'). Elements without it are simply not matched.",
+  semanticMetric:
+    "Similarity metric: Cosine/DotProduct (higher is closer) or L2 (lower is closer). Must suit the embeddings; bit-identical to the vector index's scoring.",
+  semanticMinScore:
+    "Declarative filter: keep only elements whose similarity is at least this (Cosine/DotProduct) or at most this (L2). No C# needed — runs with dynamic code execution off.",
+  semanticCostBySimilarity:
+    "Declarative cost (DIJKSTRA paths only): weight each vertex by similarity so the search prefers close vertices (Cosine cost = 1 − score; L2 = distance). Not available under DotProduct.",
 
   // ---- path ----
   pathFrom: "Id of the vertex the path search starts from.",

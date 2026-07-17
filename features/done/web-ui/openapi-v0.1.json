@@ -7008,6 +7008,22 @@
             ],
             "description": "The index plugin type the index was created with.",
             "example": "DictionaryIndex"
+          },
+          "embeddingName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "For a vector index BOUND to an element embedding (feature element-embeddings), the\r\nembedding name it derives its projection from; `null` for an unbound (raw)\r\nvector index and for every other family. Lets a client show that the index is a\r\nself-maintained projection and that explicit adds are rejected. Not captured in\r\nsave-game KPIs (only the live `/status` inventory populates it).",
+            "example": "default"
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "For a vector index, the declared model-identity string it expects its vectors to\r\ncome from (feature embedding-provider), or `null`. Diagnostic only.",
+            "example": "bge-micro-v2#384#Cosine"
           }
         },
         "description": "A registered index: its id and the index plugin type. Appears on\r\nStatusREST (live inventory) and in save-game KPIs (inventory at save time)."

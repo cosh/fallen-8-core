@@ -49,6 +49,38 @@ describe("buildPathSpecification", () => {
     const spec = buildPathSpecification({ ...inlineDraft, storedQuery: "leftover" });
     expect(spec).not.toHaveProperty("storedQuery");
   });
+
+  it("attaches the semantic block and omits the fragment slots it owns", () => {
+    // minScore owns vertexFilter, costBySimilarity owns vertexCost — the inline fragments
+    // must NOT ride along (the server 400s if both fill one slot), but stay in the draft.
+    const draft: PathDraft = {
+      ...DEFAULT_PATH_DRAFT,
+      algorithm: "DIJKSTRA",
+      vertexFilter: "return (v) => true;",
+      vertexCost: "return (v) => 1.0;",
+      edgeFilter: "return (e) => true;",
+    };
+    const spec = buildPathSpecification(draft, {
+      queryVector: [1, 0],
+      metric: "Cosine",
+      minScore: 0.7,
+      costBySimilarity: true,
+    });
+    expect(spec.semantic?.minScore).toBe(0.7);
+    expect(spec.filter?.vertexFilter).toBeUndefined();
+    expect(spec.cost?.vertexCost).toBeUndefined();
+    // Non-owned fragments are unaffected.
+    expect(spec.filter?.edgeFilter).toBe("return (e) => true;");
+  });
+
+  it("keeps the fragment when the semantic block does NOT own that slot", () => {
+    const spec = buildPathSpecification(
+      { ...DEFAULT_PATH_DRAFT, vertexFilter: "return (v) => true;" },
+      { queryVector: [1, 0], metric: "Cosine" }, // no minScore -> does not own vertexFilter
+    );
+    expect(spec.filter?.vertexFilter).toBe("return (v) => true;");
+    expect(spec.semantic?.queryVector).toEqual([1, 0]);
+  });
 });
 
 describe("pathBlockFromDraft / hasAnyPathFragment", () => {

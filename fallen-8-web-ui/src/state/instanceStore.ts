@@ -2,6 +2,7 @@ import { create, type UseBoundStore, type StoreApi } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CanvasEdgeInput, PathREST, PropertyREST, VertexREST } from "../api/types";
 import { DEFAULT_STYLE_CONFIG, type StyleConfig } from "../canvas/styleConfig";
+import { DEFAULT_SEMANTIC_DRAFT, type SemanticDraft } from "../lib/semantic";
 
 /**
  * Per-instance workspace state (FR-1c), via a memoized store factory. Each instance id
@@ -69,6 +70,8 @@ export interface PathDraft {
   edgeCost: string;
   filterSource: FilterSource;
   storedQuery: string;
+  /** Declarative semantic-traversal block (feature element-embeddings). */
+  semantic: SemanticDraft;
 }
 
 export const DEFAULT_PATH_DRAFT: PathDraft = {
@@ -85,6 +88,7 @@ export const DEFAULT_PATH_DRAFT: PathDraft = {
   edgeCost: "",
   filterSource: "inline",
   storedQuery: "",
+  semantic: { ...DEFAULT_SEMANTIC_DRAFT },
 };
 
 /** One-shot navigation intent: "open Query with this scan pre-filled" (cleared on consume). */
@@ -221,7 +225,13 @@ function createWorkspaceStore(instanceId: string) {
           return {
             ...current,
             ...p,
-            pathDraft: { ...DEFAULT_PATH_DRAFT, ...(p.pathDraft ?? {}) },
+            pathDraft: {
+              ...DEFAULT_PATH_DRAFT,
+              ...(p.pathDraft ?? {}),
+              // Nested draft added after some state was persisted: deep-default it too, so
+              // an older pathDraft picks up every semantic field instead of a partial.
+              semantic: { ...DEFAULT_SEMANTIC_DRAFT, ...(p.pathDraft?.semantic ?? {}) },
+            },
             styleConfig: { ...DEFAULT_STYLE_CONFIG, ...(p.styleConfig ?? {}) },
           };
         },

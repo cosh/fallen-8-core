@@ -158,11 +158,23 @@ namespace NoSQL.GraphDB.App.Controllers
             IEnumerable<String> availableServices;
             PluginFactory.TryGetAvailablePlugins<IService>(out availableServices);
 
-            // Read-locked snapshot (id -> plugin type); O(#indices), no graph pass.
+            // Read-locked snapshot (id -> index); O(#indices), no graph pass. A bound vector
+            // index (feature element-embeddings) also reports its embedding binding + model
+            // identity so a client can mark it a self-maintained projection.
             var indices = new List<IndexDescriptionREST>();
-            foreach (var kv in _fallen8.IndexFactory.GetIndexPluginTypesSnapshot())
+            foreach (var kv in _fallen8.IndexFactory.GetNamedIndicesSnapshot())
             {
-                indices.Add(new IndexDescriptionREST { IndexId = kv.Key, PluginType = kv.Value });
+                var description = new IndexDescriptionREST
+                {
+                    IndexId = kv.Key,
+                    PluginType = kv.Value?.PluginName,
+                };
+                if (kv.Value is NoSQL.GraphDB.Core.Index.Vector.IVectorIndex vectorIndex)
+                {
+                    description.EmbeddingName = vectorIndex.EmbeddingName;
+                    description.Model = vectorIndex.Model;
+                }
+                indices.Add(description);
             }
 
             return new StatusREST

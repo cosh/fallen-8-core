@@ -49,5 +49,30 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   For a vector index BOUND to an element embedding (feature element-embeddings), the
+        ///   embedding name it derives its projection from; <c>null</c> for an unbound (raw)
+        ///   vector index and for every other family. Lets a client show that the index is a
+        ///   self-maintained projection and that explicit adds are rejected. Not captured in
+        ///   save-game KPIs (only the live <c>/status</c> inventory populates it).
+        /// </summary>
+        /// <example>default</example>
+        [JsonPropertyName("embeddingName")]
+        public String EmbeddingName
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   For a vector index, the declared model-identity string it expects its vectors to
+        ///   come from (feature embedding-provider), or <c>null</c>. Diagnostic only.
+        /// </summary>
+        /// <example>bge-micro-v2#384#Cosine</example>
+        [JsonPropertyName("model")]
+        public String Model
+        {
+            get; set;
+        }
     }
 }

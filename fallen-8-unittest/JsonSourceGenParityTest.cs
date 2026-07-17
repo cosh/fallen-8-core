@@ -738,7 +738,13 @@ namespace NoSQL.GraphDB.Tests
                     MedianTps = 601225777.44,
                     StandardDeviationTps = 60311324.76
                 }, "BenchmarkResultREST"),
-                (new IndexDescriptionREST { IndexId = "myIndex", PluginType = "DictionaryIndex" }, "IndexDescriptionREST"),
+                (new IndexDescriptionREST
+                {
+                    IndexId = "embeddings",
+                    PluginType = "VectorIndex",
+                    EmbeddingName = "default",
+                    Model = "bge-micro-v2#384#Cosine"
+                }, "IndexDescriptionREST"),
                 (new SaveGameKpisREST
                 {
                     VertexCount = 1000,

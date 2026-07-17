@@ -11,6 +11,14 @@ import {
   hasAnyPathFragment,
   pathBlockFromDraft,
 } from "../lib/storedQueries";
+import {
+  buildSemanticSpec,
+  semanticOwnsVertexCost,
+  semanticOwnsVertexFilter,
+  type SemanticDraft,
+} from "../lib/semantic";
+import { embeddingProvider, shapeSuggestions, useGraphShape } from "../state/graphShape";
+import { SemanticBlockEditor } from "../components/SemanticBlockEditor";
 import { DelegateSlot } from "../delegate/DelegateSlot";
 import {
   FilterSourceToggle,
@@ -36,15 +44,23 @@ export function PathScreen() {
   const setPathOverlay = store((s) => s.setPathOverlay);
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
   const navigate = useNavigate();
+  const shape = useGraphShape(instance).data;
+  const suggestions = shapeSuggestions(shape);
+  const provider = embeddingProvider(shape);
+  const providerEnabled = provider ? provider.enabled : null;
   const [showAdvanced, setShowAdvanced] = useState(
     Boolean(
       draft.vertexFilter ||
         draft.edgeFilter ||
         draft.edgePropertyFilter ||
         draft.vertexCost ||
-        draft.edgeCost,
+        draft.edgeCost ||
+        draft.semantic.enabled,
     ),
   );
+
+  const setSemantic = (patch: Partial<SemanticDraft>) =>
+    setDraft({ semantic: { ...draft.semantic, ...patch } });
 
   const search = useMutation({
     mutationFn: async () => {
@@ -53,7 +69,19 @@ export function PathScreen() {
       if (!Number.isInteger(from) || !Number.isInteger(to)) {
         throw new Error("Enter numeric source and target vertex ids.");
       }
-      return (await findPaths(instance, from, to, buildPathSpecification(draft))) ?? [];
+      // The semantic block is data, not code: build+validate it here so an invalid block
+      // (empty vector, DotProduct cost, text without the provider) is a clear client-side
+      // error rather than the server's 400/403.
+      const semantic = buildSemanticSpec(draft.semantic, {
+        allowCost: true,
+        providerEnabled,
+      });
+      if (!semantic.ok) {
+        throw new Error(`Semantic block: ${semantic.error}`);
+      }
+      return (
+        (await findPaths(instance, from, to, buildPathSpecification(draft, semantic.spec))) ?? []
+      );
     },
   });
 
@@ -123,9 +151,16 @@ export function PathScreen() {
                 data-testid="path-algo"
                 className="input w-auto"
                 value={draft.algorithm}
-                onChange={(e) =>
-                  setDraft({ algorithm: e.target.value as "BLS" | "DIJKSTRA" })
-                }
+                onChange={(e) => {
+                  const algorithm = e.target.value as "BLS" | "DIJKSTRA";
+                  // BLS ignores costs; drop a stale costBySimilarity so it is never sent
+                  // (and never owns the vertex-cost slot) under a hop-count search.
+                  setDraft(
+                    algorithm === "BLS"
+                      ? { algorithm, semantic: { ...draft.semantic, costBySimilarity: false } }
+                      : { algorithm },
+                  );
+                }}
               >
                 <option value="BLS">BLS (hop count)</option>
                 <option value="DIJKSTRA">Dijkstra (weighted)</option>
@@ -178,7 +213,8 @@ export function PathScreen() {
               data-testid="path-run"
               disabled={
                 search.isPending ||
-                (draft.filterSource === "stored" && !draft.storedQuery)
+                (draft.filterSource === "stored" && !draft.storedQuery) ||
+                !buildSemanticSpec(draft.semantic, { allowCost: true, providerEnabled }).ok
               }
               title={
                 draft.filterSource === "stored" && !draft.storedQuery
@@ -199,6 +235,20 @@ export function PathScreen() {
           <FilterSourceToggle
             value={draft.filterSource}
             onChange={(filterSource) => setDraft({ filterSource })}
+          />
+
+          {/* Semantic scoring composes with BOTH inline fragments and a stored path query
+              (it only supplies the query vector), so it is always available here. */}
+          <SemanticBlockEditor
+            draft={draft.semantic}
+            onChange={setSemantic}
+            allowCost
+            costDisabledReason={
+              draft.algorithm === "BLS" ? "BLS ignores costs — use DIJKSTRA" : undefined
+            }
+            providerEnabled={providerEnabled}
+            embeddingNames={suggestions.embeddingNames}
+            idPrefix="path"
           />
 
           {draft.filterSource === "stored" && (
@@ -230,6 +280,8 @@ export function PathScreen() {
                 contextLabel={slotContext}
                 value={draft.vertexFilter}
                 onChange={(fragment) => setDraft({ vertexFilter: fragment })}
+                disabled={semanticOwnsVertexFilter(draft.semantic)}
+                disabledReason="owned by semantic minScore — clear it to write a fragment"
               />
               <DelegateSlot
                 instance={instance}
@@ -254,6 +306,8 @@ export function PathScreen() {
                 contextLabel={slotContext}
                 value={draft.vertexCost}
                 onChange={(fragment) => setDraft({ vertexCost: fragment })}
+                disabled={semanticOwnsVertexCost(draft.semantic)}
+                disabledReason="owned by semantic costBySimilarity — clear it to write a fragment"
               />
               <DelegateSlot
                 instance={instance}
@@ -306,7 +360,16 @@ export function PathScreen() {
               {search.data.map((path, index) => (
                 <div key={index} className="panel p-2">
                   <div className="flex items-center gap-2 text-[12px]">
-                    <span className="text-fg-dim">
+                    <span
+                      className="text-fg-dim"
+                      title={
+                        draft.semantic.enabled && draft.semantic.costBySimilarity
+                          ? draft.semantic.metric === "L2"
+                            ? "each vertex cost is its L2 distance to the query vector"
+                            : "each vertex cost is 1 − its cosine similarity to the query vector"
+                          : undefined
+                      }
+                    >
                       #{index + 1} · {path.pathElements.length} hop(s) · totalWeight{" "}
                       <span data-testid={`path-weight-${index}`}>{path.totalWeight}</span>
                     </span>
