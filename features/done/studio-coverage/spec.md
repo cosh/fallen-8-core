@@ -1,7 +1,7 @@
 # Studio Coverage — UX Concept Specification
 
-> **Status:** Implemented on branch `feature/studio-coverage` (see [plan.md](./plan.md)
-> for the phase record); awaiting review/merge. Produced by a three-lens design review —
+> **Status:** Implemented and merged (branch `feature/studio-coverage`, 2026-07-17; see
+> [plan.md](./plan.md) for the phase record). Produced by a three-lens design review —
 > task-flow research, information architecture, and minimal-surface architecture — over the
 > six backend capabilities that have no F8 Studio surface. Where the lenses disagreed, the
 > arbitration and the dissent are recorded inline. Feature mechanics are NOT re-explained
