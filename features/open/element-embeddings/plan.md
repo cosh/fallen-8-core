@@ -33,11 +33,13 @@ Intent: an embedding is durable element state, readable through the one coupling
 
 Intent: one scoring implementation, bit-identical everywhere.
 
-- [ ] `VectorMath.Score`/`TryScore` in `Index/Vector`; `VectorIndex.TryNearestNeighbors`
+- [x] `VectorMath.Score`/`TryScore` in `Index/Vector`; `VectorIndex.TryNearestNeighbors`
   switches its metric dispatch to `VectorMath.Score` (behaviour-preserving refactor).
-- [ ] Tests: hand-computed values per metric, non-finite/length-mismatch rejection, and
-  the bit-identity pin — `VectorMath` vs. index kNN scores for identical pairs; existing
-  `VectorIndexTest` suite green untouched.
+  `TryScore`'s out is `default` whenever it returns false (no NaN escape, ever).
+- [x] Tests (`VectorMathTest`, 5): hand-computed values per metric,
+  non-finite/length-mismatch/empty rejection, and the bit-identity pin — `VectorMath` vs.
+  index kNN scores for identical pairs under all three metrics; existing `VectorIndexTest`
+  suite green untouched.
 
 ## Phase 2 — Traversal integration (FR-6…FR-8)
 

@@ -27,7 +27,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
-using System.Numerics.Tensors;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
@@ -520,12 +519,9 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                         }
 
                         var candidate = _vectors.AsSpan(slot * Dimension, Dimension);
-                        float score = Metric switch
-                        {
-                            VectorDistanceMetric.Cosine => TensorPrimitives.CosineSimilarity(query, candidate),
-                            VectorDistanceMetric.DotProduct => TensorPrimitives.Dot(query, candidate),
-                            _ => TensorPrimitives.Distance(query, candidate)
-                        };
+                        // The shared primitive (feature element-embeddings): index kNN and
+                        // in-traversal similarity are bit-identical because both are this call.
+                        float score = VectorMath.Score(query, candidate, Metric);
 
                         // A non-finite score must never enter the heap: NaN is not totally
                         // ordered (it would freeze the root and degrade "top-k" to scan order),
