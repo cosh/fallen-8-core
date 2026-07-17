@@ -268,6 +268,18 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     });
   });
 
+  it("subgraph nesting: fromSubGraph travels as a query param, never in the body", async () => {
+    await endpoints.createSubGraph(instance, { name: "child" }, "parent");
+    await endpoints.createSubGraph(instance, { name: "top" });
+
+    const nested = recorded[0];
+    expect(nested.query.get("fromSubGraph")).toBe("parent");
+    expect(nested.body).not.toHaveProperty("fromSubGraph");
+
+    // No nesting → the param is absent entirely (absent ≠ empty string).
+    expect(recorded[1].query.has("fromSubGraph")).toBe(false);
+  });
+
   it("bulk interchange: export carries label filters, import sends x-ndjson", async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     vi.stubGlobal(

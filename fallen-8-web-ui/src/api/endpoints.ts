@@ -293,8 +293,17 @@ export const getSubGraph = (i: InstanceConfig, name: string) =>
 export const getSubGraphContents = (i: InstanceConfig, name: string) =>
   apiRequest<GraphREST>(i, `/subgraph/${encodeURIComponent(name)}/graph`);
 
-export const createSubGraph = (i: InstanceConfig, spec: SubGraphSpecification) =>
-  apiRequest<SubGraphSummary>(i, "/subgraph", { method: "PUT", body: spec });
+/** `fromSubGraph` (optional nesting) travels as a query parameter per the API contract. */
+export const createSubGraph = (
+  i: InstanceConfig,
+  spec: SubGraphSpecification,
+  fromSubGraph?: string,
+) =>
+  apiRequest<SubGraphSummary>(i, "/subgraph", {
+    method: "PUT",
+    body: spec,
+    query: fromSubGraph ? { fromSubGraph } : undefined,
+  });
 
 export const recalculateSubGraph = (i: InstanceConfig, name: string) =>
   apiRequest<SubGraphSummary>(i, `/subgraph/${encodeURIComponent(name)}/recalculate`, {
