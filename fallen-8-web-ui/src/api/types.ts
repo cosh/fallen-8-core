@@ -10,6 +10,15 @@
 export interface IndexDescription {
   indexId: string;
   pluginType: string | null;
+  /**
+   * For a vector index BOUND to an element embedding (feature element-embeddings), the
+   * embedding name it projects; null for a raw/unbound index and every other family. A
+   * bound index maintains itself — explicit vector adds are rejected. Populated only by
+   * the live /status inventory, never in save-game KPIs. Optional so older servers parse.
+   */
+  embeddingName?: string | null;
+  /** The declared model-identity string a vector index expects, or null. Diagnostic only. */
+  model?: string | null;
 }
 
 /** Save-game registry (feature save-games). */
@@ -140,6 +149,20 @@ export interface MemoryStatsREST {
   gcFragmentedBytes: number;
 }
 
+/**
+ * The active embedding provider (feature embedding-provider), surfaced on /statistics.
+ * Reading it never loads a model. null when the server predates the provider feature.
+ */
+export interface EmbeddingProviderStatsREST {
+  enabled: boolean;
+  backend: string | null;
+  modelName: string | null;
+  modelVersion: string | null;
+  dimension: number;
+  intendedMetric: string | null;
+  loaded: boolean;
+}
+
 export interface GraphStatisticsREST {
   vertexCount: number;
   edgeCount: number;
@@ -154,6 +177,8 @@ export interface GraphStatisticsREST {
   computedInMs: number;
   sampled: boolean;
   sampleStride: number;
+  /** The embedding provider snapshot; null on servers predating the provider feature. */
+  embedding?: EmbeddingProviderStatsREST | null;
 }
 
 /** Typed literal (FR-9): { value | propertyValue, fullQualifiedTypeName } */
@@ -276,9 +301,61 @@ export interface VectorIndexAddSpecification {
   propertyId?: string;
 }
 
+/**
+ * Element embeddings (feature element-embeddings). A named embedding is durable element
+ * state read/written through the typed /graphelement/{id}/embedding/{name} routes; the
+ * element is the source of truth and a bound vector index projects from it. PUT/DELETE
+ * answer 202 with no body and take no waitForCompletion (unlike the property routes).
+ */
+export interface EmbeddingWriteSpecification {
+  vector: number[];
+}
+
+export interface ElementEmbeddingREST {
+  name: string | null;
+  vector: number[] | null;
+  /** The model-identity stamp a provider wrote, or null for a bring-your-own vector. */
+  model: string | null;
+}
+
+/**
+ * Text-in embedding (feature embedding-provider) — capability-gated (403 when the
+ * provider is off). name defaults to "default" server-side.
+ */
+export interface EmbedElementSpecification {
+  graphElementId: number;
+  text: string;
+  name?: string;
+}
+
+/** Semantic search: embed a query text once, then kNN against a vector index. */
+export interface EmbeddingSearchSpecification {
+  indexId: string;
+  text: string;
+  k: number;
+  kind?: "vertex" | "edge" | "any";
+  label?: string;
+}
+
 export interface IndexAddToSpecification {
   graphElementId: number;
   key: LiteralSpecification;
+}
+
+/**
+ * The declarative semantic block (feature element-embeddings) on POST /path and
+ * PUT /subgraph. Carries the query vector (or queryText, embedded once by the provider —
+ * mutually exclusive) plus code-free similarity filter/cost. Pure data: it runs with
+ * dynamic code execution off. minScore filters vertices by similarity; costBySimilarity
+ * (path only) weights a DIJKSTRA search by it. See the element-embeddings README.
+ */
+export interface SemanticTraversalSpecification {
+  queryVector?: number[];
+  queryText?: string;
+  embeddingName?: string;
+  metric?: "Cosine" | "DotProduct" | "L2";
+  minScore?: number;
+  costBySimilarity?: boolean;
 }
 
 export interface PathFilterSpecification {
@@ -301,6 +378,8 @@ export interface PathSpecification {
   cost?: PathCostSpecification;
   /** Stored query of kind Path — mutually exclusive with filter/cost (server 400s on mix). */
   storedQuery?: string;
+  /** Declarative semantic block (feature element-embeddings); pure data, dynamic-code-off safe. */
+  semantic?: SemanticTraversalSpecification;
 }
 
 export interface PathElementREST {
@@ -339,6 +418,12 @@ export interface SubGraphSpecification {
   patterns?: PatternSpecification[];
   /** Stored query of kind SubGraph — mutually exclusive with filters/patterns (server 400s on mix). */
   storedQuery?: string;
+  /**
+   * Declarative semantic block (feature element-embeddings), bound at REGISTRATION;
+   * minScore becomes the vertex pre-filter. costBySimilarity is path-only (400 here); not
+   * available on a stored-template invocation (400).
+   */
+  semantic?: SemanticTraversalSpecification;
 }
 
 export interface SubGraphSummary {

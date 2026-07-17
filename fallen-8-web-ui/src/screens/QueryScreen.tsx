@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
-import { shapeSuggestions, useGraphShape } from "../state/graphShape";
+import { embeddingProvider, shapeSuggestions, useGraphShape } from "../state/graphShape";
 import { useStatus } from "../state/status";
 import {
   addVectorToIndex,
   createIndex,
   deleteIndex,
+  embeddingSearch,
   scanFulltext,
   scanIndex,
   scanIndexRange,
@@ -75,6 +76,9 @@ export function QueryScreen() {
   const [vectorK, setVectorK] = useState("10");
   const [vectorKind, setVectorKind] = useState<(typeof VECTOR_KINDS)[number]>("any");
   const [vectorLabel, setVectorLabel] = useState("");
+  // Semantic search (feature embedding-provider): embed a query TEXT server-side, then kNN.
+  const [vectorSource, setVectorSource] = useState<"vector" | "text">("vector");
+  const [vectorSearchText, setVectorSearchText] = useState("");
 
   const [progress, setProgress] = useState<HydrationProgress | null>(null);
   const [elements, setElements] = useState<(VertexREST | EdgeREST)[]>([]);
@@ -83,7 +87,10 @@ export function QueryScreen() {
   const [idCount, setIdCount] = useState<number | null>(null);
   const [capped, setCapped] = useState(false);
 
-  const suggestions = shapeSuggestions(useGraphShape(instance).data);
+  const shape = useGraphShape(instance).data;
+  const suggestions = shapeSuggestions(shape);
+  const provider = embeddingProvider(shape);
+  const providerEnabled = provider ? provider.enabled : null;
 
   // Index-id suggestions: the live /status inventory first, shape-snapshot ids as backup
   // (the snapshot may know ids from before a reconnect; the union keeps both honest).
@@ -149,17 +156,29 @@ export function QueryScreen() {
         setFulltextResult(result);
         ids = result?.elements.map((e) => e.graphElementId) ?? [];
       } else if (kind === "vector") {
-        const parsed = parseVector(vectorText);
-        if (!parsed.ok) {
-          throw new Error(`Query vector: ${parsed.error}.`);
+        let result: VectorSearchResultREST | null;
+        if (vectorSource === "text") {
+          // Semantic search: the provider embeds the text once, server-side.
+          result = await embeddingSearch(instance, {
+            indexId,
+            text: vectorSearchText,
+            k: Number(vectorK),
+            kind: vectorKind === "any" ? undefined : vectorKind,
+            label: vectorLabel || undefined,
+          });
+        } else {
+          const parsed = parseVector(vectorText);
+          if (!parsed.ok) {
+            throw new Error(`Query vector: ${parsed.error}.`);
+          }
+          result = await scanVector(instance, {
+            indexId,
+            query: parsed.vector,
+            k: Number(vectorK),
+            kind: vectorKind === "any" ? undefined : vectorKind,
+            label: vectorLabel || undefined,
+          });
         }
-        const result = await scanVector(instance, {
-          indexId,
-          query: parsed.vector,
-          k: Number(vectorK),
-          kind: vectorKind === "any" ? undefined : vectorKind,
-          label: vectorLabel || undefined,
-        });
         setVectorResult(result);
         ids = result?.results?.map((r) => r.graphElementId) ?? [];
       } else {
@@ -354,28 +373,79 @@ export function QueryScreen() {
 
             {kind === "vector" && (
               <>
-                <Field
-                  helpKey="vectorQuery"
-                  label="query vector (JSON array or comma-separated floats)"
-                  htmlFor="vector-query"
-                  className="grow basis-full"
-                >
-                  <textarea
-                    id="vector-query"
-                    data-testid="vector-query"
-                    className="input h-16 w-full font-mono"
-                    value={vectorText}
-                    onChange={(e) => setVectorText(e.target.value)}
-                    placeholder="[0.12, -0.5, 0.33]"
-                  />
-                  <div className="text-fg-faint text-[11px]" data-testid="vector-dimension">
-                    {!vectorText.trim()
-                      ? "paste the embedding your pipeline logged"
-                      : parsedVector?.ok
-                        ? `d=${parsedVector.vector.length} — must match the index dimension`
-                        : parsedVector?.error}
+                <div className="flex basis-full items-center gap-2">
+                  <span className="text-fg-faint text-[10px] tracking-widest uppercase">
+                    query by
+                  </span>
+                  <div className="border-line flex overflow-hidden rounded border">
+                    {(["vector", "text"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        data-testid={`vector-source-${mode}`}
+                        className={`px-2 py-1 text-[11px] ${
+                          vectorSource === mode
+                            ? "bg-panel-2 text-accent"
+                            : "text-fg-dim hover:text-fg"
+                        } ${mode === "text" && providerEnabled !== true ? "opacity-50" : ""}`}
+                        disabled={mode === "text" && providerEnabled !== true}
+                        title={
+                          mode === "text" && providerEnabled !== true
+                            ? providerEnabled === null
+                              ? "provider status unknown — Compute the Graph shape (Analytics)"
+                              : "the embedding provider is off on this instance"
+                            : undefined
+                        }
+                        onClick={() => setVectorSource(mode)}
+                      >
+                        {mode === "text" ? "text (provider)" : "vector"}
+                      </button>
+                    ))}
                   </div>
-                </Field>
+                </div>
+                {vectorSource === "text" ? (
+                  <Field
+                    helpKey="embeddingSearchText"
+                    label="query text"
+                    htmlFor="vector-search-text"
+                    className="grow basis-full"
+                  >
+                    <input
+                      id="vector-search-text"
+                      data-testid="vector-search-text"
+                      className="input w-full"
+                      value={vectorSearchText}
+                      onChange={(e) => setVectorSearchText(e.target.value)}
+                      placeholder="red bicycles"
+                    />
+                    <div className="text-fg-faint text-[11px]">
+                      embedded once server-side, then kNN — scores identical to a pasted vector
+                    </div>
+                  </Field>
+                ) : (
+                  <Field
+                    helpKey="vectorQuery"
+                    label="query vector (JSON array or comma-separated floats)"
+                    htmlFor="vector-query"
+                    className="grow basis-full"
+                  >
+                    <textarea
+                      id="vector-query"
+                      data-testid="vector-query"
+                      className="input h-16 w-full font-mono"
+                      value={vectorText}
+                      onChange={(e) => setVectorText(e.target.value)}
+                      placeholder="[0.12, -0.5, 0.33]"
+                    />
+                    <div className="text-fg-faint text-[11px]" data-testid="vector-dimension">
+                      {!vectorText.trim()
+                        ? "paste the embedding your pipeline logged"
+                        : parsedVector?.ok
+                          ? `d=${parsedVector.vector.length} — must match the index dimension`
+                          : parsedVector?.error}
+                    </div>
+                  </Field>
+                )}
                 <Field helpKey="vectorK" label="k (1–1024)" htmlFor="vector-k">
                   <input
                     id="vector-k"
@@ -443,7 +513,13 @@ export function QueryScreen() {
               type="submit"
               className="btn btn-accent"
               data-testid="scan-run"
-              disabled={scan.isPending || (kind === "vector" && !parsedVector?.ok)}
+              disabled={
+                scan.isPending ||
+                (kind === "vector" &&
+                  (vectorSource === "text"
+                    ? !vectorSearchText.trim() || providerEnabled !== true
+                    : !parsedVector?.ok))
+              }
             >
               {scan.isPending ? "Scanning…" : "Run scan"}
             </button>
@@ -534,6 +610,13 @@ export function QueryScreen() {
           ),
         )}
       </datalist>
+      {/* Embedding names seen on the graph (feature element-embeddings), for the bound-index
+          binding input; empty until a Graph shape is computed. */}
+      <datalist id="shape-embedding-names">
+        {suggestions.embeddingNames.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
     </div>
   );
 }
@@ -546,6 +629,8 @@ function IndexManagement() {
   const [message, setMessage] = useState<string | null>(null);
   const [dimension, setDimension] = useState("384");
   const [metric, setMetric] = useState("Cosine");
+  const [embeddingName, setEmbeddingName] = useState("");
+  const [model, setModel] = useState("");
   const [showVectorAdd, setShowVectorAdd] = useState(false);
   const [vaElementId, setVaElementId] = useState("");
   const [vaMode, setVaMode] = useState<"property" | "explicit">("property");
@@ -554,11 +639,18 @@ function IndexManagement() {
 
   // The create dropdown feeds on the server's plugin discovery (free-form fallback for
   // servers predating the field / an unreachable status).
-  const availableTypes = useStatus(instance).data?.availableIndexPlugins ?? [];
+  const status = useStatus(instance).data;
+  const availableTypes = status?.availableIndexPlugins ?? [];
+  const inventory = status?.indices ?? [];
   const refreshInventory = () =>
     queryClient.invalidateQueries({ queryKey: [instance.id, "status"] });
 
   const isVectorIndex = indexType.trim() === "VectorIndex";
+  // A vector index BOUND to an embedding (feature element-embeddings) maintains itself —
+  // the add-vector form is rejected against it (400), so it is disabled with the reason.
+  const targetBinding = inventory.find(
+    (i) => i.indexId === indexId.trim() && i.embeddingName,
+  );
   // SpatialIndex.Initialize needs CLR objects (metric, dimensions) that JSON plugin
   // options cannot carry — POST /index always answers false for it, so Create is gated
   // (pinned by StatusIndexInventoryTest; spec studio-index-discovery).
@@ -570,6 +662,8 @@ function IndexManagement() {
         uniqueId: indexId,
         pluginType: indexType,
         // VectorIndex options travel as typed literals (vector-index README §creation).
+        // embeddingName/model are added only when set, so a raw index stays exactly the
+        // old two-option shape (pinned by index-management.test.tsx).
         pluginOptions: isVectorIndex
           ? {
               dimension: {
@@ -582,6 +676,24 @@ function IndexManagement() {
                 propertyValue: metric,
                 fullQualifiedTypeName: "System.String",
               },
+              ...(embeddingName.trim()
+                ? {
+                    embeddingName: {
+                      propertyId: "embeddingName",
+                      propertyValue: embeddingName.trim(),
+                      fullQualifiedTypeName: "System.String",
+                    },
+                  }
+                : {}),
+              ...(model.trim()
+                ? {
+                    model: {
+                      propertyId: "model",
+                      propertyValue: model.trim(),
+                      fullQualifiedTypeName: "System.String",
+                    },
+                  }
+                : {}),
             }
           : undefined,
       }),
@@ -627,6 +739,34 @@ function IndexManagement() {
   return (
     <section className="panel">
       <div className="panel-title">Index management</div>
+      {inventory.length > 0 && (
+        <div className="border-line flex flex-wrap gap-2 border-b p-3" data-testid="index-inventory">
+          {inventory.map((index) => (
+            <span
+              key={index.indexId}
+              className="border-line text-fg-dim rounded border px-2 py-0.5 text-[11px]"
+            >
+              <button
+                type="button"
+                className="text-accent-2 hover:underline"
+                onClick={() => setIndexId(index.indexId)}
+              >
+                {index.indexId}
+              </button>{" "}
+              <span className="text-fg-faint">{index.pluginType}</span>
+              {index.embeddingName && (
+                <span
+                  className="border-accent/50 text-accent ml-1 rounded border px-1"
+                  data-testid={`index-bound-${index.indexId}`}
+                  title={`self-maintained projection of the '${index.embeddingName}' element embedding — explicit adds are rejected`}
+                >
+                  bound:{index.embeddingName}
+                </span>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap items-end gap-2 p-3">
         <Field helpKey="indexId" label="index id" htmlFor="index-id">
           <input
@@ -692,6 +832,30 @@ function IndexManagement() {
                 <option>L2</option>
               </select>
             </Field>
+            <Field
+              helpKey="vectorBindEmbeddingName"
+              label="bind embedding (optional)"
+              htmlFor="vector-embedding-name"
+            >
+              <input
+                id="vector-embedding-name"
+                data-testid="vector-embedding-name"
+                className="input w-32"
+                list="shape-embedding-names"
+                value={embeddingName}
+                onChange={(e) => setEmbeddingName(e.target.value)}
+                placeholder="default"
+              />
+            </Field>
+            <Field helpKey="vectorModel" label="model (optional)" htmlFor="vector-model">
+              <input
+                id="vector-model"
+                className="input w-40"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="bge-micro-v2#384#Cosine"
+              />
+            </Field>
           </>
         )}
         <button
@@ -722,6 +886,13 @@ function IndexManagement() {
               this index type takes no creation options
             </span>
           )
+        )}
+        {isVectorIndex && embeddingName.trim() && (
+          <p className="text-fg-faint basis-full text-[11px]" data-testid="bound-create-note">
+            Bound: this index auto-maintains a projection of the '{embeddingName.trim()}'
+            element embedding — write embeddings on the elements (Browser → Embeddings) and
+            the index follows; explicit vector-adds are rejected.
+          </p>
         )}
       </div>
       <div className="px-3 pb-3">
@@ -797,17 +968,32 @@ function IndexManagement() {
               disabled={
                 !indexId.trim() ||
                 !vaElementId.trim() ||
+                Boolean(targetBinding) ||
                 (vaMode === "property" ? !vaPropertyId.trim() : !vaVectorText.trim()) ||
                 vectorAdd.isPending
+              }
+              title={
+                targetBinding
+                  ? `'${targetBinding.indexId}' is bound to embedding '${targetBinding.embeddingName}' — write the element embedding instead`
+                  : undefined
               }
               onClick={() => vectorAdd.mutate()}
             >
               Add vector
             </button>
-            <p className="text-fg-faint basis-full text-[11px]">
-              targets the index id above · property mode is WAL-recoverable — the honest
-              default; bulk embedding loads belong to your pipeline, not a browser.
-            </p>
+            {targetBinding ? (
+              <p className="text-warn basis-full text-[11px]" data-testid="bound-add-note">
+                '{targetBinding.indexId}' is a bound projection of the '
+                {targetBinding.embeddingName}' embedding and maintains itself — set the
+                embedding on the element (Browser → Embeddings) rather than adding to the
+                index.
+              </p>
+            ) : (
+              <p className="text-fg-faint basis-full text-[11px]">
+                targets the index id above · property mode is WAL-recoverable — the honest
+                default; bulk embedding loads belong to your pipeline, not a browser.
+              </p>
+            )}
           </div>
         )}
       </div>

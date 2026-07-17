@@ -479,6 +479,14 @@ and diagram, metric/cost semantics, memory math, backend matrix, the model-ident
 contract — lives in [features/element-embeddings/](features/done/element-embeddings/) and
 [features/embedding-provider/](features/done/embedding-provider/).
 
+**In F8 Studio**, none of this needs a curl: the Browser's element inspector has an
+**Embeddings** tab (set/replace/remove a named embedding by pasted vector, or by text when
+the provider is on); the Query screen creates **bound** vector indices, badges them in the
+inventory, and offers **semantic search** by text; and the Path and Subgraph screens carry
+a **semantic block** editor — the code-free similarity filter/cost that works with dynamic
+code execution off — that mirrors the server's one-owner-per-slot rules in the UI before a
+request is ever sent. See [features/studio-semantics/](features/done/studio-semantics/).
+
 ## Observability
 
 The engine emits metrics and traces through the BCL instruments (no engine dependency);

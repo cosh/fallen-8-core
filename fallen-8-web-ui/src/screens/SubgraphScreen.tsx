@@ -13,6 +13,14 @@ import type { PatternSpecification, SubGraphSpecification } from "../api/types";
 import { ApiError } from "../api/client";
 import { validatePatternSequence } from "../lib/patternValidation";
 import { normalizePatterns, subGraphBlock } from "../lib/storedQueries";
+import {
+  buildSemanticSpec,
+  DEFAULT_SEMANTIC_DRAFT,
+  semanticOwnsVertexFilter,
+  type SemanticDraft,
+} from "../lib/semantic";
+import { embeddingProvider, shapeSuggestions, useGraphShape } from "../state/graphShape";
+import { SemanticBlockEditor } from "../components/SemanticBlockEditor";
 import { DelegateSlot } from "../delegate/DelegateSlot";
 import {
   FilterSourceToggle,
@@ -95,7 +103,15 @@ export function SubgraphScreen() {
   const [patterns, setPatterns] = useState<PatternDraft[]>([]);
   const [filterSource, setFilterSource] = useState<FilterSource>("inline");
   const [storedQuery, setStoredQuery] = useState("");
+  const [semantic, setSemantic] = useState<SemanticDraft>({ ...DEFAULT_SEMANTIC_DRAFT });
   const [message, setMessage] = useState<string | null>(null);
+
+  const shape = useGraphShape(instance).data;
+  const suggestions = shapeSuggestions(shape);
+  const provider = embeddingProvider(shape);
+  const providerEnabled = provider ? provider.enabled : null;
+  const patchSemantic = (patch: Partial<SemanticDraft>) =>
+    setSemantic((previous) => ({ ...previous, ...patch }));
 
   // Consume a one-shot prefill (Dashboard → Stored queries → "Open in Subgraph").
   const subgraphPrefill = store((s) => s.subgraphPrefill);
@@ -120,6 +136,16 @@ export function SubgraphScreen() {
 
   const create = useMutation({
     mutationFn: async () => {
+      // The semantic block binds at registration and is data, not code (no dynamic-code
+      // gate). It cannot ride a stored-template invocation (server 400s), so it only
+      // attaches in inline mode; costBySimilarity is path-only (allowCost: false).
+      const semanticBuild = buildSemanticSpec(semantic, {
+        allowCost: false,
+        providerEnabled,
+      });
+      if (!semanticBuild.ok) {
+        throw new ApiError(400, "/subgraph", `Semantic block: ${semanticBuild.error}`);
+      }
       // Stored and inline fragments never travel together (server 400s on mix);
       // fromSubGraph is per-request scoping and rides along as a query param either way.
       const spec: SubGraphSpecification =
@@ -130,6 +156,7 @@ export function SubgraphScreen() {
               vertexFilter: vertexFilter || undefined,
               edgeFilter: edgeFilter || undefined,
               patterns: normalizePatterns(patterns),
+              ...(semanticBuild.spec ? { semantic: semanticBuild.spec } : {}),
             };
       return await createSubGraph(instance, spec, fromSubGraph.trim() || undefined);
     },
@@ -284,6 +311,19 @@ export function SubgraphScreen() {
 
           <FilterSourceToggle value={filterSource} onChange={setFilterSource} />
 
+          {/* Semantic scoring binds at registration; it cannot ride a stored template
+              (server 400), so it is disabled with a reason in stored mode. */}
+          <SemanticBlockEditor
+            draft={semantic}
+            onChange={patchSemantic}
+            allowCost={false}
+            providerEnabled={providerEnabled}
+            embeddingNames={suggestions.embeddingNames}
+            idPrefix="sg"
+            disabled={filterSource === "stored"}
+            disabledReason="a stored template already fixes its filters — inline the filters to add semantic scoring."
+          />
+
           {filterSource === "stored" && (
             <StoredQueryPicker
               instance={instance}
@@ -303,6 +343,8 @@ export function SubgraphScreen() {
               contextLabel={`Subgraph · ${name || "unnamed"}`}
               value={vertexFilter}
               onChange={setVertexFilter}
+              disabled={semanticOwnsVertexFilter(semantic)}
+              disabledReason="owned by semantic minScore — clear it to write a fragment"
             />
             <DelegateSlot
               instance={instance}
@@ -549,6 +591,8 @@ export function SubgraphScreen() {
               !name.trim() ||
               sequenceError !== null ||
               (filterSource === "stored" && !storedQuery) ||
+              (filterSource === "inline" &&
+                !buildSemanticSpec(semantic, { allowCost: false, providerEnabled }).ok) ||
               create.isPending
             }
             title={

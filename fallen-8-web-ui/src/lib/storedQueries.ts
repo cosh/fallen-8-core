@@ -3,6 +3,7 @@ import type {
   PathFilterSpecification,
   PathSpecification,
   PatternSpecification,
+  SemanticTraversalSpecification,
   StoredPathQueryBlock,
   StoredSubGraphQueryBlock,
 } from "../api/types";
@@ -18,13 +19,22 @@ import type { PathDraft } from "../state/instanceStore";
 /** Server-side name rule: always a safe URL path segment, compared case-sensitively. */
 export const STORED_QUERY_NAME = /^[A-Za-z0-9_-]{1,128}$/;
 
-/** The whole spec from a draft — stored and inline fragments never travel together. */
-export function buildPathSpecification(draft: PathDraft): PathSpecification {
+/**
+ * The whole spec from a draft — stored and inline fragments never travel together. The
+ * semantic block (feature element-embeddings) attaches regardless of the filter source
+ * (it supplies the query vector to declarative closures, inline fragments, or a stored
+ * path query's fragments alike).
+ */
+export function buildPathSpecification(
+  draft: PathDraft,
+  semantic?: SemanticTraversalSpecification,
+): PathSpecification {
   const base = {
     pathAlgorithmName: draft.algorithm,
     maxDepth: draft.maxDepth,
     maxResults: draft.maxResults,
     maxPathWeight: draft.maxPathWeight,
+    ...(semantic ? { semantic } : {}),
   };
   if (draft.filterSource === "stored") {
     return { ...base, storedQuery: draft.storedQuery };

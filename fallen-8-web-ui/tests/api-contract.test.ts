@@ -188,6 +188,11 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       graphElementId: 1,
       propertyId: "embedding",
     });
+    await endpoints.getElementEmbedding(instance, 1, "default");
+    await endpoints.putElementEmbedding(instance, 1, "default", { vector: [0.1, 0.2] });
+    await endpoints.deleteElementEmbedding(instance, 1, "default");
+    await endpoints.embedElement(instance, { graphElementId: 1, text: "a red bicycle" });
+    await endpoints.embeddingSearch(instance, { indexId: "emb", text: "red bicycles", k: 10 });
     await endpoints.listAnalyticsAlgorithms(instance);
     await endpoints.runAnalytics(instance, "PAGERANK", {
       vertexLabel: "person",
@@ -256,6 +261,31 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       "System.Int32",
     );
     expect(JSON.stringify(body)).not.toMatch(/FullQualifiedTypeName/);
+  });
+
+  it("embedding routes: PUT/DELETE send no waitForCompletion, bodies are camelCase", async () => {
+    await endpoints.putElementEmbedding(instance, 7, "default", { vector: [0.1, 0.2] });
+    await endpoints.deleteElementEmbedding(instance, 7, "default");
+    await endpoints.embedElement(instance, { graphElementId: 7, text: "x", name: "title" });
+    await endpoints.embeddingSearch(instance, {
+      indexId: "emb",
+      text: "x",
+      k: 5,
+      kind: "vertex",
+    });
+
+    const put = recorded[0];
+    expect(put.method).toBe("PUT");
+    expect(put.path).toBe("/graphelement/7/embedding/default");
+    expect(put.query.has("waitForCompletion")).toBe(false);
+    expect(put.body).toEqual({ vector: [0.1, 0.2] });
+
+    const del = recorded[1];
+    expect(del.method).toBe("DELETE");
+    expect(del.query.has("waitForCompletion")).toBe(false);
+
+    expect(recorded[2].body).toEqual({ graphElementId: 7, text: "x", name: "title" });
+    expect(recorded[3].body).toEqual({ indexId: "emb", text: "x", k: 5, kind: "vertex" });
   });
 
   it("calls the G-2 validate endpoint with the agreed contract", async () => {

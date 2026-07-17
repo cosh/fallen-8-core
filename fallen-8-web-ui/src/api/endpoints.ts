@@ -8,6 +8,10 @@ import type {
   DelegateKind,
   DelegateValidationResult,
   EdgeREST,
+  ElementEmbeddingREST,
+  EmbedElementSpecification,
+  EmbeddingSearchSpecification,
+  EmbeddingWriteSpecification,
   SaveGame,
   EdgeSpecification,
   FulltextIndexScanSpecification,
@@ -231,6 +235,54 @@ export const addVectorToIndex = (
 ) =>
   apiRequest<boolean>(i, `/index/vector/${encodeURIComponent(indexId)}`, {
     method: "PUT",
+    body: spec,
+  });
+
+// ---- element embeddings (feature element-embeddings) ----
+// The element is the source of truth for its named embedding; a bound vector index
+// projects from it. PUT/DELETE answer 202 with no body and take NO waitForCompletion
+// (unlike the property routes) — the embedding write commits synchronously enough.
+
+export const getElementEmbedding = (
+  i: InstanceConfig,
+  id: number,
+  name: string,
+  signal?: AbortSignal,
+) =>
+  apiRequest<ElementEmbeddingREST>(
+    i,
+    `/graphelement/${id}/embedding/${encodeURIComponent(name)}`,
+    { signal },
+  );
+
+export const putElementEmbedding = (
+  i: InstanceConfig,
+  id: number,
+  name: string,
+  spec: EmbeddingWriteSpecification,
+) =>
+  apiRequest<void>(i, `/graphelement/${id}/embedding/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: spec,
+  });
+
+export const deleteElementEmbedding = (i: InstanceConfig, id: number, name: string) =>
+  apiRequest<void>(i, `/graphelement/${id}/embedding/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+
+// ---- embedding provider (feature embedding-provider) ----
+// Capability-gated (403 when Fallen8:Embedding:Enabled is off). Text is embedded once,
+// server-side; the vector never touches the browser on these paths.
+
+/** Embed text and store it as the element's named embedding (+ model stamp), one txn. */
+export const embedElement = (i: InstanceConfig, spec: EmbedElementSpecification) =>
+  apiRequest<boolean>(i, "/embedding/element", { method: "POST", body: spec });
+
+/** Semantic search: embed the query text once, then kNN — same result shape as scanVector. */
+export const embeddingSearch = (i: InstanceConfig, spec: EmbeddingSearchSpecification) =>
+  apiRequest<VectorSearchResultREST>(i, "/embedding/search", {
+    method: "POST",
     body: spec,
   });
 

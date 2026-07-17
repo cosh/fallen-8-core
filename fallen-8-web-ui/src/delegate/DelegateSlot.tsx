@@ -15,6 +15,8 @@ export function DelegateSlot({
   contextLabel,
   value,
   onChange,
+  disabled = false,
+  disabledReason,
 }: {
   instance: InstanceConfig;
   delegateKind: DelegateKind;
@@ -22,8 +24,26 @@ export function DelegateSlot({
   contextLabel: string;
   value: string;
   onChange: (fragment: string) => void;
+  /** When true (the semantic block owns this slot), the slot is inert with a reason. */
+  disabled?: boolean;
+  disabledReason?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const testId = `slot-${label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+
+  if (disabled) {
+    return (
+      <div className="flex items-center gap-2 opacity-60" data-testid={`${testId}-disabled`}>
+        <span className="text-fg-dim w-44 shrink-0 text-[11px] tracking-wider uppercase">
+          {label}
+        </span>
+        <span className="text-fg-faint min-w-0 flex-1 truncate text-[11px]" title={disabledReason}>
+          {disabledReason ?? "disabled"}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2">
       <span className="text-fg-dim w-44 shrink-0 text-[11px] tracking-wider uppercase">
@@ -43,7 +63,7 @@ export function DelegateSlot({
       <button
         type="button"
         className="btn"
-        data-testid={`slot-${label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`}
+        data-testid={testId}
         onClick={() => setOpen(true)}
       >
         Edit
