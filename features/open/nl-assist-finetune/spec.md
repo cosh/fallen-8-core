@@ -25,6 +25,23 @@ a smaller prompt and a higher first-pass validation rate — not a new capabilit
 feature is entirely optional: with no fine-tuned model configured, the NL assist uses the
 stock base model exactly as today.
 
+### Motivating field example (2026-07-17)
+
+A real session (stock `phi4-mini`, `GraphElementFilter`, intent *"only ppersons older
+than 30 an with an ID smaller than 10"* — typos verbatim) produced:
+
+```csharp
+return (ge) => ge.GetPropertyCount() >= 2 && ge.TryGetProperty(out int id, "id") && id < 10 && ge.TryGetProperty(out string label, "label") == false && ge.Label != null && ge.Label.ToLowerInvariant().Contains("person");
+```
+
+This **passes compile validation** yet is semantically wrong: it probes the user-property
+store for `"id"`/`"label"` instead of the built-in `Id`/`Label` members, inverts the label
+probe, and invents a speculative `GetPropertyCount() >= 2` guard. The runtime side now
+mitigates with prompt steering and a combined few-shot (nl-assist-ux FR-10) plus a
+deterministic formatter (FR-9), but the example pins down two things for this pipeline:
+the dataset must teach the built-in-vs-user-property distinction explicitly, and a
+compile-only metric cannot see this failure class at all — hence FT-8 below.
+
 ## 2. Concepts (LoRA + model files, briefly)
 
 - **LoRA (Low-Rank Adaptation):** instead of updating all of a model's weights (expensive,
@@ -87,9 +104,16 @@ flowchart LR
   expanded with templated intents ("only persons older than N", "edges labelled X",
   "weight-cost from property P"); (b) hand-authored edge cases; (c) optional
   base-model-bootstrapped candidates that are **kept only if they pass
-  `/delegates/validate`** (self-cleaning — no invalid fragment enters the training set).
-  Every row is validated at generation time; the dataset is a build artifact, not
-  committed weights.
+  `/delegates/validate`** (self-cleaning — no invalid fragment enters the training set);
+  (d) **built-in-member contrast pairs** (from the field example above): intents that
+  mention label/id in every phrasing map to the built-in `Label`/`Id` members, and
+  paired rows show `TryGetProperty` used *only* for user-defined properties — the exact
+  confusion the base model exhibits; (e) **noisy intents**: a slice of rows carries
+  realistic typos and grammar slips ("ppersons", "an with") mapping to the same clean
+  fragments, since real usage is typed free-hand. Target fragments are the canonical
+  single-line form — pretty-printing is the UI's job (nl-assist-ux FR-9), not the
+  model's. Every row is validated at generation time; the dataset is a build artifact,
+  not committed weights.
 - **Stage 2 — LoRA fine-tune (in scope, scripted; runs on the user's hardware).** A Python
   training script (documented deps, MIT/Apache tooling such as a LoRA/PEFT trainer +
   `llama.cpp` for conversion) trains an adapter on the dataset with a fixed, recorded
@@ -103,10 +127,12 @@ flowchart LR
   it with `ollama create f8-delegate`. The operator then sets the NL-assist `model` to
   `f8-delegate`.
 - **Stage 7 — Evaluation gate (in scope).** Run a held-out intent set through both the
-  base and the fine-tuned model and score first-pass **validation** rate via
-  `POST /delegates/validate` (compile = correct). The pipeline reports both rates and the
-  delta; a fine-tuned model that does not strictly beat the base is a failed run
-  (tune or regenerate data, do not publish).
+  base and the fine-tuned model and score two rates: first-pass **compile validation**
+  via `POST /delegates/validate`, and **semantic correctness** on a seeded fixture graph
+  (FT-8) — the field example shows compile-only scoring is blind to a whole failure
+  class. The pipeline reports both rates per kind and the deltas; a fine-tuned model
+  that does not strictly beat the base on both is a failed run (tune or regenerate data,
+  do not publish).
 
 ## 5. Functional requirements
 
@@ -119,9 +145,10 @@ flowchart LR
   inclusion.
 - FT-3 **Per-kind coverage.** The dataset and the eval set both cover all six delegate
   kinds; the eval report is per-kind so a regression in one kind is visible.
-- FT-4 **Validation-based metric.** Model quality is measured only by compile-validation
+- FT-4 **Validation-based metric.** Model quality is measured by compile-validation
   pass rate on held-out intents (never self-reported model confidence), reusing the
-  product's own endpoint so "good" means "the product would accept it".
+  product's own endpoint so "good" means "the product would accept it". Compile is
+  necessary but not sufficient — see FT-8.
 - FT-5 **Artifact, not code, is the model.** The repo commits the generator, trainer
   config, Modelfile template, and eval harness. It never commits weights, adapters, GGUF,
   or the generated dataset (all `.gitignore`d, all reproducible).
@@ -132,6 +159,14 @@ flowchart LR
   MIT license, the tool versions and their licenses, and the dataset origin — so the
   produced artifact's license position is auditable. No non-MIT base enters the blessed
   pipeline (parent FR-26.1).
+- FT-8 **Semantic evaluation.** Beyond compiling, a held-out fragment is correct only if
+  it *selects the right elements*: the eval harness seeds the sample graph on the local
+  F8 instance, runs the generated fragment and the row's reference fragment through the
+  existing path/subgraph endpoints, and compares the returned element sets. This catches
+  compiling-but-wrong drafts — the `TryGetProperty(out string label, "label")` field
+  example — with no new server code. Semantic rows must include built-in-member intents
+  (label/id phrasings) and noisy-intent phrasings so the two dataset additions (Stage 1
+  d/e) are actually measured.
 
 ## 6. Prerequisites and gaps
 
@@ -141,6 +176,7 @@ flowchart LR
 | FT-G2 | Evaluation needs a running F8 with dynamic code enabled to reach `/delegates/validate`. | Reuse the same local instance the NL assist targets; the eval harness points at its base URL + key. |
 | FT-G3 | GGUF conversion / Ollama adapter support versions move fast. | Pin tool versions in the config; the Modelfile path (merge → GGUF → `FROM`) avoids depending on Ollama's newer direct-adapter loading. |
 | FT-G4 | Overfitting to templated intents. | Hold-out eval (FT-4) + hand-authored real-phrasing eval rows; publish only on a strict win. |
+| FT-G5 | Compile validation cannot see semantically wrong fragments (they compile — see the §1 field example). | Semantic eval on a seeded fixture graph (FT-8) is a mandatory half of the Stage-7 gate, not an optional extra. |
 
 ## 7. Testing requirements
 
@@ -148,8 +184,10 @@ flowchart LR
   `/delegates/validate` (mocked in unit tests, live in an integration run); per-kind
   coverage asserted; schema-drift check fails when the type model changes.
 - **Eval harness (integration, gated):** runs where a model backend + a dynamic-code F8
-  are available; asserts the harness computes per-kind pass rates and flags a non-improving
-  run as failed. The unconfigured path (no backend) is always testable and skips cleanly.
+  are available; asserts the harness computes per-kind compile AND semantic pass rates
+  (FT-8: element-set comparison against the reference fragment on the seeded sample
+  graph) and flags a run that fails to improve either as failed. The unconfigured path
+  (no backend) is always testable and skips cleanly.
 - **No product regression:** this feature adds no code to `fallen-8-core` or the running
   apiApp beyond (optionally) a tiny eval-runner script; the existing suites must stay green.
 
