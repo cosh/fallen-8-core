@@ -148,6 +148,10 @@ namespace NoSQL.GraphDB.Tests
                 UsedMemory = 1073741824L,
                 VertexCount = 10000,
                 EdgeCount = 25000,
+                Indices = new List<IndexDescriptionREST>
+                {
+                    new IndexDescriptionREST { IndexId = "nameIndex", PluginType = "DictionaryIndex" }
+                },
                 AvailableIndexPlugins = new List<string> { "DictionaryIndex", "SpatialIndex" },
                 AvailablePathPlugins = new List<string> { "Dijkstra" },
                 AvailableAnalyticsPlugins = new List<string> { "PAGERANK", "WCC" },
@@ -440,6 +444,10 @@ namespace NoSQL.GraphDB.Tests
                     UsedMemory = 1073741824L,
                     VertexCount = 10000,
                     EdgeCount = 25000,
+                    Indices = new List<IndexDescriptionREST>
+                    {
+                        new IndexDescriptionREST { IndexId = "nameIndex", PluginType = "DictionaryIndex" }
+                    },
                     AvailableIndexPlugins = new List<string> { "DictionaryIndex", "SpatialIndex" },
                     AvailablePathPlugins = new List<string> { "BLS", "DIJKSTRA" },
                     AvailableAnalyticsPlugins = new List<string> { "PAGERANK", "WCC" },
@@ -657,15 +665,15 @@ namespace NoSQL.GraphDB.Tests
                     MedianTps = 601225777.44,
                     StandardDeviationTps = 60311324.76
                 }, "BenchmarkResultREST"),
-                (new SaveGameIndexREST { IndexId = "myIndex", PluginType = "DictionaryIndex" }, "SaveGameIndexREST"),
+                (new IndexDescriptionREST { IndexId = "myIndex", PluginType = "DictionaryIndex" }, "IndexDescriptionREST"),
                 (new SaveGameKpisREST
                 {
                     VertexCount = 1000,
                     EdgeCount = 10000,
                     UsedMemoryBytes = 282016350,
-                    Indices = new List<SaveGameIndexREST>
+                    Indices = new List<IndexDescriptionREST>
                     {
-                        new SaveGameIndexREST { IndexId = "myIndex", PluginType = "DictionaryIndex" }
+                        new IndexDescriptionREST { IndexId = "myIndex", PluginType = "DictionaryIndex" }
                     },
                     AvailableIndexPlugins = new List<string> { "DictionaryIndex" },
                     AvailablePathPlugins = new List<string> { "BLS", "DIJKSTRA" },

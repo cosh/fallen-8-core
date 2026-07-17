@@ -37,6 +37,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   "usedMemory": 1073741824,
     ///   "vertexCount": 10000,
     ///   "edgeCount": 25000,
+    ///   "indices": [{ "indexId": "nameIndex", "pluginType": "DictionaryIndex" }],
     ///   "availableIndexPlugins": ["DictionaryIndex", "SpatialIndex"],
     ///   "availablePathPlugins": ["Dijkstra", "AStar"],
     ///   "availableAnalyticsPlugins": ["PAGERANK", "WCC"],
@@ -73,6 +74,15 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <example>25000</example>
         [DefaultValue(25000)]
         public Int32 EdgeCount
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The indices currently registered on this instance (id + plugin type) — the live
+        ///   inventory, available without running the budgeted statistics pass
+        /// </summary>
+        public List<IndexDescriptionREST> Indices
         {
             get; set;
         }
