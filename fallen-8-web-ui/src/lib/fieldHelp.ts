@@ -13,7 +13,7 @@ export const FIELD_HELP = {
   typedValue:
     "The value plus its .NET type. The type decides how the server parses, compares, and indexes the value — 42 as Int32 and \"42\" as String are different values.",
   indexId:
-    "Unique name of an index on this instance. Existing index names are suggested once a Graph shape snapshot has been computed (Analytics screen).",
+    "Unique name of an index on this instance. Registered indices are suggested live from the server; free typing still works.",
   edgePropertyId:
     "Edge container name on the source vertex, e.g. 'knows'. Fallen-8 groups a vertex's outgoing edges into named containers; traversals and degree lookups address edges by this name.",
 
@@ -64,7 +64,7 @@ export const FIELD_HELP = {
 
   // ---- query: index management ----
   indexPluginType:
-    "Index plugin to instantiate, e.g. DictionaryIndex, RangeIndex, or VectorIndex. Available plugins are listed on the Dashboard.",
+    "Index plugin to instantiate. The list comes from the server's plugin discovery. Only VectorIndex takes creation options (dimension, metric); SpatialIndex cannot be created over REST.",
   vectorDimension:
     "Fixed embedding dimension for the new vector index; every vector added later must have exactly this many components.",
   vectorMetric:
