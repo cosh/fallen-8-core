@@ -48,6 +48,19 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
+        /// <summary>
+        ///   A query TEXT to embed instead of supplying <see cref="QueryVector" /> (feature
+        ///   embedding-provider; mutually exclusive with it). Embedded ONCE, before the
+        ///   traversal starts, by the active provider - requires the EmbeddingProvider
+        ///   capability (403 when <c>Fallen8:Embedding:Enabled</c> is off).
+        /// </summary>
+        /// <example>red bicycles</example>
+        [JsonPropertyName("queryText")]
+        public String QueryText
+        {
+            get; set;
+        }
+
         /// <summary>The embedding name to score (default "default").</summary>
         /// <example>default</example>
         [JsonPropertyName("embeddingName")]
@@ -99,6 +112,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                 (QueryVector != null && other.QueryVector != null && QueryVector.SequenceEqual(other.QueryVector));
 
             return vectorsEqual &&
+                   String.Equals(QueryText, other.QueryText, StringComparison.Ordinal) &&
                    String.Equals(EmbeddingName, other.EmbeddingName, StringComparison.Ordinal) &&
                    String.Equals(Metric, other.Metric, StringComparison.Ordinal) &&
                    Nullable.Equals(MinScore, other.MinScore) &&
@@ -109,7 +123,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         public override Int32 GetHashCode()
         {
-            return HashCode.Combine(QueryVector?.Length ?? -1, EmbeddingName, Metric, MinScore, CostBySimilarity);
+            return HashCode.Combine(QueryVector?.Length ?? -1, QueryText, EmbeddingName, Metric, MinScore, CostBySimilarity);
         }
     }
 }

@@ -108,8 +108,16 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly IAuthorizationService _authorizationService;
 
+        /// <summary>
+        ///   The embedding provider resolving <c>semantic.queryText</c> (feature
+        ///   embedding-provider). Null when constructed directly (unit tests) or before the
+        ///   feature's DI registration - queryText then answers 503.
+        /// </summary>
+        private readonly Embedding.Fallen8EmbeddingProvider _embeddingProvider;
+
         public GraphController(ILogger<GraphController> logger, IFallen8 fallen8,
-            IAuthorizationService authorizationService = null)
+            IAuthorizationService authorizationService = null,
+            Embedding.Fallen8EmbeddingProvider embeddingProvider = null)
         {
             _logger = logger;
 
@@ -118,6 +126,8 @@ namespace NoSQL.GraphDB.App.Controllers
             _cache = new GeneratedCodeCache();
 
             _authorizationService = authorizationService;
+
+            _embeddingProvider = embeddingProvider;
         }
 
         /// <summary>
@@ -1570,7 +1580,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
-        public ActionResult<List<PathREST>> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
+        public async Task<ActionResult<List<PathREST>>> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {
             // Always initialize with empty list to avoid returning null
             List<PathREST> result = new List<PathREST>();
@@ -1580,6 +1590,16 @@ namespace NoSQL.GraphDB.App.Controllers
                 if (definition == null)
                 {
                     definition = new PathSpecification();
+                }
+
+                // semantic.queryText resolves to a vector ONCE, before anything else runs
+                // (feature embedding-provider): capability-gated, embedded on this request
+                // thread - the traversal itself never sees text.
+                var queryTextError = await SemanticTraversalHelper.TryResolveQueryTextAsync(
+                    definition.Semantic, _embeddingProvider, _authorizationService, User, HttpContext?.RequestAborted ?? default);
+                if (queryTextError != null)
+                {
+                    return queryTextError;
                 }
 
                 // Request-shape-aware dynamic-code gate (feature stored-query-library): only a

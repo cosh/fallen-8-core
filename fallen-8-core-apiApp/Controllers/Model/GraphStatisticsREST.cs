@@ -293,5 +293,73 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>The embedding provider state (feature embedding-provider). Reading this
+        /// NEVER triggers the lazy model load.</summary>
+        [JsonPropertyName("embedding")]
+        public EmbeddingProviderStatsREST Embedding
+        {
+            get; set;
+        }
+    }
+
+    /// <summary>The active embedding provider and its declared model identity (feature
+    /// embedding-provider). Cheap config/state reads only - statistics never loads a model.</summary>
+    public sealed class EmbeddingProviderStatsREST
+    {
+        /// <summary>Whether the capability flag (Fallen8:Embedding:Enabled) is on.</summary>
+        /// <example>false</example>
+        [JsonPropertyName("enabled")]
+        public Boolean Enabled
+        {
+            get; set;
+        }
+
+        /// <summary>The configured backend: Onnx, LLamaSharp or Ollama.</summary>
+        /// <example>Onnx</example>
+        [JsonPropertyName("backend")]
+        public String Backend
+        {
+            get; set;
+        }
+
+        /// <summary>The declared model name.</summary>
+        /// <example>bge-micro-v2</example>
+        [JsonPropertyName("modelName")]
+        public String ModelName
+        {
+            get; set;
+        }
+
+        /// <summary>The declared model version (empty when unspecified).</summary>
+        [JsonPropertyName("modelVersion")]
+        public String ModelVersion
+        {
+            get; set;
+        }
+
+        /// <summary>The declared output dimension.</summary>
+        /// <example>384</example>
+        [JsonPropertyName("dimension")]
+        public Int32 Dimension
+        {
+            get; set;
+        }
+
+        /// <summary>The metric the embeddings are intended for.</summary>
+        /// <example>Cosine</example>
+        [JsonPropertyName("intendedMetric")]
+        public String IntendedMetric
+        {
+            get; set;
+        }
+
+        /// <summary>Whether the backend has actually been created (lazy load happened).</summary>
+        /// <example>false</example>
+        [JsonPropertyName("loaded")]
+        public Boolean Loaded
+        {
+            get; set;
+        }
     }
 }

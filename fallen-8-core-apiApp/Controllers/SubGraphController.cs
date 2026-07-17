@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -72,12 +73,21 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly IAuthorizationService _authorizationService;
 
+        /// <summary>
+        ///   The embedding provider resolving <c>semantic.queryText</c> (feature
+        ///   embedding-provider). Null when constructed directly (unit tests) - queryText then
+        ///   answers 503.
+        /// </summary>
+        private readonly Embedding.Fallen8EmbeddingProvider _embeddingProvider;
+
         public SubGraphController(ILogger<SubGraphController> logger, IFallen8 fallen8,
-            IAuthorizationService authorizationService = null)
+            IAuthorizationService authorizationService = null,
+            Embedding.Fallen8EmbeddingProvider embeddingProvider = null)
         {
             _logger = logger;
             _fallen8 = fallen8;
             _authorizationService = authorizationService;
+            _embeddingProvider = embeddingProvider;
         }
 
         /// <summary>
@@ -192,11 +202,21 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult CreateSubGraph([FromBody] SubGraphSpecification specification, [FromQuery] String fromSubGraph = null)
+        public async Task<IActionResult> CreateSubGraph([FromBody] SubGraphSpecification specification, [FromQuery] String fromSubGraph = null)
         {
             if (specification == null)
             {
                 return BadRequest("A subgraph specification is required.");
+            }
+
+            // semantic.queryText resolves to a vector ONCE, at registration (feature
+            // embedding-provider): capability-gated, embedded on this request thread -
+            // recalculation reuses the bound vector and never embeds anything.
+            var queryTextError = await SemanticTraversalHelper.TryResolveQueryTextAsync(
+                specification.Semantic, _embeddingProvider, _authorizationService, User, HttpContext?.RequestAborted ?? default);
+            if (queryTextError != null)
+            {
+                return queryTextError;
             }
 
             // Request-shape-aware dynamic-code gate (feature stored-query-library): only a request
