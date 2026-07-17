@@ -18,6 +18,7 @@ CoreDeveloper.userprefs
 *.resources
 TestResults/
 packages/
+node_modules/
 .vs/
 obj/
 publish/
