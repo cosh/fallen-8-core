@@ -14,14 +14,20 @@ Every phase ends build-clean with the full suite green.
 
 Intent: an embedding is durable element state, readable through the one coupling point.
 
-- [ ] `AGraphElementModel`: `EmbeddingPropertyPrefix`, `TryGetEmbedding` (span over the
-  copy-on-write store), `SetEmbedding` (remove+set, writer thread), `RemoveEmbedding`,
-  `IsValidEmbeddingName`.
-- [ ] `SetEmbeddingsTransaction` (batch: element id → name → vector/null), rollback
-  restores prior vectors, WAL codec entry (additive; old WALs replay unchanged).
-- [ ] Tests: accessor semantics (vertex + edge, absent/wrong-type/name table), transaction
-  set/replace/remove + rollback, WAL replay restores embeddings, checkpoint round-trip,
-  reserved key visible in `GetAllProperties`.
+- [x] `AGraphElementModel`: `EmbeddingPropertyPrefix`, `TryGetEmbedding` (span over the
+  copy-on-write store, plus a hot-path by-property-id variant), `IsValidEmbeddingName`,
+  `GetEmbeddingPropertyId`/`TryGetEmbeddingName` helpers. (The mutation primitive turned
+  out to already exist: `RestoreProperty` IS "set to exactly this state", so
+  `Fallen8.SetEmbeddings_internal` reuses it — no new model mutation member.)
+- [x] `SetEmbeddingsTransaction` (batch: element id → name → vector/null, replace
+  semantics, batch-first validation), rollback via the property-undo machinery, WAL codec
+  entry `SetEmbeddings = 16` (additive; old WALs replay unchanged), change-feed
+  `PropertySet` events.
+- [x] Tests (`ElementEmbeddingTest`, 15): accessor semantics (vertex + edge,
+  absent/wrong-type/name table), replace/remove/intra-batch-last-wins, batch atomicity on
+  invalid input, bounds table, WAL replay incl. removals, change-feed event, reserved key
+  visible in `GetAllProperties`. (Checkpoint round-trip lands with Phase 3's bound-index
+  save/load tests — the property store's persistence is already pinned by existing suites.)
 
 ## Phase 1 — Shared similarity primitive (FR-5)
 

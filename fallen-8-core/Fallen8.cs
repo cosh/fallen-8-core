@@ -1943,6 +1943,89 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Applies a batch of embedding writes atomically (feature element-embeddings). Validates
+        ///   the WHOLE batch before mutating anything - structural validity and per-write bounds
+        ///   (valid name, dimension within [1, <see cref="Index.Vector.VectorIndex.MaxDimension" />],
+        ///   finite components) to a clean <see cref="TransactionFailureReason.InvalidInput" />.
+        ///   Embedding writes have REPLACE semantics, so unlike
+        ///   <see cref="SetProperties_internal" /> there is no conflict validation - the last write
+        ///   for a (element, name) pair wins, intra-batch included. A missing (null) slot stays a
+        ///   no-op, matching the property path. On the happy path each write is applied and its
+        ///   inverse recorded into <paramref name="undo" /> (in apply order) for a
+        ///   residual-throw rollback via <see cref="RestoreEmbeddings_internal" />.
+        /// </summary>
+        internal Boolean SetEmbeddings_internal(List<EmbeddingSetDefinition> definitions,
+            List<Transaction.PropertyMutationUndo> undo, out Transaction.TransactionFailureReason reason)
+        {
+            reason = Transaction.TransactionFailureReason.None;
+
+            if (definitions == null)
+            {
+                reason = Transaction.TransactionFailureReason.InvalidInput;
+                return false;
+            }
+
+            if (definitions.Count == 0)
+            {
+                return true;
+            }
+
+            // 1. Validate the whole batch before mutating anything (atomicity).
+            foreach (var aDefinition in definitions)
+            {
+                if (aDefinition == null || !AGraphElementModel.IsValidEmbeddingName(aDefinition.Name))
+                {
+                    reason = Transaction.TransactionFailureReason.InvalidInput;
+                    return false;
+                }
+
+                var vector = aDefinition.Vector;
+                if (vector == null)
+                {
+                    continue; // removal - always structurally valid
+                }
+
+                if (vector.Length < 1 || vector.Length > Index.Vector.VectorIndex.MaxDimension ||
+                    Index.Vector.VectorIndex.HasNonFiniteComponent(vector))
+                {
+                    reason = Transaction.TransactionFailureReason.InvalidInput;
+                    return false;
+                }
+            }
+
+            // 2. Apply, recording the inverse of each write. The mutation primitive is
+            //    RestoreProperty (remove + conditional set on the reserved key): it IS the
+            //    "set to exactly this state" operation, so replace semantics never hit
+            //    SetProperty's same-key conflict throw.
+            foreach (var aDefinition in definitions)
+            {
+                var graphElement = GetGraphElementForMutation(aDefinition.GraphElementId);
+                if (graphElement == null)
+                {
+                    continue; // no-op target (empty slot), matching the property path
+                }
+
+                var propertyId = Intern(AGraphElementModel.GetEmbeddingPropertyId(aDefinition.Name));
+                var hadValueBefore = graphElement.TryGetProperty<Object>(out var priorValue, propertyId);
+                undo.Add(new Transaction.PropertyMutationUndo(aDefinition.GraphElementId, propertyId, hadValueBefore, priorValue));
+
+                graphElement.RestoreProperty(propertyId, aDefinition.Vector != null, aDefinition.Vector);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        ///   Restores the embedding state recorded by <see cref="SetEmbeddings_internal" /> when the
+        ///   batch is rolled back - the reserved keys are properties, so the property restore
+        ///   applies verbatim (reverse apply order).
+        /// </summary>
+        internal void RestoreEmbeddings_internal(List<Transaction.PropertyMutationUndo> undo)
+        {
+            RestoreProperties_internal(undo);
+        }
+
+        /// <summary>
         ///   Removes a batch of graph elements atomically (feature transaction-atomicity). Every id is
         ///   range-checked BEFORE any removal, so an out-of-range id still throws
         ///   <see cref="ArgumentOutOfRangeException"/> (InternalError/500, per transaction-failure-reasons)
