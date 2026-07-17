@@ -106,12 +106,12 @@ Intent: the operator/agent contract, typed end to end.
 
 ## Progress
 
-- [ ] Phase 0 — accessor, storage, transaction, WAL
-- [ ] Phase 1 — VectorMath bit-identity
-- [ ] Phase 2 — traversal context + declarative block
-- [ ] Phase 3 — bound index projection
-- [ ] Phase 4 — REST + snapshot + docs
-- [ ] Phase 5 — gate
+- [x] Phase 0 — accessor, storage, transaction, WAL
+- [x] Phase 1 — VectorMath bit-identity
+- [x] Phase 2 — traversal context + declarative block
+- [x] Phase 3 — bound index projection
+- [x] Phase 4 — REST + snapshot + docs
+- [ ] Phase 5 — gate (council review + merge pending explicit approval)
 
 ## Decision / revisit conditions
 
