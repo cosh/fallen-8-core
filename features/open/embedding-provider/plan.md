@@ -34,9 +34,10 @@ Intent: the whole feature dark by default, and a test seam that needs no model.
 Intent: swappable by config, MIT-only, none loaded until first use.
 
 - [x] `Ollama`: `OllamaSharp` client as the generator (it implements the abstraction);
-  availability-coupling error mapping (503, not latched). Pinned 5.4.10: the newer
-  packages ship a consumer-side source generator requiring a newer Roslyn than the SDK
-  (`ExcludeAssets=analyzers` kept as documentation of intent).
+  availability-coupling error mapping (503, not latched). Latest (5.4.27): the package's
+  consumer-side source generator needs a newer Roslyn than the SDK and survives
+  `ExcludeAssets=analyzers`, so a repo-level `Directory.Build.targets` removes it from
+  the analyzer inputs (drop once the SDK's Roslyn catches up).
 - [x] `Onnx`: `Microsoft.ML.OnnxRuntime` + `Microsoft.ML.Tokenizers` generator (bge
   family: WordPiece vocab, CLS/mean pooling, L2 normalize, `MaxTokens` truncation,
   input-name-driven tensor feeding).
