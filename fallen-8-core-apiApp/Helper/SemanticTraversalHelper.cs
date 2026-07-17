@@ -24,7 +24,16 @@
 // SOFTWARE.
 
 using System;
+using System.Security.Claims;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Embedding;
+using NoSQL.GraphDB.App.Helper;
+using NoSQL.GraphDB.App.Security;
 using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Index.Vector;
 using NoSQL.GraphDB.Core.Model;
@@ -57,6 +66,61 @@ namespace NoSQL.GraphDB.Core.App.Helper
     /// </summary>
     internal static class SemanticTraversalHelper
     {
+        /// <summary>
+        ///   Resolves a semantic block's <c>queryText</c> into its <c>queryVector</c> (feature
+        ///   embedding-provider): capability-gated like the embedding endpoints (403 via the
+        ///   authorization service; a null service - direct unit construction - bypasses the
+        ///   gate), embedded ONCE with the provider's query prefix, before the traversal
+        ///   starts. Returns <c>null</c> on success (including "nothing to resolve"), or the
+        ///   ActionResult to short-circuit with.
+        /// </summary>
+        internal static async Task<ActionResult> TryResolveQueryTextAsync(SemanticTraversalSpecification specification,
+            Fallen8EmbeddingProvider provider, IAuthorizationService authorizationService, ClaimsPrincipal user,
+            CancellationToken cancellationToken)
+        {
+            if (specification == null || String.IsNullOrWhiteSpace(specification.QueryText))
+            {
+                return null;
+            }
+
+            if (specification.QueryVector != null)
+            {
+                return new BadRequestObjectResult("semantic.queryText and semantic.queryVector are mutually exclusive.");
+            }
+
+            if (authorizationService != null)
+            {
+                var authorization = await authorizationService.AuthorizeAsync(user, null,
+                    new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.EmbeddingProvider));
+                if (!authorization.Succeeded)
+                {
+                    return new ForbidResult();
+                }
+            }
+
+            if (provider == null || !provider.IsEnabled)
+            {
+                return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                    "Embedding provider unavailable", "semantic.queryText requires the embedding provider (Fallen8:Embedding).");
+            }
+
+            try
+            {
+                var vectors = await provider.EmbedAsync(
+                    new[] { provider.ApplyQueryPrefix(specification.QueryText) }, cancellationToken);
+                specification.QueryVector = vectors[0];
+                return null;
+            }
+            catch (EmbeddingProviderUnavailableException ex)
+            {
+                return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable, "Embedding provider unavailable", ex.Message);
+            }
+            catch (EmbeddingProviderOutputException ex)
+            {
+                return ProblemResults.Create(StatusCodes.Status502BadGateway, "Embedding backend produced invalid output", ex.Message);
+            }
+        }
+
         /// <summary>
         ///   Builds the semantic traversal. Returns <c>null</c> on success, or a human-readable
         ///   error (the controllers map it to 400).

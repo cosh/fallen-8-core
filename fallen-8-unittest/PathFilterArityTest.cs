@@ -169,7 +169,7 @@ namespace NoSQL.GraphDB.Tests
                 Filter = new PathFilterSpecification()
             };
 
-            var result = controller.CalculateShortestPath(a, b, spec);
+            var result = controller.CalculateShortestPath(a, b, spec).Result;
             Assert.IsNotNull(result.Value, "A default filter block must not produce a BadRequest.");
             Assert.AreEqual(1, result.Value.Count, "A path exists, so the default-filter request must return it, not [].");
 
@@ -190,7 +190,7 @@ namespace NoSQL.GraphDB.Tests
                 Filter = new PathFilterSpecification { Edge = "this is not valid C#" }
             };
 
-            var result = controller.CalculateShortestPath(a, b, spec);
+            var result = controller.CalculateShortestPath(a, b, spec).Result;
 
             Assert.IsNull(result.Value, "A malformed filter must not return a 200 body.");
             var badRequest = result.Result as BadRequestObjectResult;

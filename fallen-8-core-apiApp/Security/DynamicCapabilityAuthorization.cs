@@ -41,7 +41,12 @@ namespace NoSQL.GraphDB.App.Security
         public enum Capability
         {
             DynamicCodeExecution,
-            DynamicPluginLoading
+            DynamicPluginLoading,
+
+            /// <summary>The embedding provider (feature embedding-provider,
+            /// <c>Fallen8:Embedding:Enabled</c>) - default off: no model loads, nothing
+            /// downloads, the embedding endpoints answer 403.</summary>
+            EmbeddingProvider
         }
 
         public DynamicCapabilityRequirement(Capability which)
@@ -61,17 +66,23 @@ namespace NoSQL.GraphDB.App.Security
     public sealed class DynamicCapabilityAuthorizationHandler : AuthorizationHandler<DynamicCapabilityRequirement>
     {
         private readonly Fallen8SecurityOptions _security;
+        private readonly Fallen8EmbeddingOptions _embedding;
 
-        public DynamicCapabilityAuthorizationHandler(IOptions<Fallen8SecurityOptions> security)
+        public DynamicCapabilityAuthorizationHandler(IOptions<Fallen8SecurityOptions> security,
+            IOptions<Fallen8EmbeddingOptions> embedding)
         {
             _security = security.Value;
+            _embedding = embedding.Value;
         }
 
         protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, DynamicCapabilityRequirement requirement)
         {
-            var enabled = requirement.Which == DynamicCapabilityRequirement.Capability.DynamicCodeExecution
-                ? _security.EnableDynamicCodeExecution
-                : _security.EnableDynamicPluginLoading;
+            var enabled = requirement.Which switch
+            {
+                DynamicCapabilityRequirement.Capability.DynamicCodeExecution => _security.EnableDynamicCodeExecution,
+                DynamicCapabilityRequirement.Capability.EmbeddingProvider => _embedding.Enabled,
+                _ => _security.EnableDynamicPluginLoading
+            };
 
             if (enabled)
             {

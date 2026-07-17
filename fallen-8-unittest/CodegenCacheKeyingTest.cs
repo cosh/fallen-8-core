@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // CodegenCacheKeyingTest.cs
 //
@@ -94,9 +94,8 @@ namespace NoSQL.GraphDB.Tests
             var specDepth7 = Spec(marker, maxDepth: 7, maxResults: 9);
             Assert.AreNotEqual(specDepth3, specDepth7, "The two specs differ (their bounds), so a whole-spec key would miss.");
 
-            controller.CalculateShortestPath(a, b, specDepth3);
-            controller.CalculateShortestPath(a, b, specDepth7);
-
+            _ = controller.CalculateShortestPath(a, b, specDepth3).Result;
+            _ = controller.CalculateShortestPath(a, b, specDepth7).Result;
             Assert.AreEqual(1, CodeGenerationHelper.PathCompileCount - before,
                 "Two bound-only-differing requests must compile the traverser exactly once.");
 
@@ -120,9 +119,8 @@ namespace NoSQL.GraphDB.Tests
             var specX = Spec("codegen-cache-keying-filter-X", maxDepth: 3, maxResults: 1);
             var specY = Spec("codegen-cache-keying-filter-Y", maxDepth: 3, maxResults: 1);
 
-            controller.CalculateShortestPath(a, b, specX);
-            controller.CalculateShortestPath(a, b, specY);
-
+            _ = controller.CalculateShortestPath(a, b, specX).Result;
+            _ = controller.CalculateShortestPath(a, b, specY).Result;
             Assert.AreEqual(2, CodeGenerationHelper.PathCompileCount - before,
                 "Requests with different filters must compile two distinct traversers (no false sharing).");
 

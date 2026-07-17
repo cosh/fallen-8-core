@@ -34,8 +34,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
+using NoSQL.GraphDB.App.Embedding;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Security;
 using NoSQL.GraphDB.App.Services;
@@ -275,7 +277,31 @@ namespace NoSQL.GraphDB.App
                     }
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicPluginLoading));
                 });
+
+                // The embedding provider gate (feature embedding-provider): same shape as the
+                // code/plugin capabilities - off by default, orthogonal to auth, 403 when off.
+                o.AddPolicy(Fallen8EmbeddingOptions.EmbeddingPolicy, p =>
+                {
+                    if (keyConfigured)
+                    {
+                        p.RequireAuthenticatedUser();
+                    }
+                    p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.EmbeddingProvider));
+                });
             });
+
+            // Embedding provider (feature embedding-provider). The backend generator resolves
+            // LAZILY on first use - with the flag off (the default) nothing is ever constructed
+            // and no model loads, so the default deployment stays model-free. Tests replace the
+            // IEmbeddingGenerator registration with a deterministic fake.
+            builder.Services.Configure<Fallen8EmbeddingOptions>(
+                builder.Configuration.GetSection(Fallen8EmbeddingOptions.SectionName));
+            builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
+                EmbeddingBackendFactory.Create(sp.GetRequiredService<IOptions<Fallen8EmbeddingOptions>>().Value));
+            builder.Services.AddSingleton(sp => new Fallen8EmbeddingProvider(
+                sp.GetRequiredService<IOptions<Fallen8EmbeddingOptions>>(),
+                new Lazy<IEmbeddingGenerator<string, Embedding<float>>>(
+                    () => sp.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>())));
 
             // CORS: one named policy, default deny. Only the configured origins are allowed; never a
             // wildcard-with-credentials.

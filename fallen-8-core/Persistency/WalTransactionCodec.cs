@@ -227,6 +227,8 @@ namespace NoSQL.GraphDB.Core.Persistency
                                 {
                                     writer.Write(def.Vector);
                                 }
+                                // Model stamp (feature embedding-provider); empty = none.
+                                writer.WriteOptimized(def.ModelStamp ?? String.Empty);
                             }
                             break;
                         }
@@ -342,7 +344,14 @@ namespace NoSQL.GraphDB.Core.Persistency
                             var id = reader.ReadOptimizedInt32();
                             var name = reader.ReadOptimizedString();
                             var vector = reader.ReadBoolean() ? reader.ReadSingleArray() : null;
-                            list.Add(new EmbeddingSetDefinition { GraphElementId = id, Name = name, Vector = vector });
+                            var stamp = reader.ReadOptimizedString();
+                            list.Add(new EmbeddingSetDefinition
+                            {
+                                GraphElementId = id,
+                                Name = name,
+                                Vector = vector,
+                                ModelStamp = String.IsNullOrEmpty(stamp) ? null : stamp
+                            });
                         }
                         return new SetEmbeddingsTransaction { Embeddings = list };
                     }

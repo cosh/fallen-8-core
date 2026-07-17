@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // PersistenceHardeningTest.cs
 //
@@ -496,7 +496,7 @@ namespace NoSQL.GraphDB.Tests
             var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(), fallen8);
             foreach (var name in subgraphNames)
             {
-                controller.CreateSubGraph(AllPersons(name));
+                _ = controller.CreateSubGraph(AllPersons(name)).Result;
             }
 
             return fallen8;

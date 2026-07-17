@@ -2152,6 +2152,19 @@ namespace NoSQL.GraphDB.Core
                 undo.Add(new Transaction.PropertyMutationUndo(aDefinition.GraphElementId, propertyId, hadValueBefore, priorValue));
 
                 graphElement.RestoreProperty(propertyId, aDefinition.Vector != null, aDefinition.Vector);
+
+                // The model stamp replaces with every write (feature embedding-provider): a
+                // provider write carries its stamp, a raw write clears a stale one, a removal
+                // drops it - the stamp always reflects the LAST write. A write that neither
+                // sets nor clears a stamp is a no-op here (no undo entry, no feed event).
+                var stampId = Intern(AGraphElementModel.GetEmbeddingModelStampPropertyId(aDefinition.Name));
+                var stampValue = aDefinition.Vector != null ? aDefinition.ModelStamp : null;
+                var hadStampBefore = graphElement.TryGetProperty<Object>(out var priorStamp, stampId);
+                if (stampValue != null || hadStampBefore)
+                {
+                    undo.Add(new Transaction.PropertyMutationUndo(aDefinition.GraphElementId, stampId, hadStampBefore, priorStamp));
+                    graphElement.RestoreProperty(stampId, stampValue != null, stampValue);
+                }
             }
 
             // 3. Project into bound vector indices AFTER every mutation applied: a mid-apply

@@ -166,13 +166,13 @@ namespace NoSQL.GraphDB.Tests
             var mallory = controller.GraphScan(NAME, MALLORYSPEC).Value.First();
 
             // Act
-            var result = controller.CalculateShortestPath(mallory, trent, null).Value;
+            var result = controller.CalculateShortestPath(mallory, trent, null).Result.Value;
 
             // Assert
             Assert.AreEqual(2, result.Count);
 
             // Test the cache
-            result = controller.CalculateShortestPath(mallory, trent, null).Value;
+            result = controller.CalculateShortestPath(mallory, trent, null).Result.Value;
             Assert.AreEqual(2, result.Count);
         }
 
@@ -190,13 +190,13 @@ namespace NoSQL.GraphDB.Tests
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 2, MaxResults = 2 };
 
             // Act
-            var result = controller.CalculateShortestPath(alice, bob, pathSpec).Value;
+            var result = controller.CalculateShortestPath(alice, bob, pathSpec).Result.Value;
 
             // Assert
             Assert.AreEqual(1, result.Count);
 
             // Test the cache
-            result = controller.CalculateShortestPath(bob, alice, pathSpec).Value;
+            result = controller.CalculateShortestPath(bob, alice, pathSpec).Result.Value;
             Assert.AreEqual(1, result.Count);
         }
 
@@ -266,7 +266,7 @@ namespace NoSQL.GraphDB.Tests
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 3, MaxResults = 1 };
 
             // Act
-            var result = controller.CalculateShortestPath(alice, mallory, pathSpec).Value;
+            var result = controller.CalculateShortestPath(alice, mallory, pathSpec).Result.Value;
 
             // Assert
             Assert.AreEqual(1, result.Count, "Should find exactly one path due to MaxResults=1 restriction");
@@ -288,7 +288,7 @@ namespace NoSQL.GraphDB.Tests
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 0, MaxResults = 10 };
 
             // Act
-            var result = controller.CalculateShortestPath(alice, bob, pathSpec).Value;
+            var result = controller.CalculateShortestPath(alice, bob, pathSpec).Result.Value;
 
             // Assert - Make sure result is initialized even if empty
             Assert.IsNotNull(result, "Result should not be null");
@@ -311,7 +311,7 @@ namespace NoSQL.GraphDB.Tests
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 5, MaxResults = 5 };
 
             // Act
-            var result = controller.CalculateShortestPath(alice, eve, pathSpec).Value;
+            var result = controller.CalculateShortestPath(alice, eve, pathSpec).Result.Value;
 
             // Assert
             Assert.IsTrue(result.Count > 0, "Should find at least one path between Alice and Eve");
