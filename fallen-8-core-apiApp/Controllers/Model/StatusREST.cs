@@ -39,6 +39,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   "edgeCount": 25000,
     ///   "availableIndexPlugins": ["DictionaryIndex", "SpatialIndex"],
     ///   "availablePathPlugins": ["Dijkstra", "AStar"],
+    ///   "availableAnalyticsPlugins": ["PAGERANK", "WCC"],
     ///   "availableServicePlugins": ["ImportService", "ExportService"]
     /// }
     /// </example>
@@ -88,6 +89,15 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// </summary>
         /// <example>["Dijkstra", "AStar", "BellmanFord"]</example>
         public List<String> AvailablePathPlugins
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   List of available graph-analytics algorithm plugins
+        /// </summary>
+        /// <example>["PAGERANK", "WCC", "LABELPROPAGATION", "DEGREE", "TRIANGLECOUNT"]</example>
+        public List<String> AvailableAnalyticsPlugins
         {
             get; set;
         }

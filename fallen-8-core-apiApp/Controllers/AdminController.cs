@@ -41,6 +41,7 @@ using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Interfaces;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Algorithms.Analytics;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
@@ -144,6 +145,9 @@ namespace NoSQL.GraphDB.App.Controllers
             IEnumerable<String> availablePathAlgos;
             PluginFactory.TryGetAvailablePlugins<IShortestPathAlgorithm>(out availablePathAlgos);
 
+            IEnumerable<String> availableAnalyticsAlgos;
+            PluginFactory.TryGetAvailablePlugins<IGraphAnalyticsAlgorithm>(out availableAnalyticsAlgos);
+
             IEnumerable<String> availableServices;
             PluginFactory.TryGetAvailablePlugins<IService>(out availableServices);
 
@@ -151,6 +155,7 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 AvailableIndexPlugins = new List<String>(availableIndices),
                 AvailablePathPlugins = new List<String>(availablePathAlgos),
+                AvailableAnalyticsPlugins = new List<String>(availableAnalyticsAlgos),
                 AvailableServicePlugins = new List<String>(availableServices),
                 EdgeCount = edgeCount,
                 VertexCount = vertexCount,

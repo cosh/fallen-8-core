@@ -56,6 +56,7 @@ export interface StatusREST {
   usedMemory: number;
   availableIndexPlugins: string[];
   availablePathPlugins: string[];
+  availableAnalyticsPlugins: string[];
   availableServicePlugins: string[];
 }
 
