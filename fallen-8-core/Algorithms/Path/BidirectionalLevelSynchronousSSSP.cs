@@ -140,11 +140,12 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                 if (depthOneFrontier != null && depthOneFrontier.Count > 0 && depthOneFrontier.ContainsKey(targetVertex))
                 {
-                    //so there is something
+                    //so there is something; parallel edges each yield a path, so cap at maxResults
                     return new List<Path>(depthOneFrontier
                         .Where(_ => ReferenceEquals(_.Key, targetVertex))
                         .Select(__ => CreateAPath(__.Value))
-                        .SelectMany(___ => ___));
+                        .SelectMany(___ => ___)
+                        .Take(maxResults));
                 }
 
                 return null;
@@ -550,7 +551,16 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
 
         /// <summary>
-        /// Gets the global frontier corresponding to a certain level
+        /// Gets the global frontier corresponding to a certain level.
+        ///
+        /// Visited bookkeeping (fix for the converging-shortest-paths bug pinned by
+        /// PathAlgorithmParityTest): a frontier vertex becomes "visited" only AFTER the whole
+        /// level is built. Marking it during enumeration dropped every further edge that reaches
+        /// the same vertex within the SAME level - parallel edges and equal-length paths
+        /// converging on a shared vertex - so only one predecessor per vertex survived and BLS
+        /// under-reported the fewest-hop paths that a unit-cost DIJKSTRA finds. The visited set
+        /// therefore only excludes EARLIER levels here, and all same-level discoveries merge
+        /// their predecessor edges below.
         /// </summary>
         /// <param name="startingVertices">The starting vertices behind the frontier</param>
         /// <param name="visitedVertices">The visited vertices corresponding to the frontier</param>
@@ -607,15 +617,22 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                 }
             }
 
+            //the level is complete - only now do its vertices become visited (see summary)
+            foreach (var aFrontierVertex in frontier.Keys)
+            {
+                visitedVertices.Add(aFrontierVertex);
+            }
+
             return frontier;
         }
 
         /// <summary>
         /// Gets the frontier elements over one adjacency direction (feature code-quality: one
         /// implementation instead of the former in/out near-twins whose edgeFilter x
-        /// vertexFilter branch matrix repeated the same construction six times). Semantics are
-        /// unchanged, including the subtlety that a vertex is marked visited BEFORE the vertex
-        /// filter runs - a filter-rejected vertex stays visited.
+        /// vertexFilter branch matrix repeated the same construction six times). The visited set
+        /// is only READ for accepted vertices - the level marks them visited when it completes
+        /// (see <see cref="GetGlobalFrontier"/>) - while a filter-rejected vertex is marked
+        /// visited immediately and stays visited.
         /// </summary>
         /// <param name="vertex">The vertex behind the frontier</param>
         /// <param name="direction">Incoming or outgoing</param>
@@ -654,13 +671,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                         }
 
                         var frontierVertex = incoming ? aEdge.SourceVertex : aEdge.TargetVertex;
-                        if (!alreadyVisited.Add(frontierVertex))
+                        if (alreadyVisited.Contains(frontierVertex))
                         {
                             continue;
                         }
 
                         if (vertexFilter != null && !vertexFilter(frontierVertex))
                         {
+                            alreadyVisited.Add(frontierVertex);
                             continue;
                         }
 
