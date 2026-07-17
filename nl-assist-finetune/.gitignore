@@ -1,0 +1,5 @@
+# Reproducible artifacts - never committed (spec FT-5).
+eval/results/
+dataset/
+*.gguf
+adapter*/

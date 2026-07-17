@@ -1,0 +1,149 @@
+{
+  "$comment": "Held-out eval intents (spec FT-3/FT-4, plan phase 1). NEVER add these to a training set - they are the measurement. mustMatch/mustNotMatch are regexes applied to the generated fragment as a cheap semantic proxy until the FT-8 graph executor lands. Rows deliberately cover the two field-example failure classes: built-in Label/Id phrasings and typo'd intents.",
+  "rows": [
+    {
+      "id": "vf-person-age",
+      "kind": "VertexFilter",
+      "intent": "only persons older than 30",
+      "reference": "return (v) => v.Label == \"person\" && v.TryGetProperty(out int age, \"age\") && age > 30;",
+      "mustMatch": ["\\.Label", "TryGetProperty[^;]*\"age\""],
+      "mustNotMatch": ["TryGetProperty[^)]*\"(?:label|Label)\""]
+    },
+    {
+      "id": "vf-field-example-typos",
+      "kind": "VertexFilter",
+      "intent": "only ppersons older than 30 an with an ID smaller than 10",
+      "reference": "return (v) => v.Label == \"person\" && v.TryGetProperty(out int age, \"age\") && age > 30 && v.Id < 10;",
+      "mustMatch": ["\\.Label", "\\.Id", "age"],
+      "mustNotMatch": ["TryGetProperty[^)]*\"(?:label|Label|id|Id|ID)\""]
+    },
+    {
+      "id": "vf-label-city",
+      "kind": "VertexFilter",
+      "intent": "vertices with the label city",
+      "reference": "return (v) => v.Label == \"city\";",
+      "mustMatch": ["\\.Label\\s*==\\s*\"city\""],
+      "mustNotMatch": ["TryGetProperty"]
+    },
+    {
+      "id": "vf-id-threshold",
+      "kind": "VertexFilter",
+      "intent": "vertices with an id greater than 100",
+      "reference": "return (v) => v.Id > 100;",
+      "mustMatch": ["\\.Id\\s*>\\s*100"],
+      "mustNotMatch": ["TryGetProperty"]
+    },
+    {
+      "id": "vf-outdegree",
+      "kind": "VertexFilter",
+      "intent": "vertices with at least 3 outgoing edges",
+      "reference": "return (v) => v.GetOutDegree() >= 3;",
+      "mustMatch": ["GetOutDegree"],
+      "mustNotMatch": []
+    },
+    {
+      "id": "vf-name-startswith",
+      "kind": "VertexFilter",
+      "intent": "vertices whose name property starts with A",
+      "reference": "return (v) => v.TryGetProperty(out string name, \"name\") && name.StartsWith(\"A\");",
+      "mustMatch": ["TryGetProperty[^;]*\"name\"", "StartsWith"],
+      "mustNotMatch": []
+    },
+    {
+      "id": "ef-label-knows",
+      "kind": "EdgeFilter",
+      "intent": "edges labelled knows",
+      "reference": "return (e) => e.Label == \"knows\";",
+      "mustMatch": ["\\.Label\\s*==\\s*\"knows\""],
+      "mustNotMatch": ["TryGetProperty"]
+    },
+    {
+      "id": "ef-weight",
+      "kind": "EdgeFilter",
+      "intent": "edges with a weight above 0.5",
+      "reference": "return (e) => e.TryGetProperty(out double weight, \"weight\") && weight > 0.5;",
+      "mustMatch": ["TryGetProperty[^;]*\"weight\""],
+      "mustNotMatch": []
+    },
+    {
+      "id": "ef-target-person",
+      "kind": "EdgeFilter",
+      "intent": "edges pointing to a vertex labelled person",
+      "reference": "return (e) => e.TargetVertex.Label == \"person\";",
+      "mustMatch": ["TargetVertex", "\\.Label"],
+      "mustNotMatch": ["TryGetProperty[^)]*\"(?:label|Label)\""]
+    },
+    {
+      "id": "gef-field-example",
+      "kind": "GraphElementFilter",
+      "intent": "only persons older than 30 and with an ID smaller than 10",
+      "reference": "return (ge) => ge.Label == \"person\" && ge.TryGetProperty(out int age, \"age\") && age > 30 && ge.Id < 10;",
+      "mustMatch": ["\\.Label", "\\.Id", "TryGetProperty[^;]*\"age\""],
+      "mustNotMatch": ["TryGetProperty[^)]*\"(?:label|Label|id|Id|ID)\""]
+    },
+    {
+      "id": "gef-label-or",
+      "kind": "GraphElementFilter",
+      "intent": "elements labelled person or company",
+      "reference": "return (ge) => ge.Label == \"person\" || ge.Label == \"company\";",
+      "mustMatch": ["\\.Label\\s*==\\s*\"person\"", "\\.Label\\s*==\\s*\"company\""],
+      "mustNotMatch": ["TryGetProperty"]
+    },
+    {
+      "id": "gef-id-below",
+      "kind": "GraphElementFilter",
+      "intent": "elements with an id below 50",
+      "reference": "return (ge) => ge.Id < 50;",
+      "mustMatch": ["\\.Id\\s*<\\s*50"],
+      "mustNotMatch": ["TryGetProperty"]
+    },
+    {
+      "id": "gef-propcount",
+      "kind": "GraphElementFilter",
+      "intent": "elements having more than 2 properties",
+      "reference": "return (ge) => ge.GetPropertyCount() > 2;",
+      "mustMatch": ["GetPropertyCount"],
+      "mustNotMatch": []
+    },
+    {
+      "id": "epf-knows",
+      "kind": "EdgePropertyFilter",
+      "intent": "only knows edges",
+      "reference": "return (p) => p == \"knows\";",
+      "mustMatch": ["(?:==\\s*\"knows\"|Equals\\(\"knows\"\\))"],
+      "mustNotMatch": []
+    },
+    {
+      "id": "epf-endswith",
+      "kind": "EdgePropertyFilter",
+      "intent": "edge properties ending with With",
+      "reference": "return (p) => p.EndsWith(\"With\");",
+      "mustMatch": ["EndsWith\\(\"With\"\\)"],
+      "mustNotMatch": []
+    },
+    {
+      "id": "vc-uniform",
+      "kind": "VertexCost",
+      "intent": "every vertex costs one",
+      "reference": "return (v) => 1.0;",
+      "mustMatch": ["1"],
+      "mustNotMatch": ["TryGetProperty"]
+    },
+    {
+      "id": "ec-weight-default",
+      "kind": "EdgeCost",
+      "intent": "use the weight property as the cost, defaulting to 1",
+      "reference": "return (e) => e.TryGetProperty(out double weight, \"weight\") ? weight : 1.0;",
+      "mustMatch": ["TryGetProperty[^;]*\"weight\"", "\\?"],
+      "mustNotMatch": []
+    },
+    {
+      "id": "ec-distance",
+      "kind": "EdgeCost",
+      "intent": "the distance property as cost, fall back to 2.5",
+      "reference": "return (e) => e.TryGetProperty(out double distance, \"distance\") ? distance : 2.5;",
+      "mustMatch": ["\"distance\"", "2\\.5"],
+      "mustNotMatch": []
+    }
+  ]
+}
