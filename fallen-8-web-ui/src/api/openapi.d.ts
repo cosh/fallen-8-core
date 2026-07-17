@@ -5734,7 +5734,9 @@ export interface components {
          *       "availableServicePlugins": [
          *         "ImportService",
          *         "ExportService"
-         *       ]
+         *       ],
+         *       "apiKeyRequired": false,
+         *       "authenticated": false
          *     }
          */
         StatusREST: {
@@ -5797,6 +5799,20 @@ export interface components {
              *     ]
              */
             availableServicePlugins?: null | string[];
+            /**
+             * @description True when this server has an API key configured, i.e. every endpoint outside the
+             *     anonymous allowlist answers 401 without a valid credential. /status itself stays
+             *     anonymous, so it doubles as the connection probe: a caller is authorized iff
+             *     `!ApiKeyRequired || Authenticated`.
+             * @example false
+             */
+            apiKeyRequired?: boolean;
+            /**
+             * @description True when the request that produced this status carried a valid credential
+             *     (see bool StatusREST.ApiKeyRequired for how clients combine the two).
+             * @example false
+             */
+            authenticated?: boolean;
         };
         /**
          * @description The stored form of a path query: the `filter`/`cost` blocks of a

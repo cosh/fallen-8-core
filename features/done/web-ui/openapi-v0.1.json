@@ -7153,6 +7153,16 @@
               "ExportService",
               "AnalyticsService"
             ]
+          },
+          "apiKeyRequired": {
+            "type": "boolean",
+            "description": "True when this server has an API key configured, i.e. every endpoint outside the\r\nanonymous allowlist answers 401 without a valid credential. /status itself stays\r\nanonymous, so it doubles as the connection probe: a caller is authorized iff\r\n`!ApiKeyRequired || Authenticated`.",
+            "example": false
+          },
+          "authenticated": {
+            "type": "boolean",
+            "description": "True when the request that produced this status carried a valid credential\r\n(see bool StatusREST.ApiKeyRequired for how clients combine the two).",
+            "example": false
           }
         },
         "description": "Represents the current status of the Fallen-8 database",
@@ -7175,7 +7185,9 @@
           "availableServicePlugins": [
             "ImportService",
             "ExportService"
-          ]
+          ],
+          "apiKeyRequired": false,
+          "authenticated": false
         }
       },
       "StoredPathQueryBlock": {

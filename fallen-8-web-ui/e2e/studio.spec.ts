@@ -274,3 +274,33 @@ test("scenario 10 (builtin default): assist is usable with zero config; editor f
   await page.keyboard.type("return (v) => true;", { delay: 10 });
   await expect(page.getByTestId("validation-valid")).toBeVisible({ timeout: 15_000 });
 });
+
+test("scenario 11: nav stays locked until the active instance is connected AND authorized", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // The default same-origin instance carries no key while this server requires one:
+  // reachable but NOT authorized - everything beyond Connect must be locked, and the
+  // instance overview must say why.
+  await expect(page.getByTestId("health-chip")).toHaveText("unauthorized", {
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("nav-dashboard")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("nav-canvas")).toHaveAttribute("aria-disabled", "true");
+  await expect(
+    page.getByTestId("instance-row-local").getByText("unauthorized — check the API key"),
+  ).toBeVisible();
+
+  // A deep link cannot bypass the gate either.
+  await page.goto("/dashboard");
+  await expect(page.getByTestId("connection-guard")).toBeVisible({ timeout: 20_000 });
+
+  // With a keyed instance active the nav unlocks and actually navigates.
+  await registerSecuredInstance(page);
+  await expect(page.getByTestId("health-chip")).toHaveText("online", { timeout: 20_000 });
+  const dashboard = page.getByTestId("nav-dashboard");
+  await expect(dashboard).not.toHaveAttribute("aria-disabled", "true");
+  await dashboard.click();
+  await expect(page.getByTestId("stat-vertices")).toBeVisible();
+});

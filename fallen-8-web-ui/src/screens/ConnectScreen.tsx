@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRegistry } from "../instances/registry";
 import type { InstanceConfig } from "../instances/types";
 import { describeEndpoint } from "../instances/types";
-import { getStatus } from "../api/endpoints";
+import { getStatus, isAuthorized } from "../api/endpoints";
 
 /**
  * Connect / Instances (FR-1a): registry with add/edit/remove, lazy health overview via
@@ -22,6 +22,8 @@ function InstanceHealth({ instance }: { instance: InstanceConfig }) {
   if (health.isPending) return <span className="text-fg-faint">checking…</span>;
   if (health.isError || !health.data)
     return <span className="text-danger">unreachable</span>;
+  if (!isAuthorized(health.data))
+    return <span className="text-danger">unauthorized — check the API key</span>;
   return (
     <span className="text-accent">
       {health.data.vertexCount.toLocaleString()} v · {health.data.edgeCount.toLocaleString()} e

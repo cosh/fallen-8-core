@@ -93,6 +93,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly Services.SaveGameRegistry _saveGames;
 
+        /// <summary>
+        /// Whether an API key is configured, reported by /status (see StatusREST.ApiKeyRequired).
+        /// </summary>
+        private readonly Boolean _apiKeyConfigured;
+
         #endregion
 
         public AdminController(ILogger<AdminController> logger, IFallen8 fallen8, IOptions<Fallen8SecurityOptions> security,
@@ -110,7 +115,9 @@ namespace NoSQL.GraphDB.App.Controllers
 
             _optimalNumberOfPartitions = Convert.ToInt32(Environment.ProcessorCount * 3 / 2);
 
-            _pluginDirectory = (security?.Value ?? new Fallen8SecurityOptions()).ResolvePluginDirectory();
+            var securityOptions = security?.Value ?? new Fallen8SecurityOptions();
+            _pluginDirectory = securityOptions.ResolvePluginDirectory();
+            _apiKeyConfigured = !String.IsNullOrWhiteSpace(securityOptions.ApiKey);
 
             _saveGames = saveGames;
         }
@@ -160,6 +167,8 @@ namespace NoSQL.GraphDB.App.Controllers
                 EdgeCount = edgeCount,
                 VertexCount = vertexCount,
                 UsedMemory = totalBytesOfMemoryUsed,
+                ApiKeyRequired = _apiKeyConfigured,
+                Authenticated = HttpContext?.User?.Identity?.IsAuthenticated == true,
             };
         }
 

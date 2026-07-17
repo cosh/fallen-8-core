@@ -50,6 +50,9 @@ const WAIT = { waitForCompletion: true } as const;
 export const getStatus = (i: InstanceConfig, signal?: AbortSignal) =>
   apiRequest<StatusREST>(i, "/status", { signal });
 
+/** Authorized iff the instance needs no key or accepted ours (server contract on StatusREST.ApiKeyRequired). */
+export const isAuthorized = (s: StatusREST): boolean => !s.apiKeyRequired || s.authenticated === true;
+
 /**
  * Graph-shape snapshot (feature studio-coverage): O(V+E), budgeted and rate-limited
  * server-side — only ever fetched on explicit demand (the Graph shape panel's Compute).

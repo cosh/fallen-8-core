@@ -162,6 +162,58 @@ namespace NoSQL.GraphDB.Tests
                 "An [AllowAnonymous] read endpoint (/status) must stay reachable without a credential.");
         }
 
+        /// <summary>
+        /// /status doubles as the connection probe (StatusREST.ApiKeyRequired): clients must be able
+        /// to tell "reachable" apart from "authorized" from the anonymous status document alone.
+        /// </summary>
+        [TestMethod]
+        public async Task Status_WithKeyConfigured_ReportsAuthenticationState()
+        {
+            using var factory = NewHost();
+
+            using (var anonymous = Client(factory, withKey: false))
+            {
+                var (apiKeyRequired, authenticated) = await GetStatusAuth(anonymous);
+                Assert.IsTrue(apiKeyRequired, "With a key configured, /status must report apiKeyRequired.");
+                Assert.IsFalse(authenticated, "A request without a credential must not report authenticated.");
+            }
+
+            using (var wrongKey = factory.CreateClient())
+            {
+                wrongKey.DefaultRequestHeaders.Add("X-Api-Key", "not-the-key");
+                var (apiKeyRequired, authenticated) = await GetStatusAuth(wrongKey);
+                Assert.IsTrue(apiKeyRequired, "apiKeyRequired reflects server configuration, not the request.");
+                Assert.IsFalse(authenticated, "An INVALID key must not report authenticated.");
+            }
+
+            using (var validKey = Client(factory, withKey: true))
+            {
+                var (apiKeyRequired, authenticated) = await GetStatusAuth(validKey);
+                Assert.IsTrue(apiKeyRequired, "apiKeyRequired reflects server configuration, not the request.");
+                Assert.IsTrue(authenticated, "A valid key must report authenticated.");
+            }
+        }
+
+        [TestMethod]
+        public async Task Status_WithoutKeyConfigured_ReportsNoAuthRequirement()
+        {
+            using var factory = NewHost(withApiKey: false);
+            using var client = Client(factory, withKey: false);
+
+            var (apiKeyRequired, authenticated) = await GetStatusAuth(client);
+            Assert.IsFalse(apiKeyRequired, "Without a configured key the server is open - no auth requirement.");
+            Assert.IsFalse(authenticated, "The API-key handler authenticates nobody when no key is configured.");
+        }
+
+        private static async Task<(bool apiKeyRequired, bool authenticated)> GetStatusAuth(HttpClient client)
+        {
+            using var response = await client.GetAsync("/status");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, "/status must answer 200 regardless of credential.");
+            using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            return (doc.RootElement.GetProperty("apiKeyRequired").GetBoolean(),
+                    doc.RootElement.GetProperty("authenticated").GetBoolean());
+        }
+
         #endregion
 
         #region S2/S3/S4 - RCE opt-in gate

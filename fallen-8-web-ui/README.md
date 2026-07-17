@@ -39,6 +39,13 @@ header shape — add a new `auth.kind` in `src/instances/types.ts` and a token s
 no call site changes. Keys live in this browser's local storage and travel only to their
 own instance.
 
+The anonymous `GET /status` doubles as the connection probe: it reports whether the
+server requires a key and whether this request's credential was accepted
+(`StatusREST.ApiKeyRequired`). The app shell locks every nav entry except Connect until
+the active instance is reachable AND authorized, so a missing or wrong key shows as
+"unauthorized" — never as a working connection (`src/app/AppShell.tsx`,
+tests in `tests/app-shell.test.tsx` and e2e scenario 11).
+
 Note: the delegate endpoints (`/path`, `/subgraph`, `/delegates/validate`) require
 `Fallen8:Security:EnableDynamicCodeExecution=true` — that capability flag is the
 independent kill switch for the code-execution surface. Authentication is separate and

@@ -58,6 +58,10 @@ export interface StatusREST {
   availablePathPlugins: string[];
   availableAnalyticsPlugins: string[];
   availableServicePlugins: string[];
+  // Auth probe (server contract on StatusREST.ApiKeyRequired). Optional so instances
+  // predating the fields keep reading as authorized.
+  apiKeyRequired?: boolean;
+  authenticated?: boolean;
 }
 
 export interface PropertyREST {

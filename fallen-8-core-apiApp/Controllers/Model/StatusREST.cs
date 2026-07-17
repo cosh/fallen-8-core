@@ -40,7 +40,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   "availableIndexPlugins": ["DictionaryIndex", "SpatialIndex"],
     ///   "availablePathPlugins": ["Dijkstra", "AStar"],
     ///   "availableAnalyticsPlugins": ["PAGERANK", "WCC"],
-    ///   "availableServicePlugins": ["ImportService", "ExportService"]
+    ///   "availableServicePlugins": ["ImportService", "ExportService"],
+    ///   "apiKeyRequired": false,
+    ///   "authenticated": false
     /// }
     /// </example>
     public sealed class StatusREST
@@ -107,6 +109,28 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// </summary>
         /// <example>["ImportService", "ExportService", "AnalyticsService"]</example>
         public List<String> AvailableServicePlugins
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   True when this server has an API key configured, i.e. every endpoint outside the
+        ///   anonymous allowlist answers 401 without a valid credential. /status itself stays
+        ///   anonymous, so it doubles as the connection probe: a caller is authorized iff
+        ///   <c>!ApiKeyRequired || Authenticated</c>.
+        /// </summary>
+        /// <example>false</example>
+        public Boolean ApiKeyRequired
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   True when the request that produced this status carried a valid credential
+        ///   (see <see cref="ApiKeyRequired"/> for how clients combine the two).
+        /// </summary>
+        /// <example>false</example>
+        public Boolean Authenticated
         {
             get; set;
         }
