@@ -154,6 +154,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
             sb.Append("using System;\n");
             sb.Append("using System.Linq;\n");
             sb.Append("using NoSQL.GraphDB.Core.Model;\n");
+            sb.Append("using NoSQL.GraphDB.Core.Index.Vector;\n");
             if (subGraph)
             {
                 sb.Append("using NoSQL.GraphDB.Core.Algorithms;\n");
@@ -164,10 +165,10 @@ namespace NoSQL.GraphDB.Core.App.Helper
             sb.Append("{\n");
             sb.Append("public sealed class ").Append(ValidationClassName).Append('\n');
             sb.Append("{\n");
-            sb.Append("public ").Append(returnType).Append(" Validate()\n");
+            sb.Append("public ").Append(returnType).Append(" Validate(TraversalContext context)\n");
             sb.Append("{\n");
 
-            preambleLines = subGraph ? 10 : 9;
+            preambleLines = subGraph ? 11 : 10;
 
             sb.Append(normalizedFragment).Append('\n');
             sb.Append("}\n}\n}\n");

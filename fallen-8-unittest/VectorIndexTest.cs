@@ -423,6 +423,40 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void Load_ReadsAPreFeatureLegacySidecar_Unchanged()
+        {
+            // Pre-element-embeddings sidecars carry NO extended header: dimension, metric
+            // byte, then a non-negative slot count (the branch keys the new format on a -1
+            // sentinel there). A main-written checkpoint must load with the same vectors and
+            // no binding/model.
+            var index = new VectorIndex();
+            index.Initialize(_fallen8, new Dictionary<string, object> { { "dimension", 2 } });
+            var real = Vertex();
+
+            using var stream = new MemoryStream();
+            var writer = new NoSQL.GraphDB.Core.Serializer.SerializationWriter(stream, true);
+            writer.Write(2);          // dimension
+            writer.Write((byte)0);    // Cosine
+            writer.Write(1);          // LEGACY: slot count, no sentinel/header
+            writer.Write(real.Id);
+            writer.Write(new[] { 0.6f, 0.8f });
+            writer.UpdateHeader();
+            writer.Flush();
+
+            stream.Position = 0;
+            var target = new VectorIndex();
+            target.Initialize(_fallen8, new Dictionary<string, object> { { "dimension", 2 } });
+            target.Load(new NoSQL.GraphDB.Core.Serializer.SerializationReader(stream), _fallen8);
+
+            Assert.AreEqual(1, target.CountOfValues());
+            Assert.IsNull(target.EmbeddingName, "a legacy sidecar is an unbound index");
+            Assert.IsNull(target.Model, "a legacy sidecar declares no model identity");
+            var hits = Knn(target, new[] { 0.6f, 0.8f }, 1);
+            Assert.AreEqual(real.Id, hits.Single().Id);
+            Assert.AreEqual(1f, hits.Single().Score, 1e-6f);
+        }
+
+        [TestMethod]
         public void Load_SkipsEntriesWhoseElementIsMissing()
         {
             var index = new VectorIndex();

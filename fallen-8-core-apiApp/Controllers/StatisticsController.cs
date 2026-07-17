@@ -53,11 +53,17 @@ namespace NoSQL.GraphDB.App.Controllers
         private readonly Fallen8ObservabilityOptions _options;
 
         public StatisticsController(ILogger<StatisticsController> logger, IFallen8 fallen8,
-            IOptions<Fallen8ObservabilityOptions> options = null)
+            IOptions<Fallen8ObservabilityOptions> options = null,
+            Embedding.Fallen8EmbeddingProvider embeddingProvider = null)
         {
             _fallen8 = fallen8;
             _options = options?.Value ?? new Fallen8ObservabilityOptions();
+            _embeddingProvider = embeddingProvider;
         }
+
+        /// <summary>The embedding provider whose identity is surfaced (feature
+        /// embedding-provider); null under direct unit construction.</summary>
+        private readonly Embedding.Fallen8EmbeddingProvider _embeddingProvider;
 
         /// <summary>
         /// Returns a graph-shape snapshot: counts, cardinalities, degrees, indices, memory
@@ -173,7 +179,19 @@ namespace NoSQL.GraphDB.App.Controllers
                 Memory = memory,
                 ComputedInMs = stopwatch.Elapsed.TotalMilliseconds,
                 Sampled = stride > 1,
-                SampleStride = stride
+                SampleStride = stride,
+                // Config/state reads only - surfacing the identity must never trigger the
+                // provider's lazy model load (feature embedding-provider FR-9).
+                Embedding = _embeddingProvider == null ? null : new EmbeddingProviderStatsREST
+                {
+                    Enabled = _embeddingProvider.IsEnabled,
+                    Backend = _embeddingProvider.Backend,
+                    ModelName = _embeddingProvider.Identity.Name,
+                    ModelVersion = _embeddingProvider.Identity.Version,
+                    Dimension = _embeddingProvider.Identity.Dimension,
+                    IntendedMetric = _embeddingProvider.Identity.IntendedMetric.ToString(),
+                    Loaded = _embeddingProvider.IsLoaded
+                }
             };
         }
 

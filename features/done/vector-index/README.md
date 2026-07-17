@@ -1,4 +1,4 @@
-# Vector Index — Usage
+﻿# Vector Index — Usage
 
 Exact k-nearest-neighbour search over `float[]` embeddings, as a fourth index family
 (`fallen-8-core/Index/Vector/`) next to dictionary/range, fulltext, and spatial. Brute-force
@@ -127,23 +127,28 @@ Note the family's concurrency model: a kNN scan holds the index's shared read lo
 concurrent write to the *same index* waits behind the longest running scan — milliseconds at
 these sizes, but part of the same math.
 
-## Durability: the WAL gap
+## Durability: the WAL gap (solved for bound indices)
 
-Index contents are **snapshot-only** across the whole index family: a save-game persists the
-index (dimension, metric, vectors — scores are identical after reload), but the WAL does not
-log index writes. With the WAL on, vectors added since the last save-game do **not** survive
-crash replay — and unlike other index entries, the vector may exist nowhere else.
+For an **unbound** (raw) index, contents are **snapshot-only** across the whole index
+family: a save-game persists the index (dimension, metric, vectors — scores are identical
+after reload), but the WAL does not log index writes. With the WAL on, vectors added since
+the last save-game do **not** survive crash replay — and unlike other index entries, the
+vector may exist nowhere else.
 
-Practical guidance for WAL users:
+**The clean fix is a *bound* index** (feature
+[element-embeddings](../element-embeddings/README.md)): create the index with an
+`embeddingName` option and store vectors as element embeddings
+(`PUT /graphelement/{id}/embedding/{name}`). The element is then the WAL-durable source of
+truth and the index a derived projection that rebuilds on load and re-projects on WAL
+replay — zero operator action after a crash.
+
+For raw indices that must stay unbound, the historical workaround still applies:
 
 1. Store the embedding as a `float[]` **property** on the element as well (properties are
    WAL-covered; the serializer round-trips `Single[]` natively).
 2. Add to the index in **property mode** (`"propertyId": "embedding"`).
 3. After a crash replay, re-add the affected elements in property mode — the vectors come
    back from the WAL-recovered properties.
-
-This resolves properly when index-lifecycle 3.5/3.6 (index WAL coverage) lands; until then
-the property copy is the honest workaround.
 
 ## Limits & guarantees
 

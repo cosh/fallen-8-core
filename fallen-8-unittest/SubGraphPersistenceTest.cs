@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // SubGraphPersistenceTest.cs
 //
@@ -135,7 +135,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange: create a graph, register a subgraph via the controller (attaches a recipe).
             var source = CreateGraphWithData(withCompiler: true);
             var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(), source);
-            Assert.IsInstanceOfType(controller.CreateSubGraph(PersonKnowsPerson()),
+            Assert.IsInstanceOfType(controller.CreateSubGraph(PersonKnowsPerson()).Result,
                 typeof(Microsoft.AspNetCore.Mvc.CreatedResult));
 
             // Act: save, then load into a fresh graph that has a recipe compiler registered.
@@ -171,7 +171,7 @@ namespace NoSQL.GraphDB.Tests
                     new PatternSpecification { Type = "Vertex", PatternName = "p", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
                 }
             };
-            Assert.IsInstanceOfType(controller.CreateSubGraph(spec), typeof(Microsoft.AspNetCore.Mvc.CreatedResult));
+            Assert.IsInstanceOfType(controller.CreateSubGraph(spec).Result, typeof(Microsoft.AspNetCore.Mvc.CreatedResult));
 
             var actualPath = SaveGraph(source);
 
@@ -188,8 +188,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var source = CreateGraphWithData(withCompiler: true);
             var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(), source);
-            controller.CreateSubGraph(PersonKnowsPerson());
-
+            _ = controller.CreateSubGraph(PersonKnowsPerson()).Result;
             var actualPath = SaveGraph(source);
 
             // No recipe compiler registered on the loading graph.
@@ -230,9 +229,9 @@ namespace NoSQL.GraphDB.Tests
             var source = CreateGraphWithData(withCompiler: true);
             var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(), source);
 
-            Assert.IsInstanceOfType(controller.CreateSubGraph(AllPersons("A")),
+            Assert.IsInstanceOfType(controller.CreateSubGraph(AllPersons("A")).Result,
                 typeof(Microsoft.AspNetCore.Mvc.CreatedResult), "root subgraph A");
-            Assert.IsInstanceOfType(controller.CreateSubGraph(AllPersons("B"), "A"),
+            Assert.IsInstanceOfType(controller.CreateSubGraph(AllPersons("B"), "A").Result,
                 typeof(Microsoft.AspNetCore.Mvc.CreatedResult), "nested subgraph B from A");
 
             Assert.IsTrue(source.SubGraphFactory.TryGetSubGraph(out var aBefore, "A"));

@@ -441,6 +441,44 @@ Hits are graph elements, so the traversal surface takes over from there — the 
 recipe (kNN → paths/subgraphs/properties), memory math, and measured latency live in
 [features/vector-index/](features/done/vector-index/).
 
+## Semantic traversal (embeddings as element state)
+
+Embeddings can live **on the elements themselves** (named, WAL-durable, one typed
+accessor), and the traversal surface can then make decisions by similarity: a `semantic`
+block on `POST /path/{from}/to/{to}` and `PUT /subgraph` carries a query vector — embedded
+once, before the traversal starts — and installs code-free similarity filters/costs, so
+the common case runs with dynamic code execution disabled:
+
+Bash
+
+```bash
+curl -sf -X PUT "http://localhost:5000/graphelement/42/embedding/default?waitForCompletion=true" \
+     -H "Content-Type: application/json" -d '{ "vector": [0.12, -0.5, 0.33] }'
+
+curl -sf -X POST http://localhost:5000/path/1/to/9 \
+     -H "Content-Type: application/json" \
+     -d '{ "semantic": { "queryVector": [0.1, 0.2, 0.3], "minScore": 0.7 } }'
+```
+
+PowerShell
+
+```powershell
+Invoke-RestMethod 'http://localhost:5000/graphelement/42/embedding/default?waitForCompletion=true' -Method Put `
+                  -ContentType 'application/json' -Body '{ "vector": [0.12, -0.5, 0.33] }'
+Invoke-RestMethod 'http://localhost:5000/path/1/to/9' -Method Post -ContentType 'application/json' `
+                  -Body '{ "semantic": { "queryVector": [0.1, 0.2, 0.3], "minScore": 0.7 } }'
+```
+
+A `VectorIndex` bound to an embedding name (`embeddingName` creation option) maintains
+itself as a derived projection of element state — no explicit adds, rebuilt on load,
+correct after WAL replay. An optional, capability-gated **embedding provider** in the
+server (ONNX / LLamaSharp / Ollama behind `Microsoft.Extensions.AI`, off by default — the
+deployment stays model-free) adds text-in workflows: `POST /embedding/element`,
+`POST /embedding/search`, and `semantic.queryText`. The full story — the traversal rules
+and diagram, metric/cost semantics, memory math, backend matrix, the model-identity
+contract — lives in [features/element-embeddings/](features/done/element-embeddings/) and
+[features/embedding-provider/](features/done/embedding-provider/).
+
 ## Observability
 
 The engine emits metrics and traces through the BCL instruments (no engine dependency);

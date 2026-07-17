@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // PathFilterArityTest.cs
 //
@@ -31,6 +31,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.App.Helper;
 using NoSQL.GraphDB.Core.Model;
@@ -97,9 +98,9 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNotNull(traverser, "A successful compile must produce a traverser.");
 
             // Each produced delegate must bind (one argument) and, being the match-all defaults, return true.
-            Assert.IsTrue(traverser.EdgePropertyFilter()("knows"), "The default edge-property filter must match all.");
-            Assert.IsTrue(traverser.VertexFilter()(vertex), "The default vertex filter must match all.");
-            Assert.IsTrue(traverser.EdgeFilter()(edge), "The default edge filter must match all.");
+            Assert.IsTrue(traverser.EdgePropertyFilter(TraversalContext.Empty)("knows"), "The default edge-property filter must match all.");
+            Assert.IsTrue(traverser.VertexFilter(TraversalContext.Empty)(vertex), "The default vertex filter must match all.");
+            Assert.IsTrue(traverser.EdgeFilter(TraversalContext.Empty)(edge), "The default edge filter must match all.");
 
             fallen8.Dispose();
         }
@@ -127,9 +128,9 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNull(compilerMessage, "A custom one-arg filter must compile. Got: " + compilerMessage);
             Assert.IsNotNull(traverser);
 
-            Assert.IsTrue(traverser.EdgeFilter()(edge), "The 'knows' edge must pass the custom filter.");
-            Assert.IsTrue(traverser.EdgePropertyFilter()("knows"));
-            Assert.IsFalse(traverser.EdgePropertyFilter()("dislikes"), "A non-matching edge property must be excluded.");
+            Assert.IsTrue(traverser.EdgeFilter(TraversalContext.Empty)(edge), "The 'knows' edge must pass the custom filter.");
+            Assert.IsTrue(traverser.EdgePropertyFilter(TraversalContext.Empty)("knows"));
+            Assert.IsFalse(traverser.EdgePropertyFilter(TraversalContext.Empty)("dislikes"), "A non-matching edge property must be excluded.");
 
             fallen8.Dispose();
         }
@@ -168,7 +169,7 @@ namespace NoSQL.GraphDB.Tests
                 Filter = new PathFilterSpecification()
             };
 
-            var result = controller.CalculateShortestPath(a, b, spec);
+            var result = controller.CalculateShortestPath(a, b, spec).Result;
             Assert.IsNotNull(result.Value, "A default filter block must not produce a BadRequest.");
             Assert.AreEqual(1, result.Value.Count, "A path exists, so the default-filter request must return it, not [].");
 
@@ -189,7 +190,7 @@ namespace NoSQL.GraphDB.Tests
                 Filter = new PathFilterSpecification { Edge = "this is not valid C#" }
             };
 
-            var result = controller.CalculateShortestPath(a, b, spec);
+            var result = controller.CalculateShortestPath(a, b, spec).Result;
 
             Assert.IsNull(result.Value, "A malformed filter must not return a 200 body.");
             var badRequest = result.Result as BadRequestObjectResult;

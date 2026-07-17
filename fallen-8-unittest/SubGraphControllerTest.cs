@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // SubGraphControllerTest.cs
 //
@@ -127,7 +127,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void Create_ValidSpecification_Returns201WithSummary()
         {
-            var result = _controller.CreateSubGraph(PersonKnowsPerson());
+            var result = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
 
             var created = result as CreatedResult;
             Assert.IsNotNull(created, "Expected a 201 Created result");
@@ -144,9 +144,9 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void Create_DuplicateName_Returns409()
         {
-            Assert.IsInstanceOfType(_controller.CreateSubGraph(PersonKnowsPerson()), typeof(CreatedResult));
+            Assert.IsInstanceOfType(_controller.CreateSubGraph(PersonKnowsPerson()).Result, typeof(CreatedResult));
 
-            var second = _controller.CreateSubGraph(PersonKnowsPerson());
+            var second = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
 
             Assert.IsInstanceOfType(second, typeof(ConflictObjectResult), "Re-using a name must conflict");
         }
@@ -154,7 +154,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void Create_NullSpecification_Returns400()
         {
-            Assert.IsInstanceOfType(_controller.CreateSubGraph(null), typeof(BadRequestObjectResult));
+            Assert.IsInstanceOfType(_controller.CreateSubGraph(null).Result, typeof(BadRequestObjectResult));
         }
 
         [TestMethod]
@@ -162,7 +162,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var spec = PersonKnowsPerson();
             spec.Name = "   ";
-            Assert.IsInstanceOfType(_controller.CreateSubGraph(spec), typeof(BadRequestObjectResult));
+            Assert.IsInstanceOfType(_controller.CreateSubGraph(spec).Result, typeof(BadRequestObjectResult));
         }
 
         [TestMethod]
@@ -171,7 +171,7 @@ namespace NoSQL.GraphDB.Tests
             var spec = AllPersons("bad");
             spec.Patterns[0].GraphElementFilter = "return (ge) => ge.Nope == 1;"; // will not compile
 
-            var result = _controller.CreateSubGraph(spec);
+            var result = _controller.CreateSubGraph(spec).Result;
 
             var badRequest = result as BadRequestObjectResult;
             Assert.IsNotNull(badRequest, "Uncompilable filter must yield 400, not 500");
@@ -181,9 +181,8 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void GetAllNames_ReturnsRegisteredNames()
         {
-            _controller.CreateSubGraph(PersonKnowsPerson("a"));
-            _controller.CreateSubGraph(AllPersons("b"));
-
+            _ = _controller.CreateSubGraph(PersonKnowsPerson("a")).Result;
+            _ = _controller.CreateSubGraph(AllPersons("b")).Result;
             var ok = _controller.GetAllSubGraphNames() as OkObjectResult;
             Assert.IsNotNull(ok);
             var names = ((IEnumerable<string>)ok.Value).ToList();
@@ -193,8 +192,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void GetSubGraph_Existing_Returns200_Missing_Returns404()
         {
-            _controller.CreateSubGraph(PersonKnowsPerson());
-
+            _ = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
             var ok = _controller.GetSubGraph("people") as OkObjectResult;
             Assert.IsNotNull(ok, "Existing subgraph should return 200");
             Assert.AreEqual("people", ((SubGraphSummary)ok.Value).Name);
@@ -205,8 +203,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void GetSubGraphContents_ReturnsVerticesAndEdges()
         {
-            _controller.CreateSubGraph(PersonKnowsPerson());
-
+            _ = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
             var ok = _controller.GetSubGraphContents("people") as OkObjectResult;
             Assert.IsNotNull(ok);
             var graph = ok.Value as Graph;
@@ -224,8 +221,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void Recalculate_ReflectsSourceChanges()
         {
-            _controller.CreateSubGraph(AllPersons());
-
+            _ = _controller.CreateSubGraph(AllPersons()).Result;
             var before = (SubGraphSummary)((OkObjectResult)_controller.GetSubGraph("persons")).Value;
             Assert.AreEqual(2, before.VertexCount, "Alice and Bob");
 
@@ -249,8 +245,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void Delete_Existing_Returns204_ThenGoneAnd404OnSecondDelete()
         {
-            _controller.CreateSubGraph(PersonKnowsPerson());
-
+            _ = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
             Assert.IsInstanceOfType(_controller.DeleteSubGraph("people"), typeof(NoContentResult));
             Assert.IsInstanceOfType(_controller.GetSubGraph("people"), typeof(NotFoundObjectResult),
                 "After deletion the subgraph must be gone");
@@ -264,8 +259,7 @@ namespace NoSQL.GraphDB.Tests
             var sourceVertexCount = _fallen8.VertexCount;
             var sourceEdgeCount = _fallen8.EdgeCount;
 
-            _controller.CreateSubGraph(PersonKnowsPerson());
-
+            _ = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
             Assert.AreEqual(sourceVertexCount, _fallen8.VertexCount, "Source graph vertices must be unchanged");
             Assert.AreEqual(sourceEdgeCount, _fallen8.EdgeCount, "Source graph edges must be unchanged");
         }
@@ -286,7 +280,7 @@ namespace NoSQL.GraphDB.Tests
             var controller = new SubGraphController(
                 emptyLoggerFactory.CreateLogger<SubGraphController>(), emptyFallen8);
 
-            var result = controller.CreateSubGraph(AllPersons());
+            var result = controller.CreateSubGraph(AllPersons()).Result;
 
             Assert.AreEqual(StatusCodes.Status201Created, StatusCodeOf(result),
                 "An empty source graph with a valid pattern is a valid empty result -> 201, not 400.");
@@ -310,7 +304,7 @@ namespace NoSQL.GraphDB.Tests
             var spec = AllPersons("empty-match");
             spec.Patterns[0].GraphElementFilter = "return (ge) => ge.Label == \"nonexistent\";";
 
-            var result = _controller.CreateSubGraph(spec);
+            var result = _controller.CreateSubGraph(spec).Result;
 
             Assert.AreEqual(StatusCodes.Status201Created, StatusCodeOf(result),
                 "A populated-graph pattern that matches nothing returns 201 with an empty subgraph.");
@@ -329,7 +323,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Two vertex patterns in a row compile fine but fail the algorithm's ValidatePattern at
             // execution, so the create transaction returns false: a clean rollback, hence 400.
-            var result = _controller.CreateSubGraph(VertexThenVertex());
+            var result = _controller.CreateSubGraph(VertexThenVertex()).Result;
 
             Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult),
                 "A structurally-invalid pattern is a clean rollback and must be 400, not 500.");
@@ -345,7 +339,7 @@ namespace NoSQL.GraphDB.Tests
             // of the former 400-vs-409 split. AllPersons materializes 2 person vertices; cap at 1.
             _fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxElementsPerSubGraph = 1 };
 
-            var result = _controller.CreateSubGraph(AllPersons());
+            var result = _controller.CreateSubGraph(AllPersons()).Result;
 
             Assert.IsInstanceOfType(result, typeof(ConflictObjectResult),
                 "A quota breach must be 409 (QuotaExceeded), consistent with the count-ceiling breach.");
@@ -363,7 +357,7 @@ namespace NoSQL.GraphDB.Tests
             var controller = new SubGraphController(
                 TestLoggerFactory.Create().CreateLogger<SubGraphController>(), faultingFallen8);
 
-            var result = controller.CreateSubGraph(AllPersons("faulting"));
+            var result = controller.CreateSubGraph(AllPersons("faulting")).Result;
 
             Assert.AreEqual(StatusCodes.Status500InternalServerError, StatusCodeOf(result),
                 "A create whose transaction faulted with an exception must be reported as 500.");
@@ -373,7 +367,7 @@ namespace NoSQL.GraphDB.Tests
         public void Delete_WhenRemoveTransactionRollsBack_Returns500()
         {
             // Register the subgraph so the controller's existence check passes (would 404 otherwise)...
-            Assert.IsInstanceOfType(_controller.CreateSubGraph(PersonKnowsPerson()), typeof(CreatedResult));
+            Assert.IsInstanceOfType(_controller.CreateSubGraph(PersonKnowsPerson()).Result, typeof(CreatedResult));
 
             // ...then drive DeleteSubGraph against a Fallen8 whose remove transaction reports
             // RolledBack. Before the fix DeleteSubGraph returned 204 regardless; it must now return 500.

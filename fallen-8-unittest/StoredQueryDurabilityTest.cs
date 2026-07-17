@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // StoredQueryDurabilityTest.cs
 //
@@ -259,7 +259,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Invocable end-to-end after the load: a stored path invocation resolves and runs.
             var graphController = new GraphController(_loggerFactory.CreateLogger<GraphController>(), target);
-            var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "rt-path" });
+            var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "rt-path" }).Result;
             Assert.IsNotNull(outcome.Value, "the recompiled stored query must be invocable (got " +
                 (outcome.Result?.GetType().Name ?? "a value") + ")");
 
@@ -283,7 +283,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNull(entry.Artifact);
 
             var graphController = new GraphController(_loggerFactory.CreateLogger<GraphController>(), target);
-            var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "source-only" });
+            var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "source-only" }).Result;
             Assert.IsInstanceOfType(outcome.Result, typeof(ConflictObjectResult));
 
             target.Dispose();
@@ -319,7 +319,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNotNull(detail.CompileDiagnostics);
 
             var graphController = new GraphController(_loggerFactory.CreateLogger<GraphController>(), target);
-            var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "breaks-on-load" });
+            var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "breaks-on-load" }).Result;
             Assert.IsInstanceOfType(outcome.Result, typeof(ConflictObjectResult));
 
             Assert.AreEqual(204, ((StatusCodeResult)controller.DeleteStoredQuery("breaks-on-load")).StatusCode);
@@ -399,7 +399,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 Name = "outlives-its-template",
                 StoredQuery = "doomed-template"
-            });
+            }).Result;
             Assert.AreEqual(201, ((ObjectResult)created).StatusCode);
 
             Assert.AreEqual(204, ((StatusCodeResult)Controller(source).DeleteStoredQuery("doomed-template")).StatusCode);
@@ -471,7 +471,7 @@ namespace NoSQL.GraphDB.Tests
 
             // The replayed entry is invocable.
             var graphController = new GraphController(_loggerFactory.CreateLogger<GraphController>(), recovered);
-            var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "survives" });
+            var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "survives" }).Result;
             Assert.IsNotNull(outcome.Value);
 
             recovered.Dispose();

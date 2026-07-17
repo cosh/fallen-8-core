@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // WalEntryType.cs
 //
@@ -81,6 +81,14 @@ namespace NoSQL.GraphDB.Core.Persistency
         RegisterStoredQuery = 14,
 
         /// <summary>A stored query removal (feature stored-query-library). Payload: the name.</summary>
-        RemoveStoredQuery = 15
+        RemoveStoredQuery = 15,
+
+        /// <summary>
+        ///   A batch of named element-embedding writes (feature element-embeddings). Payload: the
+        ///   serialized <see cref="Model.EmbeddingSetDefinition" /> list (element id, name, vector
+        ///   or removal marker). Replayed by re-executing the equivalent
+        ///   <see cref="Transaction.SetEmbeddingsTransaction" /> against the loaded snapshot.
+        /// </summary>
+        SetEmbeddings = 16
     }
 }

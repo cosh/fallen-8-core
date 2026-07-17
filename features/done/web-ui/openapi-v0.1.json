@@ -1417,6 +1417,479 @@
         }
       }
     },
+    "/embedding/element": {
+      "post": {
+        "tags": [
+          "Embedding"
+        ],
+        "summary": "Embeds a text and stores it as the element's named embedding",
+        "description": "The generated vector is written through the element-embeddings surface together\r\nwith the provider's model-identity stamp (one atomic transaction); a vector index\r\nbound to the name updates its projection on commit.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the provider call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedElementSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedElementSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The embedding was generated and committed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Missing/oversized text or an invalid embedding name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The embedding provider is disabled (Fallen8:Embedding:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The provider's dimension or model identity conflicts with a vector index bound to this embedding name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable (failed to load, or the Ollama sidecar is down)",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/embedding/elements": {
+      "post": {
+        "tags": [
+          "Embedding"
+        ],
+        "summary": "Embeds a batch of texts onto elements - one provider batch, one transaction",
+        "description": "The bulk-ingestion path: every vector plus its model stamp commits atomically.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the provider call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedElementsSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedElementsSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The batch was generated and committed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Empty/oversized batch, missing text, or an invalid embedding name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The embedding provider is disabled (Fallen8:Embedding:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "A referenced graph element does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The provider's dimension or model identity conflicts with a bound vector index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/embedding/search": {
+      "post": {
+        "tags": [
+          "Embedding"
+        ],
+        "summary": "Semantic search: embeds a query text and runs kNN against a vector index",
+        "description": "The text is embedded ONCE (with the configured query prefix); scores and ordering\r\nare exactly those of POST /scan/index/vector for the same vector.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the provider call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingSearchSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingSearchSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hits, best first, with raw scores",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSearchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Missing text, invalid k/kind, or the index is not a vector index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The embedding provider is disabled (Fallen8:Embedding:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No index with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The index's dimension or declared model identity conflicts with the active provider",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/embedding/text": {
+      "post": {
+        "tags": [
+          "Embedding"
+        ],
+        "summary": "Embeds raw texts and returns the vectors",
+        "description": "For clients driving the raw vector surfaces themselves (external pipelines,\r\n    semantic path queries with a client-held vector, debugging).",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the provider call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedTextSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedTextSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The vectors, in input order, plus the model identity",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbeddingVectorsREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Empty/oversized batch or a missing text",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The embedding provider is disabled (Fallen8:Embedding:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/vertex": {
       "put": {
         "tags": [
@@ -2683,6 +3156,310 @@
           },
           "404": {
             "description": "The index or the graph element does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/graphelement/{graphElementIdentifier}/embedding/{embeddingName}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Sets (or replaces) a named embedding on a graph element",
+        "description": "The element is the source of truth for its embedding (feature element-embeddings):\r\nthe write is WAL-durable element state, and every vector index BOUND to this\r\nembedding name updates its projection on commit - no separate index add. Replace\r\nsemantics: one current vector per name.\r\n\r\nSample request:\r\n\r\n    PUT /graphelement/42/embedding/default\r\n    { \"vector\": [0.12, -0.5, 0.33] }",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "embeddingName",
+            "in": "path",
+            "description": "The embedding name (letters, digits, '_', '-'; max 64 chars)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The embedding vector",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingWriteSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingWriteSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Embedding write accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid embedding name, missing/empty vector, non-finite components, a dimension conflicting with a vector index bound to this name, or a zero-norm vector while a bound Cosine index exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a named embedding from a graph element",
+        "description": "Bound vector indices purge the element's projection on commit. Removing an absent\r\nembedding is a committed no-op, matching the property surface.",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "embeddingName",
+            "in": "path",
+            "description": "The embedding name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Embedding removal accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid embedding name",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets a named embedding of a graph element",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "embeddingName",
+            "in": "path",
+            "description": "The embedding name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored embedding",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ElementEmbeddingREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid embedding name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist or carries no embedding of that name",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -5549,6 +6326,361 @@
           ]
         }
       },
+      "ElementEmbeddingREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The embedding name.",
+            "example": "default"
+          },
+          "vector": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The stored vector."
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The model-identity stamp written by the embedding provider, or null for a\r\n    bring-your-own-vector embedding.",
+            "example": "bge-micro-v2#384#Cosine"
+          }
+        },
+        "description": "A stored element embedding (feature element-embeddings)."
+      },
+      "EmbeddingProviderStatsREST": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the capability flag (Fallen8:Embedding:Enabled) is on.",
+            "example": false
+          },
+          "backend": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The configured backend: Onnx, LLamaSharp or Ollama.",
+            "example": "Onnx"
+          },
+          "modelName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The declared model name.",
+            "example": "bge-micro-v2"
+          },
+          "modelVersion": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The declared model version (empty when unspecified)."
+          },
+          "dimension": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The declared output dimension.",
+            "format": "int32",
+            "example": 384
+          },
+          "intendedMetric": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The metric the embeddings are intended for.",
+            "example": "Cosine"
+          },
+          "loaded": {
+            "type": "boolean",
+            "description": "Whether the backend has actually been created (lazy load happened).",
+            "example": false
+          }
+        },
+        "description": "The active embedding provider and its declared model identity (feature\r\n    embedding-provider). Cheap config/state reads only - statistics never loads a model."
+      },
+      "EmbeddingSearchSpecification": {
+        "required": [
+          "indexId",
+          "text",
+          "k"
+        ],
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The vector index to query.",
+            "example": "embeddings"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The query text (embedded once, with the configured query prefix).",
+            "example": "red bicycles"
+          },
+          "k": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many nearest neighbours to return (1..1024).",
+            "format": "int32",
+            "example": 10
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional element-kind constraint: vertex, edge, or any (default).",
+            "example": "vertex"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional exact (case-sensitive) label constraint.",
+            "example": "person"
+          }
+        },
+        "description": "Semantic search: embed a query text and run kNN against a vector index\r\n    (feature embedding-provider).",
+        "example": {
+          "indexId": "embeddings",
+          "text": "red bicycles",
+          "k": 10,
+          "kind": "vertex"
+        }
+      },
+      "EmbeddingVectorsREST": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The provider's model-identity stamp.",
+            "example": "bge-micro-v2#384#Cosine"
+          },
+          "dimension": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The vector dimension.",
+            "format": "int32",
+            "example": 384
+          },
+          "vectors": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "array",
+              "items": {
+                "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+                "type": [
+                  "number",
+                  "string"
+                ],
+                "format": "float"
+              }
+            },
+            "description": "One vector per input text, in order."
+          }
+        },
+        "description": "Raw embedding vectors plus the identity they came from."
+      },
+      "EmbeddingWriteSpecification": {
+        "required": [
+          "vector"
+        ],
+        "type": "object",
+        "properties": {
+          "vector": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The embedding vector; finite components, dimension within [1, 4096]."
+          }
+        },
+        "description": "Sets (replace semantics) a named element embedding (feature element-embeddings).",
+        "example": {
+          "vector": [
+            0.12,
+            -0.5,
+            0.33
+          ]
+        }
+      },
+      "EmbedElementItem": {
+        "required": [
+          "graphElementId",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The target graph element id.",
+            "format": "int32",
+            "example": 42
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The text to embed."
+          }
+        },
+        "description": "One item of a batch embed (feature embedding-provider)."
+      },
+      "EmbedElementSpecification": {
+        "required": [
+          "graphElementId",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The target graph element id.",
+            "format": "int32",
+            "example": 42
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The text to embed.",
+            "example": "a red bicycle"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The embedding name (default \"default\").",
+            "example": "default"
+          }
+        },
+        "description": "Embed a text and store it as the element's named embedding (feature\r\n    embedding-provider).",
+        "example": {
+          "graphElementId": 42,
+          "text": "a red bicycle",
+          "name": "default"
+        }
+      },
+      "EmbedElementsSpecification": {
+        "required": [
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The embedding name for the whole batch (default \"default\").",
+            "example": "default"
+          },
+          "items": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EmbedElementItem"
+            },
+            "description": "The batch (bounded by Fallen8:Embedding:MaxBatchSize)."
+          }
+        },
+        "description": "Embed a batch of texts onto elements in one provider batch and one\r\n    transaction (feature embedding-provider) - the bulk-ingestion path.",
+        "example": {
+          "name": "default",
+          "items": [
+            {
+              "graphElementId": 1,
+              "text": "..."
+            }
+          ]
+        }
+      },
+      "EmbedTextSpecification": {
+        "required": [
+          "texts"
+        ],
+        "type": "object",
+        "properties": {
+          "texts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The texts to embed (bounded by Fallen8:Embedding:MaxBatchSize)."
+          }
+        },
+        "description": "Embed raw texts and return the vectors (feature embedding-provider) - for\r\n    clients that drive the raw vector surfaces themselves.",
+        "example": {
+          "texts": [
+            "a red bicycle",
+            "a blue car"
+          ]
+        }
+      },
       "FulltextIndexScanSpecification": {
         "required": [
           "indexId",
@@ -5818,6 +6950,10 @@
             "description": "The uniform stride used (1 when exact).",
             "format": "int32",
             "example": 1
+          },
+          "embedding": {
+            "description": "The embedding provider state (feature embedding-provider). Reading this\r\n    NEVER triggers the lazy model load.",
+            "$ref": "#/components/schemas/EmbeddingProviderStatsREST"
           }
         },
         "description": "The graph-shape snapshot behind GET /statistics (feature observability). An ADVISORY,\r\nlock-free snapshot - not transactionally consistent - computed on demand under an\r\nelement budget: exact when V+E fits the budget, uniformly strided (and flagged) above it."
@@ -6452,6 +7588,10 @@
             ],
             "description": "The name of a registered stored query of kind `Path` to use instead of inline\r\nPathFilterSpecification PathSpecification.Filter/PathCostSpecification PathSpecification.Cost fragments (feature stored-query-library).\r\nMutually exclusive with them (400 when mixed). A stored-query request compiles\r\nnothing and works with dynamic code execution disabled; the numeric bounds and\r\nstring PathSpecification.PathAlgorithmName stay per-request.",
             "example": "adults-shortest"
+          },
+          "semantic": {
+            "description": "The declarative semantic block (feature element-embeddings): the query vector for\r\nthe traversal context plus optional code-free similarity filter/cost. Pure data -\r\nnever gated by the dynamic-code switch, and deliberately NOT part of the compile\r\ncache key (the context is a factory parameter, not source).",
+            "$ref": "#/components/schemas/SemanticTraversalSpecification"
           }
         },
         "description": "Specification for finding paths between vertices in the graph",
@@ -7060,6 +8200,76 @@
           "distance": 5.0
         }
       },
+      "SemanticTraversalSpecification": {
+        "type": "object",
+        "properties": {
+          "queryVector": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "The query vector to score elements against."
+          },
+          "queryText": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "A query TEXT to embed instead of supplying float[] SemanticTraversalSpecification.QueryVector (feature\r\nembedding-provider; mutually exclusive with it). Embedded ONCE, before the\r\ntraversal starts, by the active provider - requires the EmbeddingProvider\r\ncapability (403 when `Fallen8:Embedding:Enabled` is off).",
+            "example": "red bicycles"
+          },
+          "embeddingName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The embedding name to score (default \"default\").",
+            "example": "default"
+          },
+          "metric": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The metric: Cosine (default), DotProduct or L2.",
+            "example": "Cosine"
+          },
+          "minScore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "Optional declarative filter threshold: an element passes when its named embedding\r\nscores at least this well (at most, under L2); elements without the embedding are\r\nfiltered.",
+            "format": "double",
+            "example": 0.7
+          },
+          "costBySimilarity": {
+            "type": "boolean",
+            "description": "Optional declarative vertex cost (path requests only): Cosine maps to\r\n`1 - score`, L2 to the distance itself; DotProduct has no honest non-negative\r\nmapping and is rejected. Vertices without the embedding are filtered.",
+            "example": true
+          }
+        },
+        "description": "The declarative semantic block of a path or subgraph request (feature\r\nelement-embeddings). Carries the query vector for the traversal context - embedded\r\nONCE, before the traversal starts - plus optional code-free filter/cost derivations.\r\nPure data, so it needs no dynamic-code capability; conflicts with a C# fragment or a\r\nstored query owning the same delegate slot are rejected (one owner per slot).",
+        "example": {
+          "queryVector": [
+            0.1,
+            0.2
+          ],
+          "embeddingName": "default",
+          "metric": "Cosine",
+          "minScore": 0.7
+        }
+      },
       "StatusREST": {
         "type": "object",
         "properties": {
@@ -7470,6 +8680,10 @@
             ],
             "description": "The name of a registered stored query of kind `SubGraph` to instantiate instead\r\nof inline string SubGraphSpecification.VertexFilter/string SubGraphSpecification.EdgeFilter/List&lt;PatternSpecification&gt; SubGraphSpecification.Patterns\r\nfragments (feature stored-query-library). Mutually exclusive with them (400 when\r\nmixed); string SubGraphSpecification.Name (and optional Dictionary&lt;string, string&gt; SubGraphSpecification.AdditionalInformation) stay\r\nrequired per instance. A stored-query request compiles nothing and works with\r\ndynamic code execution disabled.",
             "example": "person-net"
+          },
+          "semantic": {
+            "description": "The declarative semantic block (feature element-embeddings): the query vector the\r\ncompiled filters' traversal context carries, plus an optional code-free\r\n`minScore` vertex pre-filter. Bound at REGISTRATION time - recalculation\r\nreuses the same delegates and never embeds anything. Pure data (not gated by the\r\ndynamic-code switch); mutually exclusive with string SubGraphSpecification.StoredQuery and, when\r\n`minScore` is set, with an inline string SubGraphSpecification.VertexFilter fragment.",
+            "$ref": "#/components/schemas/SemanticTraversalSpecification"
           }
         },
         "description": "Specification for creating a subgraph by pattern matching against the graph.",
@@ -7989,6 +9203,9 @@
     },
     {
       "name": "Delegates"
+    },
+    {
+      "name": "Embedding"
     },
     {
       "name": "Graph"

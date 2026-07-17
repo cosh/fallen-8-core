@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -72,12 +73,21 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly IAuthorizationService _authorizationService;
 
+        /// <summary>
+        ///   The embedding provider resolving <c>semantic.queryText</c> (feature
+        ///   embedding-provider). Null when constructed directly (unit tests) - queryText then
+        ///   answers 503.
+        /// </summary>
+        private readonly Embedding.Fallen8EmbeddingProvider _embeddingProvider;
+
         public SubGraphController(ILogger<SubGraphController> logger, IFallen8 fallen8,
-            IAuthorizationService authorizationService = null)
+            IAuthorizationService authorizationService = null,
+            Embedding.Fallen8EmbeddingProvider embeddingProvider = null)
         {
             _logger = logger;
             _fallen8 = fallen8;
             _authorizationService = authorizationService;
+            _embeddingProvider = embeddingProvider;
         }
 
         /// <summary>
@@ -172,6 +182,13 @@ namespace NoSQL.GraphDB.App.Controllers
         /// nothing is compiled per request. The created subgraph is self-contained - deleting the
         /// stored query later does not affect it.
         ///
+        /// SEMANTIC SUBGRAPHS (feature element-embeddings): an optional "semantic" block carries
+        /// a query vector (or "queryText" via the embedding provider) bound at REGISTRATION -
+        /// recalculation reuses it and never embeds anything. "minScore" becomes the code-free
+        /// vertex pre-filter; compiled fragments read the same vector via "context". Pure data,
+        /// not gated by the dynamic-code switch; not available on stored-template invocations.
+        /// Full rules: features/element-embeddings README, "Semantic traversal".
+        ///
         /// SECURITY: inline filter/pattern fragments are compiled with Roslyn and executed
         /// IN-PROCESS WITH FULL TRUST - a trust boundary, not a sandbox. The dynamic-code gate is
         /// REQUEST-SHAPE-AWARE (feature stored-query-library): only a request that INTRODUCES code
@@ -192,11 +209,21 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult CreateSubGraph([FromBody] SubGraphSpecification specification, [FromQuery] String fromSubGraph = null)
+        public async Task<IActionResult> CreateSubGraph([FromBody] SubGraphSpecification specification, [FromQuery] String fromSubGraph = null)
         {
             if (specification == null)
             {
                 return BadRequest("A subgraph specification is required.");
+            }
+
+            // semantic.queryText resolves to a vector ONCE, at registration (feature
+            // embedding-provider): capability-gated, embedded on this request thread -
+            // recalculation reuses the bound vector and never embeds anything.
+            var queryTextError = await SemanticTraversalHelper.TryResolveQueryTextAsync(
+                specification.Semantic, _embeddingProvider, _authorizationService, User, HttpContext?.RequestAborted ?? default);
+            if (queryTextError != null)
+            {
+                return queryTextError;
             }
 
             // Request-shape-aware dynamic-code gate (feature stored-query-library): only a request
@@ -252,6 +279,14 @@ namespace NoSQL.GraphDB.App.Controllers
                         (specification.Patterns != null && specification.Patterns.Count > 0))
                     {
                         return BadRequest("'storedQuery' is mutually exclusive with inline 'vertexFilter'/'edgeFilter'/'patterns' fragments.");
+                    }
+
+                    // A stored template's artifact pins delegates materialized at REGISTRATION;
+                    // rebinding them with a per-invocation context is out of scope (feature
+                    // element-embeddings, spec non-goal with trigger).
+                    if (specification.Semantic != null)
+                    {
+                        return BadRequest("'semantic' is not available on a stored-query subgraph invocation; inline the filters instead.");
                     }
 
                     var resolutionError = StoredQueryResolver.TryResolveSubGraphTemplate(

@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // PathTestEdgeCases.cs
 //
@@ -62,7 +62,7 @@ namespace NoSQL.GraphDB.Tests
             }).Value.First();
 
             // Act
-            var result = controller.CalculateShortestPath(alice, bob, null).Value;
+            var result = controller.CalculateShortestPath(alice, bob, null).Result.Value;
 
             // Assert
             Assert.IsNotNull(result, "Result should not be null");
@@ -90,7 +90,7 @@ namespace NoSQL.GraphDB.Tests
             }).Value.First();
 
             var spec = new PathSpecification { MaxDepth = 0, MaxResults = 10 };
-            var result = controller.CalculateShortestPath(alice, bob, spec).Value;
+            var result = controller.CalculateShortestPath(alice, bob, spec).Result.Value;
             Assert.IsNotNull(result, "Result should not be null");
             Assert.AreEqual(0, result.Count, "No path should be found with MaxDepth=0");
         }
@@ -107,7 +107,7 @@ namespace NoSQL.GraphDB.Tests
             int nonexistentFrom = 9999;
             int nonexistentTo = 8888;
             var spec = new PathSpecification { MaxDepth = 5, MaxResults = 10 };
-            var result = controller.CalculateShortestPath(nonexistentFrom, nonexistentTo, spec).Value;
+            var result = controller.CalculateShortestPath(nonexistentFrom, nonexistentTo, spec).Result.Value;
             Assert.IsNotNull(result, "Result should not be null");
             Assert.AreEqual(0, result.Count, "No path should be found between nonexistent vertices");
         }
@@ -142,7 +142,7 @@ namespace NoSQL.GraphDB.Tests
                 ResultType = ResultTypeSpecification.Vertices
             }).Value.First();
             var spec = new PathSpecification { MaxDepth = 5, MaxResults = 10 };
-            var result = controller.CalculateShortestPath(a, x, spec).Value;
+            var result = controller.CalculateShortestPath(a, x, spec).Result.Value;
             Assert.IsNotNull(result, "Result should not be null");
             Assert.AreEqual(0, result.Count, "No path should be found between disconnected subgraphs");
         }

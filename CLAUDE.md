@@ -54,6 +54,15 @@ dotnet run --project fallen-8-core-apiApp
 - **Subgraph feature** lives in `fallen-8-core/Algorithms/SubGraph` (algorithm + pattern
   model) and `fallen-8-core/SubGraph/SubGraphFactory.cs` (registration, recalculation).
   Design docs are in [features/done/subgraph/](features/done/subgraph/).
+- **Embeddings are element state; semantic traversal reads them.** A named embedding lives
+  on the element behind ONE accessor (`AGraphElementModel.TryGetEmbedding`); a
+  `VectorIndex` created with `embeddingName` is a derived projection maintained by the
+  writer thread; the `semantic` block on `/path` and `/subgraph` supplies a query vector
+  (embedded once, up front) to declarative filters/costs and to compiled fragments via the
+  `context` parameter. The optional text-in provider (`Fallen8:Embedding`, off by default)
+  lives in the apiApp only — never in the engine. The living docs are
+  [features/done/element-embeddings/](features/done/element-embeddings/) and
+  [features/done/embedding-provider/](features/done/embedding-provider/).
 
 ## Quality gates (enforced, feature code-quality)
 

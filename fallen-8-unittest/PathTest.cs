@@ -56,17 +56,17 @@ namespace NoSQL.GraphDB.Tests
             _edgeCost = edgeCost;
         }
 
-        public Delegates.EdgePropertyFilter EdgePropertyFilter()
+        public Delegates.EdgePropertyFilter EdgePropertyFilter(TraversalContext context)
         {
             return (propertyId) => true;
         }
 
-        public Delegates.VertexFilter VertexFilter()
+        public Delegates.VertexFilter VertexFilter(TraversalContext context)
         {
             return (vertex) => true;
         }
 
-        public Delegates.EdgeFilter EdgeFilter()
+        public Delegates.EdgeFilter EdgeFilter(TraversalContext context)
         {
             if (_edgeFilter == "trusts")
             {
@@ -75,7 +75,7 @@ namespace NoSQL.GraphDB.Tests
             return (e) => true;
         }
 
-        public Delegates.EdgeCost EdgeCost()
+        public Delegates.EdgeCost EdgeCost(TraversalContext context)
         {
             if (_edgeCost == "weight")
             {
@@ -106,7 +106,7 @@ namespace NoSQL.GraphDB.Tests
             return (e) => 1.0; // Default weight for all edges when not using weights
         }
 
-        public Delegates.VertexCost VertexCost()
+        public Delegates.VertexCost VertexCost(TraversalContext context)
         {
             return (vertex) => 0.0; // Return 0.0 as vertex cost
         }
@@ -166,13 +166,13 @@ namespace NoSQL.GraphDB.Tests
             var mallory = controller.GraphScan(NAME, MALLORYSPEC).Value.First();
 
             // Act
-            var result = controller.CalculateShortestPath(mallory, trent, null).Value;
+            var result = controller.CalculateShortestPath(mallory, trent, null).Result.Value;
 
             // Assert
             Assert.AreEqual(2, result.Count);
 
             // Test the cache
-            result = controller.CalculateShortestPath(mallory, trent, null).Value;
+            result = controller.CalculateShortestPath(mallory, trent, null).Result.Value;
             Assert.AreEqual(2, result.Count);
         }
 
@@ -190,13 +190,13 @@ namespace NoSQL.GraphDB.Tests
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 2, MaxResults = 2 };
 
             // Act
-            var result = controller.CalculateShortestPath(alice, bob, pathSpec).Value;
+            var result = controller.CalculateShortestPath(alice, bob, pathSpec).Result.Value;
 
             // Assert
             Assert.AreEqual(1, result.Count);
 
             // Test the cache
-            result = controller.CalculateShortestPath(bob, alice, pathSpec).Value;
+            result = controller.CalculateShortestPath(bob, alice, pathSpec).Result.Value;
             Assert.AreEqual(1, result.Count);
         }
 
@@ -266,7 +266,7 @@ namespace NoSQL.GraphDB.Tests
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 3, MaxResults = 1 };
 
             // Act
-            var result = controller.CalculateShortestPath(alice, mallory, pathSpec).Value;
+            var result = controller.CalculateShortestPath(alice, mallory, pathSpec).Result.Value;
 
             // Assert
             Assert.AreEqual(1, result.Count, "Should find exactly one path due to MaxResults=1 restriction");
@@ -288,7 +288,7 @@ namespace NoSQL.GraphDB.Tests
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 0, MaxResults = 10 };
 
             // Act
-            var result = controller.CalculateShortestPath(alice, bob, pathSpec).Value;
+            var result = controller.CalculateShortestPath(alice, bob, pathSpec).Result.Value;
 
             // Assert - Make sure result is initialized even if empty
             Assert.IsNotNull(result, "Result should not be null");
@@ -311,7 +311,7 @@ namespace NoSQL.GraphDB.Tests
             PathSpecification pathSpec = new PathSpecification() { MaxDepth = 5, MaxResults = 5 };
 
             // Act
-            var result = controller.CalculateShortestPath(alice, eve, pathSpec).Value;
+            var result = controller.CalculateShortestPath(alice, eve, pathSpec).Result.Value;
 
             // Assert
             Assert.IsTrue(result.Count > 0, "Should find at least one path between Alice and Eve");
@@ -347,9 +347,9 @@ namespace NoSQL.GraphDB.Tests
                 DestinationVertexId = 10,
                 MaxDepth = 10,
                 MaxResults = 5,
-                EdgePropertyFilter = traverser.EdgePropertyFilter(),
-                VertexFilter = traverser.VertexFilter(),
-                EdgeFilter = traverser.EdgeFilter()
+                EdgePropertyFilter = traverser.EdgePropertyFilter(TraversalContext.Empty),
+                VertexFilter = traverser.VertexFilter(TraversalContext.Empty),
+                EdgeFilter = traverser.EdgeFilter(TraversalContext.Empty)
             };
             fallen8.TryCalculateShortestPath(out paths, "BLS", definition);
 
@@ -380,9 +380,9 @@ namespace NoSQL.GraphDB.Tests
                 DestinationVertexId = 15,
                 MaxDepth = 15,
                 MaxResults = 3,
-                EdgePropertyFilter = traverser1.EdgePropertyFilter(),
-                VertexFilter = traverser1.VertexFilter(),
-                EdgeFilter = traverser1.EdgeFilter()
+                EdgePropertyFilter = traverser1.EdgePropertyFilter(TraversalContext.Empty),
+                VertexFilter = traverser1.VertexFilter(TraversalContext.Empty),
+                EdgeFilter = traverser1.EdgeFilter(TraversalContext.Empty)
             };
             fallen8.TryCalculateShortestPath(out paths1, "BLS", definition1);
 
@@ -395,9 +395,9 @@ namespace NoSQL.GraphDB.Tests
                 DestinationVertexId = 15,
                 MaxDepth = 15,
                 MaxResults = 3,
-                EdgePropertyFilter = traverser2.EdgePropertyFilter(),
-                VertexFilter = traverser2.VertexFilter(),
-                EdgeFilter = traverser2.EdgeFilter()
+                EdgePropertyFilter = traverser2.EdgePropertyFilter(TraversalContext.Empty),
+                VertexFilter = traverser2.VertexFilter(TraversalContext.Empty),
+                EdgeFilter = traverser2.EdgeFilter(TraversalContext.Empty)
             };
             fallen8.TryCalculateShortestPath(out paths2, "BLS", definition2);
             sw.Stop();
@@ -492,11 +492,11 @@ namespace NoSQL.GraphDB.Tests
                 DestinationVertexId = eId,
                 MaxDepth = 10,
                 MaxResults = 1,
-                EdgePropertyFilter = costTraverser.EdgePropertyFilter(),
-                VertexFilter = costTraverser.VertexFilter(),
-                EdgeFilter = costTraverser.EdgeFilter(),
-                EdgeCost = costTraverser.EdgeCost(),
-                VertexCost = costTraverser.VertexCost()
+                EdgePropertyFilter = costTraverser.EdgePropertyFilter(TraversalContext.Empty),
+                VertexFilter = costTraverser.VertexFilter(TraversalContext.Empty),
+                EdgeFilter = costTraverser.EdgeFilter(TraversalContext.Empty),
+                EdgeCost = costTraverser.EdgeCost(TraversalContext.Empty),
+                VertexCost = costTraverser.VertexCost(TraversalContext.Empty)
             };
             fallen8.TryCalculateShortestPath(out paths, "BLS", definition);
 
@@ -620,9 +620,9 @@ namespace NoSQL.GraphDB.Tests
                 DestinationVertexId = trent.Id,
                 MaxDepth = 10,
                 MaxResults = 5,
-                EdgePropertyFilter = traverser.EdgePropertyFilter(),
-                VertexFilter = traverser.VertexFilter(),
-                EdgeFilter = traverser.EdgeFilter()
+                EdgePropertyFilter = traverser.EdgePropertyFilter(TraversalContext.Empty),
+                VertexFilter = traverser.VertexFilter(TraversalContext.Empty),
+                EdgeFilter = traverser.EdgeFilter(TraversalContext.Empty)
             };
             fallen8.TryCalculateShortestPath(out paths, "BLS", definition);
 

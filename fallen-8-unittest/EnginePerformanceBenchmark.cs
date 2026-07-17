@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // EnginePerformanceBenchmark.cs
 //
@@ -85,15 +85,15 @@ namespace NoSQL.GraphDB.Tests
             PathSpecification MakeSpec() => new PathSpecification { PathAlgorithmName = "BLS", MaxDepth = 6, MaxResults = 9 };
 
             var swFirst = Stopwatch.StartNew();
-            new GraphController(new UnitTestLogger<GraphController>(), fallen8)
-                .CalculateShortestPath(vertices[0].Id, vertices[1].Id, MakeSpec());
+            _ = new GraphController(new UnitTestLogger<GraphController>(), fallen8)
+                .CalculateShortestPath(vertices[0].Id, vertices[1].Id, MakeSpec()).Result;
             swFirst.Stop();
 
             var swRest = Stopwatch.StartNew();
             for (int i = 0; i < iterations; i++)
             {
-                new GraphController(new UnitTestLogger<GraphController>(), fallen8)
-                    .CalculateShortestPath(vertices[0].Id, vertices[1].Id, MakeSpec());
+                _ = new GraphController(new UnitTestLogger<GraphController>(), fallen8)
+                    .CalculateShortestPath(vertices[0].Id, vertices[1].Id, MakeSpec()).Result;
             }
             swRest.Stop();
 
