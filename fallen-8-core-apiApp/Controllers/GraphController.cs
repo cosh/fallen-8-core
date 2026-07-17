@@ -816,6 +816,16 @@ namespace NoSQL.GraphDB.App.Controllers
                 return BadRequest(String.Format("Index '{0}' is not a vector index.", indexId));
             }
 
+            // A BOUND index is a derived projection of the named element embedding (feature
+            // element-embeddings): membership is declared at creation, the writer thread keeps
+            // it, explicit adds would create a second membership authority.
+            if (vectorIndex.EmbeddingName != null)
+            {
+                return BadRequest(String.Format(
+                    "Index '{0}' is bound to embedding '{1}' and maintains itself; write the element embedding instead of adding to the index.",
+                    indexId, vectorIndex.EmbeddingName));
+            }
+
             if (!_fallen8.TryGetGraphElement(out var element, definition.GraphElementId))
             {
                 return NotFound(String.Format("Could not find graph element with id {0}.", definition.GraphElementId));

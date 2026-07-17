@@ -808,6 +808,11 @@ namespace NoSQL.GraphDB.Core
             //Increase the vertex count
             VertexCount++;
 
+            // Elements created WITH embedding properties feed bound vector indices
+            // (feature element-embeddings; the bulk-import path). A residual rollback
+            // compensates via the standard removal, whose index purge undoes this.
+            ProjectAllEmbeddingsOf(newVertex);
+
             return newVertex;
         }
 
@@ -854,6 +859,13 @@ namespace NoSQL.GraphDB.Core
             AppendGraphElements(newVertices);
             _currentId = nextId;
             VertexCount += newVertices.Count;
+
+            // Bound-index projection of creation-time embeddings (feature element-embeddings);
+            // a residual rollback compensates via the standard removal purge.
+            foreach (var newVertex in newVertices)
+            {
+                ProjectAllEmbeddingsOf(newVertex);
+            }
 
             return newVertices;
         }
@@ -1347,6 +1359,9 @@ namespace NoSQL.GraphDB.Core
 
                 //increase the edgeCount
                 EdgeCount++;
+
+                // Bound-index projection of creation-time embeddings (feature element-embeddings).
+                ProjectAllEmbeddingsOf(outgoingEdge);
             }
 
             return outgoingEdge;
@@ -1419,6 +1434,13 @@ namespace NoSQL.GraphDB.Core
             _currentId = nextId;
             EdgeCount += newEdges.Count;
             createdEdges.AddRange(newEdges);
+
+            // Bound-index projection of creation-time embeddings (feature element-embeddings);
+            // recorded in createdEdges already, so a residual wiring throw still purges these.
+            foreach (var newEdge in newEdges)
+            {
+                ProjectAllEmbeddingsOf(newEdge);
+            }
 
             // Batch adjacency wiring (feature supernode-adjacency-build Step 1). The old loop wired one
             // edge at a time (source.AddOutEdge + target.AddIncomingEdge), so k edges landing on one
@@ -1505,6 +1527,10 @@ namespace NoSQL.GraphDB.Core
 
             // Recorded only after SetProperty returns, so a conflict throw leaves undo empty.
             undo.Add(new Transaction.PropertyMutationUndo(graphElementId, propertyId, hadValueBefore, priorValue));
+
+            // A raw property write to a reserved embedding key feeds bound indices too
+            // (feature element-embeddings) - the bulk/import surface writes embeddings this way.
+            ProjectEmbeddingPropertyWrite(graphElement, propertyId, property);
         }
 
         /// <summary>
@@ -1515,8 +1541,16 @@ namespace NoSQL.GraphDB.Core
         internal bool RemoveProperty_internal(Int32 graphElementId, String propertyId)
         {
             var graphElement = GetGraphElementForMutation(graphElementId);
+            var removed = graphElement != null && graphElement.RemoveProperty(propertyId);
 
-            return graphElement != null && graphElement.RemoveProperty(propertyId);
+            if (removed)
+            {
+                // Removing a reserved embedding key purges the element from bound vector
+                // indices of that name (feature element-embeddings).
+                ProjectEmbeddingPropertyWrite(graphElement, propertyId, null);
+            }
+
+            return removed;
         }
 
         internal bool TryRemoveGraphElement_private(Int32 graphElementId)
@@ -1821,6 +1855,94 @@ namespace NoSQL.GraphDB.Core
             }
         }
 
+        #region bound vector index projection (feature element-embeddings)
+
+        /// <summary>
+        ///   Projects one committed embedding state into every BOUND vector index of that name
+        ///   (feature element-embeddings): a vector replaces the element's slot, <c>null</c> (or
+        ///   a non-vector value written through the raw property surface) purges it. Runs on the
+        ///   single writer thread AFTER the mutation committed; best-effort per index like the
+        ///   removal purge - a faulty index is logged, never fails the commit. Dimension or
+        ///   norm violations follow the index family's silent-skip contract (the typed REST
+        ///   write endpoints already answered 400 up front for conflicting writes).
+        /// </summary>
+        private void ProjectEmbeddingToBoundIndices(AGraphElementModel element, String embeddingName, Single[] vectorOrNull)
+        {
+            var indices = IndexFactory?.GetIndicesSnapshot();
+            if (indices == null || indices.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var index in indices)
+            {
+                if (!(index is Index.Vector.IVectorIndex vectorIndex) ||
+                    !String.Equals(vectorIndex.EmbeddingName, embeddingName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (vectorOrNull == null)
+                    {
+                        index.RemoveValue(element);
+                    }
+                    else
+                    {
+                        index.AddOrUpdate(vectorOrNull, element);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Failed to project embedding '{EmbeddingName}' of element {GraphElementId} into a bound vector index.",
+                        embeddingName, element?.Id);
+                }
+            }
+        }
+
+        /// <summary>
+        ///   Property-surface hook: when <paramref name="propertyId" /> is a reserved embedding
+        ///   key, projects the written value (a non-<c>float[]</c> value purges - the element no
+        ///   longer carries a usable embedding of that name). Called after a committed
+        ///   set/remove/restore on the writer thread; a plain property key is a two-comparison
+        ///   no-op.
+        /// </summary>
+        private void ProjectEmbeddingPropertyWrite(AGraphElementModel element, String propertyId, Object valueOrNull)
+        {
+            if (!AGraphElementModel.TryGetEmbeddingName(propertyId, out var embeddingName))
+            {
+                return;
+            }
+
+            ProjectEmbeddingToBoundIndices(element, embeddingName, valueOrNull as Single[]);
+        }
+
+        /// <summary>
+        ///   Element-creation hook: projects every embedding the new element was created with
+        ///   (the bulk-import path creates elements WITH their embedding properties). The
+        ///   store-key scan is the cheap guard; the index snapshot is only fetched on a hit.
+        /// </summary>
+        private void ProjectAllEmbeddingsOf(AGraphElementModel element)
+        {
+            var store = element.GetPropertyStoreForSerialization();
+            if (store == null)
+            {
+                return;
+            }
+
+            foreach (var property in store)
+            {
+                if (AGraphElementModel.TryGetEmbeddingName(property.Key, out var embeddingName))
+                {
+                    ProjectEmbeddingToBoundIndices(element, embeddingName, property.Value as Single[]);
+                }
+            }
+        }
+
+        #endregion
+
         /// <summary>
         ///   Applies a batch of property sets atomically (feature transaction-atomicity). Pre-validates
         ///   the WHOLE batch before mutating anything - structural validity (no null definitions,
@@ -1918,6 +2040,17 @@ namespace NoSQL.GraphDB.Core
                 graphElement.SetProperty(Intern(aDefinition.PropertyId), aDefinition.Property);
             }
 
+            // 4. Project reserved embedding keys into bound vector indices (feature
+            //    element-embeddings), after every set applied - see SetEmbeddings_internal.
+            foreach (var aDefinition in definitions)
+            {
+                var graphElement = GetGraphElementForMutation(aDefinition.GraphElementId);
+                if (graphElement != null)
+                {
+                    ProjectEmbeddingPropertyWrite(graphElement, aDefinition.PropertyId, aDefinition.Property);
+                }
+            }
+
             return true;
         }
 
@@ -1939,6 +2072,15 @@ namespace NoSQL.GraphDB.Core
                 var entry = undo[i];
                 var graphElement = GetGraphElementForMutation(entry.GraphElementId);
                 graphElement?.RestoreProperty(entry.PropertyId, entry.HadValueBefore, entry.PriorValue);
+
+                if (graphElement != null)
+                {
+                    // Keep bound vector indices in step with the restored embedding state
+                    // (feature element-embeddings): the restored prior value re-projects, an
+                    // absent prior purges.
+                    ProjectEmbeddingPropertyWrite(graphElement, entry.PropertyId,
+                        entry.HadValueBefore ? entry.PriorValue : null);
+                }
             }
         }
 
@@ -2010,6 +2152,18 @@ namespace NoSQL.GraphDB.Core
                 undo.Add(new Transaction.PropertyMutationUndo(aDefinition.GraphElementId, propertyId, hadValueBefore, priorValue));
 
                 graphElement.RestoreProperty(propertyId, aDefinition.Vector != null, aDefinition.Vector);
+            }
+
+            // 3. Project into bound vector indices AFTER every mutation applied: a mid-apply
+            //    throw rolls back plain property state with no projections to compensate, and a
+            //    projection fault is best-effort (logged) and never fails the commit.
+            foreach (var aDefinition in definitions)
+            {
+                var graphElement = GetGraphElementForMutation(aDefinition.GraphElementId);
+                if (graphElement != null)
+                {
+                    ProjectEmbeddingToBoundIndices(graphElement, aDefinition.Name, aDefinition.Vector);
+                }
             }
 
             return true;

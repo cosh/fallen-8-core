@@ -66,14 +66,20 @@ Intent: the query vector reaches every delegate, with and without dynamic code.
 
 Intent: the index becomes a pure derived cache when bound; unbound stays byte-identical.
 
-- [ ] `embeddingName` plugin option; bound indices: reject explicit REST adds (400),
-  project on `SetEmbeddingsTransaction` commit (writer thread, silent-skip + log on
-  dimension mismatch), purge on embedding/element removal, header-only `Save`,
-  rebuild-by-scan `Load`.
-- [ ] Post-WAL-replay correctness (replayed embedding transactions re-project).
-- [ ] Tests: projection lifecycle, kill-and-replay with zero operator action,
-  header-only save → load rebuild (identical ids and scores), explicit-add 400,
-  pre-feature checkpoint loads, unbound regression suites untouched.
+- [x] `embeddingName` (+ `model` identity storage for the companion feature) plugin
+  options; bound indices: reject explicit REST adds (400), materialize on creation over
+  existing data, project on every embedding surface — `SetEmbeddingsTransaction`, raw
+  reserved-key property set/remove/restore, element creation with embedding properties
+  (the bulk-import path) — all on the writer thread, silent-skip + summarized log on
+  invalid vectors; purge on embedding/element removal; header-only `Save` (extended
+  header behind a `-1` sentinel, legacy sidecars load unchanged); rebuild-by-scan `Load`.
+- [x] Post-WAL-replay correctness (replayed embedding transactions re-project; the
+  checkpoint+tail scenario retires the manual re-add workaround).
+- [x] Tests (`BoundVectorIndexTest`, 13): projection lifecycle across all write surfaces,
+  rolled-back batch untouched, unbound index untouched, kill-and-replay with zero
+  operator action (unanchored and checkpoint+tail), header-only save → load rebuild
+  (identical ids and scores), model-identity round-trip, invalid-binding creation
+  failure, dimension-mismatch skip. Full suite green (775).
 
 ## Phase 4 — REST surface, OpenAPI, docs
 

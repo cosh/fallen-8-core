@@ -49,6 +49,23 @@ namespace NoSQL.GraphDB.Core.Index.Vector
         VectorDistanceMetric Metric { get; }
 
         /// <summary>
+        ///   The element-embedding name this index is BOUND to, or null for an unbound (raw)
+        ///   index (feature element-embeddings). A bound index is a pure derived projection of
+        ///   the named embedding: the engine's writer thread projects committed embedding writes
+        ///   into it, membership is "every live element carrying the named embedding with the
+        ///   index's dimension", explicit adds are rejected at the REST boundary, the checkpoint
+        ///   persists only the header, and load rebuilds the slab from element embeddings.
+        /// </summary>
+        String EmbeddingName { get; }
+
+        /// <summary>
+        ///   The opaque model-identity string this index's vectors are declared to come from, or
+        ///   null. Enforced by the embedding provider (feature embedding-provider); the index
+        ///   itself only stores and persists it.
+        /// </summary>
+        String Model { get; }
+
+        /// <summary>
         ///   The k best-scoring LIVE elements for the query vector, best first, ties by ascending
         ///   element id. Returns false on invalid input: wrong query dimension, k outside
         ///   [1, <c>VectorIndex.MaxK</c>], or a zero-norm query under Cosine.
