@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
 import { shapeSuggestions, useGraphShape } from "../state/graphShape";
+import { useStatus } from "../state/status";
 import {
   addVectorToIndex,
   createIndex,
@@ -34,8 +35,9 @@ import { getInstanceStore } from "../state/instanceStore";
 /**
  * Query workspace (FR-8/9/10/11): the scan types with typed literals, id-list
  * hydration with progress, open-as-table + send-to-canvas, and index management.
- * Identifier inputs are free-form with <datalist> suggestions fed by the Graph shape
- * snapshot (feature studio-coverage — closes gap G-3 when a snapshot exists).
+ * Identifier inputs are free-form with <datalist> suggestions: index ids come live from
+ * /status (feature studio-index-discovery); property keys and labels from the Graph
+ * shape snapshot (feature studio-coverage).
  */
 
 type ScanKind = "property" | "index" | "range" | "fulltext" | "spatial" | "vector";
@@ -82,6 +84,16 @@ export function QueryScreen() {
   const [capped, setCapped] = useState(false);
 
   const suggestions = shapeSuggestions(useGraphShape(instance).data);
+
+  // Index-id suggestions: the live /status inventory first, shape-snapshot ids as backup
+  // (the snapshot may know ids from before a reconnect; the union keeps both honest).
+  const status = useStatus(instance);
+  const indexIdOptions = [
+    ...new Set([
+      ...(status.data?.indices ?? []).map((i) => i.indexId).filter(Boolean),
+      ...suggestions.indexIds,
+    ]),
+  ];
 
   // Consume a one-shot prefill (e.g. Graph shape index row → "Scan").
   const scanPrefill = store((s) => s.scanPrefill);
@@ -511,7 +523,7 @@ export function QueryScreen() {
         ))}
       </datalist>
       <datalist id="shape-index-ids">
-        {suggestions.indexIds.map((id) => (
+        {indexIdOptions.map((id) => (
           <option key={id} value={id} />
         ))}
       </datalist>
@@ -528,6 +540,7 @@ export function QueryScreen() {
 
 function IndexManagement() {
   const instance = useActiveInstance()!;
+  const queryClient = useQueryClient();
   const [indexId, setIndexId] = useState("");
   const [indexType, setIndexType] = useState("DictionaryIndex");
   const [message, setMessage] = useState<string | null>(null);
@@ -539,7 +552,17 @@ function IndexManagement() {
   const [vaPropertyId, setVaPropertyId] = useState("embedding");
   const [vaVectorText, setVaVectorText] = useState("");
 
+  // The create dropdown feeds on the server's plugin discovery (free-form fallback for
+  // servers predating the field / an unreachable status).
+  const availableTypes = useStatus(instance).data?.availableIndexPlugins ?? [];
+  const refreshInventory = () =>
+    queryClient.invalidateQueries({ queryKey: [instance.id, "status"] });
+
   const isVectorIndex = indexType.trim() === "VectorIndex";
+  // SpatialIndex.Initialize needs CLR objects (metric, dimensions) that JSON plugin
+  // options cannot carry — POST /index always answers false for it, so Create is gated
+  // (pinned by StatusIndexInventoryTest; spec studio-index-discovery).
+  const isSpatialIndex = indexType.trim() === "SpatialIndex";
 
   const create = useMutation({
     mutationFn: () =>
@@ -562,11 +585,21 @@ function IndexManagement() {
             }
           : undefined,
       }),
-    onSuccess: () => setMessage(`Index '${indexId}' created.`),
+    onSuccess: (ok) => {
+      setMessage(
+        ok
+          ? `Index '${indexId}' created.`
+          : `Index '${indexId}' was NOT created — the id may already exist or the options are invalid.`,
+      );
+      if (ok) refreshInventory();
+    },
   });
   const remove = useMutation({
     mutationFn: () => deleteIndex(instance, indexId),
-    onSuccess: () => setMessage(`Index '${indexId}' deleted.`),
+    onSuccess: () => {
+      setMessage(`Index '${indexId}' deleted.`);
+      refreshInventory();
+    },
   });
 
   const vectorAdd = useMutation({
@@ -606,13 +639,29 @@ function IndexManagement() {
           />
         </Field>
         <Field helpKey="indexPluginType" label="plugin type" htmlFor="index-type">
-          <input
-            id="index-type"
-            className="input w-48"
-            value={indexType}
-            onChange={(e) => setIndexType(e.target.value)}
-            placeholder="DictionaryIndex"
-          />
+          {availableTypes.length > 0 ? (
+            <select
+              id="index-type"
+              data-testid="index-type"
+              className="input w-48"
+              value={indexType}
+              onChange={(e) => setIndexType(e.target.value)}
+            >
+              {!availableTypes.includes(indexType) && <option>{indexType}</option>}
+              {availableTypes.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id="index-type"
+              data-testid="index-type"
+              className="input w-48"
+              value={indexType}
+              onChange={(e) => setIndexType(e.target.value)}
+              placeholder="DictionaryIndex"
+            />
+          )}
         </Field>
         {isVectorIndex && (
           <>
@@ -648,7 +697,7 @@ function IndexManagement() {
         <button
           type="button"
           className="btn btn-accent"
-          disabled={!indexId.trim() || create.isPending}
+          disabled={!indexId.trim() || create.isPending || isSpatialIndex}
           onClick={() => create.mutate()}
         >
           Create
@@ -662,6 +711,18 @@ function IndexManagement() {
           Delete
         </button>
         {message && <span className="text-accent text-[12px]">{message}</span>}
+        {isSpatialIndex ? (
+          <p className="text-warn basis-full text-[11px]" data-testid="spatial-create-note">
+            SpatialIndex cannot be created over REST — its configuration (metric, space
+            dimensions) is not expressible as JSON plugin options. Delete still works.
+          </p>
+        ) : (
+          !isVectorIndex && (
+            <span className="text-fg-faint text-[11px]" data-testid="no-options-note">
+              this index type takes no creation options
+            </span>
+          )
+        )}
       </div>
       <div className="px-3 pb-3">
         <button
@@ -756,8 +817,8 @@ function IndexManagement() {
         </div>
       )}
       <p className="text-fg-faint px-3 pb-3 text-[11px]">
-        Ids here are free-form; compute the Graph shape snapshot on the Analytics screen
-        to feed property/index suggestions into these inputs (gap G-3).
+        Index ids and plugin types are suggested live from the server. Property and label
+        suggestions still need a Graph shape snapshot (Analytics screen → Compute).
       </p>
     </section>
   );

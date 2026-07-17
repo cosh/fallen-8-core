@@ -236,8 +236,10 @@ export const addVectorToIndex = (
 
 // ---- index management (FR-10) ----
 
+// Answers the server's boolean: false means "not created" (duplicate id, invalid or
+// REST-inexpressible plugin options) — surface it, don't report success.
 export const createIndex = (i: InstanceConfig, spec: PluginSpecification) =>
-  apiRequest<void>(i, "/index", { method: "POST", body: spec, query: WAIT });
+  apiRequest<boolean>(i, "/index", { method: "POST", body: spec, query: WAIT });
 
 export const addToIndex = (i: InstanceConfig, indexId: string, spec: IndexAddToSpecification) =>
   apiRequest<void>(i, `/index/${encodeURIComponent(indexId)}`, {

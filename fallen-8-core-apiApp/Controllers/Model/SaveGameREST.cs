@@ -30,24 +30,6 @@ using System.Text.Json.Serialization;
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   An index present at save time: its id and the index plugin type (feature save-games).
-    /// </summary>
-    public sealed class SaveGameIndexREST
-    {
-        [JsonPropertyName("indexId")]
-        public String IndexId
-        {
-            get; set;
-        }
-
-        [JsonPropertyName("pluginType")]
-        public String PluginType
-        {
-            get; set;
-        }
-    }
-
-    /// <summary>
     ///   Cheap KPIs captured at save/import time - values the engine already has, no graph scan.
     /// </summary>
     public sealed class SaveGameKpisREST
@@ -71,10 +53,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         [JsonPropertyName("indices")]
-        public List<SaveGameIndexREST> Indices
+        public List<IndexDescriptionREST> Indices
         {
             get; set;
-        } = new List<SaveGameIndexREST>();
+        } = new List<IndexDescriptionREST>();
 
         [JsonPropertyName("availableIndexPlugins")]
         public List<String> AvailableIndexPlugins

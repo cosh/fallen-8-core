@@ -4990,6 +4990,22 @@ export interface components {
             key: components["schemas"]["PropertySpecification"];
         };
         /**
+         * @description A registered index: its id and the index plugin type. Appears on
+         *     StatusREST (live inventory) and in save-game KPIs (inventory at save time).
+         */
+        IndexDescriptionREST: {
+            /**
+             * @description The index id used by the scan and index endpoints.
+             * @example nameIndex
+             */
+            indexId?: null | string;
+            /**
+             * @description The index plugin type the index was created with.
+             * @example DictionaryIndex
+             */
+            pluginType?: null | string;
+        };
+        /**
          * @description Specification for scanning an index for elements with specific property values
          * @example {
          *       "indexId": "nameIndex",
@@ -5570,11 +5586,6 @@ export interface components {
          * @enum {unknown}
          */
         ResultTypeSpecification: "Vertices" | "Edges" | "Both";
-        /** @description An index present at save time: its id and the index plugin type (feature save-games). */
-        SaveGameIndexREST: {
-            indexId?: null | string;
-            pluginType?: null | string;
-        };
         /** @description Cheap KPIs captured at save/import time - values the engine already has, no graph scan. */
         SaveGameKpisREST: {
             /** Format: int32 */
@@ -5583,7 +5594,7 @@ export interface components {
             edgeCount?: number | string;
             /** Format: int64 */
             usedMemoryBytes?: number | string;
-            indices?: null | components["schemas"]["SaveGameIndexREST"][];
+            indices?: null | components["schemas"]["IndexDescriptionREST"][];
             availableIndexPlugins?: null | string[];
             availablePathPlugins?: null | string[];
             availableServicePlugins?: null | string[];
@@ -5719,6 +5730,12 @@ export interface components {
          *       "usedMemory": 1073741824,
          *       "vertexCount": 10000,
          *       "edgeCount": 25000,
+         *       "indices": [
+         *         {
+         *           "indexId": "nameIndex",
+         *           "pluginType": "DictionaryIndex"
+         *         }
+         *       ],
          *       "availableIndexPlugins": [
          *         "DictionaryIndex",
          *         "SpatialIndex"
@@ -5761,6 +5778,11 @@ export interface components {
              * @example 25000
              */
             edgeCount: number | string;
+            /**
+             * @description The indices currently registered on this instance (id + plugin type) — the live
+             *     inventory, available without running the budgeted statistics pass
+             */
+            indices?: null | components["schemas"]["IndexDescriptionREST"][];
             /**
              * @description List of available index plugins that can be used with the database
              * @example [

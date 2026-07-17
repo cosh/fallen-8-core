@@ -6,17 +6,18 @@
  * `npm run gen:api` when the snapshot changes.
  */
 
-/** Save-game registry (feature save-games). */
-export interface SaveGameIndex {
+/** A registered index: id + plugin type (on /status and in save-game KPIs). */
+export interface IndexDescription {
   indexId: string;
   pluginType: string | null;
 }
 
+/** Save-game registry (feature save-games). */
 export interface SaveGameKpis {
   vertexCount: number;
   edgeCount: number;
   usedMemoryBytes: number;
-  indices: SaveGameIndex[];
+  indices: IndexDescription[];
   availableIndexPlugins: string[];
   availablePathPlugins: string[];
   availableServicePlugins: string[];
@@ -54,6 +55,9 @@ export interface StatusREST {
   vertexCount: number;
   edgeCount: number;
   usedMemory: number;
+  // Live index inventory (feature studio-index-discovery). Optional so instances
+  // predating the field still parse.
+  indices?: IndexDescription[] | null;
   availableIndexPlugins: string[];
   availablePathPlugins: string[];
   availableAnalyticsPlugins: string[];

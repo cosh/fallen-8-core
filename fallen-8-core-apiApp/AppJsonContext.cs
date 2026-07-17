@@ -100,7 +100,7 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(BenchmarkResultREST))]
     [JsonSerializable(typeof(SaveGameREST))]
     [JsonSerializable(typeof(SaveGameKpisREST))]
-    [JsonSerializable(typeof(SaveGameIndexREST))]
+    [JsonSerializable(typeof(IndexDescriptionREST))]
     [JsonSerializable(typeof(SaveGameRegistryDocument))]
     [JsonSerializable(typeof(System.Collections.Generic.Dictionary<string, string>))]
     [JsonSerializable(typeof(AnalyticsSpecification))]

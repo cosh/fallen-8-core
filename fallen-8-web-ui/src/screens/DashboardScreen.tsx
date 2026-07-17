@@ -1,11 +1,10 @@
 import { useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import {
   exportBulk,
   generateSampleGraph,
-  getStatus,
   importBulk,
   loadGraph,
   runBenchmark,
@@ -15,6 +14,7 @@ import {
 } from "../api/endpoints";
 import { ApiError } from "../api/client";
 import { shapeSuggestions, useGraphShape } from "../state/graphShape";
+import { useStatus } from "../state/status";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -57,10 +57,7 @@ export function DashboardScreen() {
   const importFileRef = useRef<HTMLInputElement>(null);
   const suggestions = shapeSuggestions(useGraphShape(instance).data);
 
-  const status = useQuery({
-    queryKey: [instance.id, "status"],
-    queryFn: ({ signal }) => getStatus(instance, signal),
-  });
+  const status = useStatus(instance);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: [instance.id] });
 

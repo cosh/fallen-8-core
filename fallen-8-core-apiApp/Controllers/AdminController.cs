@@ -133,7 +133,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>
         /// Gets the current status of the Fallen-8 database
         /// </summary>
-        /// <returns>Status information including counts, available plugins and memory usage</returns>
+        /// <returns>Status information including counts, the current index inventory, available plugins and memory usage</returns>
         /// <response code="200">Returns the database status information</response>
         [HttpGet("/status")]
         [AllowAnonymous]
@@ -158,8 +158,16 @@ namespace NoSQL.GraphDB.App.Controllers
             IEnumerable<String> availableServices;
             PluginFactory.TryGetAvailablePlugins<IService>(out availableServices);
 
+            // Read-locked snapshot (id -> plugin type); O(#indices), no graph pass.
+            var indices = new List<IndexDescriptionREST>();
+            foreach (var kv in _fallen8.IndexFactory.GetIndexPluginTypesSnapshot())
+            {
+                indices.Add(new IndexDescriptionREST { IndexId = kv.Key, PluginType = kv.Value });
+            }
+
             return new StatusREST
             {
+                Indices = indices,
                 AvailableIndexPlugins = new List<String>(availableIndices),
                 AvailablePathPlugins = new List<String>(availablePathAlgos),
                 AvailableAnalyticsPlugins = new List<String>(availableAnalyticsAlgos),

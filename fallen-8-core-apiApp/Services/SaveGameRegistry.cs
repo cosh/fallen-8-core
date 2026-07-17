@@ -216,7 +216,7 @@ namespace NoSQL.GraphDB.App.Services
                 // directly races a concurrent create/delete on a request thread.
                 foreach (var kv in indexFactory.GetIndexPluginTypesSnapshot())
                 {
-                    kpis.Indices.Add(new SaveGameIndexREST
+                    kpis.Indices.Add(new IndexDescriptionREST
                     {
                         IndexId = kv.Key,
                         PluginType = kv.Value,
