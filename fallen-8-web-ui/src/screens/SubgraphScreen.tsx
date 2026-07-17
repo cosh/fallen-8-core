@@ -20,6 +20,7 @@ import {
   StoredQueryPicker,
 } from "../components/StoredQueryControls";
 import { ErrorBox } from "../components/ErrorBox";
+import { Field } from "../components/Field";
 import { getInstanceStore, type FilterSource } from "../state/instanceStore";
 
 /**
@@ -258,10 +259,7 @@ export function SubgraphScreen() {
           }}
         >
           <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="label" htmlFor="sg-name">
-                name
-              </label>
+            <Field helpKey="subgraphName" label="name" htmlFor="sg-name">
               <input
                 id="sg-name"
                 data-testid="sg-name"
@@ -269,18 +267,19 @@ export function SubgraphScreen() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
-            </div>
-            <div>
-              <label className="label" htmlFor="sg-from">
-                fromSubGraph (optional nesting)
-              </label>
+            </Field>
+            <Field
+              helpKey="subgraphFrom"
+              label="fromSubGraph (optional nesting)"
+              htmlFor="sg-from"
+            >
               <input
                 id="sg-from"
                 className="input w-48"
                 value={fromSubGraph}
                 onChange={(e) => setFromSubGraph(e.target.value)}
               />
-            </div>
+            </Field>
           </div>
 
           <FilterSourceToggle value={filterSource} onChange={setFilterSource} />
@@ -327,10 +326,7 @@ export function SubgraphScreen() {
                 <div key={pattern.key} className="panel space-y-2 p-2">
                   <div className="flex flex-wrap items-end gap-2">
                     <span className="text-fg-faint text-[11px]">#{index + 1}</span>
-                    <div>
-                      <label className="label" htmlFor={`pt-${pattern.key}`}>
-                        type
-                      </label>
+                    <Field helpKey="patternType" label="type" htmlFor={`pt-${pattern.key}`}>
                       <select
                         id={`pt-${pattern.key}`}
                         className="input w-auto"
@@ -345,11 +341,8 @@ export function SubgraphScreen() {
                         <option>Edge</option>
                         <option>VariableLengthEdge</option>
                       </select>
-                    </div>
-                    <div>
-                      <label className="label" htmlFor={`pn-${pattern.key}`}>
-                        name
-                      </label>
+                    </Field>
+                    <Field helpKey="patternName" label="name" htmlFor={`pn-${pattern.key}`}>
                       <input
                         id={`pn-${pattern.key}`}
                         className="input w-32"
@@ -358,12 +351,13 @@ export function SubgraphScreen() {
                           updatePattern(pattern.key, { patternName: e.target.value })
                         }
                       />
-                    </div>
+                    </Field>
                     {pattern.type !== "Vertex" && (
-                      <div>
-                        <label className="label" htmlFor={`pd-${pattern.key}`}>
-                          direction
-                        </label>
+                      <Field
+                        helpKey="patternDirection"
+                        label="direction"
+                        htmlFor={`pd-${pattern.key}`}
+                      >
                         <select
                           id={`pd-${pattern.key}`}
                           className="input w-auto"
@@ -379,14 +373,15 @@ export function SubgraphScreen() {
                           <option>IncomingEdge</option>
                           <option>UndirectedEdge</option>
                         </select>
-                      </div>
+                      </Field>
                     )}
                     {pattern.type === "VariableLengthEdge" && (
                       <>
-                        <div>
-                          <label className="label" htmlFor={`pmin-${pattern.key}`}>
-                            min
-                          </label>
+                        <Field
+                          helpKey="patternMinLength"
+                          label="min"
+                          htmlFor={`pmin-${pattern.key}`}
+                        >
                           <input
                             id={`pmin-${pattern.key}`}
                             className="input w-16"
@@ -399,11 +394,12 @@ export function SubgraphScreen() {
                               })
                             }
                           />
-                        </div>
-                        <div>
-                          <label className="label" htmlFor={`pmax-${pattern.key}`}>
-                            max (≤100)
-                          </label>
+                        </Field>
+                        <Field
+                          helpKey="patternMaxLength"
+                          label="max (≤100)"
+                          htmlFor={`pmax-${pattern.key}`}
+                        >
                           <input
                             id={`pmax-${pattern.key}`}
                             className="input w-16"
@@ -417,7 +413,7 @@ export function SubgraphScreen() {
                               })
                             }
                           />
-                        </div>
+                        </Field>
                       </>
                     )}
                     <button

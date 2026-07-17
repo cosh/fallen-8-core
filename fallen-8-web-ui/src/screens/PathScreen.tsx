@@ -18,6 +18,7 @@ import {
   StoredQueryPicker,
 } from "../components/StoredQueryControls";
 import { ErrorBox } from "../components/ErrorBox";
+import { Field } from "../components/Field";
 
 /**
  * Path finder (FR-12/13/14): BLS vs Dijkstra with the explainer, defaults pre-filled,
@@ -98,10 +99,7 @@ export function PathScreen() {
           }}
         >
           <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="label" htmlFor="path-from">
-                from vertex id
-              </label>
+            <Field helpKey="pathFrom" label="from vertex id" htmlFor="path-from">
               <input
                 id="path-from"
                 data-testid="path-from"
@@ -109,11 +107,8 @@ export function PathScreen() {
                 value={draft.from}
                 onChange={(e) => setDraft({ from: e.target.value })}
               />
-            </div>
-            <div>
-              <label className="label" htmlFor="path-to">
-                to vertex id
-              </label>
+            </Field>
+            <Field helpKey="pathTo" label="to vertex id" htmlFor="path-to">
               <input
                 id="path-to"
                 data-testid="path-to"
@@ -121,11 +116,8 @@ export function PathScreen() {
                 value={draft.to}
                 onChange={(e) => setDraft({ to: e.target.value })}
               />
-            </div>
-            <div>
-              <label className="label" htmlFor="path-algo">
-                algorithm
-              </label>
+            </Field>
+            <Field helpKey="pathAlgorithm" label="algorithm" htmlFor="path-algo">
               <select
                 id="path-algo"
                 data-testid="path-algo"
@@ -138,11 +130,8 @@ export function PathScreen() {
                 <option value="BLS">BLS (hop count)</option>
                 <option value="DIJKSTRA">Dijkstra (weighted)</option>
               </select>
-            </div>
-            <div>
-              <label className="label" htmlFor="path-depth">
-                maxDepth
-              </label>
+            </Field>
+            <Field helpKey="pathMaxDepth" label="maxDepth" htmlFor="path-depth">
               <input
                 id="path-depth"
                 className="input w-20"
@@ -151,11 +140,12 @@ export function PathScreen() {
                 value={draft.maxDepth}
                 onChange={(e) => setDraft({ maxDepth: Number(e.target.value) })}
               />
-            </div>
-            <div>
-              <label className="label" htmlFor="path-results">
-                maxResults{draft.algorithm === "DIJKSTRA" ? " (K)" : ""}
-              </label>
+            </Field>
+            <Field
+              helpKey="pathMaxResults"
+              label={`maxResults${draft.algorithm === "DIJKSTRA" ? " (K)" : ""}`}
+              htmlFor="path-results"
+            >
               <input
                 id="path-results"
                 className="input w-20"
@@ -164,12 +154,9 @@ export function PathScreen() {
                 value={draft.maxResults}
                 onChange={(e) => setDraft({ maxResults: Number(e.target.value) })}
               />
-            </div>
+            </Field>
             {draft.algorithm === "DIJKSTRA" && (
-              <div>
-                <label className="label" htmlFor="path-weight">
-                  maxPathWeight
-                </label>
+              <Field helpKey="pathMaxWeight" label="maxPathWeight" htmlFor="path-weight">
                 <input
                   id="path-weight"
                   className="input w-28"
@@ -183,7 +170,7 @@ export function PathScreen() {
                     })
                   }
                 />
-              </div>
+              </Field>
             )}
             <button
               type="submit"

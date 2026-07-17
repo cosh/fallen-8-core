@@ -20,6 +20,8 @@ import { isTruncated } from "../lib/truncation";
 import { formatPropertyValue } from "../lib/literals";
 import { ElementTable } from "../components/ElementTable";
 import { ErrorBox } from "../components/ErrorBox";
+import { Field } from "../components/Field";
+import { help } from "../lib/fieldHelp";
 import { MutationsPanel } from "../components/MutationsPanel";
 import { getInstanceStore } from "../state/instanceStore";
 
@@ -225,10 +227,7 @@ export function BrowserScreen() {
             lookup.mutate({ kind: lookupKind, id: Number(idInput) });
           }}
         >
-          <div>
-            <label className="label" htmlFor="lookup-kind">
-              kind
-            </label>
+          <Field helpKey="lookupKind" label="kind" htmlFor="lookup-kind">
             <select
               id="lookup-kind"
               className="input w-auto"
@@ -239,11 +238,8 @@ export function BrowserScreen() {
               <option value="vertex">vertex</option>
               <option value="edge">edge</option>
             </select>
-          </div>
-          <div>
-            <label className="label" htmlFor="lookup-id">
-              id
-            </label>
+          </Field>
+          <Field helpKey="lookupId" label="id" htmlFor="lookup-id">
             <input
               id="lookup-id"
               data-testid="lookup-id"
@@ -252,7 +248,7 @@ export function BrowserScreen() {
               onChange={(e) => setIdInput(e.target.value)}
               placeholder="0"
             />
-          </div>
+          </Field>
           <button type="submit" className="btn btn-accent" data-testid="lookup-go">
             Fetch
           </button>
@@ -288,10 +284,7 @@ export function BrowserScreen() {
       <section className="panel">
         <div className="panel-title">Bulk graph</div>
         <div className="flex items-end gap-2 p-3">
-          <div>
-            <label className="label" htmlFor="max-elements">
-              maxElements
-            </label>
+          <Field helpKey="maxElements" label="maxElements" htmlFor="max-elements">
             <input
               id="max-elements"
               className="input w-28"
@@ -300,7 +293,7 @@ export function BrowserScreen() {
               value={maxElements}
               onChange={(e) => setMaxElements(Number(e.target.value) || 1000)}
             />
-          </div>
+          </Field>
           <button type="button" className="btn" onClick={() => bulk.refetch()}>
             {bulk.isFetching ? "Loading…" : "Load"}
           </button>
@@ -337,6 +330,7 @@ export function BrowserScreen() {
             <div className="px-3 pb-2">
               <input
                 aria-label="filter loaded elements"
+                title={help("bulkFilter")}
                 data-testid="bulk-filter"
                 className="input w-72"
                 value={bulkFilter}

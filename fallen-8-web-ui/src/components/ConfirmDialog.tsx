@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { Field } from "./Field";
 
 /**
  * Typed confirmation for destructive actions (FR-1d, FR-3): the dialog names the target
@@ -51,17 +52,21 @@ export function ConfirmDialog({
             (<span className="break-all">{endpoint}</span>).
           </Dialog.Description>
           {extra && <div className="mt-3">{extra}</div>}
-          <label className="label mt-4" htmlFor="confirm-typed">
-            type “{instanceName}” to confirm
-          </label>
-          <input
-            id="confirm-typed"
-            data-testid="confirm-typed"
-            className="input"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            autoFocus
-          />
+          <Field
+            helpKey="confirmTyped"
+            label={<>type “{instanceName}” to confirm</>}
+            htmlFor="confirm-typed"
+            className="mt-4"
+          >
+            <input
+              id="confirm-typed"
+              data-testid="confirm-typed"
+              className="input"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              autoFocus
+            />
+          </Field>
           <div className="mt-4 flex justify-end gap-2">
             <button type="button" className="btn" onClick={() => onCancel()}>
               Cancel

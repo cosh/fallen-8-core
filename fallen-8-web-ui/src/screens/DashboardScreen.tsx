@@ -16,6 +16,7 @@ import {
 import { ApiError } from "../api/client";
 import { shapeSuggestions, useGraphShape } from "../state/graphShape";
 import { ErrorBox } from "../components/ErrorBox";
+import { Field } from "../components/Field";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Stat } from "../components/Stat";
 import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
@@ -249,10 +250,7 @@ export function DashboardScreen() {
               Trim
             </button>
             <div className="ml-4 flex items-end gap-2">
-              <div>
-                <label className="label" htmlFor="load-path">
-                  load path
-                </label>
+              <Field helpKey="loadPath" label="load path" htmlFor="load-path">
                 <input
                   id="load-path"
                   className="input w-72"
@@ -260,7 +258,7 @@ export function DashboardScreen() {
                   onChange={(e) => setLoadPath(e.target.value)}
                   placeholder="path returned by save"
                 />
-              </div>
+              </Field>
               <button
                 type="button"
                 className="btn btn-danger"
@@ -304,10 +302,11 @@ export function DashboardScreen() {
               </button>
               {showExportFilter && (
                 <>
-                  <div>
-                    <label className="label" htmlFor="export-vertex-label">
-                      vertex label
-                    </label>
+                  <Field
+                    helpKey="exportVertexLabel"
+                    label="vertex label"
+                    htmlFor="export-vertex-label"
+                  >
                     <input
                       id="export-vertex-label"
                       className="input w-36"
@@ -315,11 +314,12 @@ export function DashboardScreen() {
                       value={exportVertexLabel}
                       onChange={(e) => setExportVertexLabel(e.target.value)}
                     />
-                  </div>
-                  <div>
-                    <label className="label" htmlFor="export-edge-label">
-                      edge label
-                    </label>
+                  </Field>
+                  <Field
+                    helpKey="exportEdgeLabel"
+                    label="edge label"
+                    htmlFor="export-edge-label"
+                  >
                     <input
                       id="export-edge-label"
                       className="input w-36"
@@ -327,7 +327,7 @@ export function DashboardScreen() {
                       value={exportEdgeLabel}
                       onChange={(e) => setExportEdgeLabel(e.target.value)}
                     />
-                  </div>
+                  </Field>
                 </>
               )}
               <button

@@ -136,8 +136,18 @@ export const FIELD_HELP = {
   // ---- stored queries ----
   storedQuery:
     "A named, pre-compiled filter set registered under POST /storedquery. Invoking by name works even when dynamic code execution is disabled on the server.",
+  storedQueryName:
+    "Unique name the query is registered under and later invoked by. Allowed: letters, digits, underscore, dash; max 128 characters.",
+  storedQueryDescription:
+    "Optional human-readable note shown next to the query in the library list.",
+
+  // ---- destructive-action confirmation ----
+  confirmTyped:
+    "Safety catch: type the target instance's name exactly to arm the destructive action. Nothing happens until it matches.",
 
   // ---- NL assist ----
+  nlIntent:
+    "Describe the filter in plain language; the assistant drafts a C# filter fragment from it, which you still review and commit yourself.",
   nlBackend: "Where natural-language-to-filter translation runs: a preset endpoint or a custom one.",
   nlPreset: "Pre-configured model endpoint to use.",
   nlEndpoint: "URL of the model API endpoint that translates your prompt into a filter fragment.",
