@@ -129,8 +129,26 @@ export const FIELD_HELP = {
   // ---- app shell / canvas / save games ----
   instanceSwitcher:
     "The Fallen-8 instance every screen talks to. Register more instances on the Connect screen.",
+  canvasRenderer:
+    "The canvas projection, both WebGL: 2D (Sigma.js — pan/zoom, crisp labels) or 3D (three.js — orbit with the mouse, labels on hover). Styling, path overlays, and subgraph results work identically in both.",
   canvasLayout:
-    "How the canvas positions vertices: force (ForceAtlas2 physics, clusters emerge) or circular (deterministic ring).",
+    "How vertices are placed. 2D: force (ForceAtlas2 physics, clusters emerge), circular ring, circle pack grouped by label, grid, or random. 3D: force (d3-force-3d) or DAG modes that layer the graph top-down / radially (cycles are tolerated, best-effort).",
+  canvasNodeColor:
+    "What decides a node's color: its label (stable palette hash, the default) or a property you name. Property values hash to the same palette; if every value is numeric the nodes shade along a min→max gradient instead.",
+  canvasNodeSize:
+    "What decides a node's size: fixed, a numeric property (min-max scaled), or the node's in-/out-/total degree counted over the edges currently on the canvas — expand neighbors and sizes update.",
+  canvasNodeImage:
+    "Property whose value renders AS the node: an http(s) or data URL loads that image; any other value (e.g. an emoji like 🦊) is drawn by the studio itself — emoticons need no hosting. Nodes without the property stay circles.",
+  canvasEdgeColor:
+    "What decides an edge's color: its label (default) or a property you name — same palette hashing and numeric gradient rules as node colors.",
+  canvasEdgeWidth:
+    "What decides an edge's width: fixed, or a numeric property min-max scaled into the width range. Edges without a numeric value keep the default width.",
+  canvasNodeLabels:
+    "Show vertex labels on the canvas (2D: always visible, 3D: on hover). Past 5,000 rendered elements labels are dropped automatically to protect the frame rate.",
+  canvasEdgeLabels:
+    "Show edge-container names on edges (2D: always visible, 3D: on hover). Subject to the same 5,000-element degrade threshold as node labels.",
+  canvasEdgeArrows:
+    "Draw arrowheads pointing at each edge's target vertex, making direction visible in both 2D and 3D.",
   saveGameDeleteFiles:
     "Also delete the checkpoint's files on the server's disk, not just its registry entry. The data is then unrecoverable.",
 

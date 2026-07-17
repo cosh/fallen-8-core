@@ -118,6 +118,19 @@ test("scenario 3+4: mutate, browse, scan, hydrate, canvas", async ({ page }) => 
 
   await page.goto("/canvas");
   await expect(page.getByText(/1 elements|2 elements/)).toBeVisible();
+
+  // Style panel (studio-canvas-viz FR-6/FR-8): data-driven styling and the 3D projection
+  // keep the same canvas contents; switching back restores the 2D renderer + new layouts.
+  await page.getByLabel("size by").first().selectOption("degree");
+  await page.getByLabel("color by").first().selectOption("property");
+  await page.locator("#style-node-color-prop").fill("age");
+  await page.getByTestId("style-renderer").selectOption("3d");
+  await expect(page.getByTestId("graph-canvas")).toBeVisible();
+  await expect(page.getByTestId("style-layout")).toHaveValue("force");
+  await page.getByTestId("style-renderer").selectOption("2d");
+  await page.getByTestId("style-layout").selectOption("grid");
+  await expect(page.getByTestId("graph-canvas")).toBeVisible();
+  await expect(page.getByText(/1 elements|2 elements/)).toBeVisible();
 });
 
 test("scenario 5: delegate editor validates, blocks, then passes and the path runs", async ({
