@@ -320,10 +320,11 @@ export interface PatternSpecification {
   edgePropertyFilter?: string;
 }
 
+// Nesting (fromSubGraph) is a QUERY parameter on PUT /subgraph, not a body field —
+// a body-level fromSubGraph is silently dropped by the server's deserializer.
 export interface SubGraphSpecification {
   name: string;
   additionalInformation?: string;
-  fromSubGraph?: string;
   vertexFilter?: string;
   edgeFilter?: string;
   patterns?: PatternSpecification[];

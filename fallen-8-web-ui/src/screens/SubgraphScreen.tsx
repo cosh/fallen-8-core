@@ -119,18 +119,18 @@ export function SubgraphScreen() {
 
   const create = useMutation({
     mutationFn: async () => {
-      // Stored and inline fragments never travel together (server 400s on mix).
+      // Stored and inline fragments never travel together (server 400s on mix);
+      // fromSubGraph is per-request scoping and rides along as a query param either way.
       const spec: SubGraphSpecification =
         filterSource === "stored"
           ? { name: name.trim(), storedQuery }
           : {
               name: name.trim(),
-              fromSubGraph: fromSubGraph.trim() || undefined,
               vertexFilter: vertexFilter || undefined,
               edgeFilter: edgeFilter || undefined,
               patterns: normalizePatterns(patterns),
             };
-      return await createSubGraph(instance, spec);
+      return await createSubGraph(instance, spec, fromSubGraph.trim() || undefined);
     },
     onSuccess: (summary) => {
       setMessage(
