@@ -1,4 +1,4 @@
-# Element Embeddings — Specification
+﻿# Element Embeddings — Specification
 
 > **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
 > repository root `CLAUDE.md`. Umbrella branch: `feature/scan-v2`; feature branch:
@@ -14,7 +14,7 @@
 
 ## 1. Overview & requirements
 
-The [vector-index](../../done/vector-index/spec.md) feature gave Fallen-8 exact kNN over
+The [vector-index](../vector-index/spec.md) feature gave Fallen-8 exact kNN over
 `float[]` embeddings (`fallen-8-core/Index/Vector/VectorIndex.cs`), but left the vector
 homeless: the index slab is the only place a vector lives unless the caller *also* stores it
 as an element property by convention (vector-index §3.2 "designated property"), and the two

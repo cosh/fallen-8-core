@@ -1,4 +1,4 @@
-# Vector Index — Usage
+﻿# Vector Index — Usage
 
 Exact k-nearest-neighbour search over `float[]` embeddings, as a fourth index family
 (`fallen-8-core/Index/Vector/`) next to dictionary/range, fulltext, and spatial. Brute-force
@@ -136,7 +136,7 @@ the last save-game do **not** survive crash replay — and unlike other index en
 vector may exist nowhere else.
 
 **The clean fix is a *bound* index** (feature
-[element-embeddings](../../open/element-embeddings/README.md)): create the index with an
+[element-embeddings](../element-embeddings/README.md)): create the index with an
 `embeddingName` option and store vectors as element embeddings
 (`PUT /graphelement/{id}/embedding/{name}`). The element is then the WAL-durable source of
 truth and the index a derived projection that rebuilds on load and re-projects on WAL

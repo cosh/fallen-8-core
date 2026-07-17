@@ -1,4 +1,4 @@
-# Embedding Provider — Specification
+﻿# Embedding Provider — Specification
 
 > **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
 > repository root `CLAUDE.md`. Umbrella branch: `feature/scan-v2`; feature branch:
@@ -11,7 +11,7 @@
 > `VectorIndex` and by traversal). This feature is the *generation* half: the component
 > that turns text into embeddings, with a swappable backend. The storage half never
 > requires this one — bring-your-own-vector stays first-class there; this one writes
-> through its accessor surface. The planned [mcp-server](../mcp-server/spec.md) is the
+> through its accessor surface. The planned [mcp-server](../../open/mcp-server/spec.md) is the
 > next consumer of the same abstraction.
 
 ## 1. Overview & requirements
