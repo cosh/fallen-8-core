@@ -39,15 +39,21 @@ export function buildPathSpecification(
   if (draft.filterSource === "stored") {
     return { ...base, storedQuery: draft.storedQuery };
   }
+  // When the semantic block owns a delegate slot (minScore -> vertexFilter,
+  // costBySimilarity -> vertexCost) the inline fragment is OMITTED, not sent alongside it:
+  // the server 400s if both fill one slot, and the UI already disabled that slot. The
+  // fragment stays in the draft, so turning the semantic option off restores it.
+  const semanticOwnsFilter = semantic?.minScore !== undefined;
+  const semanticOwnsCost = semantic?.costBySimilarity === true;
   return {
     ...base,
     filter: {
-      vertexFilter: draft.vertexFilter || undefined,
+      vertexFilter: semanticOwnsFilter ? undefined : draft.vertexFilter || undefined,
       edgeFilter: draft.edgeFilter || undefined,
       edgePropertyFilter: draft.edgePropertyFilter || undefined,
     },
     cost: {
-      vertexCost: draft.vertexCost || undefined,
+      vertexCost: semanticOwnsCost ? undefined : draft.vertexCost || undefined,
       edgeCost: draft.edgeCost || undefined,
     },
   };

@@ -303,19 +303,13 @@ export interface VectorIndexAddSpecification {
 
 /**
  * Element embeddings (feature element-embeddings). A named embedding is durable element
- * state read/written through the typed /graphelement/{id}/embedding/{name} routes; the
- * element is the source of truth and a bound vector index projects from it. PUT/DELETE
- * answer 202 with no body and take no waitForCompletion (unlike the property routes).
+ * state written through the typed /graphelement/{id}/embedding/{name} routes; the element
+ * is the source of truth and a bound vector index projects from it. The studio reads a
+ * stored embedding straight off the element's (folded) reserved properties, so there is no
+ * client GET helper — only the write DTO. (The server GET returns ElementEmbeddingREST.)
  */
 export interface EmbeddingWriteSpecification {
   vector: number[];
-}
-
-export interface ElementEmbeddingREST {
-  name: string | null;
-  vector: number[] | null;
-  /** The model-identity stamp a provider wrote, or null for a bring-your-own vector. */
-  model: string | null;
 }
 
 /**

@@ -23,6 +23,7 @@ export function SemanticBlockEditor({
   draft,
   onChange,
   allowCost,
+  costDisabledReason,
   providerEnabled,
   embeddingNames,
   idPrefix,
@@ -33,6 +34,9 @@ export function SemanticBlockEditor({
   onChange: (patch: Partial<SemanticDraft>) => void;
   /** costBySimilarity is a path concept; false on the subgraph screen. */
   allowCost: boolean;
+  /** When set (e.g. algorithm is BLS, which ignores costs), the cost checkbox is disabled
+   *  with this reason — distinct from the internal DotProduct rule. */
+  costDisabledReason?: string;
   /** Resolved provider state; null = unknown (no graph shape computed yet). */
   providerEnabled: boolean | null;
   embeddingNames: string[];
@@ -118,7 +122,16 @@ export function SemanticBlockEditor({
                 data-testid={`${idPrefix}-sem-metric`}
                 className="input w-auto"
                 value={draft.metric}
-                onChange={(e) => onChange({ metric: e.target.value as SemanticMetric })}
+                onChange={(e) => {
+                  const metric = e.target.value as SemanticMetric;
+                  // DotProduct has no cost mapping; clear a stale checked cost so it can't
+                  // strand the (now-disabled) checkbox in a checked state that blocks submit.
+                  onChange(
+                    metric === "DotProduct"
+                      ? { metric, costBySimilarity: false }
+                      : { metric },
+                  );
+                }}
               >
                 <option>Cosine</option>
                 <option>DotProduct</option>
@@ -217,12 +230,18 @@ export function SemanticBlockEditor({
                   type="checkbox"
                   data-testid={`${idPrefix}-sem-cost`}
                   checked={draft.costBySimilarity}
-                  disabled={draft.metric === "DotProduct"}
+                  disabled={draft.metric === "DotProduct" || Boolean(costDisabledReason)}
                   onChange={(e) => onChange({ costBySimilarity: e.target.checked })}
                 />
                 costBySimilarity (DIJKSTRA)
-                {draft.metric === "DotProduct" && (
+                {draft.metric === "DotProduct" ? (
                   <span className="text-fg-faint">— not under DotProduct</span>
+                ) : (
+                  costDisabledReason && (
+                    <span className="text-fg-faint" data-testid={`${idPrefix}-sem-cost-disabled`}>
+                      — {costDisabledReason}
+                    </span>
+                  )
                 )}
               </label>
             )}

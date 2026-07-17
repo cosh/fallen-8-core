@@ -136,28 +136,30 @@ export function SubgraphScreen() {
 
   const create = useMutation({
     mutationFn: async () => {
-      // The semantic block binds at registration and is data, not code (no dynamic-code
-      // gate). It cannot ride a stored-template invocation (server 400s), so it only
-      // attaches in inline mode; costBySimilarity is path-only (allowCost: false).
-      const semanticBuild = buildSemanticSpec(semantic, {
-        allowCost: false,
-        providerEnabled,
-      });
-      if (!semanticBuild.ok) {
-        throw new ApiError(400, "/subgraph", `Semantic block: ${semanticBuild.error}`);
-      }
       // Stored and inline fragments never travel together (server 400s on mix);
       // fromSubGraph is per-request scoping and rides along as a query param either way.
-      const spec: SubGraphSpecification =
-        filterSource === "stored"
-          ? { name: name.trim(), storedQuery }
-          : {
-              name: name.trim(),
-              vertexFilter: vertexFilter || undefined,
-              edgeFilter: edgeFilter || undefined,
-              patterns: normalizePatterns(patterns),
-              ...(semanticBuild.spec ? { semantic: semanticBuild.spec } : {}),
-            };
+      let spec: SubGraphSpecification;
+      if (filterSource === "stored") {
+        // The semantic block is disabled in stored mode and cannot ride a stored-template
+        // invocation (server 400s), so it is neither built nor validated here.
+        spec = { name: name.trim(), storedQuery };
+      } else {
+        // The semantic block binds at registration and is data, not code (no dynamic-code
+        // gate); costBySimilarity is path-only (allowCost: false). When its minScore owns
+        // the top-level vertex pre-filter slot, the inline vertexFilter is OMITTED (the
+        // server 400s if both fill one slot); the fragment stays in local state.
+        const semanticBuild = buildSemanticSpec(semantic, { allowCost: false, providerEnabled });
+        if (!semanticBuild.ok) {
+          throw new ApiError(400, "/subgraph", `Semantic block: ${semanticBuild.error}`);
+        }
+        spec = {
+          name: name.trim(),
+          vertexFilter: semanticOwnsVertexFilter(semantic) ? undefined : vertexFilter || undefined,
+          edgeFilter: edgeFilter || undefined,
+          patterns: normalizePatterns(patterns),
+          ...(semanticBuild.spec ? { semantic: semanticBuild.spec } : {}),
+        };
+      }
       return await createSubGraph(instance, spec, fromSubGraph.trim() || undefined);
     },
     onSuccess: (summary) => {

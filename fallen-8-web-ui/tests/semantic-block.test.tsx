@@ -14,11 +14,13 @@ import { DEFAULT_SEMANTIC_DRAFT, type SemanticDraft } from "../src/lib/semantic"
 
 function Harness({
   allowCost = true,
+  costDisabledReason,
   providerEnabled = true as boolean | null,
   disabled = false,
   initial = {},
 }: {
   allowCost?: boolean;
+  costDisabledReason?: string;
   providerEnabled?: boolean | null;
   disabled?: boolean;
   initial?: Partial<SemanticDraft>;
@@ -32,6 +34,7 @@ function Harness({
       draft={draft}
       onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
       allowCost={allowCost}
+      costDisabledReason={costDisabledReason}
       providerEnabled={providerEnabled}
       embeddingNames={["default", "title"]}
       idPrefix="t"
@@ -91,5 +94,23 @@ describe("SemanticBlockEditor", () => {
     expect(screen.queryByTestId("t-sem-minscore")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("t-sem-minscore-enable"));
     expect(screen.getByTestId("t-sem-minscore")).toBeInTheDocument();
+  });
+
+  it("disables costBySimilarity with a reason when costDisabledReason is set (e.g. BLS)", () => {
+    render(
+      <Harness initial={{ enabled: true }} costDisabledReason="BLS ignores costs — use DIJKSTRA" />,
+    );
+    expect(screen.getByTestId("t-sem-cost")).toBeDisabled();
+    expect(screen.getByTestId("t-sem-cost-disabled")).toHaveTextContent(/BLS ignores costs/);
+  });
+
+  it("clears a stale costBySimilarity when switching metric to DotProduct", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ enabled: true, costBySimilarity: true }} />);
+    expect(screen.getByTestId("t-sem-cost")).toBeChecked();
+    await user.selectOptions(screen.getByTestId("t-sem-metric"), "DotProduct");
+    // Now disabled AND unchecked — never stranded checked-but-disabled (blocking submit).
+    expect(screen.getByTestId("t-sem-cost")).toBeDisabled();
+    expect(screen.getByTestId("t-sem-cost")).not.toBeChecked();
   });
 });

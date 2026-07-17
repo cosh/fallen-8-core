@@ -151,9 +151,16 @@ export function PathScreen() {
                 data-testid="path-algo"
                 className="input w-auto"
                 value={draft.algorithm}
-                onChange={(e) =>
-                  setDraft({ algorithm: e.target.value as "BLS" | "DIJKSTRA" })
-                }
+                onChange={(e) => {
+                  const algorithm = e.target.value as "BLS" | "DIJKSTRA";
+                  // BLS ignores costs; drop a stale costBySimilarity so it is never sent
+                  // (and never owns the vertex-cost slot) under a hop-count search.
+                  setDraft(
+                    algorithm === "BLS"
+                      ? { algorithm, semantic: { ...draft.semantic, costBySimilarity: false } }
+                      : { algorithm },
+                  );
+                }}
               >
                 <option value="BLS">BLS (hop count)</option>
                 <option value="DIJKSTRA">Dijkstra (weighted)</option>
@@ -236,6 +243,9 @@ export function PathScreen() {
             draft={draft.semantic}
             onChange={setSemantic}
             allowCost
+            costDisabledReason={
+              draft.algorithm === "BLS" ? "BLS ignores costs — use DIJKSTRA" : undefined
+            }
             providerEnabled={providerEnabled}
             embeddingNames={suggestions.embeddingNames}
             idPrefix="path"

@@ -188,7 +188,6 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       graphElementId: 1,
       propertyId: "embedding",
     });
-    await endpoints.getElementEmbedding(instance, 1, "default");
     await endpoints.putElementEmbedding(instance, 1, "default", { vector: [0.1, 0.2] });
     await endpoints.deleteElementEmbedding(instance, 1, "default");
     await endpoints.embedElement(instance, { graphElementId: 1, text: "a red bicycle" });
@@ -263,7 +262,7 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     expect(JSON.stringify(body)).not.toMatch(/FullQualifiedTypeName/);
   });
 
-  it("embedding routes: PUT/DELETE send no waitForCompletion, bodies are camelCase", async () => {
+  it("embedding element writes send waitForCompletion (FR-21); bodies are camelCase", async () => {
     await endpoints.putElementEmbedding(instance, 7, "default", { vector: [0.1, 0.2] });
     await endpoints.deleteElementEmbedding(instance, 7, "default");
     await endpoints.embedElement(instance, { graphElementId: 7, text: "x", name: "title" });
@@ -277,13 +276,16 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     const put = recorded[0];
     expect(put.method).toBe("PUT");
     expect(put.path).toBe("/graphelement/7/embedding/default");
-    expect(put.query.has("waitForCompletion")).toBe(false);
+    // The element embedding write is a mutation: it must commit before the UI re-reads it,
+    // and a rolled-back write must surface (not a fire-and-forget 202).
+    expect(put.query.get("waitForCompletion")).toBe("true");
     expect(put.body).toEqual({ vector: [0.1, 0.2] });
 
     const del = recorded[1];
     expect(del.method).toBe("DELETE");
-    expect(del.query.has("waitForCompletion")).toBe(false);
+    expect(del.query.get("waitForCompletion")).toBe("true");
 
+    // Provider embed/search are POSTs whose server awaits completion itself — no query flag.
     expect(recorded[2].body).toEqual({ graphElementId: 7, text: "x", name: "title" });
     expect(recorded[3].body).toEqual({ indexId: "emb", text: "x", k: 5, kind: "vertex" });
   });

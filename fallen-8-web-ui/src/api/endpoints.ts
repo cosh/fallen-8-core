@@ -8,7 +8,6 @@ import type {
   DelegateKind,
   DelegateValidationResult,
   EdgeREST,
-  ElementEmbeddingREST,
   EmbedElementSpecification,
   EmbeddingSearchSpecification,
   EmbeddingWriteSpecification,
@@ -240,20 +239,9 @@ export const addVectorToIndex = (
 
 // ---- element embeddings (feature element-embeddings) ----
 // The element is the source of truth for its named embedding; a bound vector index
-// projects from it. PUT/DELETE answer 202 with no body and take NO waitForCompletion
-// (unlike the property routes) — the embedding write commits synchronously enough.
-
-export const getElementEmbedding = (
-  i: InstanceConfig,
-  id: number,
-  name: string,
-  signal?: AbortSignal,
-) =>
-  apiRequest<ElementEmbeddingREST>(
-    i,
-    `/graphelement/${id}/embedding/${encodeURIComponent(name)}`,
-    { signal },
-  );
+// projects from it. Like every mutation these send waitForCompletion=true (FR-21) so the
+// write has committed before we re-read the element, and a rolled-back write surfaces as a
+// 4xx/5xx instead of a fire-and-forget 202.
 
 export const putElementEmbedding = (
   i: InstanceConfig,
@@ -264,11 +252,13 @@ export const putElementEmbedding = (
   apiRequest<void>(i, `/graphelement/${id}/embedding/${encodeURIComponent(name)}`, {
     method: "PUT",
     body: spec,
+    query: WAIT,
   });
 
 export const deleteElementEmbedding = (i: InstanceConfig, id: number, name: string) =>
   apiRequest<void>(i, `/graphelement/${id}/embedding/${encodeURIComponent(name)}`, {
     method: "DELETE",
+    query: WAIT,
   });
 
 // ---- embedding provider (feature embedding-provider) ----

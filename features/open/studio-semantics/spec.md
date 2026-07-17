@@ -1,8 +1,8 @@
 # Studio semantics — Specification
 
-> **Status:** DRAFT, spec only — written for review, no implementation. Follow the feature
-> workflow in the repository root `CLAUDE.md`. Feature branch (when implementation starts):
-> `feature/studio-semantics`.
+> **Status:** Implemented and council-gated (branch `feature/studio-semantics`); see
+> [plan.md](./plan.md) for the phase record and review outcome. A few contract points were
+> refined during implementation and are noted inline below.
 >
 > **Builds on:** [element-embeddings](../../done/element-embeddings/) and
 > [embedding-provider](../../done/embedding-provider/) (server side, complete). The
@@ -38,9 +38,12 @@ F8 Studio exposes none of it:
 ### 1. Provider awareness (one query, one store)
 
 `GET /statistics` already returns `embedding: { enabled, backend, modelName, modelVersion,
-dimension, intendedMetric, loaded }`. The instance store gains this as
-`instance.embedding` (polled with the existing statistics query; `null` on older servers).
-Every affordance below keys off it:
+dimension, intendedMetric, loaded }`. The UI reads it from the existing graph-shape query
+(`embeddingProvider(shape)`); `null` on older servers **and until a Graph shape is
+computed** — `/statistics` is a budgeted on-demand pass, not a poll (refined from the
+draft's "polled"). Every affordance below keys off it, treating "unknown" like "not
+confirmed enabled": text-in controls stay disabled with a "Compute the Graph shape" hint,
+consistent with how every other shape-derived datalist behaves.
 
 - provider **absent/disabled** → text-in controls render disabled with an honest hint
   ("embedding provider off — Fallen8:Embedding:Enabled"), vector-paste controls stay
@@ -87,11 +90,15 @@ one-owner-per-slot rules **in the UI before the request is sent**:
   `minScore` (number, direction hint flips for L2: "≤ = closer"), and on the Path screen
   only, `costBySimilarity` (checkbox; disabled with reason when metric is DotProduct or
   algorithm is BLS — BLS ignores costs).
-- **Conflict prevention, not conflict errors**: enabling `minScore` disables the
-  vertex-filter fragment slot (and vice versa) with a one-line reason; same for
-  `costBySimilarity` vs the vertex-cost slot; the block is disabled entirely when a
-  SubGraph stored template is selected. The server's 400s remain the backstop and render
-  verbatim when they occur anyway.
+- **Conflict prevention, not conflict errors**: enabling `minScore` renders the
+  vertex-filter fragment slot inert with a one-line reason **and omits that fragment from
+  the built request** (it stays in the draft, so toggling `minScore` off restores it) —
+  the semantic block owns the slot, so the fragment is never sent alongside it; same for
+  `costBySimilarity` vs the vertex-cost slot. On the Subgraph screen the whole block is
+  disabled when a stored template is selected, and is then never built or validated. The
+  server's 400s remain the backstop and render verbatim when they occur anyway. (The
+  omission was added after review caught that a disabled slot still sent its stale
+  fragment.)
 - **Dynamic-code independence, stated**: the block carries a hint that it works with
   dynamic code off — on servers where the fragment editors are disabled (403 posture),
   the semantic block stays enabled. This is the main reason the feature exists.
