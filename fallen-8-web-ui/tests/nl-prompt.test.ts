@@ -147,4 +147,20 @@ describe("output handling (FR-26.6)", () => {
   it("leaves a clean fragment untouched", () => {
     expect(extractFragment("return (v) => true;")).toBe("return (v) => true;");
   });
+
+  it("cuts trailing prose after the statement's semicolon (field example)", () => {
+    expect(
+      extractFragment(
+        'return (v) => v.Label == "person" && v.GetAge() > 30; (Note that GetAge is not listed above as a member of VertexModel.)',
+      ),
+    ).toBe('return (v) => v.Label == "person" && v.GetAge() > 30;');
+    // Leading and trailing prose combined.
+    expect(
+      extractFragment("Sure! Here you go:\nreturn (v) => true; Hope this helps."),
+    ).toBe("return (v) => true;");
+    // Semicolons inside string literals do not end the fragment.
+    expect(extractFragment('return (p) => p.Contains(";") && p.Length > 1; done')).toBe(
+      'return (p) => p.Contains(";") && p.Length > 1;',
+    );
+  });
 });
