@@ -401,6 +401,20 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             _elements[last] = null;
             _slotByElement.Remove(graphElement);
             _count = last;
+
+            // Reclaim slab/element memory once the live set falls well below capacity (feature
+            // memory-footprint): the arrays otherwise stay pinned at their high-water mark after
+            // removals/purges. Hysteresis (shrink to 2x the live count, never below the 16-slot floor
+            // a fresh index starts with) avoids churn; the Int64 guard/target keep an extreme count at
+            // small Dimension from overflowing. Live elements occupy slots [0.._count) and a shrinking
+            // Array.Resize preserves exactly those, so slot indices and _slotByElement stay valid -
+            // safe to run per victim inside TryRemoveKey's loop (the slot is re-looked-up each time).
+            if (_elements.Length > 16 && (Int64)_count * 4 < _elements.Length)
+            {
+                var newCapacity = (Int32)Math.Max(16L, (Int64)_count * 2);
+                Array.Resize(ref _vectors, newCapacity * Dimension);
+                Array.Resize(ref _elements, newCapacity);
+            }
         }
 
         public Boolean TryRemoveKey(Object key)
@@ -447,8 +461,10 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             {
                 try
                 {
-                    Array.Clear(_vectors, 0, _count * Dimension);
-                    Array.Clear(_elements, 0, _count);
+                    // Release the high-water-mark slab rather than just clearing it (feature
+                    // memory-footprint): reset to the 16-slot arrays a fresh index starts with.
+                    _vectors = new float[Dimension * 16];
+                    _elements = new AGraphElementModel[16];
                     _slotByElement.Clear();
                     _count = 0;
                 }

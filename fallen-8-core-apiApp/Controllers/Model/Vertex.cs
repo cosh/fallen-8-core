@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// VertexSpecification.cs
+// Vertex.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //

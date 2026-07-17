@@ -208,8 +208,10 @@ namespace NoSQL.GraphDB.Core.App.Helper
             {
                 // A cost is only defined over embedded vertices - stated, not silent: the
                 // implied filter drops vertices without the named embedding.
-                result.VertexFilter = vertex => context.TrySimilarity(vertex, out _);
-                result.GraphElementFilter = element => context.TrySimilarity(element, out _);
+                Boolean HasEmbedding(AGraphElementModel element) => context.TrySimilarity(element, out _);
+
+                result.VertexFilter = vertex => HasEmbedding(vertex);
+                result.GraphElementFilter = element => HasEmbedding(element);
             }
 
             if (specification.CostBySimilarity)

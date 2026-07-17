@@ -78,7 +78,7 @@ npm run e2e          # Playwright; builds the SPA into the apiApp and launches i
 
 ## Regeneration
 
-- `npm run gen:api` regenerates `src/api/openapi.d.ts` from the checked-in snapshot
+- `src/api/types.ts` is the hand-curated client contract, mirroring the checked-in snapshot
   `features/done/web-ui/openapi-v0.1.json` (refresh the snapshot from a Development apiApp at
   `/openapi/v0.1.json`). The contract test (`tests/api-contract.test.ts`) pins every
   client route against the snapshot.

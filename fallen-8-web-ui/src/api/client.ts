@@ -63,6 +63,22 @@ export function authHeaders(instance: InstanceConfig): Record<string, string> {
   return {};
 }
 
+/**
+ * The single place a non-ok response becomes an {@link ApiError} (status + the server's body).
+ * Shared by {@link apiRequest} and the raw-fetch bulk endpoints so every failure looks the same.
+ */
+export async function throwIfNotOk(response: Response, url: string): Promise<void> {
+  if (!response.ok) {
+    let body = "";
+    try {
+      body = await response.text();
+    } catch {
+      // keep the status-only error
+    }
+    throw new ApiError(response.status, url, body);
+  }
+}
+
 export async function apiRequest<T>(
   instance: InstanceConfig,
   path: string,
@@ -82,15 +98,7 @@ export async function apiRequest<T>(
 
   const response = await fetch(url, init);
 
-  if (!response.ok) {
-    let body = "";
-    try {
-      body = await response.text();
-    } catch {
-      // keep the status-only error
-    }
-    throw new ApiError(response.status, url, body);
-  }
+  await throwIfNotOk(response, url);
 
   // 204 / empty 200 bodies mean "not found" or "accepted, nothing to say" - never an error.
   if (response.status === 204) return null;

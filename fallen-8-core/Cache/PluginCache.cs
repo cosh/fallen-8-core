@@ -42,35 +42,29 @@ namespace NoSQL.GraphDB.Core.Cache
                 .SetSize(1);
 
 
-        public IMemoryCache ShortestPath
-        {
-            get;
-        } = new MemoryCache(
+        // One home for the per-algorithm-family cache tuning. Each property still gets its own
+        // MemoryCache instance (three distinct caches), matching the previous behavior exactly.
+        private static IMemoryCache NewCache() => new MemoryCache(
             new MemoryCacheOptions
             {
                 SizeLimit = 1024,
                 ExpirationScanFrequency = TimeSpan.FromMinutes(1)
             });
+
+        public IMemoryCache ShortestPath
+        {
+            get;
+        } = NewCache();
 
         public IMemoryCache SubGraph
         {
             get;
-        } = new MemoryCache(
-            new MemoryCacheOptions
-            {
-                SizeLimit = 1024,
-                ExpirationScanFrequency = TimeSpan.FromMinutes(1)
-            });
+        } = NewCache();
 
         public IMemoryCache Analytics
         {
             get;
-        } = new MemoryCache(
-            new MemoryCacheOptions
-            {
-                SizeLimit = 1024,
-                ExpirationScanFrequency = TimeSpan.FromMinutes(1)
-            });
+        } = NewCache();
 
         public void AddShortestPath(IShortestPathAlgorithm algo)
         {

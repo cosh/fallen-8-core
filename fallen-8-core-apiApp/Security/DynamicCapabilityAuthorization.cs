@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
@@ -90,6 +91,34 @@ namespace NoSQL.GraphDB.App.Security
             }
 
             return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    ///   The single home for the imperative dynamic-code capability check shared by the
+    ///   request-shape-aware inline-code endpoints (<c>/path</c>, <c>/subgraph</c>). It evaluates the
+    ///   SAME <see cref="DynamicCapabilityRequirement"/> the declarative <c>DynamicCodePolicy</c> uses
+    ///   (one source of truth) and returns <see langword="true"/> when the request must be denied
+    ///   (the caller answers with <c>Forbid()</c>, the same 403 shape), <see langword="false"/> when
+    ///   the capability is enabled. A null authorization service means direct construction (unit
+    ///   tests bypass the pipeline exactly as they bypassed the former endpoint-level policy); the
+    ///   hosted pipeline always supplies the service. The awaited handler is synchronous (an options
+    ///   check), so blocking here cannot deadlock.
+    /// </summary>
+    public static class DynamicCodeCapabilityGate
+    {
+        public static bool IsDenied(IAuthorizationService authorizationService, ClaimsPrincipal user)
+        {
+            if (authorizationService == null)
+            {
+                return false;
+            }
+
+            var authorization = authorizationService.AuthorizeAsync(user, null,
+                    new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicCodeExecution))
+                .GetAwaiter().GetResult();
+
+            return !authorization.Succeeded;
         }
     }
 }

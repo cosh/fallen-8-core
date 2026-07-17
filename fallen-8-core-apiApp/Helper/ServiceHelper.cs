@@ -80,7 +80,6 @@ namespace NoSQL.GraphDB.App.Helper
         /// </summary>
         /// <returns> The properties. </returns>
         /// <param name='propertySpecification'> Property specification. </param>
-        [UnconditionalSuppressMessage("Trimming", "IL2096:Call to 'System.Type.GetType' can perform case insensitive lookup of the type", Justification = "Type names are provided by API users and need case-insensitive lookup. Trimming is disabled for this application.")]
         public static Dictionary<String, Object> GenerateProperties(
             Dictionary<String, PropertySpecification> propertySpecification)
         {
@@ -92,10 +91,7 @@ namespace NoSQL.GraphDB.App.Helper
 
                 foreach (var aPropertyDefinition in propertySpecification)
                 {
-                    properties.Add(aPropertyDefinition.Key, aPropertyDefinition.Value.FullQualifiedTypeName != null
-                             ? Convert.ChangeType(aPropertyDefinition.Value.PropertyValue,
-                                                AllowedLiteralTypes.Resolve(aPropertyDefinition.Value.FullQualifiedTypeName))
-                            : aPropertyDefinition.Value.PropertyValue);
+                    properties.Add(aPropertyDefinition.Key, Transform(aPropertyDefinition.Value));
                 }
             }
 
@@ -107,7 +103,6 @@ namespace NoSQL.GraphDB.App.Helper
         /// </summary>
         /// <returns> The properties. </returns>
         /// <param name='propertySpecification'> Property specification. </param>
-        [UnconditionalSuppressMessage("Trimming", "IL2096:Call to 'System.Type.GetType' can perform case insensitive lookup of the type", Justification = "Type names are provided by API users and need case-insensitive lookup. Trimming is disabled for this application.")]
         public static Dictionary<String, Object> GenerateProperties(List<PropertySpecification> propertySpecification)
         {
             Dictionary<String, Object> properties = null;
@@ -118,16 +113,18 @@ namespace NoSQL.GraphDB.App.Helper
 
                 foreach (var aPropertyDefinition in propertySpecification)
                 {
-                    properties.Add(aPropertyDefinition.PropertyId, aPropertyDefinition.FullQualifiedTypeName != null
-                             ? Convert.ChangeType(aPropertyDefinition.PropertyValue,
-                                                AllowedLiteralTypes.Resolve(aPropertyDefinition.FullQualifiedTypeName))
-                            : aPropertyDefinition.PropertyValue);
+                    properties.Add(aPropertyDefinition.PropertyId, Transform(aPropertyDefinition));
                 }
             }
 
             return properties;
         }
 
+        /// <summary>
+        ///   The single home for turning a <see cref="PropertySpecification"/> into a stored value:
+        ///   pass the raw value through when no type is given, otherwise convert it via the primitive
+        ///   allow-list. Both <c>GenerateProperties</c> overloads route through here.
+        /// </summary>
         [UnconditionalSuppressMessage("Trimming", "IL2096:Call to 'System.Type.GetType' can perform case insensitive lookup of the type", Justification = "Type names are provided by API users and need case-insensitive lookup. Trimming is disabled for this application.")]
         public static Object Transform(PropertySpecification definition)
         {

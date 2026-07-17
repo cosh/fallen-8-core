@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// EdgeSpecification.cs
+// Edge.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //

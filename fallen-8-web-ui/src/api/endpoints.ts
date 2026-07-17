@@ -1,4 +1,4 @@
-import { ApiError, apiRequest, authHeaders, buildUrl } from "./client";
+import { apiRequest, authHeaders, buildUrl, throwIfNotOk } from "./client";
 import type { InstanceConfig } from "../instances/types";
 import type {
   AnalyticsResultREST,
@@ -123,9 +123,7 @@ export async function exportBulk(
     edgeLabel: filters?.edgeLabel,
   });
   const response = await fetch(url, { headers: authHeaders(i), signal });
-  if (!response.ok) {
-    throw new ApiError(response.status, url, await response.text().catch(() => ""));
-  }
+  await throwIfNotOk(response, url);
   return await response.blob();
 }
 
@@ -140,9 +138,7 @@ export async function importBulk(
     headers: { ...authHeaders(i), "Content-Type": "application/x-ndjson" },
     body: file,
   });
-  if (!response.ok) {
-    throw new ApiError(response.status, url, await response.text().catch(() => ""));
-  }
+  await throwIfNotOk(response, url);
   const text = await response.text();
   return text && text !== "null" ? (JSON.parse(text) as BulkImportResultREST) : null;
 }
