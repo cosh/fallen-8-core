@@ -9,6 +9,7 @@ import {
   useNlAssist,
   usesApiKey,
 } from "./config";
+import { formatFragment } from "./format";
 import { buildGenerationPrompt, buildRefinePrompt, extractFragment } from "./prompt";
 import {
   chatWithModel,
@@ -98,7 +99,9 @@ export function NlAssistPanel({
           conversation,
           controller.signal,
         );
-        const draft = extractFragment(content);
+        // Model output arrives as one line; pretty-print before it hits the editor.
+        // Validation runs on the formatted text, so diagnostics match what's shown.
+        const draft = formatFragment(extractFragment(content));
 
         // Insert as ordinary editable text (never auto-submit), then gate through the
         // same validation the user's own code goes through (FR-26.6/26.7).

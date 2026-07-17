@@ -64,6 +64,19 @@ Three usability gaps reported against the shipped editor panel:
   valid variant, so "draft it again" stops returning byte-identical output at
   deterministic temperature.
 
+### Draft quality
+
+- FR-9 **Deterministic formatting pass.** Model output arrives as one line; before it is
+  inserted, long fragments are pretty-printed by breaking the expression at *top-level*
+  `&&`/`||` (bracket- and string-literal-aware), one operand per line. Deterministic code,
+  not a second model pass — a model round-trip is slow on CPU inference and could change
+  semantics. Validation runs on the formatted text so diagnostics line up with the editor.
+- FR-10 **Built-in member steering.** The generation prompt states explicitly that
+  `Label` and `Id` are built-in members to be tested directly and that `TryGetProperty`
+  is only for user-defined properties, and the snippet library (which feeds the few-shot
+  examples) gains a combined "Label + property" example. Without this, small models emit
+  `TryGetProperty(out string label, "label")` instead of `.Label`.
+
 ## 3. Non-goals
 
 - No new F8 server endpoints; the model call remains browser → endpoint (parent §4).

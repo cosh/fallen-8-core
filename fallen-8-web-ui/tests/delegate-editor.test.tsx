@@ -256,6 +256,39 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     expect(screen.queryByTestId("nl-attempts")).not.toBeInTheDocument();
   });
 
+  it("pretty-prints a long one-line draft before inserting it (nl-assist-ux FR-9)", async () => {
+    const user = userEvent.setup();
+    validateMock.mockResolvedValue(VALID);
+    chatMock.mockResolvedValueOnce(
+      draft(
+        'return (v) => v.Label == "person" && v.TryGetProperty(out int age, "age") && age > 30 && v.Id < 10;',
+      ),
+    );
+
+    renderEditor();
+    await user.type(screen.getByTestId("nl-intent"), "persons over 30 with small ids");
+    await user.click(screen.getByTestId("nl-generate"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("mock-editor")).toHaveValue(
+        [
+          "return (v) =>",
+          '    v.Label == "person"',
+          '    && v.TryGetProperty(out int age, "age")',
+          "    && age > 30",
+          "    && v.Id < 10;",
+        ].join("\n"),
+      ),
+    );
+    // The formatted text is what got validated, so markers line up with the editor.
+    expect(validateMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.stringContaining("return (v) =>\n"),
+      expect.anything(),
+    );
+  });
+
   it("renders generation stats per attempt when the provider reports them (nl-assist-ux FR-5)", async () => {
     const user = userEvent.setup();
     validateMock.mockResolvedValue(VALID);

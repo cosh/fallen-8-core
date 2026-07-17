@@ -47,7 +47,14 @@ export function buildGenerationPrompt(
     // (d) type surface + idiom
     `Members reachable on the parameter (type ${info.parameterType}):\n${members}`,
     `The canonical typed property access is TryGetProperty: ${TRY_GET_PROPERTY_IDIOM_LINE}`,
-    "Do not invent members that are not listed above.",
+    // Built-in vs user-defined properties (nl-assist-ux FR-10): without this, small
+    // models reach for TryGetProperty(out string label, "label") instead of .Label.
+    ...(info.parameterType !== "string"
+      ? [
+          `Label and Id are BUILT-IN members - test them directly: ${info.parameterName}.Label == "person", ${info.parameterName}.Id < 10. NEVER call TryGetProperty for "label" or "id"; TryGetProperty is only for user-defined properties such as "age" or "name".`,
+        ]
+      : []),
+    "Do not invent members that are not listed above. Add only the checks the request asks for - nothing speculative.",
     // (e) few-shot examples
     `Examples of valid fragments for this kind:\n\n${fewShot}`,
   ].join("\n\n");

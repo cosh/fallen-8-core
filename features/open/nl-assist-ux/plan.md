@@ -25,6 +25,13 @@ Branch `feature/nl-assist-ux`. All work in `fallen-8-web-ui/`; no server changes
 - `src/delegate/nl/prompt.ts`: `buildGenerationPrompt` takes prior drafts for the same
   intent and requests a distinct variant (FR-8).
 
+## Phase 3b — draft quality (added after first field test)
+
+- `src/delegate/nl/format.ts`: deterministic top-level `&&`/`||` pretty-printer applied
+  to every draft before insertion (FR-9).
+- `src/delegate/nl/prompt.ts` + `src/delegate/snippets.ts`: built-in `Label`/`Id`
+  steering line and a combined "Label + property" few-shot snippet (FR-10).
+
 ## Phase 4 — tests + docs
 
 - Update `tests/nl-config.test.ts`, `tests/delegate-editor.test.tsx`,
