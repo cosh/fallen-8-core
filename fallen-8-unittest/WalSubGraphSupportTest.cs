@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // WalSubGraphSupportTest.cs
 //
@@ -139,7 +139,7 @@ namespace NoSQL.GraphDB.Tests
         private static void CreateSubGraphViaController(Fallen8 f8, SubGraphSpecification spec, string fromSubGraph = null)
         {
             var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(), f8);
-            var result = controller.CreateSubGraph(spec, fromSubGraph);
+            var result = controller.CreateSubGraph(spec, fromSubGraph).Result;
             Assert.IsInstanceOfType(result, typeof(CreatedResult),
                 "Creating subgraph \"" + spec.Name + "\" should return Created; got " + result.GetType().Name);
         }

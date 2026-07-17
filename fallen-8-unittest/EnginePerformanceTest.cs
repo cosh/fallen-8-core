@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // EnginePerformanceTest.cs
 //
@@ -120,8 +120,7 @@ namespace NoSQL.GraphDB.Tests
             var probe = new GeneratedCodeCache();
 
             // Act - first request compiles the traverser and (with the fix) publishes it process-wide.
-            controller1.CalculateShortestPath(vertices[0].Id, vertices[1].Id, spec1);
-
+            _ = controller1.CalculateShortestPath(vertices[0].Id, vertices[1].Id, spec1).Result;
             // Probe via the new (Filter, Cost)-keyed accessor (feature codegen-cache-keying).
             Assert.IsTrue(probe.TryGetTraverser(spec1, out var firstTraverser),
                 "After the first request the compiled traverser must be visible through a DIFFERENT " +
@@ -129,8 +128,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNotNull(firstTraverser, "A traverser must have been compiled and cached.");
 
             // Second request with a value-equal spec on a fresh controller must HIT the shared cache.
-            controller2.CalculateShortestPath(vertices[0].Id, vertices[1].Id, spec2);
-
+            _ = controller2.CalculateShortestPath(vertices[0].Id, vertices[1].Id, spec2).Result;
             Assert.IsTrue(probe.TryGetTraverser(spec2, out var secondTraverser),
                 "The value-equal spec must resolve to the same cache entry.");
 

@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // StoredQueryInvocationTest.cs
 //
@@ -170,7 +170,7 @@ namespace NoSQL.GraphDB.Tests
                 MaxDepth = 4,
                 Filter = new PathFilterSpecification { Vertex = PersonVertexFilter }
             };
-            var inlinePaths = _graphController.CalculateShortestPath(_a, _d, inlineSpec).Value;
+            var inlinePaths = _graphController.CalculateShortestPath(_a, _d, inlineSpec).Result.Value;
             Assert.IsTrue(inlinePaths.Count > 0, "The inline baseline must find at least one path.");
 
             RegisterPathQuery("bls-person", vertexFilter: PersonVertexFilter);
@@ -180,7 +180,7 @@ namespace NoSQL.GraphDB.Tests
                 MaxDepth = 4,
                 StoredQuery = "bls-person"
             };
-            var storedPaths = _graphController.CalculateShortestPath(_a, _d, storedSpec).Value;
+            var storedPaths = _graphController.CalculateShortestPath(_a, _d, storedSpec).Result.Value;
 
             Assert.AreEqual(PathSignature(inlinePaths), PathSignature(storedPaths),
                 "Stored invocation must return element-for-element identical paths to the same inline spec.");
@@ -196,7 +196,7 @@ namespace NoSQL.GraphDB.Tests
                 MaxResults = 4,
                 Cost = new PathCostSpecification { Edge = WeightEdgeCost }
             };
-            var inlinePaths = _graphController.CalculateShortestPath(_a, _d, inlineSpec).Value;
+            var inlinePaths = _graphController.CalculateShortestPath(_a, _d, inlineSpec).Result.Value;
             Assert.IsTrue(inlinePaths.Count >= 2, "The weighted diamond must yield both a->d paths.");
             // Weight ordering: a->b->d (edge weights 1+1) must rank strictly before a->c->d
             // (5+1). The absolute totals also include the default per-vertex cost, so only the
@@ -214,7 +214,7 @@ namespace NoSQL.GraphDB.Tests
                 MaxResults = 4,
                 StoredQuery = "dijkstra-weighted"
             };
-            var storedPaths = _graphController.CalculateShortestPath(_a, _d, storedSpec).Value;
+            var storedPaths = _graphController.CalculateShortestPath(_a, _d, storedSpec).Result.Value;
 
             Assert.AreEqual(PathSignature(inlinePaths), PathSignature(storedPaths),
                 "Stored invocation must return element-for-element identical weighted paths.");
@@ -229,7 +229,7 @@ namespace NoSQL.GraphDB.Tests
                 VertexFilter = PersonVertexFilter,
                 EdgeFilter = KnowsEdgeFilter
             };
-            var inlineResult = _subGraphController.CreateSubGraph(inlineSpec);
+            var inlineResult = _subGraphController.CreateSubGraph(inlineSpec).Result;
             Assert.AreEqual(201, ((ObjectResult)inlineResult).StatusCode);
             Assert.IsTrue(_fallen8.SubGraphFactory.TryGetSubGraph(out var inlineSubGraph, "inline-persons"));
 
@@ -248,7 +248,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 Name = "stored-persons",
                 StoredQuery = "persons-template"
-            });
+            }).Result;
             Assert.AreEqual(201, ((ObjectResult)storedResult).StatusCode);
             Assert.IsTrue(_fallen8.SubGraphFactory.TryGetSubGraph(out var storedSubGraph, "stored-persons"));
 
@@ -271,9 +271,9 @@ namespace NoSQL.GraphDB.Tests
             });
 
             Assert.AreEqual(201, ((ObjectResult)_subGraphController.CreateSubGraph(
-                new SubGraphSpecification { Name = "instance-1", StoredQuery = "reusable-template" })).StatusCode);
+                new SubGraphSpecification { Name = "instance-1", StoredQuery = "reusable-template" }).Result).StatusCode);
             Assert.AreEqual(201, ((ObjectResult)_subGraphController.CreateSubGraph(
-                new SubGraphSpecification { Name = "instance-2", StoredQuery = "reusable-template" })).StatusCode);
+                new SubGraphSpecification { Name = "instance-2", StoredQuery = "reusable-template" }).Result).StatusCode);
 
             Assert.IsTrue(_fallen8.SubGraphFactory.TryGetSubGraph(out var one, "instance-1"));
             Assert.IsTrue(_fallen8.SubGraphFactory.TryGetSubGraph(out var two, "instance-2"));
@@ -292,10 +292,9 @@ namespace NoSQL.GraphDB.Tests
             var before = CodeGenerationHelper.PathCompileCount;
 
             var spec = new PathSpecification { MaxDepth = 4, StoredQuery = "pinned-no-recompile" };
-            _graphController.CalculateShortestPath(_a, _d, spec);
-            _graphController.CalculateShortestPath(_a, _d, spec);
-            _graphController.CalculateShortestPath(_a, _b, spec);
-
+            _ = _graphController.CalculateShortestPath(_a, _d, spec).Result;
+            _ = _graphController.CalculateShortestPath(_a, _d, spec).Result;
+            _ = _graphController.CalculateShortestPath(_a, _b, spec).Result;
             Assert.AreEqual(0, CodeGenerationHelper.PathCompileCount - before,
                 "Stored-query invocations must use the pinned artifact and never reach Roslyn.");
         }
@@ -317,14 +316,13 @@ namespace NoSQL.GraphDB.Tests
                 MaxDepth = 4,
                 Filter = new PathFilterSpecification { Vertex = filter }
             };
-            _graphController.CalculateShortestPath(_a, _d, inlineSpec);
+            _ = _graphController.CalculateShortestPath(_a, _d, inlineSpec).Result;
             var inlineSpecAgain = new PathSpecification
             {
                 MaxDepth = 7,
                 Filter = new PathFilterSpecification { Vertex = filter }
             };
-            _graphController.CalculateShortestPath(_a, _d, inlineSpecAgain);
-
+            _ = _graphController.CalculateShortestPath(_a, _d, inlineSpecAgain).Result;
             Assert.AreEqual(1, CodeGenerationHelper.PathCompileCount - before,
                 "Inline requests keep their own compile-once (Filter, Cost) cache semantics.");
         }
@@ -344,7 +342,7 @@ namespace NoSQL.GraphDB.Tests
                 Filter = new PathFilterSpecification { Vertex = PersonVertexFilter }
             };
 
-            var result = _graphController.CalculateShortestPath(_a, _d, spec).Result;
+            var result = _graphController.CalculateShortestPath(_a, _d, spec).Result.Result;
             Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
         }
 
@@ -359,7 +357,7 @@ namespace NoSQL.GraphDB.Tests
                 Cost = new PathCostSpecification { Edge = "return (e) => 1.0;" }
             };
 
-            var result = _graphController.CalculateShortestPath(_a, _d, spec).Result;
+            var result = _graphController.CalculateShortestPath(_a, _d, spec).Result.Result;
             Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
         }
 
@@ -368,7 +366,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var spec = new PathSpecification { StoredQuery = "never-registered" };
 
-            var result = _graphController.CalculateShortestPath(_a, _d, spec).Result;
+            var result = _graphController.CalculateShortestPath(_a, _d, spec).Result.Result;
 
             Assert.IsInstanceOfType(result, typeof(NotFoundObjectResult));
             StringAssert.Contains((string)((NotFoundObjectResult)result).Value, "stored query",
@@ -386,7 +384,7 @@ namespace NoSQL.GraphDB.Tests
             });
 
             var result = _graphController.CalculateShortestPath(_a, _d,
-                new PathSpecification { StoredQuery = "a-subgraph-template" }).Result;
+                new PathSpecification { StoredQuery = "a-subgraph-template" }).Result.Result;
 
             Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
         }
@@ -397,7 +395,7 @@ namespace NoSQL.GraphDB.Tests
             RegisterFailedEntry("failed-path-query", StoredQueryKind.Path);
 
             var result = _graphController.CalculateShortestPath(_a, _d,
-                new PathSpecification { StoredQuery = "failed-path-query" }).Result;
+                new PathSpecification { StoredQuery = "failed-path-query" }).Result.Result;
 
             Assert.IsInstanceOfType(result, typeof(ConflictObjectResult));
             StringAssert.Contains((string)((ConflictObjectResult)result).Value, "CS0000");
@@ -418,7 +416,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "mixed",
                 StoredQuery = "subgraph-mixing-check",
                 VertexFilter = PersonVertexFilter
-            });
+            }).Result;
 
             Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
         }
@@ -430,7 +428,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 Name = "orphan",
                 StoredQuery = "never-registered"
-            });
+            }).Result;
 
             Assert.IsInstanceOfType(result, typeof(NotFoundObjectResult));
         }
@@ -444,7 +442,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 Name = "wrong-kind",
                 StoredQuery = "a-path-query"
-            });
+            }).Result;
 
             Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
         }
@@ -458,7 +456,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 Name = "from-failed",
                 StoredQuery = "failed-subgraph-query"
-            });
+            }).Result;
 
             Assert.IsInstanceOfType(result, typeof(ConflictObjectResult));
         }
@@ -476,7 +474,7 @@ namespace NoSQL.GraphDB.Tests
             var result = _subGraphController.CreateSubGraph(new SubGraphSpecification
             {
                 StoredQuery = "needs-instance-name"
-            });
+            }).Result;
 
             Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
         }
@@ -496,7 +494,7 @@ namespace NoSQL.GraphDB.Tests
             });
 
             Assert.AreEqual(201, ((ObjectResult)_subGraphController.CreateSubGraph(
-                new SubGraphSpecification { Name = "survivor", StoredQuery = "short-lived-template" })).StatusCode);
+                new SubGraphSpecification { Name = "survivor", StoredQuery = "short-lived-template" }).Result).StatusCode);
 
             // Delete the stored query, then verify the subgraph is fully self-contained: it still
             // exists, its recipe is materialized (no stored-query reference), and it can be
@@ -541,7 +539,7 @@ namespace NoSQL.GraphDB.Tests
                     var spec = new PathSpecification { MaxDepth = 4, StoredQuery = name };
                     try
                     {
-                        var outcome = _graphController.CalculateShortestPath(_a, _d, spec);
+                        var outcome = _graphController.CalculateShortestPath(_a, _d, spec).Result;
                         Interlocked.Increment(ref invocations);
 
                         if (outcome.Value != null)

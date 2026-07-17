@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // DynamicCodeResourceLimitsTest.cs
 //
@@ -148,7 +148,7 @@ namespace NoSQL.GraphDB.Tests
                 Filter = new PathFilterSpecification { Vertex = huge }
             };
 
-            var result = controller.CalculateShortestPath(a, b, spec);
+            var result = controller.CalculateShortestPath(a, b, spec).Result;
             Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult),
                 "An oversize filter fragment must be rejected (400) before Roslyn is invoked.");
 

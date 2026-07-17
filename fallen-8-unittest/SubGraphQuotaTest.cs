@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // SubGraphQuotaTest.cs
 //
@@ -187,8 +187,8 @@ namespace NoSQL.GraphDB.Tests
                 }
             };
 
-            Assert.IsInstanceOfType(controller.CreateSubGraph(spec1), typeof(CreatedResult));
-            Assert.IsInstanceOfType(controller.CreateSubGraph(spec2), typeof(ConflictObjectResult),
+            Assert.IsInstanceOfType(controller.CreateSubGraph(spec1).Result, typeof(CreatedResult));
+            Assert.IsInstanceOfType(controller.CreateSubGraph(spec2).Result, typeof(ConflictObjectResult),
                 "creating beyond the count quota returns 409");
         }
     }
