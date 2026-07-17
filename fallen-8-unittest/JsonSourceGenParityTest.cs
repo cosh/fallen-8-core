@@ -530,6 +530,16 @@ namespace NoSQL.GraphDB.Tests
                     MinScore = null, // exercises null-writing
                     CostBySimilarity = false
                 }, "SemanticTraversalSpecification"),
+                (new EmbeddingWriteSpecification
+                {
+                    Vector = new[] { 0.12f, -0.5f, 0.33f }
+                }, "EmbeddingWriteSpecification"),
+                (new ElementEmbeddingREST
+                {
+                    Name = "default",
+                    Vector = new[] { 0.12f, -0.5f },
+                    Model = "bge-micro-v2#384#Cosine"
+                }, "ElementEmbeddingREST"),
                 (new VectorIndexAddSpecification
                 {
                     GraphElementId = 42,

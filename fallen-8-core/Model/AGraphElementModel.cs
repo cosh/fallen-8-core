@@ -313,6 +313,14 @@ namespace NoSQL.GraphDB.Core.Model
         /// </summary>
         public const String EmbeddingPropertyPrefix = "$embedding:";
 
+        /// <summary>
+        ///   The reserved property-key prefix of the model-identity stamp an embedding provider
+        ///   writes NEXT TO a generated embedding (feature embedding-provider), so query-time
+        ///   drift after a model change is detectable. Stored/read through the same accessor
+        ///   discipline as the vector itself.
+        /// </summary>
+        public const String EmbeddingModelStampPrefix = "$embeddingModel:";
+
         /// <summary>The default embedding name.</summary>
         public const String DefaultEmbeddingName = "default";
 
@@ -402,6 +410,28 @@ namespace NoSQL.GraphDB.Core.Model
             }
 
             vector = default;
+            return false;
+        }
+
+        /// <summary>The reserved property id carrying the named embedding's model stamp.</summary>
+        internal static String GetEmbeddingModelStampPropertyId(String name)
+        {
+            return EmbeddingModelStampPrefix + name;
+        }
+
+        /// <summary>
+        ///   Tries to get the model-identity stamp stored next to the named embedding (written
+        ///   by the embedding provider; absent for bring-your-own-vector embeddings).
+        /// </summary>
+        public Boolean TryGetEmbeddingModelStamp(out String stamp, String name = DefaultEmbeddingName)
+        {
+            if (TryGetProperty<Object>(out var value, GetEmbeddingModelStampPropertyId(name)) && value is String text)
+            {
+                stamp = text;
+                return true;
+            }
+
+            stamp = null;
             return false;
         }
 

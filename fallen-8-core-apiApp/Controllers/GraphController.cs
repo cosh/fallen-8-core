@@ -880,6 +880,195 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
+        /// Sets (or replaces) a named embedding on a graph element
+        /// </summary>
+        /// <param name="graphElementIdentifier">The ID of the graph element</param>
+        /// <param name="embeddingName">The embedding name (letters, digits, '_', '-'; max 64 chars)</param>
+        /// <param name="definition">The embedding vector</param>
+        /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
+        /// <remarks>
+        /// The element is the source of truth for its embedding (feature element-embeddings):
+        /// the write is WAL-durable element state, and every vector index BOUND to this
+        /// embedding name updates its projection on commit - no separate index add. Replace
+        /// semantics: one current vector per name.
+        ///
+        /// Sample request:
+        ///
+        ///     PUT /graphelement/42/embedding/default
+        ///     { "vector": [0.12, -0.5, 0.33] }
+        /// </remarks>
+        /// <response code="202">Embedding write accepted (and committed when waitForCompletion is true)</response>
+        /// <response code="400">Invalid embedding name, missing/empty vector, non-finite components, a dimension conflicting with a vector index bound to this name, or a zero-norm vector while a bound Cosine index exists</response>
+        /// <response code="404">The graph element does not exist</response>
+        /// <response code="500">The transaction was rolled back with an internal error (only when waitForCompletion is true)</response>
+        [HttpPut("/graphelement/{graphElementIdentifier}/embedding/{embeddingName}")]
+        [Consumes("application/json")]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> SetElementEmbedding([FromRoute] int graphElementIdentifier,
+            [FromRoute] string embeddingName, [FromBody] EmbeddingWriteSpecification definition,
+            [FromQuery] bool waitForCompletion = false)
+        {
+            if (!AGraphElementModel.IsValidEmbeddingName(embeddingName))
+            {
+                return BadRequest(String.Format("'{0}' is not a valid embedding name.", embeddingName));
+            }
+
+            if (definition?.Vector == null || definition.Vector.Length == 0)
+            {
+                return BadRequest("An embedding vector is required.");
+            }
+
+            var vector = definition.Vector;
+            if (vector.Length > VectorIndex.MaxDimension)
+            {
+                return BadRequest(String.Format("The vector exceeds the maximum dimension of {0}.", VectorIndex.MaxDimension));
+            }
+
+            if (VectorIndex.HasNonFiniteComponent(vector))
+            {
+                return BadRequest("The vector contains NaN or Infinity components.");
+            }
+
+            if (!_fallen8.TryGetGraphElement(out _, graphElementIdentifier))
+            {
+                return NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
+            }
+
+            // A write that can never project into an index BOUND to this name is rejected up
+            // front (the engine-side projection would only silent-skip + log, family contract).
+            foreach (var namedIndex in _fallen8.IndexFactory.GetNamedIndicesSnapshot())
+            {
+                if (!(namedIndex.Value is IVectorIndex vectorIndex) ||
+                    !String.Equals(vectorIndex.EmbeddingName, embeddingName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (vector.Length != vectorIndex.Dimension)
+                {
+                    return BadRequest(String.Format(
+                        "The vector has dimension {0}, but a bound vector index requires {1} for embedding '{2}'.",
+                        vector.Length, vectorIndex.Dimension, embeddingName));
+                }
+
+                if (vectorIndex.Metric == VectorDistanceMetric.Cosine && VectorIndex.IsZeroNorm(vector))
+                {
+                    return BadRequest(String.Format(
+                        "A zero-norm vector cannot rank in the Cosine vector index bound to embedding '{0}'.", embeddingName));
+                }
+            }
+
+            var transactionTask = _fallen8.EnqueueTransaction(
+                new SetEmbeddingsTransaction().SetEmbedding(graphElementIdentifier, embeddingName, vector));
+
+            if (waitForCompletion)
+            {
+                await transactionTask.Completion;
+
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return RolledBackResult(transactionTask.FailureReason);
+                }
+            }
+
+            return Accepted();
+        }
+
+        /// <summary>
+        /// Removes a named embedding from a graph element
+        /// </summary>
+        /// <param name="graphElementIdentifier">The ID of the graph element</param>
+        /// <param name="embeddingName">The embedding name</param>
+        /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
+        /// <remarks>
+        /// Bound vector indices purge the element's projection on commit. Removing an absent
+        /// embedding is a committed no-op, matching the property surface.
+        /// </remarks>
+        /// <response code="202">Embedding removal accepted (and committed when waitForCompletion is true)</response>
+        /// <response code="400">Invalid embedding name</response>
+        /// <response code="404">The graph element does not exist</response>
+        /// <response code="500">The transaction was rolled back with an internal error (only when waitForCompletion is true)</response>
+        [HttpDelete("/graphelement/{graphElementIdentifier}/embedding/{embeddingName}")]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> RemoveElementEmbedding([FromRoute] int graphElementIdentifier,
+            [FromRoute] string embeddingName, [FromQuery] bool waitForCompletion = false)
+        {
+            if (!AGraphElementModel.IsValidEmbeddingName(embeddingName))
+            {
+                return BadRequest(String.Format("'{0}' is not a valid embedding name.", embeddingName));
+            }
+
+            if (!_fallen8.TryGetGraphElement(out _, graphElementIdentifier))
+            {
+                return NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
+            }
+
+            var transactionTask = _fallen8.EnqueueTransaction(
+                new SetEmbeddingsTransaction().SetEmbedding(graphElementIdentifier, embeddingName, null));
+
+            if (waitForCompletion)
+            {
+                await transactionTask.Completion;
+
+                if (transactionTask.TransactionState == TransactionState.RolledBack)
+                {
+                    return RolledBackResult(transactionTask.FailureReason);
+                }
+            }
+
+            return Accepted();
+        }
+
+        /// <summary>
+        /// Gets a named embedding of a graph element
+        /// </summary>
+        /// <param name="graphElementIdentifier">The ID of the graph element</param>
+        /// <param name="embeddingName">The embedding name</param>
+        /// <returns>The stored vector plus the provider model stamp, when one exists</returns>
+        /// <response code="200">The stored embedding</response>
+        /// <response code="400">Invalid embedding name</response>
+        /// <response code="404">The graph element does not exist or carries no embedding of that name</response>
+        [HttpGet("/graphelement/{graphElementIdentifier}/embedding/{embeddingName}")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(ElementEmbeddingREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public ActionResult<ElementEmbeddingREST> GetElementEmbedding([FromRoute] int graphElementIdentifier,
+            [FromRoute] string embeddingName)
+        {
+            if (!AGraphElementModel.IsValidEmbeddingName(embeddingName))
+            {
+                return BadRequest(String.Format("'{0}' is not a valid embedding name.", embeddingName));
+            }
+
+            if (!_fallen8.TryGetGraphElement(out var element, graphElementIdentifier))
+            {
+                return NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
+            }
+
+            if (!element.TryGetEmbedding(out var vector, embeddingName))
+            {
+                return NotFound(String.Format("Element {0} carries no embedding '{1}'.",
+                    graphElementIdentifier, embeddingName));
+            }
+
+            element.TryGetEmbeddingModelStamp(out var model, embeddingName);
+
+            return new ElementEmbeddingREST
+            {
+                Name = embeddingName,
+                Vector = vector.ToArray(),
+                Model = model
+            };
+        }
+
+        /// <summary>
         /// Finds the k nearest neighbours of a query vector in a vector index
         /// </summary>
         /// <param name="definition">The kNN query: index, query vector, k, optional kind/label constraints</param>

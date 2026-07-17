@@ -74,6 +74,8 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(SearchDistanceSpecification))]
     [JsonSerializable(typeof(PathSpecification))]
     [JsonSerializable(typeof(SemanticTraversalSpecification))]
+    [JsonSerializable(typeof(EmbeddingWriteSpecification))]
+    [JsonSerializable(typeof(ElementEmbeddingREST))]
     [JsonSerializable(typeof(PathREST))]
     [JsonSerializable(typeof(PathElementREST))]
     [JsonSerializable(typeof(PathFilterSpecification))]

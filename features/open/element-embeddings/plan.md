@@ -85,15 +85,17 @@ Intent: the index becomes a pure derived cache when bound; unbound stays byte-id
 
 Intent: the operator/agent contract, typed end to end.
 
-- [ ] `PUT/GET/DELETE /element/{id}/embedding/{name}` with spec §3.6 status codes;
-  `semantic` accepted on `/path` and `/subgraph`; full annotations + XML docs.
-- [ ] OpenAPI snapshot regenerated (`pwsh scripts/update-openapi-snapshot.ps1`), additions
-  only.
-- [ ] `features/open/element-embeddings/README.md` (usage: raw-vector and traversal
-  recipes, memory table with the ~2× note); update the LIVING vector-index README's
-  WAL-gap guidance to point bound-index users at the retired workaround.
-- [ ] Tests: endpoint happy paths + every 400/404, `WebApplicationFactory` with
-  dynamic code off, OpenAPI document test green.
+- [x] `PUT/GET/DELETE /graphelement/{id}/embedding/{name}` (the property-route root; spec
+  §3.6 updated) with 202/`waitForCompletion` family semantics, bound-index dimension and
+  zero-norm guards up front, model-stamp surfacing on GET; `semantic` accepted on `/path`
+  and `/subgraph` (Phase 2); full annotations + XML docs.
+- [x] OpenAPI snapshot regenerated — 442 insertions, 0 removals.
+- [x] `features/open/element-embeddings/README.md` (write/read/bound-index/semantic
+  recipes, the honest ~2× memory math); the LIVING vector-index README's WAL-gap section
+  now points at bound indices and keeps the workaround for raw indices only.
+- [x] Tests (`ElementEmbeddingEndpointTest`, 5): round-trip, bound-index projection over
+  HTTP, the 400 table + 404s, explicit-add-on-bound 400, model-stamp GET. Full suite
+  green (780).
 
 ## Phase 5 — Gate
 

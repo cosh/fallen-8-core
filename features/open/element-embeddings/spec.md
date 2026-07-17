@@ -335,13 +335,15 @@ SpecificationJson`).
 
 ### 3.6 REST surface (versioned, OpenAPI-annotated, snapshot regenerated)
 
-- `PUT /element/{id}/embedding/{name}` — body `{ "vector": [ ... ] }`; 200 `true`; 400
-  (name, non-finite, zero-norm only when a bound cosine index of that name exists,
-  dimension conflict with a bound index); 404 unknown element. `waitForCompletion`
-  semantics as on the other mutation endpoints.
-- `DELETE /element/{id}/embedding/{name}` — 200/404.
-- `GET /element/{id}/embedding/{name}` — the stored vector (+ the model-identity stamp once
-  the companion feature lands); 404 when absent.
+- `PUT /graphelement/{id}/embedding/{name}` — body `{ "vector": [ ... ] }` (the
+  `/graphelement/…` root, matching the existing property mutation routes); 202 Accepted
+  with the family's `waitForCompletion` semantics; 400 (name, non-finite, zero-norm only
+  when a bound cosine index of that name exists, dimension conflict with a bound index);
+  404 unknown element.
+- `DELETE /graphelement/{id}/embedding/{name}` — 202/400/404 (absent embedding is a
+  committed no-op, the property-surface posture).
+- `GET /graphelement/{id}/embedding/{name}` — the stored vector (+ the model-identity
+  stamp once the companion feature lands); 404 when absent.
 - `POST /path/{from}/to/{to}` and `PUT /subgraph` accept the `semantic` block (§3.4).
 - All actions carry `[ProducesResponseType]`/`[Consumes]`/`[Produces]` + XML docs;
   the pinned snapshot (`features/done/web-ui/openapi-v0.1.json`) is regenerated via
