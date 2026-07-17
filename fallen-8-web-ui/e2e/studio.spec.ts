@@ -86,6 +86,7 @@ test("scenario 3+4: mutate, browse, scan, hydrate, canvas", async ({ page }) => 
   const target = await createVertex(page, "person");
 
   // Set a typed property, then look the vertex up (FR-5) and walk adjacency (FR-6).
+  await page.getByTestId("mutation-tab-property").click();
   await page.locator("#mp-element").fill(String(source));
   await page.locator("#mp-id").fill("age");
   await page.getByLabel(/^value type$/).selectOption("System.Int32");
@@ -93,6 +94,7 @@ test("scenario 3+4: mutate, browse, scan, hydrate, canvas", async ({ page }) => 
   await page.getByRole("button", { name: "Set property" }).click();
   await expect(page.getByTestId("mutation-message")).toContainText("age");
 
+  await page.getByTestId("mutation-tab-edge").click();
   await page.locator("#me-source").fill(String(source));
   await page.locator("#me-target").fill(String(target));
   await page.locator("#me-prop").fill("knows");
@@ -127,6 +129,7 @@ test("scenario 5: delegate editor validates, blocks, then passes and the path ru
   const a = await createVertex(page, "person");
   const b = await createVertex(page, "person");
   const c = await createVertex(page, "person");
+  await page.getByTestId("mutation-tab-edge").click();
   for (const [s, t] of [
     [a, b],
     [b, c],

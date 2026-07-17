@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DelegateKind, DelegateValidationResult } from "../../api/types";
+import { Field } from "../../components/Field";
+import { help } from "../../lib/fieldHelp";
 import {
   BUILTIN_NL_BACKEND,
   effectiveNlConfig,
@@ -165,10 +167,7 @@ export function NlAssistPanel({
 
         {showConfig && (
           <div className="space-y-2" data-testid="nl-config">
-            <div>
-              <label className="label" htmlFor="nl-mode">
-                backend
-              </label>
+            <Field helpKey="nlBackend" label="backend" htmlFor="nl-mode">
               <select
                 id="nl-mode"
                 className="input w-auto"
@@ -178,7 +177,7 @@ export function NlAssistPanel({
                 <option value="builtin">built-in (local Ollama)</option>
                 <option value="custom">custom</option>
               </select>
-            </div>
+            </Field>
             {config.mode === "builtin" ? (
               <p className="text-fg-faint text-[10px]" data-testid="nl-builtin-hint">
                 Fixed to the stack this project ships in docker-compose.yml:{" "}
@@ -188,10 +187,7 @@ export function NlAssistPanel({
               </p>
             ) : (
               <>
-                <div>
-                  <label className="label" htmlFor="nl-preset">
-                    preset
-                  </label>
+                <Field helpKey="nlPreset" label="preset" htmlFor="nl-preset">
                   <select
                     id="nl-preset"
                     className="input w-auto"
@@ -214,11 +210,8 @@ export function NlAssistPanel({
                       </option>
                     ))}
                   </select>
-                </div>
-                <div>
-                  <label className="label" htmlFor="nl-endpoint">
-                    endpoint
-                  </label>
+                </Field>
+                <Field helpKey="nlEndpoint" label="endpoint" htmlFor="nl-endpoint">
                   <input
                     id="nl-endpoint"
                     className="input"
@@ -226,12 +219,9 @@ export function NlAssistPanel({
                     onChange={(e) => setConfig({ endpoint: e.target.value })}
                     placeholder="http://localhost:11434"
                   />
-                </div>
+                </Field>
                 <div className="flex gap-2">
-                  <div>
-                    <label className="label" htmlFor="nl-kind">
-                      api
-                    </label>
+                  <Field helpKey="nlApi" label="api" htmlFor="nl-kind">
                     <select
                       id="nl-kind"
                       className="input w-auto"
@@ -243,11 +233,8 @@ export function NlAssistPanel({
                       <option value="ollama">ollama</option>
                       <option value="openai">openai-compatible</option>
                     </select>
-                  </div>
-                  <div className="grow">
-                    <label className="label" htmlFor="nl-model">
-                      model
-                    </label>
+                  </Field>
+                  <Field helpKey="nlModel" label="model" htmlFor="nl-model" className="grow">
                     <input
                       id="nl-model"
                       className="input"
@@ -255,11 +242,13 @@ export function NlAssistPanel({
                       onChange={(e) => setConfig({ model: e.target.value })}
                       placeholder="phi4-mini"
                     />
-                  </div>
-                  <div className="w-16">
-                    <label className="label" htmlFor="nl-temperature">
-                      temp
-                    </label>
+                  </Field>
+                  <Field
+                    helpKey="nlTemperature"
+                    label="temp"
+                    htmlFor="nl-temperature"
+                    className="w-16"
+                  >
                     <input
                       id="nl-temperature"
                       className="input"
@@ -272,13 +261,14 @@ export function NlAssistPanel({
                         setConfig({ temperature: Number(e.target.value) || 0 })
                       }
                     />
-                  </div>
+                  </Field>
                 </div>
                 {usesApiKey(config) ? (
-                  <div>
-                    <label className="label" htmlFor="nl-key">
-                      api key (optional — sent only to the model endpoint)
-                    </label>
+                  <Field
+                    helpKey="nlApiKey"
+                    label="api key (optional — sent only to the model endpoint)"
+                    htmlFor="nl-key"
+                  >
                     <input
                       id="nl-key"
                       className="input"
@@ -286,7 +276,7 @@ export function NlAssistPanel({
                       value={config.apiKey ?? ""}
                       onChange={(e) => setConfig({ apiKey: e.target.value || undefined })}
                     />
-                  </div>
+                  </Field>
                 ) : (
                   <p className="text-fg-faint text-[10px]" data-testid="nl-no-key-hint">
                     No API key — Ollama endpoints never use one.
@@ -330,6 +320,7 @@ export function NlAssistPanel({
             )}
             <textarea
               aria-label="describe the filter"
+              title={help("nlIntent")}
               data-testid="nl-intent"
               className="input h-16 resize-none"
               value={intent}

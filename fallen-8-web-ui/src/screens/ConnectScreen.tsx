@@ -4,6 +4,7 @@ import { useRegistry } from "../instances/registry";
 import type { InstanceConfig } from "../instances/types";
 import { describeEndpoint } from "../instances/types";
 import { getStatus, isAuthorized } from "../api/endpoints";
+import { Field } from "../components/Field";
 
 /**
  * Connect / Instances (FR-1a): registry with add/edit/remove, lazy health overview via
@@ -59,10 +60,7 @@ function InstanceForm({
         });
       }}
     >
-      <div>
-        <label className="label" htmlFor="inst-name">
-          name
-        </label>
+      <Field helpKey="instanceName" label="name" htmlFor="inst-name">
         <input
           id="inst-name"
           data-testid="instance-name"
@@ -71,11 +69,8 @@ function InstanceForm({
           onChange={(e) => setName(e.target.value)}
           placeholder="prod-eu"
         />
-      </div>
-      <div>
-        <label className="label" htmlFor="inst-url">
-          base url (empty = same origin)
-        </label>
+      </Field>
+      <Field helpKey="instanceUrl" label="base url (empty = same origin)" htmlFor="inst-url">
         <input
           id="inst-url"
           data-testid="instance-url"
@@ -84,11 +79,12 @@ function InstanceForm({
           onChange={(e) => setBaseUrl(e.target.value)}
           placeholder="http://localhost:17408"
         />
-      </div>
-      <div>
-        <label className="label" htmlFor="inst-key">
-          api key (optional, sent as bearer)
-        </label>
+      </Field>
+      <Field
+        helpKey="instanceApiKey"
+        label="api key (optional, sent as bearer)"
+        htmlFor="inst-key"
+      >
         <input
           id="inst-key"
           className="input"
@@ -97,7 +93,7 @@ function InstanceForm({
           onChange={(e) => setApiKey(e.target.value)}
           placeholder="X-Api-Key / bearer value"
         />
-      </div>
+      </Field>
       <button type="submit" className="btn btn-accent" data-testid="instance-save">
         {initial ? "Save" : "Add"}
       </button>

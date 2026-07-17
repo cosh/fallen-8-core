@@ -25,6 +25,8 @@ import { toLiteral, type TypedValue } from "../lib/literals";
 import { parseVector } from "../lib/vector";
 import { hydrateElements, isEdge, type HydrationProgress } from "../lib/hydrate";
 import { TypedLiteralEditor } from "../components/TypedLiteralEditor";
+import { Field } from "../components/Field";
+import { help } from "../lib/fieldHelp";
 import { ElementTable } from "../components/ElementTable";
 import { ErrorBox } from "../components/ErrorBox";
 import { getInstanceStore } from "../state/instanceStore";
@@ -183,10 +185,7 @@ export function QueryScreen() {
           }}
         >
           <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="label" htmlFor="scan-kind">
-                scan type
-              </label>
+            <Field helpKey="scanKind" label="scan type" htmlFor="scan-kind">
               <select
                 id="scan-kind"
                 data-testid="scan-kind"
@@ -201,13 +200,10 @@ export function QueryScreen() {
                 <option value="spatial">spatial</option>
                 <option value="vector">vector (kNN)</option>
               </select>
-            </div>
+            </Field>
 
             {kind === "property" && (
-              <div>
-                <label className="label" htmlFor="scan-property">
-                  property id
-                </label>
+              <Field helpKey="propertyId" label="property id" htmlFor="scan-property">
                 <input
                   id="scan-property"
                   data-testid="scan-property"
@@ -217,14 +213,11 @@ export function QueryScreen() {
                   onChange={(e) => setPropertyId(e.target.value)}
                   placeholder="age"
                 />
-              </div>
+              </Field>
             )}
 
             {needsIndex && (
-              <div>
-                <label className="label" htmlFor="scan-index">
-                  index id
-                </label>
+              <Field helpKey="indexId" label="index id" htmlFor="scan-index">
                 <input
                   id="scan-index"
                   className="input w-40"
@@ -233,15 +226,12 @@ export function QueryScreen() {
                   onChange={(e) => setIndexId(e.target.value)}
                   placeholder="myIndex"
                 />
-              </div>
+              </Field>
             )}
 
             {needsLiteral && (
               <>
-                <div>
-                  <label className="label" htmlFor="scan-operator">
-                    operator
-                  </label>
+                <Field helpKey="scanOperator" label="operator" htmlFor="scan-operator">
                   <select
                     id="scan-operator"
                     className="input w-auto"
@@ -252,8 +242,9 @@ export function QueryScreen() {
                       <option key={op}>{op}</option>
                     ))}
                   </select>
-                </div>
+                </Field>
                 <TypedLiteralEditor
+                  helpKey="scanLiteral"
                   label="literal"
                   idPrefix="scan-literal"
                   value={literal}
@@ -265,18 +256,23 @@ export function QueryScreen() {
             {kind === "range" && (
               <>
                 <TypedLiteralEditor
+                  helpKey="rangeLeftLimit"
                   label="left limit"
                   idPrefix="range-left"
                   value={leftLimit}
                   onChange={setLeftLimit}
                 />
                 <TypedLiteralEditor
+                  helpKey="rangeRightLimit"
                   label="right limit"
                   idPrefix="range-right"
                   value={rightLimit}
                   onChange={setRightLimit}
                 />
-                <label className="text-fg-dim flex items-center gap-1 text-[12px]">
+                <label
+                  className="text-fg-dim label-help flex items-center gap-1 text-[12px]"
+                  title={help("rangeIncludeLeft")}
+                >
                   <input
                     type="checkbox"
                     checked={includeLeft}
@@ -284,7 +280,10 @@ export function QueryScreen() {
                   />
                   incl. left
                 </label>
-                <label className="text-fg-dim flex items-center gap-1 text-[12px]">
+                <label
+                  className="text-fg-dim label-help flex items-center gap-1 text-[12px]"
+                  title={help("rangeIncludeRight")}
+                >
                   <input
                     type="checkbox"
                     checked={includeRight}
@@ -296,10 +295,12 @@ export function QueryScreen() {
             )}
 
             {kind === "fulltext" && (
-              <div className="grow">
-                <label className="label" htmlFor="fulltext-query">
-                  query
-                </label>
+              <Field
+                helpKey="fulltextQuery"
+                label="query"
+                htmlFor="fulltext-query"
+                className="grow"
+              >
                 <input
                   id="fulltext-query"
                   className="input"
@@ -307,42 +308,46 @@ export function QueryScreen() {
                   onChange={(e) => setFulltextQuery(e.target.value)}
                   placeholder="search text"
                 />
-              </div>
+              </Field>
             )}
 
             {kind === "spatial" && (
               <>
-                <div>
-                  <label className="label" htmlFor="spatial-element">
-                    element id
-                  </label>
+                <Field
+                  helpKey="spatialElementId"
+                  label="element id"
+                  htmlFor="spatial-element"
+                >
                   <input
                     id="spatial-element"
                     className="input w-28"
                     value={spatialElementId}
                     onChange={(e) => setSpatialElementId(e.target.value)}
                   />
-                </div>
-                <div>
-                  <label className="label" htmlFor="spatial-distance">
-                    distance
-                  </label>
+                </Field>
+                <Field
+                  helpKey="spatialDistance"
+                  label="distance"
+                  htmlFor="spatial-distance"
+                >
                   <input
                     id="spatial-distance"
                     className="input w-28"
                     value={spatialDistance}
                     onChange={(e) => setSpatialDistance(e.target.value)}
                   />
-                </div>
+                </Field>
               </>
             )}
 
             {kind === "vector" && (
               <>
-                <div className="grow basis-full">
-                  <label className="label" htmlFor="vector-query">
-                    query vector (JSON array or comma-separated floats)
-                  </label>
+                <Field
+                  helpKey="vectorQuery"
+                  label="query vector (JSON array or comma-separated floats)"
+                  htmlFor="vector-query"
+                  className="grow basis-full"
+                >
                   <textarea
                     id="vector-query"
                     data-testid="vector-query"
@@ -358,11 +363,8 @@ export function QueryScreen() {
                         ? `d=${parsedVector.vector.length} — must match the index dimension`
                         : parsedVector?.error}
                   </div>
-                </div>
-                <div>
-                  <label className="label" htmlFor="vector-k">
-                    k (1–1024)
-                  </label>
+                </Field>
+                <Field helpKey="vectorK" label="k (1–1024)" htmlFor="vector-k">
                   <input
                     id="vector-k"
                     className="input w-20"
@@ -372,11 +374,8 @@ export function QueryScreen() {
                     value={vectorK}
                     onChange={(e) => setVectorK(e.target.value)}
                   />
-                </div>
-                <div>
-                  <label className="label" htmlFor="vector-kind">
-                    element kind
-                  </label>
+                </Field>
+                <Field helpKey="vectorKind" label="element kind" htmlFor="vector-kind">
                   <select
                     id="vector-kind"
                     className="input w-auto"
@@ -389,11 +388,12 @@ export function QueryScreen() {
                       <option key={k}>{k}</option>
                     ))}
                   </select>
-                </div>
-                <div>
-                  <label className="label" htmlFor="vector-label">
-                    label constraint
-                  </label>
+                </Field>
+                <Field
+                  helpKey="vectorLabelConstraint"
+                  label="label constraint"
+                  htmlFor="vector-label"
+                >
                   <input
                     id="vector-label"
                     className="input w-32"
@@ -402,18 +402,16 @@ export function QueryScreen() {
                     onChange={(e) => setVectorLabel(e.target.value)}
                     placeholder="person"
                   />
-                </div>
-                <p className="text-fg-faint basis-full text-[11px]">
-                  constraints apply before top-k — you get k matching elements.
-                </p>
+                </Field>
               </>
             )}
 
             {needsLiteral && (
-              <div>
-                <label className="label" htmlFor="scan-result-type">
-                  result type
-                </label>
+              <Field
+                helpKey="scanResultType"
+                label="result type"
+                htmlFor="scan-result-type"
+              >
                 <select
                   id="scan-result-type"
                   className="input w-auto"
@@ -426,7 +424,7 @@ export function QueryScreen() {
                     <option key={rt}>{rt}</option>
                   ))}
                 </select>
-              </div>
+              </Field>
             )}
 
             <button
@@ -597,10 +595,7 @@ function IndexManagement() {
     <section className="panel">
       <div className="panel-title">Index management</div>
       <div className="flex flex-wrap items-end gap-2 p-3">
-        <div>
-          <label className="label" htmlFor="index-id">
-            index id
-          </label>
+        <Field helpKey="indexId" label="index id" htmlFor="index-id">
           <input
             id="index-id"
             className="input w-40"
@@ -609,11 +604,8 @@ function IndexManagement() {
             onChange={(e) => setIndexId(e.target.value)}
             placeholder="myIndex"
           />
-        </div>
-        <div>
-          <label className="label" htmlFor="index-type">
-            plugin type
-          </label>
+        </Field>
+        <Field helpKey="indexPluginType" label="plugin type" htmlFor="index-type">
           <input
             id="index-type"
             className="input w-48"
@@ -621,13 +613,14 @@ function IndexManagement() {
             onChange={(e) => setIndexType(e.target.value)}
             placeholder="DictionaryIndex"
           />
-        </div>
+        </Field>
         {isVectorIndex && (
           <>
-            <div>
-              <label className="label" htmlFor="vector-dimension-opt">
-                dimension (1–4096)
-              </label>
+            <Field
+              helpKey="vectorDimension"
+              label="dimension (1–4096)"
+              htmlFor="vector-dimension-opt"
+            >
               <input
                 id="vector-dimension-opt"
                 className="input w-24"
@@ -637,11 +630,8 @@ function IndexManagement() {
                 value={dimension}
                 onChange={(e) => setDimension(e.target.value)}
               />
-            </div>
-            <div>
-              <label className="label" htmlFor="vector-metric">
-                metric
-              </label>
+            </Field>
+            <Field helpKey="vectorMetric" label="metric" htmlFor="vector-metric">
               <select
                 id="vector-metric"
                 className="input w-auto"
@@ -652,7 +642,7 @@ function IndexManagement() {
                 <option>DotProduct</option>
                 <option>L2</option>
               </select>
-            </div>
+            </Field>
           </>
         )}
         <button
@@ -684,17 +674,14 @@ function IndexManagement() {
         </button>
         {showVectorAdd && (
           <div className="mt-2 flex flex-wrap items-end gap-2" data-testid="vector-add">
-            <div>
-              <label className="label" htmlFor="va-element">
-                element id
-              </label>
+            <Field helpKey="vectorAddElementId" label="element id" htmlFor="va-element">
               <input
                 id="va-element"
                 className="input w-28"
                 value={vaElementId}
                 onChange={(e) => setVaElementId(e.target.value)}
               />
-            </div>
+            </Field>
             <div className="border-line flex overflow-hidden rounded border">
               {(["property", "explicit"] as const).map((mode) => (
                 <button
@@ -713,10 +700,11 @@ function IndexManagement() {
               ))}
             </div>
             {vaMode === "property" ? (
-              <div>
-                <label className="label" htmlFor="va-property">
-                  property id
-                </label>
+              <Field
+                helpKey="vectorAddPropertyId"
+                label="property id"
+                htmlFor="va-property"
+              >
                 <input
                   id="va-property"
                   className="input w-32"
@@ -725,12 +713,14 @@ function IndexManagement() {
                   onChange={(e) => setVaPropertyId(e.target.value)}
                   placeholder="embedding"
                 />
-              </div>
+              </Field>
             ) : (
-              <div className="grow">
-                <label className="label" htmlFor="va-vector">
-                  vector
-                </label>
+              <Field
+                helpKey="vectorAddVector"
+                label="vector"
+                htmlFor="va-vector"
+                className="grow"
+              >
                 <input
                   id="va-vector"
                   className="input w-full font-mono"
@@ -738,7 +728,7 @@ function IndexManagement() {
                   onChange={(e) => setVaVectorText(e.target.value)}
                   placeholder="[0.12, -0.5, 0.33]"
                 />
-              </div>
+              </Field>
             )}
             <button
               type="button"

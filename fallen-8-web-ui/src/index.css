@@ -62,6 +62,11 @@ body {
   @apply text-fg-dim mb-1 block text-[11px] tracking-wider uppercase;
 }
 
+/* Hover-help affordance on field labels: the explanation is in the wrapper's title. */
+.label-help {
+  @apply cursor-help underline decoration-fg-faint/60 decoration-dotted underline-offset-4;
+}
+
 .table-cell {
   @apply border-line border-b px-2.5 py-1.5 text-left align-top;
 }

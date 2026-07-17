@@ -13,6 +13,7 @@ import type { InstanceConfig } from "../instances/types";
 import type { FilterSource } from "../state/instanceStore";
 import { describeStoredSpecification, STORED_QUERY_NAME } from "../lib/storedQueries";
 import { ErrorBox } from "./ErrorBox";
+import { Field } from "./Field";
 
 /**
  * Stored-query surfaces shared by Path and Subgraph (concept spec §5.1/5.2): the
@@ -95,10 +96,11 @@ export function StoredQueryPicker({
   return (
     <div className="space-y-2" data-testid="stored-query-picker">
       <div className="flex flex-wrap items-end gap-2">
-        <div>
-          <label className="label" htmlFor={`stored-query-${kind}`}>
-            stored query ({kind})
-          </label>
+        <Field
+          helpKey="storedQuery"
+          label={`stored query (${kind})`}
+          htmlFor={`stored-query-${kind}`}
+        >
           <select
             id={`stored-query-${kind}`}
             data-testid="stored-query-select"
@@ -125,7 +127,7 @@ export function StoredQueryPicker({
               </option>
             ))}
           </select>
-        </div>
+        </Field>
         <span className="text-fg-faint pb-1 text-[11px]">manage on Dashboard</span>
       </div>
       {list.isError && <ErrorBox error={list.error} onRetry={() => list.refetch()} />}
@@ -241,26 +243,34 @@ export function SaveAsStoredQuery({
               Registers the committed fragments as a named, pre-compiled {kind} query on
               this instance.
             </Dialog.Description>
-            <label className="label mt-4" htmlFor="stored-query-name">
-              name (A–Z a–z 0–9 _ - · max 128)
-            </label>
-            <input
-              id="stored-query-name"
-              data-testid="stored-query-name"
-              className="input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-            />
-            <label className="label mt-3" htmlFor="stored-query-description">
-              description (optional)
-            </label>
-            <input
-              id="stored-query-description"
-              className="input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
+            <Field
+              helpKey="storedQueryName"
+              label="name (A–Z a–z 0–9 _ - · max 128)"
+              htmlFor="stored-query-name"
+              className="mt-4"
+            >
+              <input
+                id="stored-query-name"
+                data-testid="stored-query-name"
+                className="input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoFocus
+              />
+            </Field>
+            <Field
+              helpKey="storedQueryDescription"
+              label="description (optional)"
+              htmlFor="stored-query-description"
+              className="mt-3"
+            >
+              <input
+                id="stored-query-description"
+                className="input"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </Field>
             {errorText && (
               <p className="text-danger mt-3 text-[12px]" data-testid="stored-query-error">
                 {errorText}

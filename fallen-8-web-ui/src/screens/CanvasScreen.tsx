@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
 import { getInstanceStore } from "../state/instanceStore";
 import { GraphCanvas, type ElementRef } from "../canvas/GraphCanvas";
+import { help } from "../lib/fieldHelp";
 import { colorForLabel } from "../canvas/styling";
 import {
   getEdge,
@@ -119,6 +120,7 @@ export function CanvasScreen() {
         <div className="absolute top-2 left-2 flex items-center gap-2">
           <select
             aria-label="layout"
+            title={help("canvasLayout")}
             className="input w-auto"
             value={layout}
             onChange={(e) => setLayout(e.target.value as typeof layout)}

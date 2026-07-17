@@ -1,4 +1,6 @@
 import { LITERAL_TYPES, validateTypedValue, type TypedValue } from "../lib/literals";
+import type { FieldHelpKey } from "../lib/fieldHelp";
+import { Field } from "./Field";
 
 /**
  * Typed-literal input (FR-9): a type selector + a validated value field, replacing
@@ -9,18 +11,17 @@ export function TypedLiteralEditor({
   value,
   onChange,
   idPrefix,
+  helpKey = "typedValue",
 }: {
   label: string;
   value: TypedValue;
   onChange: (value: TypedValue) => void;
   idPrefix: string;
+  helpKey?: FieldHelpKey;
 }) {
   const error = validateTypedValue(value);
   return (
-    <div>
-      <label className="label" htmlFor={`${idPrefix}-value`}>
-        {label}
-      </label>
+    <Field helpKey={helpKey} label={label} htmlFor={`${idPrefix}-value`}>
       <div className="flex gap-1">
         <select
           aria-label={`${label} type`}
@@ -50,6 +51,6 @@ export function TypedLiteralEditor({
         />
       </div>
       {error && <div className="text-danger mt-1 text-[11px]">{error}</div>}
-    </div>
+    </Field>
   );
 }

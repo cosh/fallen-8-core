@@ -24,6 +24,8 @@ import { Stat } from "../components/Stat";
 import { ElementTable } from "../components/ElementTable";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorBox } from "../components/ErrorBox";
+import { Field } from "../components/Field";
+import { help } from "../lib/fieldHelp";
 
 /**
  * Analytics (feature studio-coverage §3/§4): understand the graph's shape, then compute
@@ -248,10 +250,7 @@ function AnalyticsRunner() {
           }}
         >
           <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="label" htmlFor="algo-name">
-                algorithm
-              </label>
+            <Field helpKey="analyticsAlgorithm" label="algorithm" htmlFor="algo-name">
               <select
                 id="algo-name"
                 data-testid="algo-name"
@@ -266,11 +265,12 @@ function AnalyticsRunner() {
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="label" htmlFor="algo-vertex-label">
-                vertex label
-              </label>
+            </Field>
+            <Field
+              helpKey="analyticsVertexLabel"
+              label="vertex label"
+              htmlFor="algo-vertex-label"
+            >
               <input
                 id="algo-vertex-label"
                 className="input w-36"
@@ -279,11 +279,12 @@ function AnalyticsRunner() {
                 onChange={(e) => setVertexLabel(e.target.value)}
                 placeholder="empty = whole graph"
               />
-            </div>
-            <div>
-              <label className="label" htmlFor="algo-edge-property">
-                edge property
-              </label>
+            </Field>
+            <Field
+              helpKey="analyticsEdgeProperty"
+              label="edge property"
+              htmlFor="algo-edge-property"
+            >
               <input
                 id="algo-edge-property"
                 className="input w-32"
@@ -291,11 +292,8 @@ function AnalyticsRunner() {
                 onChange={(e) => setEdgePropertyId(e.target.value)}
                 placeholder="empty = all edges"
               />
-            </div>
-            <div>
-              <label className="label" htmlFor="algo-direction">
-                direction
-              </label>
+            </Field>
+            <Field helpKey="analyticsDirection" label="direction" htmlFor="algo-direction">
               <select
                 id="algo-direction"
                 className="input w-auto"
@@ -307,11 +305,12 @@ function AnalyticsRunner() {
                 <option value="out">out</option>
                 <option value="both">both</option>
               </select>
-            </div>
-            <div>
-              <label className="label" htmlFor="algo-max-results">
-                max results
-              </label>
+            </Field>
+            <Field
+              helpKey="analyticsMaxResults"
+              label="max results"
+              htmlFor="algo-max-results"
+            >
               <input
                 id="algo-max-results"
                 className="input w-24"
@@ -321,11 +320,12 @@ function AnalyticsRunner() {
                 value={maxResults}
                 onChange={(e) => setMaxResults(e.target.value)}
               />
-            </div>
-            <div>
-              <label className="label" htmlFor="algo-max-iterations">
-                max iterations
-              </label>
+            </Field>
+            <Field
+              helpKey="analyticsMaxIterations"
+              label="max iterations"
+              htmlFor="algo-max-iterations"
+            >
               <input
                 id="algo-max-iterations"
                 className="input w-24"
@@ -336,11 +336,8 @@ function AnalyticsRunner() {
                 onChange={(e) => setMaxIterations(e.target.value)}
                 placeholder="default"
               />
-            </div>
-            <div>
-              <label className="label" htmlFor="algo-budget">
-                time budget s
-              </label>
+            </Field>
+            <Field helpKey="analyticsTimeBudget" label="time budget s" htmlFor="algo-budget">
               <input
                 id="algo-budget"
                 className="input w-24"
@@ -350,13 +347,14 @@ function AnalyticsRunner() {
                 onChange={(e) => setTimeBudget(e.target.value)}
                 placeholder="default 30"
               />
-            </div>
+            </Field>
             {isPageRank && (
               <>
-                <div>
-                  <label className="label" htmlFor="algo-damping">
-                    DampingFactor
-                  </label>
+                <Field
+                  helpKey="analyticsDamping"
+                  label="DampingFactor"
+                  htmlFor="algo-damping"
+                >
                   <input
                     id="algo-damping"
                     className="input w-24"
@@ -368,11 +366,8 @@ function AnalyticsRunner() {
                     onChange={(e) => setDamping(e.target.value)}
                     placeholder="0.85"
                   />
-                </div>
-                <div>
-                  <label className="label" htmlFor="algo-epsilon">
-                    epsilon
-                  </label>
+                </Field>
+                <Field helpKey="analyticsEpsilon" label="epsilon" htmlFor="algo-epsilon">
                   <input
                     id="algo-epsilon"
                     className="input w-24"
@@ -383,7 +378,7 @@ function AnalyticsRunner() {
                     onChange={(e) => setEpsilon(e.target.value)}
                     placeholder="1e-6"
                   />
-                </div>
+                </Field>
               </>
             )}
             <button
@@ -412,7 +407,10 @@ function AnalyticsRunner() {
           </button>
           {showWriteBack && (
             <div className="flex flex-wrap items-end gap-3">
-              <label className="text-fg-dim flex items-center gap-1 pb-1 text-[12px]">
+              <label
+                className="text-fg-dim label-help flex items-center gap-1 pb-1 text-[12px]"
+                title={help("analyticsWriteBack")}
+              >
                 <input
                   type="checkbox"
                   data-testid="write-back-checkbox"
@@ -421,10 +419,7 @@ function AnalyticsRunner() {
                 />
                 write back to properties
               </label>
-              <div>
-                <label className="label" htmlFor="write-back-key">
-                  property key
-                </label>
+              <Field helpKey="analyticsWriteBackKey" label="property key" htmlFor="write-back-key">
                 <input
                   id="write-back-key"
                   className="input w-56"
@@ -432,7 +427,7 @@ function AnalyticsRunner() {
                   onChange={(e) => setWriteBackKey(e.target.value)}
                   placeholder={`analytics.${algorithm.toLowerCase() || "…"}`}
                 />
-              </div>
+              </Field>
               <p className="text-fg-faint basis-full text-[11px]">
                 re-runs overwrite · snapshot-durable only (WAL replay drops them — re-run
                 to restore).
