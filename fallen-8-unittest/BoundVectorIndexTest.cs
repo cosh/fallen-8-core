@@ -206,6 +206,43 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void UnprojectableReplacement_PurgesTheSlot_InsteadOfPinningTheOldVector()
+        {
+            // Council finding (correctness review): a committed replacement the index cannot
+            // rank must PURGE the projection, never keep ranking the element by its PREVIOUS
+            // vector - otherwise live answers and a load-rebuild from element state disagree.
+            var index = CreateBoundIndex("emb", 2, metric: "Cosine");
+            var a = Vertex();
+            SetEmbedding(a, "default", new[] { 1f, 0f });
+            Assert.AreEqual(1, index.CountOfValues());
+
+            // Zero-norm is storable element state (metric-agnostic storage) but cannot rank
+            // under the bound index's Cosine metric.
+            SetEmbedding(a, "default", new[] { 0f, 0f });
+            Assert.AreEqual(0, index.CountOfValues(),
+                "an unprojectable replacement purges the slot (unprojectable = not a member)");
+
+            // Same for a dimension-changing replacement via the engine API.
+            SetEmbedding(a, "default", new[] { 1f, 0f });
+            Assert.AreEqual(1, index.CountOfValues());
+            SetEmbedding(a, "default", new[] { 1f, 0f, 0f });
+            Assert.AreEqual(0, index.CountOfValues(),
+                "a dimension-changing replacement purges the slot");
+
+            // A raw property write to the reserved key with a NON-vector value purges too.
+            SetEmbedding(a, "default", new[] { 1f, 0f });
+            Assert.AreEqual(1, index.CountOfValues());
+            _fallen8.EnqueueTransaction(new RemovePropertyTransaction { GraphElementId = a, PropertyId = "$embedding:default" })
+                .WaitUntilFinished();
+            _fallen8.EnqueueTransaction(new AddPropertyTransaction
+            {
+                Definition = new PropertyAddDefinition { GraphElementId = a, PropertyId = "$embedding:default", Property = "not a vector" }
+            }).WaitUntilFinished();
+            Assert.AreEqual(0, index.CountOfValues(),
+                "a non-vector value under the reserved key is not a member");
+        }
+
+        [TestMethod]
         public void RolledBackEmbeddingBatch_LeavesTheProjectionUntouched()
         {
             var index = CreateBoundIndex("emb", 2);

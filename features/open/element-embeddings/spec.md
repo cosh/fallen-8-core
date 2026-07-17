@@ -66,10 +66,10 @@ This feature makes the embedding **element state**:
 - FR-4 **Write surface.** A `SetEmbeddingsTransaction` (batch: element id → name → vector
   or `null` for remove) executes on the single writer thread, is WAL-logged via
   `WalTransactionCodec`, and is the only mutation path. Typed REST endpoints:
-  `PUT /element/{id}/embedding/{name}` (body `{ "vector": [...] }`),
-  `DELETE /element/{id}/embedding/{name}`, `GET /element/{id}/embedding/{name}` — 400 with
-  reason for bad name, non-finite components, or a dimension conflicting with a bound
-  index of the same name; existing not-found mapping for unknown elements.
+  `PUT /graphelement/{id}/embedding/{name}` (body `{ "vector": [...] }`),
+  `DELETE /graphelement/{id}/embedding/{name}`, `GET /graphelement/{id}/embedding/{name}` —
+  400 with reason for bad name, non-finite components, or a dimension conflicting with a
+  bound index of the same name; existing not-found mapping for unknown elements.
 - FR-5 **Similarity primitive.** `VectorMath` (in `fallen-8-core/Index/Vector/`) exposes
   the one scoring implementation (`Cosine`/`DotProduct`/`L2` over
   `TensorPrimitives.CosineSimilarity`/`.Dot`/`.Distance`); `VectorIndex.

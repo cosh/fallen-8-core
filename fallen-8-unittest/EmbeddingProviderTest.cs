@@ -467,6 +467,108 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region backend switch (FR-4: swap = config change)
+
+        /// <summary>Reflection into the internal factory (the repo declares no
+        /// InternalsVisibleTo); unwraps the reflection TargetInvocationException.</summary>
+        private static object CreateBackend(Fallen8EmbeddingOptions options)
+        {
+            var factory = typeof(Fallen8EmbeddingProvider).Assembly
+                .GetType("NoSQL.GraphDB.App.Embedding.EmbeddingBackendFactory");
+            var create = factory.GetMethod("Create",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            try
+            {
+                return create.Invoke(null, new object[] { options });
+            }
+            catch (System.Reflection.TargetInvocationException ex)
+            {
+                throw ex.InnerException;
+            }
+        }
+
+        [TestMethod]
+        public void BackendFactory_MapsEveryConfigValue()
+        {
+            // Ollama constructs eagerly (an HTTP client, no model memory).
+            var options = new Fallen8EmbeddingOptions { Backend = "Ollama" };
+            options.Ollama.Endpoint = "http://localhost:11434";
+            using var ollama = (IDisposable)CreateBackend(options);
+            Assert.IsInstanceOfType(ollama, typeof(OllamaSharp.OllamaApiClient));
+
+            // The in-process backends refuse a missing model path loudly - nothing downloads.
+            Assert.ThrowsException<System.IO.FileNotFoundException>(() =>
+                CreateBackend(new Fallen8EmbeddingOptions { Backend = "Onnx" }));
+            Assert.ThrowsException<System.IO.FileNotFoundException>(() =>
+                CreateBackend(new Fallen8EmbeddingOptions { Backend = "LLamaSharp" }));
+
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                CreateBackend(new Fallen8EmbeddingOptions { Backend = "Nope" }));
+        }
+
+        private sealed class RealBackendFactory : WebApplicationFactory<Program>
+        {
+            private readonly string _backend;
+
+            public RealBackendFactory(string backend)
+            {
+                _backend = backend;
+            }
+
+            protected override void ConfigureWebHost(IWebHostBuilder builder)
+            {
+                builder.UseSetting("Fallen8:Durability:Volatile", "true");
+                builder.UseSetting("Fallen8:Embedding:Enabled", "true");
+                builder.UseSetting("Fallen8:Embedding:Backend", _backend);
+                builder.UseSetting("Fallen8:Embedding:ModelName", "m");
+                builder.UseSetting("Fallen8:Embedding:Dimension", "2");
+                // No model paths configured - and no fake: the REAL backend factory runs.
+            }
+        }
+
+        [TestMethod]
+        public async Task Boot_PerInProcessBackend_MissingModel_IsALatched503_NeverAStartupFailure()
+        {
+            // Boots the real Onnx and LLamaSharp configurations (FR-4): the app starts (lazy
+            // load), statistics reports the backend without loading, and first use answers a
+            // latched 503 naming the initialization failure.
+            foreach (var backend in new[] { "Onnx", "LLamaSharp" })
+            {
+                using var factory = new RealBackendFactory(backend);
+                using var client = factory.CreateClient();
+
+                using var statistics = await client.GetAsync("/statistics");
+                Assert.AreEqual(HttpStatusCode.OK, statistics.StatusCode);
+                var embedding = (await ReadJson(statistics)).GetProperty("embedding");
+                Assert.AreEqual(backend, embedding.GetProperty("backend").GetString());
+                Assert.IsFalse(embedding.GetProperty("loaded").GetBoolean());
+
+                using var response = await client.PostAsync("/embedding/text", Json("{ \"texts\": [\"x\"] }"));
+                Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode, backend);
+                StringAssert.Contains(await response.Content.ReadAsStringAsync(), "failed to initialize");
+            }
+        }
+
+        [TestMethod]
+        public async Task Wrapper_UnknownIntendedMetric_LatchesInsteadOfGuessingCosine()
+        {
+            // A typo'd metric must not silently become Cosine inside the FR-8 identity stamp.
+            var options = new Fallen8EmbeddingOptions
+            {
+                Enabled = true,
+                ModelName = "m",
+                Dimension = 2,
+                IntendedMetric = "Cosin"
+            };
+            var provider = Provider(options, new FakeEmbeddingGenerator(2));
+
+            var ex = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
+                () => provider.EmbedAsync(new[] { "x" }, default));
+            StringAssert.Contains(ex.Message, "IntendedMetric");
+        }
+
+        #endregion
+
         #region durability of stamps
 
         [TestMethod]

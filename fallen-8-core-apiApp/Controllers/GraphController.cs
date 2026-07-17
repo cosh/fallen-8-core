@@ -1560,6 +1560,15 @@ namespace NoSQL.GraphDB.App.Controllers
         /// artifact is used and nothing is compiled per request. The numeric bounds and
         /// "pathAlgorithmName" stay per-request either way.
         ///
+        /// SEMANTIC TRAVERSAL (feature element-embeddings): an optional "semantic" block carries
+        /// a query vector (or, with the embedding provider enabled, a "queryText" embedded once,
+        /// up front) plus code-free similarity options - "minScore" filters vertices by
+        /// similarity against their named element embedding, "costBySimilarity" weights a
+        /// DIJKSTRA search by it. The block is pure data (not gated by the dynamic-code switch);
+        /// compiled fragments and stored queries read the same vector via the "context"
+        /// parameter. Example: { "semantic": { "queryVector": [0.1, 0.2], "minScore": 0.7 } }.
+        /// Full rules: features/element-embeddings README, "Semantic traversal".
+        ///
         /// SECURITY: inline filter/cost fragments are compiled with Roslyn and executed IN-PROCESS
         /// WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone permitted to
         /// introduce code is trusted as the server process. The dynamic-code gate is

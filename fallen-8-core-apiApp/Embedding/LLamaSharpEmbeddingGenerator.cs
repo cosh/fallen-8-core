@@ -39,11 +39,9 @@ namespace NoSQL.GraphDB.App.Embedding
     ///   In-process GGUF backend via LLamaSharp (feature embedding-provider): points at an
     ///   embedding-capable GGUF file - typically a blob already on the <c>f8-ollama-models</c>
     ///   volume, so large weights exist ONCE on disk. CPU backend by design (spec non-goal:
-    ///   the GPU stays with the Ollama sidecar). Honesty note: the same weights under this
-    ///   runtime and under the Ollama daemon are two llama.cpp builds - bit-identical output
-    ///   across them is NOT guaranteed; the FR-8 identity contract is what protects
-    ///   correctness. Construction loads the model - callers defer construction until first
-    ///   use (the provider's lazy).
+    ///   the GPU stays with the Ollama sidecar); the cross-runtime identity caveat lives in
+    ///   the feature README's backend matrix. Construction loads the model - callers defer
+    ///   construction until first use (the provider's lazy).
     /// </summary>
     public sealed class LLamaSharpEmbeddingGenerator : IEmbeddingGenerator<String, Embedding<Single>>
     {

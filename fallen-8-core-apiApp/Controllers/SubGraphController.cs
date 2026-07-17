@@ -182,6 +182,13 @@ namespace NoSQL.GraphDB.App.Controllers
         /// nothing is compiled per request. The created subgraph is self-contained - deleting the
         /// stored query later does not affect it.
         ///
+        /// SEMANTIC SUBGRAPHS (feature element-embeddings): an optional "semantic" block carries
+        /// a query vector (or "queryText" via the embedding provider) bound at REGISTRATION -
+        /// recalculation reuses it and never embeds anything. "minScore" becomes the code-free
+        /// vertex pre-filter; compiled fragments read the same vector via "context". Pure data,
+        /// not gated by the dynamic-code switch; not available on stored-template invocations.
+        /// Full rules: features/element-embeddings README, "Semantic traversal".
+        ///
         /// SECURITY: inline filter/pattern fragments are compiled with Roslyn and executed
         /// IN-PROCESS WITH FULL TRUST - a trust boundary, not a sandbox. The dynamic-code gate is
         /// REQUEST-SHAPE-AWARE (feature stored-query-library): only a request that INTRODUCES code

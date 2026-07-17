@@ -1859,12 +1859,17 @@ namespace NoSQL.GraphDB.Core
 
         /// <summary>
         ///   Projects one committed embedding state into every BOUND vector index of that name
-        ///   (feature element-embeddings): a vector replaces the element's slot, <c>null</c> (or
-        ///   a non-vector value written through the raw property surface) purges it. Runs on the
-        ///   single writer thread AFTER the mutation committed; best-effort per index like the
-        ///   removal purge - a faulty index is logged, never fails the commit. Dimension or
-        ///   norm violations follow the index family's silent-skip contract (the typed REST
-        ///   write endpoints already answered 400 up front for conflicting writes).
+        ///   (feature element-embeddings): a projectable vector replaces the element's slot;
+        ///   <c>null</c>, a non-vector value written through the raw property surface, or a
+        ///   vector THIS index cannot rank (wrong dimension, non-finite, zero-norm under its
+        ///   Cosine metric) PURGES the slot - unprojectable ≡ not a member, so the live
+        ///   projection always matches what a load-rebuild from element state would produce
+        ///   (a skip instead of a purge would pin the element's PREVIOUS vector and change
+        ///   answers across a restart). Runs on the single writer thread AFTER the mutation
+        ///   committed; best-effort per index like the removal purge - a faulty index is
+        ///   logged, never fails the commit. The typed REST write endpoints answer 400 up
+        ///   front for conflicting writes; this path covers the engine/library API and raw
+        ///   property writes, where the mutation is already committed element state.
         /// </summary>
         private void ProjectEmbeddingToBoundIndices(AGraphElementModel element, String embeddingName, Single[] vectorOrNull)
         {
@@ -1884,13 +1889,26 @@ namespace NoSQL.GraphDB.Core
 
                 try
                 {
-                    if (vectorOrNull == null)
+                    var projectable = vectorOrNull != null &&
+                        vectorOrNull.Length == vectorIndex.Dimension &&
+                        !Index.Vector.VectorIndex.HasNonFiniteComponent(vectorOrNull) &&
+                        !(vectorIndex.Metric == Index.Vector.VectorDistanceMetric.Cosine &&
+                          Index.Vector.VectorIndex.IsZeroNorm(vectorOrNull));
+
+                    if (projectable)
                     {
-                        index.RemoveValue(element);
+                        index.AddOrUpdate(vectorOrNull, element);
                     }
                     else
                     {
-                        index.AddOrUpdate(vectorOrNull, element);
+                        index.RemoveValue(element);
+
+                        if (vectorOrNull != null)
+                        {
+                            _logger.LogWarning(
+                                "Embedding '{EmbeddingName}' of element {GraphElementId} cannot rank in a bound vector index (wrong dimension, non-finite, or zero-norm under Cosine); the element was purged from that projection.",
+                                embeddingName, element.Id);
+                        }
                     }
                 }
                 catch (Exception ex)

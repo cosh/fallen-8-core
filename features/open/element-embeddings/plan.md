@@ -99,10 +99,23 @@ Intent: the operator/agent contract, typed end to end.
 
 ## Phase 5 — Gate
 
-- [ ] Full `dotnet test` green; build 0 warnings/0 errors; convention tests green.
-- [ ] Council review; fixes with pinning tests; merge to `feature/scan-v2` only after
-  explicit approval; `features/open/element-embeddings/` → `features/done/` at merge
-  to `main`.
+- [x] Full `dotnet test` green (797 passed / 0 failed); build 0 warnings/0 errors;
+  convention tests green; web-UI vitest suite green (227, contract pins).
+- [x] Council review (three reviewers: correctness/concurrency, regressions/invariants,
+  scope/spec-fidelity). One blocker — a committed-but-unprojectable replacement embedding
+  (zero-norm under a bound Cosine index, or a dimension change, via the engine API where
+  no REST pre-validation runs) left the bound projection ranking the element by its
+  PREVIOUS vector, so live answers and a load-rebuild disagreed. Fixed:
+  `ProjectEmbeddingToBoundIndices` now purges an unprojectable slot (unprojectable ≡ not
+  a member, matching the rebuild), pinned by
+  `BoundVectorIndexTest.UnprojectableReplacement_PurgesTheSlot_InsteadOfPinningTheOldVector`.
+  Minors fixed: explicit legacy-sidecar load pin
+  (`VectorIndexTest.Load_ReadsAPreFeatureLegacySidecar_Unchanged`), spec FR-4 route text,
+  duplicated cross-runtime note trimmed to a pointer. Noted, not fixed (pre-existing,
+  affects all index families): a mid-batch removal-rollback restores elements without
+  re-adding them to indices — divergence heals on the next write or reload.
+- [x] Merged to `feature/scan-v2`; merge to `main` + `features/done/` move per the
+  operator's go-ahead.
 
 ## Progress
 

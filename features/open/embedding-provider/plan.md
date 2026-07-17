@@ -84,10 +84,17 @@ Intent: the operator can see what is running and what it costs.
 
 ## Phase 4 — Gate
 
-- [ ] Full `dotnet test` green; build 0 warnings/0 errors; engine csproj diff empty.
-- [ ] Council review; fixes with pinning tests; merge to `feature/scan-v2` only after
-  explicit approval; `features/open/embedding-provider/` → `features/done/` at merge
-  to `main`.
+- [x] Full `dotnet test` green (797 passed / 0 failed); build 0 warnings/0 errors; engine
+  csproj diff verified empty.
+- [x] Council review (three reviewers): zero blockers on this feature. Minors fixed with
+  pinning tests: an unknown `IntendedMetric` now LATCHES the provider (503 with the
+  reason) instead of silently stamping Cosine into the FR-8 identity; the backend switch
+  is pinned by an always-on factory-mapping test plus real-config boot tests (Onnx and
+  LLamaSharp with missing model paths start fine and answer a latched 503 on first use -
+  the spec §4 "boot all three configurations" criterion, with Ollama covered at the
+  factory seam because its generate path needs a live endpoint).
+- [x] Merged to `feature/scan-v2`; merge to `main` + `features/done/` move per the
+  operator's go-ahead.
 
 ## Progress
 

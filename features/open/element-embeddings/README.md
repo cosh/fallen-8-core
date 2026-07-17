@@ -64,46 +64,156 @@ curl -sf -X POST http://localhost:5000/index \
   element copy + slab copy (see below). An optional `model` creation option stores an
   opaque model-identity string for the embedding provider's consistency checks.
 
-## Semantic traversal
+## Semantic traversal — how it works
 
-The `semantic` block on `POST /path/{from}/to/{to}` and `PUT /subgraph` supplies a query
-vector for the traversal — embedded **once, before the traversal starts** (client-side,
-or via the provider's `queryText` once that feature lands). It is pure data: it runs with
-`EnableDynamicCodeExecution=false`.
+This is THE reference for semantic traversal; everything else (root README, endpoint
+remarks, the embedding-provider README) points here.
 
-```bash
-# Paths through semantically close vertices only (declarative filter):
-curl -sf -X POST http://localhost:5000/path/1/to/9 \
-     -H "Content-Type: application/json" \
-     -d '{ "semantic": { "queryVector": [0.1, ...], "embeddingName": "default",
-           "metric": "Cosine", "minScore": 0.7 } }'
+### The model
 
-# Weight a DIJKSTRA search by similarity (Cosine cost = 1 - score; L2 = distance;
-# DotProduct is rejected - no honest non-negative mapping):
-curl -sf -X POST http://localhost:5000/path/1/to/9 \
-     -H "Content-Type: application/json" \
-     -d '{ "pathAlgorithmName": "DIJKSTRA",
-           "semantic": { "queryVector": [0.1, ...], "costBySimilarity": true } }'
+A semantic traversal asks the path or subgraph engine to make decisions by **vector
+similarity against a query vector** instead of (or in addition to) labels and properties.
+
+```mermaid
+flowchart TB
+    subgraph before["ONCE, before the traversal starts"]
+        direction LR
+        QT["semantic.queryText<br/>(embedding provider, 403 when off)"] -->|embed once| QV["query vector"]
+        QVIN["semantic.queryVector<br/>(client-side embedding)"] --> QV
+        QV --> CTX["TraversalContext<br/>vector + embeddingName + metric"]
+    end
+
+    CTX --> DECL["declarative closures<br/>minScore filter / costBySimilarity cost<br/>(no C#, dynamic code may stay OFF)"]
+    CTX --> FRAG["compiled C# fragments<br/>context.TrySimilarity(v, out s)<br/>(dynamic code ON)"]
+    CTX --> SQ["stored path query fragments<br/>(registration gated, invocation ungated)"]
+
+    subgraph during["per element DURING the traversal - no model, ever"]
+        direction LR
+        EMB["element embedding<br/>$embedding:&lt;name&gt; via TryGetEmbedding"] --> SCORE["VectorMath score<br/>bit-identical to kNN"]
+        SCORE --> DEC["filter / cost decision"]
+    end
+
+    DECL --> during
+    FRAG --> during
+    SQ --> during
+
+    during --> OUT["paths / subgraph membership"]
 ```
 
-- Elements without the named embedding are filtered by `minScore`/`costBySimilarity` —
-  stated, not silent. Scores are bit-identical to `POST /scan/index/vector` for the same
-  pair (`VectorMath` is the one implementation).
-- With dynamic code **on**, C# fragments (and stored path queries) get the same vector
-  through the `context` parameter:
+Three rules define the whole feature:
+
+1. **The query is embedded exactly once, before the traversal starts.** You supply
+   `semantic.queryVector` (client-side embedding), or — with the
+   [embedding-provider](../embedding-provider/README.md) enabled — `semantic.queryText`,
+   which the server embeds once on the request thread. The traversal itself never sees
+   text and never calls a model: per-element work is one SIMD similarity computation.
+2. **Elements score through their stored embeddings.** Each candidate vertex/edge is read
+   through `TryGetEmbedding` for the block's `embeddingName` (default `"default"`) and
+   scored with the block's `metric` (`Cosine` default, `DotProduct`, `L2`). An element
+   without that embedding, with a different dimension, or with a non-finite score **never
+   matches** — semantic decisions only ever see finite scores over comparable vectors.
+3. **Scores are the kNN scores.** `VectorMath` is the single scoring implementation, so a
+   similarity computed inside a traversal is bit-identical to `POST /scan/index/vector`
+   for the same pair. A threshold that works for search works for traversal.
+
+The carrier is the `semantic` block, accepted by `POST /path/{from}/to/{to}` and
+`PUT /subgraph`:
+
+```jsonc
+"semantic": {
+  "queryVector":      [0.1, 0.2, ...],  // exactly one of queryVector / queryText
+  "queryText":        "red bicycles",   // requires the embedding provider (403 when off)
+  "embeddingName":    "default",        // which named embedding to score
+  "metric":           "Cosine",         // Cosine | DotProduct | L2
+  "minScore":         0.7,              // optional: declarative filter threshold
+  "costBySimilarity": true              // optional, path-only: declarative vertex cost
+}
+```
+
+### Three ways to consume the vector
+
+**1. Declarative (no code, works with `EnableDynamicCodeExecution=false`).** The block is
+pure data and never touches the dynamic-code gate:
+
+- `minScore` installs a vertex filter: an element passes when its embedding scores **at
+  least** `minScore` (`Cosine`/`DotProduct`) or **at most** `minScore` (`L2`, where lower
+  is closer). Elements without the embedding are filtered — stated, not silent.
+- `costBySimilarity` installs a vertex cost for weighted algorithms (`DIJKSTRA`; the
+  hop-count `BLS` ignores costs): `Cosine` → `1 − score` (range [0, 2], 0 = identical),
+  `L2` → the distance itself. `DotProduct` is **rejected (400)**: it is unbounded and
+  sign-indefinite, so it has no honest non-negative cost mapping. Vertices without the
+  embedding are filtered (a cost is only defined over embedded vertices).
+
+```bash
+# Only semantically close vertices may appear on the path:
+curl -sf -X POST http://localhost:5000/path/1/to/9 \
+     -H "Content-Type: application/json" \
+     -d '{ "semantic": { "queryVector": [0.1, 0.2], "minScore": 0.7 } }'
+
+# Prefer the semantically closest route (weighted search):
+curl -sf -X POST http://localhost:5000/path/1/to/9 \
+     -H "Content-Type: application/json" \
+     -d '{ "pathAlgorithmName": "DIJKSTRA", "maxResults": 1,
+           "semantic": { "queryVector": [0.1, 0.2], "costBySimilarity": true } }'
+```
+
+**2. C# fragments (dynamic code on).** Every compiled filter/cost fragment receives the
+request's context as the `context` parameter (`TraversalContext`): `HasQueryVector`,
+`QueryVector`, `EmbeddingName`, `Metric`, and the one method that matters —
+`context.TrySimilarity(element, out float score)`, which is the accessor plus `VectorMath`
+in one call and returns `false` for a missing/incomparable embedding or a non-finite
+score. Fragments that ignore `context` compile exactly as before.
 
 ```csharp
-// vertexCost fragment: prefer semantically close vertices.
+// vertexFilter: same semantics as minScore 0.5, hand-rolled.
+return (v) => context.TrySimilarity(v, out var s) && s >= 0.5f;
+
+// vertexCost: semantically close vertices are cheap, strangers cost full price.
 return (v) => context.TrySimilarity(v, out var s) ? 1.0 - s : 1.0;
 ```
 
-- One owner per delegate slot: `minScore` plus a vertex-filter fragment (or
-  `costBySimilarity` plus a vertex-cost fragment) is a 400.
-- Subgraphs bind the vector at **registration**; recalculation reuses it (never any
-  inference on the writer path), and the semantic block rides the persisted recipe, so a
-  declarative semantic subgraph survives restart and WAL replay. A stored *subgraph*
-  template invocation cannot carry `semantic` (400) — its delegates were materialized at
-  registration.
+**3. Stored path queries.** A stored query's fragments may reference `context`; the
+*invocation* supplies the vector through the same `semantic` block — registration stays
+gated by the dynamic-code switch, invocation stays ungated. Invoking a context-using
+stored query **without** a vector is not an error: every `TrySimilarity` is `false`
+(the empty context), so a pure semantic filter simply matches nothing.
+
+```bash
+curl -sf -X POST http://localhost:5000/path/1/to/9 \
+     -H "Content-Type: application/json" \
+     -d '{ "storedQuery": "close-nodes", "semantic": { "queryVector": [0.1, 0.2] } }'
+```
+
+### Subgraphs: the vector binds at registration
+
+`PUT /subgraph` evaluates its filters not only at creation but on every
+**recalculation** (`POST /subgraph/{name}/recalculate`), which runs on the engine's write
+path. The semantic block is therefore bound **once, at registration**: the compiled (or
+declarative) filters close over that vector, recalculation reuses it, and no inference
+ever runs on the writer thread. The block also rides the subgraph's persisted recipe —
+with `queryText`, the *resolved vector* is what persists — so a semantic subgraph survives
+restart and WAL replay without the provider being present.
+
+`minScore` fills the vertex **pre-filter** slot (which elements are copied into the
+subgraph); `costBySimilarity` is a path concept and is rejected (400). A stored *subgraph*
+template invocation cannot carry `semantic` (400): the template's delegates were
+materialized at its own registration and cannot be rebound per invocation.
+
+### Rules and errors
+
+One owner per delegate slot, and everything invalid is a 400 with a reason:
+
+| request | answer |
+|---|---|
+| `minScore` + an inline/stored vertex-**filter** fragment | 400 (one owner per slot) |
+| `costBySimilarity` + a vertex-**cost** fragment | 400 (one owner per slot) |
+| `costBySimilarity` with `metric: "DotProduct"` | 400 (no honest non-negative mapping) |
+| `costBySimilarity` on `PUT /subgraph` | 400 (path concept) |
+| `semantic` on a stored-**subgraph** invocation | 400 (delegates bound at registration) |
+| `queryVector` and `queryText` together | 400 (exactly one source) |
+| missing/empty vector, NaN/Infinity components, zero-norm under `Cosine`, bad name/metric | 400 |
+| `queryText` with the embedding provider disabled | 403 (the provider capability) |
+| inline fragments with `EnableDynamicCodeExecution=false` | 403 — the `semantic` block does **not** widen the dynamic-code gate in either direction |
 
 ## Memory math (the honest ~2×)
 

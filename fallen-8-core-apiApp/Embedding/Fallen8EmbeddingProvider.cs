@@ -64,6 +64,22 @@ namespace NoSQL.GraphDB.App.Embedding
             _options = options.Value;
             _generator = generator;
             Identity = BuildIdentity(_options);
+
+            // A typo'd metric must not silently become Cosine INSIDE the identity stamp that
+            // FR-8 compares - latch the provider (503 with the reason) instead of guessing.
+            // Latched rather than thrown: the provider is constructed on DI resolution, and a
+            // config typo must not turn /statistics into a 500.
+            if (!IsKnownMetric(_options.IntendedMetric))
+            {
+                _latchedFailure = String.Format(
+                    "'{0}' is not a valid Fallen8:Embedding:IntendedMetric. Expected Cosine, DotProduct or L2.",
+                    _options.IntendedMetric);
+            }
+        }
+
+        private static Boolean IsKnownMetric(String metric)
+        {
+            return metric is null or "Cosine" or "DotProduct" or "L2";
         }
 
         /// <summary>Whether the capability flag is on.</summary>
