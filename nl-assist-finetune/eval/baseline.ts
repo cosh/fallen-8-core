@@ -9,6 +9,8 @@
  *   - perf:      the provider's token/duration stats per draft
  *
  * Run:  npx tsx nl-assist-finetune/eval/baseline.ts
+ *       --rescore   recompute checks + summary from recorded fragments (no model
+ *                   calls) - for when an eval-set check turns out too strict/lax
  * Env:  NL_EVAL_MODEL     model name        (default phi4-mini; set to a fine-tuned
  *                                            model, e.g. f8-delegate, to compare runs)
  *       NL_EVAL_ENDPOINT  Ollama endpoint   (default http://localhost:11434)
@@ -163,11 +165,15 @@ async function main() {
     }
   ).rows;
 
-  // Preflight both dependencies with a known-good fragment before burning model time.
-  const preflight = await validate("VertexFilter", "return (v) => true;");
-  if (!preflight.valid) throw new Error("Preflight validate failed unexpectedly.");
-  const version = await fetch(`${ENDPOINT}/api/version`);
-  if (!version.ok) throw new Error(`Ollama not reachable at ${ENDPOINT}.`);
+  const rescore = process.argv.includes("--rescore");
+
+  if (!rescore) {
+    // Preflight both dependencies with a known-good fragment before burning model time.
+    const preflight = await validate("VertexFilter", "return (v) => true;");
+    if (!preflight.valid) throw new Error("Preflight validate failed unexpectedly.");
+    const version = await fetch(`${ENDPOINT}/api/version`);
+    if (!version.ok) throw new Error(`Ollama not reachable at ${ENDPOINT}.`);
+  }
 
   const resultsDir = path.join(here, "results");
   mkdirSync(resultsDir, { recursive: true });
@@ -177,9 +183,19 @@ async function main() {
     : [];
   const done = new Set(results.map((result) => result.id));
 
+  if (rescore) {
+    for (const result of results) {
+      const row = rows.find((r) => r.id === result.id);
+      if (!row) continue;
+      result.failedChecks = runChecks(row, result.fragment);
+      result.pass = result.compileValid && result.failedChecks.length === 0;
+    }
+  }
+
   console.log(`model=${MODEL} endpoint=${ENDPOINT} f8=${F8} rows=${rows.length} (resumed: ${done.size})`);
 
   for (const row of rows) {
+    if (rescore) break;
     if (done.has(row.id)) continue;
     const prompt = buildGenerationPrompt(row.kind, row.intent);
     const { content, stats } = await ollamaChat(initialMessages(prompt));

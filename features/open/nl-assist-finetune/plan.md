@@ -38,7 +38,33 @@ runs from the same machine; this ledger's rows so far are the CPU-only dev box).
 
 | date | model | prompt | n | compile | semantic proxy | s/draft | tok/s | vs. previous |
 |---|---|---|---|---|---|---|---|---|
-| 2026-07-17 | phi4-mini (stock, Q4_K_M) | FR-10 steering | _running_ | — | — | — | — | baseline |
+| 2026-07-17 | phi4-mini (stock, Q4_K_M) | FR-10 steering + trailing-prose strip | 18 | 72% | 61% | 36.9 | 0.7 | baseline |
+
+Per kind (baseline): VertexFilter 50%/33% (compile/semantic, n=6), EdgeFilter 67%/67%
+(n=3), GraphElementFilter 100%/75% (n=4), EdgePropertyFilter 100%/100% (n=2),
+VertexCost 100%/100% (n=1), EdgeCost 50%/50% (n=2). Perf numbers from the CPU-only dev
+box with the apiApp validator sharing the machine.
+
+### Baseline failure-mode analysis (dataset-design input for phase 2)
+
+1. **Invented members** (3 rows — the dominant class): `v.GetAge()` twice, and
+   `((double?)weight).ValueOrDefault(1)`. The prompt's member list alone doesn't stop
+   hallucinated accessors for property-flavored intents → contrast pairs must cover
+   "X older than / heavier than N" phrasings mapping to `TryGetProperty`.
+2. **`GetAllProperties()` dictionary misuse** (2 rows): reaches for the raw
+   `ImmutableDictionary` (not referenced in the compile context → CS0012) instead of
+   `TryGetProperty`. Candidate quick win outside training: drop `GetAllProperties` from
+   the prompt's member list (keep it in IntelliSense).
+3. **Semantic drift that compiles** (2 rows): "id greater than 100" → `v.Id < 101`
+   (inverted!), "older than 30" → `GetCreationDate() < DateTime.Now.AddYears(-30)`
+   (age reinterpreted as element creation date). Invisible to compile-only scoring —
+   the FT-8 case, now with concrete evidence.
+4. **Eval-set strictness** (1 row, fixed): `p.Equals("knows")` is correct but the
+   original `==`-only regex rejected it; check widened and the run rescored
+   (`--rescore`). Checks must accept semantically equivalent forms.
+
+The FR-10 steering itself held: no draft called `TryGetProperty` for "label"/"id" —
+the failure the steering targets did not reoccur in 18 rows.
 
 ## Phase 2 — dataset generator (spec Stage 1)
 

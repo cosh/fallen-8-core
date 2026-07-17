@@ -110,7 +110,7 @@
       "kind": "EdgePropertyFilter",
       "intent": "only knows edges",
       "reference": "return (p) => p == \"knows\";",
-      "mustMatch": ["==\\s*\"knows\""],
+      "mustMatch": ["(?:==\\s*\"knows\"|Equals\\(\"knows\"\\))"],
       "mustNotMatch": []
     },
     {
