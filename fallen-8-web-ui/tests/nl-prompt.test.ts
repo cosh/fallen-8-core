@@ -10,7 +10,8 @@ import type { DelegateKind } from "../src/api/types";
 /**
  * NL-assist prompt contract (nl-assist spec FR-26.5 + §13): per kind, the generation
  * prompt must include - in order - the instruction, the exact §6.1 lambda shape, the
- * usings, the §6.2 member surface incl. the TryGetProperty idiom, and matching few-shot
+ * usings, the §6.2 member surface incl. the TryGetProperty idiom (where the parameter
+ * type carries it - string slots have no TryGetProperty), and matching few-shot
  * examples; the user's intent travels in the user turn.
  */
 
@@ -88,7 +89,9 @@ describe("generation prompt assembly", () => {
       const info = KIND_INFO[kind];
       const { system } = buildGenerationPrompt(kind, "x");
       expect(system).toContain("NEVER invoke a lambda inline");
-      expect(system).toContain(`((v) => ...)(${info.parameterName})`);
+      expect(system).toContain(
+        `((${info.parameterName}) => ...)(${info.parameterName})`,
+      );
       expect(system).toMatch(/out variable declared in one && clause/);
     },
   );

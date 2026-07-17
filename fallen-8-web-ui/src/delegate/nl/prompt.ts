@@ -46,7 +46,9 @@ export function buildGenerationPrompt(
     // lambda - `((v) => v.TryGetProperty(out int age, "age"))(ge)` - which neither
     // compiles nor keeps `age` in scope for the next clause.
     `Delegate kind: ${kind}. The lambda shape is exactly: ${info.lambdaShape}. Use the parameter name "${info.parameterName}".`,
-    `The fragment is that ONE lambda and nothing else. NEVER define a second lambda inside it and NEVER invoke a lambda inline like ((v) => ...)(${info.parameterName}) - call members directly on "${info.parameterName}". An out variable declared in one && clause stays usable in the clauses after it.`,
+    // The counter-example is spelled in the slot's own parameter: small models copy
+    // negated examples, and a `v` here would re-seed the very mismatch being forbidden.
+    `The fragment is that ONE lambda and nothing else. NEVER define a second lambda inside it and NEVER invoke a lambda inline like ((${info.parameterName}) => ...)(${info.parameterName}) - call members directly on "${info.parameterName}". An out variable declared in one && clause stays usable in the clauses after it.`,
     // (c) usings
     `Available usings: ${info.usings.join(", ")}. Nothing else is importable.`,
     // (d) type surface + idiom

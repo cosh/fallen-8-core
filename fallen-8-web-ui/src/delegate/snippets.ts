@@ -67,7 +67,9 @@ export function snippetsForKind(kind: DelegateKind): Snippet[] {
  * "Label match" into an EdgeFilter yields `return (e) => e.Label == ...`. Every fragment
  * shown to the user or the NL model must go through this - a `v` example in a `ge` slot
  * is exactly the mismatch that made phi4-mini wrap the idiom in an inline-invoked lambda
- * (field failure, 2026-07-17).
+ * (field failure, 2026-07-17). It only rewrites identifier-with-dot occurrences (plus the
+ * parameter list), so keep fragment string literals free of `v.`/`e.`/`ge.`/`p.` and
+ * dot-less parameter references out of cross-kind fragments.
  */
 export function rewriteParameterName(code: string, parameterName: string): string {
   return code
