@@ -25,6 +25,7 @@ import { ElementTable } from "../components/ElementTable";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
+import { help } from "../lib/fieldHelp";
 
 /**
  * Analytics (feature studio-coverage §3/§4): understand the graph's shape, then compute
@@ -406,7 +407,10 @@ function AnalyticsRunner() {
           </button>
           {showWriteBack && (
             <div className="flex flex-wrap items-end gap-3">
-              <label className="text-fg-dim flex items-center gap-1 pb-1 text-[12px]">
+              <label
+                className="text-fg-dim label-help flex items-center gap-1 pb-1 text-[12px]"
+                title={help("analyticsWriteBack")}
+              >
                 <input
                   type="checkbox"
                   data-testid="write-back-checkbox"

@@ -5,6 +5,7 @@ import { useRegistry, useActiveInstance } from "../instances/registry";
 import { describeEndpoint, type InstanceConfig } from "../instances/types";
 import { getStatus, isAuthorized } from "../api/endpoints";
 import { useLiveChangeFeed, type LiveFeedStatus } from "../state/liveFeed";
+import { help } from "../lib/fieldHelp";
 
 const NAV = [
   { to: "/", label: "Connect", icon: "◉" },
@@ -160,7 +161,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="border-line bg-panel flex h-11 shrink-0 items-center gap-3 border-b px-3">
-          <label htmlFor="instance-switcher" className="text-fg-faint text-[11px] uppercase">
+          <label
+            htmlFor="instance-switcher"
+            className="text-fg-faint label-help text-[11px] uppercase"
+            title={help("instanceSwitcher")}
+          >
             instance
           </label>
           <select

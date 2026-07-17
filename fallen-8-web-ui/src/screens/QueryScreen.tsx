@@ -270,7 +270,7 @@ export function QueryScreen() {
                   onChange={setRightLimit}
                 />
                 <label
-                  className="text-fg-dim flex items-center gap-1 text-[12px]"
+                  className="text-fg-dim label-help flex items-center gap-1 text-[12px]"
                   title={help("rangeIncludeLeft")}
                 >
                   <input
@@ -281,7 +281,7 @@ export function QueryScreen() {
                   incl. left
                 </label>
                 <label
-                  className="text-fg-dim flex items-center gap-1 text-[12px]"
+                  className="text-fg-dim label-help flex items-center gap-1 text-[12px]"
                   title={help("rangeIncludeRight")}
                 >
                   <input
@@ -403,9 +403,6 @@ export function QueryScreen() {
                     placeholder="person"
                   />
                 </Field>
-                <p className="text-fg-faint basis-full text-[11px]">
-                  constraints apply before top-k — you get k matching elements.
-                </p>
               </>
             )}
 

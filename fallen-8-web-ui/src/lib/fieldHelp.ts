@@ -8,8 +8,6 @@ export const FIELD_HELP = {
   // ---- shared concepts ----
   elementId:
     "Numeric id of an existing vertex or edge. Ids are assigned by the server and shown in every result table, the canvas, and the browser.",
-  vertexId:
-    "Numeric id of an existing vertex (edge ids will not work here). Find ids via the Browser or a scan.",
   propertyId:
     "Name of a property (key), e.g. 'age' or 'name'. Properties are typed key-value pairs on a vertex or edge.",
   typedValue:
@@ -23,7 +21,7 @@ export const FIELD_HELP = {
   mutVertexLabel:
     "Optional label used to categorize the new vertex, e.g. 'person'. Labels drive filtering, statistics, and canvas coloring; leave empty for an unlabeled vertex.",
   mutCreationDate:
-    "Optional creation timestamp stored on the element. Enter Unix seconds (e.g. 1713862800) or an ISO date/time (e.g. 2026-07-17T12:00); empty stores 0 (epoch).",
+    "Optional creation timestamp stored on the element. Enter Unix seconds (e.g. 1713862800) or an ISO date/time, treated as UTC unless it carries an offset; empty stores 0 (epoch).",
   mutProperties:
     "Initial properties written atomically with the element in the same transaction. Add one row per property; each value is typed.",
   mutEdgeSource:
@@ -37,7 +35,6 @@ export const FIELD_HELP = {
   // ---- browser ----
   lookupKind:
     "What the id refers to: vertex, edge, or graphelement (either — the server figures out which).",
-  lookupId: "Numeric id of the element to fetch.",
   maxElements:
     "Upper bound on how many elements the bulk view loads from GET /graph. Keep it modest on big graphs — this is a browser, not an export (use JSONL export for that).",
   bulkFilter:
@@ -108,7 +105,8 @@ export const FIELD_HELP = {
     "Only traverse edges in this edge container (e.g. 'knows'); empty traverses all edges.",
   analyticsDirection:
     "Edge direction the algorithm follows: in, out, or both. Empty keeps the algorithm's default.",
-  analyticsMaxResults: "How many top-scored entries the result table shows (the run itself is not truncated).",
+  analyticsMaxResults:
+    "How many top-scored entries the server returns; the computation itself still runs over the whole (filtered) graph.",
   analyticsMaxIterations:
     "Iteration cap for iterative algorithms (e.g. PageRank rounds); empty keeps the algorithm's default.",
   analyticsTimeBudget:
@@ -116,15 +114,25 @@ export const FIELD_HELP = {
   analyticsDamping:
     "PageRank damping factor d (probability of following an edge vs. jumping anywhere); 0.85 is the classic choice.",
   analyticsEpsilon:
-    "Convergence threshold: iteration stops once no score changes by more than this between rounds.",
+    "Convergence threshold on the total (L1-summed) score change between rounds; iteration stops once the sum falls below it.",
+  analyticsWriteBack:
+    "When checked, the run also stores each vertex's score as a property under the key below (asks for confirmation first).",
   analyticsWriteBackKey:
-    "Property key the per-vertex scores are written to (e.g. 'analytics.pagerank'). Re-runs overwrite; durable in snapshots only.",
+    "Property key the per-vertex scores are written to, e.g. 'analytics.pagerank'.",
 
   // ---- dashboard ----
   loadPath:
     "Server-side path of the save game to load — resolved on the machine the instance runs on, not in this browser.",
   exportVertexLabel: "Only export vertices with this label (their edges follow); empty exports all.",
   exportEdgeLabel: "Only export edges with this label; empty exports all.",
+
+  // ---- app shell / canvas / save games ----
+  instanceSwitcher:
+    "The Fallen-8 instance every screen talks to. Register more instances on the Connect screen.",
+  canvasLayout:
+    "How the canvas positions vertices: force (ForceAtlas2 physics, clusters emerge) or circular (deterministic ring).",
+  saveGameDeleteFiles:
+    "Also delete the checkpoint's files on the server's disk, not just its registry entry. The data is then unrecoverable.",
 
   // ---- connect ----
   instanceName: "Display name for this connection, shown in the instance switcher.",

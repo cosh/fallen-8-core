@@ -40,10 +40,17 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
+/** Element ids are Int32 on the wire; gate here so a typo fails inline, not as a 400. */
+const isElementId = (text: string) => /^\d+$/.test(text.trim()) && Number(text) <= 2147483647;
+
+/** Outcome of the LAST action only — a tab switch or new action clears it, so a stale
+ * success or another tab's error can never sit under the visible form. */
+type Status = { kind: "success"; text: string } | { kind: "error"; error: unknown };
+
 export function MutationsPanel() {
   const instance = useActiveInstance()!;
   const [tab, setTab] = useState<TabId>("vertex");
-  const [message, setMessage] = useState<string | null>(null);
+  const [status, setStatus] = useState<Status | null>(null);
 
   const [vertexLabel, setVertexLabel] = useState("");
   const [vertexDate, setVertexDate] = useState("");
@@ -69,6 +76,12 @@ export function MutationsPanel() {
   const edgeDateParsed = parseCreationDate(edgeDate);
   const edgePropsError = propertyRowsError(edgeProps);
 
+  const statusHandlers = (successText: () => string) => ({
+    onMutate: () => setStatus(null),
+    onSuccess: () => setStatus({ kind: "success", text: successText() }),
+    onError: (error: unknown) => setStatus({ kind: "error", error }),
+  });
+
   // The create endpoints return 202 with no body (the id is not reported); find the new
   // element via the bulk view or a scan.
   const addVertex = useMutation({
@@ -78,12 +91,12 @@ export function MutationsPanel() {
         label: vertexLabel.trim() || undefined,
         properties: toPropertySpecs(vertexProps),
       }),
-    onSuccess: () =>
-      setMessage(
+    ...statusHandlers(
+      () =>
         `Vertex created${vertexLabel.trim() ? ` (label '${vertexLabel.trim()}')` : ""}${
           vertexProps.length ? ` with ${vertexProps.length} propert${vertexProps.length === 1 ? "y" : "ies"}` : ""
         }.`,
-      ),
+    ),
   });
 
   const addEdge = useMutation({
@@ -96,7 +109,7 @@ export function MutationsPanel() {
         label: edgeLabel.trim() || undefined,
         properties: toPropertySpecs(edgeProps),
       }),
-    onSuccess: () => setMessage(`Edge created (${edgeSource} → ${edgeTarget}).`),
+    ...statusHandlers(() => `Edge created (${edgeSource} → ${edgeTarget}).`),
   });
 
   const upsertProperty = useMutation({
@@ -107,22 +120,18 @@ export function MutationsPanel() {
         propId.trim(),
         toPropertySpec(propId.trim(), propValue),
       ),
-    onSuccess: () => setMessage(`Property '${propId}' set on #${propElementId}.`),
+    ...statusHandlers(() => `Property '${propId}' set on #${propElementId}.`),
   });
 
   const dropProperty = useMutation({
     mutationFn: () => removeProperty(instance, Number(propElementId), propId.trim()),
-    onSuccess: () => setMessage(`Property '${propId}' removed from #${propElementId}.`),
+    ...statusHandlers(() => `Property '${propId}' removed from #${propElementId}.`),
   });
 
   const dropElement = useMutation({
     mutationFn: () => removeGraphElement(instance, Number(removeId)),
-    onSuccess: () => setMessage(`Element #${removeId} removed.`),
+    ...statusHandlers(() => `Element #${removeId} removed.`),
   });
-
-  const failed = [addVertex, addEdge, upsertProperty, dropProperty, dropElement].find(
-    (m) => m.isError,
-  );
 
   return (
     <section className="panel">
@@ -142,7 +151,10 @@ export function MutationsPanel() {
               className={`px-3 py-1 text-[12px] ${
                 tab === id ? "bg-panel-2 text-accent" : "text-fg-dim hover:text-fg cursor-pointer"
               }`}
-              onClick={() => setTab(id)}
+              onClick={() => {
+                setTab(id);
+                setStatus(null);
+              }}
             >
               {label}
             </button>
@@ -259,10 +271,8 @@ export function MutationsPanel() {
               data-testid="create-edge"
               disabled={
                 addEdge.isPending ||
-                !Number.isInteger(Number(edgeSource)) ||
-                edgeSource === "" ||
-                !Number.isInteger(Number(edgeTarget)) ||
-                edgeTarget === "" ||
+                !isElementId(edgeSource) ||
+                !isElementId(edgeTarget) ||
                 !edgeProperty.trim() ||
                 !edgeDateParsed.ok ||
                 edgePropsError !== null
@@ -305,7 +315,7 @@ export function MutationsPanel() {
                 className="btn btn-accent"
                 disabled={
                   upsertProperty.isPending ||
-                  !propElementId ||
+                  !isElementId(propElementId) ||
                   !propId.trim() ||
                   validateTypedValue(propValue) !== null
                 }
@@ -316,7 +326,7 @@ export function MutationsPanel() {
               <button
                 type="button"
                 className="btn btn-danger"
-                disabled={dropProperty.isPending || !propElementId || !propId.trim()}
+                disabled={dropProperty.isPending || !isElementId(propElementId) || !propId.trim()}
                 onClick={() => dropProperty.mutate()}
               >
                 Remove property
@@ -342,24 +352,21 @@ export function MutationsPanel() {
               <button
                 type="button"
                 className="btn btn-danger"
-                disabled={dropElement.isPending || !removeId}
+                disabled={dropElement.isPending || !isElementId(removeId)}
                 onClick={() => dropElement.mutate()}
               >
                 Remove element
               </button>
             </div>
-            <p className="text-fg-faint text-[11px]">
-              Removing a vertex also removes all of its edges. There is no undo.
-            </p>
           </div>
         )}
 
-        {message && (
+        {status?.kind === "success" && (
           <div className="text-accent text-[12px]" data-testid="mutation-message">
-            {message}
+            {status.text}
           </div>
         )}
-        {failed && <ErrorBox error={failed.error} />}
+        {status?.kind === "error" && <ErrorBox error={status.error} />}
       </div>
     </section>
   );

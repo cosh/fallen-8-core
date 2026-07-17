@@ -79,21 +79,27 @@ export function toPropertySpec(propertyId: string, value: TypedValue): PropertyS
 /**
  * Parses the optional creation-date input on the mutation forms into the wire value:
  * a uint Unix timestamp in SECONDS. Empty keeps today's behaviour (0 = epoch); digits
- * are taken as seconds verbatim; anything else must parse as an ISO date/time.
+ * are taken as seconds verbatim; anything else must be ISO-shaped (YYYY-MM-DD…) and is
+ * treated as UTC unless it carries an explicit offset — Date.parse would otherwise read
+ * offset-less date-times as LOCAL time, storing a different value per browser timezone
+ * (and accept garbage like "12.5" as a date).
  */
 export function parseCreationDate(
   raw: string,
 ): { ok: true; seconds: number } | { ok: false; error: string } {
   const text = raw.trim();
   if (!text) return { ok: true, seconds: 0 };
-  if (/^[+-]?\d+$/.test(text)) {
+  if (/^[+-]?[\d.]+$/.test(text)) {
+    if (!/^\d+$/.test(text)) return { ok: false, error: "Out of range (uint seconds)." };
     const seconds = Number(text);
-    if (seconds < 0 || seconds > 4294967295) {
-      return { ok: false, error: "Out of range (uint seconds)." };
-    }
+    if (seconds > 4294967295) return { ok: false, error: "Out of range (uint seconds)." };
     return { ok: true, seconds };
   }
-  const ms = Date.parse(text);
+  if (!/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    return { ok: false, error: "Expected Unix seconds or an ISO date/time." };
+  }
+  const hasOffset = /(Z|[+-]\d{2}:?\d{2})$/i.test(text);
+  const ms = Date.parse(text.includes("T") && !hasOffset ? `${text}Z` : text);
   if (Number.isNaN(ms)) {
     return { ok: false, error: "Expected Unix seconds or an ISO date/time." };
   }

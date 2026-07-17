@@ -26,9 +26,9 @@ export const newPropertyRow = (): PropertyRow => ({
 });
 
 /**
- * Why duplicates are rejected client-side: the wire format is a list, but an element's
- * property map holds one value per key — the transaction would just fail later with a
- * murkier error.
+ * Why duplicates are rejected client-side: the wire format is a list, but the server
+ * builds a one-value-per-key property dictionary from it and rejects a duplicate id
+ * before the transaction is even enqueued — with a much murkier error than this one.
  */
 export function propertyRowsError(rows: PropertyRow[]): string | null {
   const seen = new Set<string>();
@@ -71,7 +71,7 @@ export function PropertyListEditor({
           >
             <input
               id={`${idPrefix}-prop-${row.key}`}
-              data-testid={`${idPrefix}-prop-id`}
+              data-testid={`${idPrefix}-prop-${row.key}-id`}
               className="input w-32"
               value={row.propertyId}
               onChange={(e) => update(row.key, { propertyId: e.target.value })}

@@ -63,14 +63,16 @@ Every labeled input in the studio gets a hover explanation:
   (e.g. `elementId`, `sourceVertex`, `edgePropertyId`, `indexId`, `typedValue`, …), so a
   concept is explained once no matter how many screens show it. Screen-specific one-off
   fields get their own key; nothing is inlined at call sites.
-- A shared `FieldLabel` component renders the label plus the help: native `title`
-  tooltip (the established pattern in this codebase) with a `cursor-help` affordance and
-  a subtle dotted underline so hover-help is discoverable. The tooltip also goes on the
-  associated input via a small helper, so hovering the field itself works too.
+- A shared `Field` component wraps label + input and carries the help as a native
+  `title` on the WRAPPER (the established pattern in this codebase), so hovering the
+  label or the input shows it; a `cursor-help` affordance with a subtle dotted underline
+  makes the help discoverable. Checkbox labels and aria-labeled inputs use the `help(key)`
+  accessor directly.
 - All existing screens and shared components (`Browser`, `Query`, `Path`, `Subgraph`,
-  `Analytics`, `Dashboard`, `Connect`, `SaveGames`, `Canvas`, `TypedLiteralEditor`,
-  stored-query controls, delegate editor inputs) adopt `FieldLabel`. No visual redesign —
-  same `.label` typography, plus the help affordance.
+  `Analytics`, `Dashboard`, `Connect`, `SaveGames`, `Canvas`, the app-shell instance
+  switcher, `TypedLiteralEditor`, stored-query controls, confirm dialog, NL-assist
+  inputs) adopt the help system. No visual redesign — same `.label` typography, plus the
+  help affordance.
 
 ## Non-goals
 

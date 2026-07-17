@@ -70,11 +70,35 @@ describe("tab structure", () => {
     const user = userEvent.setup();
     renderPanel();
     await user.type(screen.getByTestId("new-vertex-label"), "car");
+    await user.type(screen.getByTestId("new-vertex-date"), "120");
+    await user.click(screen.getByTestId("mv-add-property"));
+    await user.type(screen.getByTestId(/^mv-prop-\d+-id$/), "wheels");
     await user.click(screen.getByTestId("mutation-tab-edge"));
     expect(screen.getByTestId("mutation-form-edge")).toBeInTheDocument();
     expect(screen.queryByTestId("mutation-form-vertex")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("mutation-tab-vertex"));
     expect(screen.getByTestId("new-vertex-label")).toHaveValue("car");
+    expect(screen.getByTestId("new-vertex-date")).toHaveValue("120");
+    expect(screen.getByTestId(/^mv-prop-\d+-id$/)).toHaveValue("wheels");
+  });
+
+  it("clears the last action's outcome on tab switch — no stale message or foreign error", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    // Success message goes away when the user moves to another mutation type.
+    await user.click(screen.getByTestId("create-vertex"));
+    await waitFor(() => expect(screen.getByTestId("mutation-message")).toBeInTheDocument());
+    await user.click(screen.getByTestId("mutation-tab-remove"));
+    expect(screen.queryByTestId("mutation-message")).not.toBeInTheDocument();
+
+    // A failure on one tab never shows under another tab's form.
+    await user.click(screen.getByTestId("mutation-tab-vertex"));
+    createVertexMock.mockRejectedValue(new Error("rolled back"));
+    await user.click(screen.getByTestId("create-vertex"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("rolled back"));
+    await user.click(screen.getByTestId("mutation-tab-remove"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
@@ -86,7 +110,7 @@ describe("create vertex", () => {
     await user.type(screen.getByTestId("new-vertex-date"), "1970-01-01T00:02:00Z");
 
     await user.click(screen.getByTestId("mv-add-property"));
-    await user.type(screen.getByTestId("mv-prop-id"), "wheels");
+    await user.type(screen.getByTestId(/^mv-prop-\d+-id$/), "wheels");
     const [row] = screen.getAllByTestId(/mv-prop-\d+-value/);
     await user.selectOptions(screen.getByLabelText("value type"), "System.Int32");
     await user.type(row, "4");
@@ -137,7 +161,7 @@ describe("create vertex", () => {
     renderPanel();
     await user.click(screen.getByTestId("mv-add-property"));
     await user.click(screen.getByTestId("mv-add-property"));
-    const ids = screen.getAllByTestId("mv-prop-id");
+    const ids = screen.getAllByTestId(/^mv-prop-\d+-id$/);
     await user.type(ids[0], "age");
     await user.type(ids[1], "age");
     expect(screen.getByTestId("create-vertex")).toBeDisabled();
@@ -150,7 +174,7 @@ describe("create vertex", () => {
     renderPanel();
     await user.click(screen.getByTestId("mv-add-property"));
     expect(screen.getByTestId("create-vertex")).toBeDisabled();
-    await user.type(screen.getByTestId("mv-prop-id"), "age");
+    await user.type(screen.getByTestId(/^mv-prop-\d+-id$/), "age");
     expect(screen.getByTestId("create-vertex")).toBeEnabled();
     await user.selectOptions(screen.getByLabelText("value type"), "System.Int32");
     expect(screen.getByTestId("create-vertex")).toBeDisabled();
@@ -178,7 +202,7 @@ describe("create edge", () => {
     await user.type(screen.getByLabelText(/label \(optional\)/i), "friendship");
     await user.type(screen.getByLabelText(/creation date/i), "60");
     await user.click(screen.getByTestId("me-add-property"));
-    await user.type(screen.getByTestId("me-prop-id"), "since");
+    await user.type(screen.getByTestId(/^me-prop-\d+-id$/), "since");
     await user.type(screen.getByTestId(/me-prop-\d+-value/), "2020");
 
     await user.click(screen.getByTestId("create-edge"));
@@ -202,6 +226,16 @@ describe("create edge", () => {
     expect(screen.getByTestId("create-edge")).toBeDisabled();
     await user.type(screen.getByLabelText(/source vertex id/i), "1");
     await user.type(screen.getByLabelText(/target vertex id/i), "2.5");
+    await user.type(screen.getByLabelText(/edge property id/i), "knows");
+    expect(screen.getByTestId("create-edge")).toBeDisabled();
+  });
+
+  it("rejects endpoint ids beyond Int32 — the wire type of element ids", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByTestId("mutation-tab-edge"));
+    await user.type(screen.getByLabelText(/source vertex id/i), "3000000000");
+    await user.type(screen.getByLabelText(/target vertex id/i), "2");
     await user.type(screen.getByLabelText(/edge property id/i), "knows");
     expect(screen.getByTestId("create-edge")).toBeDisabled();
   });
@@ -249,5 +283,19 @@ describe("remove tab", () => {
     await user.click(screen.getByRole("button", { name: "Remove element" }));
     await waitFor(() => expect(removeElementMock).toHaveBeenCalledWith(expect.anything(), 13));
     expect(screen.getByTestId("mutation-message").textContent).toContain("#13 removed");
+  });
+
+  it("non-numeric element ids never reach the server (route would 400)", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByTestId("mutation-tab-remove"));
+    await user.type(screen.getByLabelText(/element id/i), "abc");
+    expect(screen.getByRole("button", { name: "Remove element" })).toBeDisabled();
+
+    await user.click(screen.getByTestId("mutation-tab-property"));
+    await user.type(screen.getByLabelText(/element id/i), "abc");
+    await user.type(screen.getByLabelText(/property id/i), "age");
+    expect(screen.getByRole("button", { name: "Set property" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove property" })).toBeDisabled();
   });
 });

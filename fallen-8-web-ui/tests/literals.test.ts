@@ -66,15 +66,24 @@ describe("parseCreationDate", () => {
     expect(parseCreationDate("4294967296").ok).toBe(false);
   });
 
-  it("ISO date/times convert to unix seconds", () => {
+  it("ISO date/times convert to unix seconds; offset-less input is UTC on every machine", () => {
     expect(parseCreationDate("1970-01-01T00:02:00Z")).toEqual({ ok: true, seconds: 120 });
+    // No offset given: treated as UTC, NOT browser-local time.
+    expect(parseCreationDate("1970-01-01T00:02:00")).toEqual({ ok: true, seconds: 120 });
+    expect(parseCreationDate("1970-01-02")).toEqual({ ok: true, seconds: 86400 });
+    // An explicit offset is honoured.
+    expect(parseCreationDate("1970-01-01T02:02:00+02:00")).toEqual({ ok: true, seconds: 120 });
     const result = parseCreationDate("2026-07-17T12:00:00Z");
     expect(result).toEqual({ ok: true, seconds: Date.UTC(2026, 6, 17, 12) / 1000 });
   });
 
-  it("rejects garbage, negatives, and pre-epoch dates", () => {
+  it("rejects garbage, negatives, decimals, non-ISO dates, and pre-epoch dates", () => {
     expect(parseCreationDate("not a date").ok).toBe(false);
     expect(parseCreationDate("-5").ok).toBe(false);
+    // Date.parse would happily read these as dates ("12.5" → Dec 5); we must not.
+    expect(parseCreationDate("12.5").ok).toBe(false);
+    expect(parseCreationDate("1713862800.5").ok).toBe(false);
+    expect(parseCreationDate("May 5 2026").ok).toBe(false);
     expect(parseCreationDate("1900-01-01T00:00:00Z").ok).toBe(false);
   });
 });

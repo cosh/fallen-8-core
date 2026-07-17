@@ -239,7 +239,7 @@ export function BrowserScreen() {
               <option value="edge">edge</option>
             </select>
           </Field>
-          <Field helpKey="lookupId" label="id" htmlFor="lookup-id">
+          <Field helpKey="elementId" label="id" htmlFor="lookup-id">
             <input
               id="lookup-id"
               data-testid="lookup-id"

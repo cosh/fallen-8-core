@@ -12,6 +12,7 @@ import type { SaveGame } from "../api/types";
 import { formatExact } from "../lib/format";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { help } from "../lib/fieldHelp";
 
 /**
  * Save games (feature save-games): the persistent checkpoint registry as a table, with
@@ -216,7 +217,8 @@ export function SaveGamesScreen() {
         confirmLabel="Delete save game"
         extra={
           <label
-            className="text-fg-dim flex items-center gap-2 text-[12px]"
+            className="text-fg-dim label-help flex items-center gap-2 text-[12px]"
+            title={help("saveGameDeleteFiles")}
             data-testid="delete-files-toggle"
           >
             <input

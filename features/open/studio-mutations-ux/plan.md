@@ -7,12 +7,13 @@ Phases; each leaves the build green (`npm run build`, `npm test` in `fallen-8-we
 - `src/lib/fieldHelp.ts`: the single home for field help copy. Typed
   `FIELD_HELP: Record<FieldHelpKey, string>` plus a `help(key)` accessor that fails the
   type-check on unknown keys.
-- `src/components/FieldLabel.tsx`: `<FieldLabel htmlFor helpKey>text</FieldLabel>` —
-  renders the existing `.label` styling plus `title` + `cursor-help` + dotted underline.
-  Exports `fieldTitle(helpKey)` for putting the same text on the input element.
+- `src/components/Field.tsx`: `<Field helpKey label htmlFor className>input…</Field>` —
+  wraps label + input, keeps the existing `.label` styling plus `cursor-help` + dotted
+  underline, and carries the `title` on the wrapper so hovering label OR input shows it.
+  `help(key)` covers checkbox labels and aria-labeled inputs.
 - `TypedLiteralEditor` gains an optional `helpKey` (defaults to the generic
-  `typedValue` explanation) and uses `FieldLabel`.
-- Unit test: dictionary has no empty/missing entries; `FieldLabel` renders `title`.
+  `typedValue` explanation) and uses `Field`.
+- Unit test: dictionary has no empty/missing entries; `Field` renders `title`.
 
 ## Phase 2 — tabbed, full-spectrum MutationsPanel
 
@@ -32,7 +33,8 @@ Phases; each leaves the build green (`npm run build`, `npm test` in `fallen-8-we
   QueryScreen (scan + index management), PathScreen, SubgraphScreen, AnalyticsScreen,
   DashboardScreen, ConnectScreen, SaveGamesScreen, CanvasScreen, StoredQueriesPanel,
   StoredQueryControls, DelegateEditor/DelegateSlot inputs.
-- Grep gate: no remaining `className="label"` outside `FieldLabel` itself.
+- Grep gate: no remaining `className="label"` anywhere in `src/` — every label renders
+  through `Field` (the `.label` class itself lives on in `Field` and section headings).
 
 ## Phase 4 — verify + council
 
@@ -44,7 +46,7 @@ Phases; each leaves the build green (`npm run build`, `npm test` in `fallen-8-we
 
 ## Status
 
-- [ ] Phase 1 — field-help foundation
-- [ ] Phase 2 — tabbed MutationsPanel
-- [ ] Phase 3 — portal-wide help sweep
+- [x] Phase 1 — field-help foundation
+- [x] Phase 2 — tabbed MutationsPanel
+- [x] Phase 3 — portal-wide help sweep
 - [ ] Phase 4 — verify + council
