@@ -49,4 +49,5 @@ Phases; each leaves the build green (`npm run build`, `npm test` in `fallen-8-we
 - [x] Phase 1 — field-help foundation
 - [x] Phase 2 — tabbed MutationsPanel
 - [x] Phase 3 — portal-wide help sweep
-- [ ] Phase 4 — verify + council
+- [x] Phase 4 — verify + council (3 reviewers: no blockers; all should-fixes applied on
+  the branch; 186 unit tests + 10 e2e scenarios against a live apiApp green)
