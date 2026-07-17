@@ -72,6 +72,39 @@ describe("generation prompt assembly", () => {
     expect(edgePrompt).not.toContain("GetAllNeighbors");
   });
 
+  it("steers built-in members away from TryGetProperty (nl-assist-ux FR-10)", () => {
+    const { system } = buildGenerationPrompt("GraphElementFilter", "x");
+    expect(system).toContain("Label and Id are BUILT-IN members");
+    expect(system).toMatch(/NEVER call TryGetProperty for "label" or "id"/);
+    // The guidance names the slot's own parameter.
+    expect(system).toContain('ge.Label == "person"');
+
+    // String-parameter kinds have no Label/Id members - no such guidance.
+    const stringPrompt = buildGenerationPrompt("EdgePropertyFilter", "x").system;
+    expect(stringPrompt).not.toContain("BUILT-IN members");
+  });
+
+  it("few-shots include the combined Label + property example for element kinds", () => {
+    for (const kind of ["VertexFilter", "EdgeFilter", "GraphElementFilter"] as const) {
+      const { system } = buildGenerationPrompt(kind, "x");
+      expect(system).toContain('.Label == "person" && ');
+    }
+  });
+
+  it("re-drafting lists prior drafts and asks for a distinct variant (nl-assist-ux FR-8)", () => {
+    const first = buildGenerationPrompt("VertexFilter", "small ids");
+    expect(first.user).not.toMatch(/do NOT repeat/i);
+
+    const redraft = buildGenerationPrompt("VertexFilter", "small ids", [
+      "return (v) => v.Id < 30;",
+    ]);
+    expect(redraft.user).toContain("return (v) => v.Id < 30;");
+    expect(redraft.user).toMatch(/do NOT repeat/i);
+    expect(redraft.user).toMatch(/different valid variant/i);
+    // The system half is unchanged — the variant request travels in the user turn.
+    expect(redraft.system).toBe(first.system);
+  });
+
   it("subgraph kinds carry the Algorithms using", () => {
     const { system } = buildGenerationPrompt("GraphElementFilter", "x");
     expect(system).toContain("NoSQL.GraphDB.Core.Algorithms");
@@ -113,5 +146,21 @@ describe("output handling (FR-26.6)", () => {
 
   it("leaves a clean fragment untouched", () => {
     expect(extractFragment("return (v) => true;")).toBe("return (v) => true;");
+  });
+
+  it("cuts trailing prose after the statement's semicolon (field example)", () => {
+    expect(
+      extractFragment(
+        'return (v) => v.Label == "person" && v.GetAge() > 30; (Note that GetAge is not listed above as a member of VertexModel.)',
+      ),
+    ).toBe('return (v) => v.Label == "person" && v.GetAge() > 30;');
+    // Leading and trailing prose combined.
+    expect(
+      extractFragment("Sure! Here you go:\nreturn (v) => true; Hope this helps."),
+    ).toBe("return (v) => true;");
+    // Semicolons inside string literals do not end the fragment.
+    expect(extractFragment('return (p) => p.Contains(";") && p.Length > 1; done')).toBe(
+      'return (p) => p.Contains(";") && p.Length > 1;',
+    );
   });
 });

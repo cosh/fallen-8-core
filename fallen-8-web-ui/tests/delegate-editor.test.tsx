@@ -37,14 +37,21 @@ vi.mock("../src/api/endpoints", () => ({
   validateDelegate: (...args: unknown[]) => validateMock(...args),
 }));
 
-const chatMock = vi.fn<(...args: unknown[]) => Promise<string>>();
+import type { NlChatResult } from "../src/delegate/nl/generate";
+
+const chatMock = vi.fn<(...args: unknown[]) => Promise<NlChatResult>>();
+const probeMock = vi.fn<() => Promise<boolean>>();
 vi.mock("../src/delegate/nl/generate", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/delegate/nl/generate")>();
   return {
     ...original,
     chatWithModel: (...args: unknown[]) => chatMock(...args),
+    probeEndpoint: () => probeMock(),
   };
 });
+
+/** Draft with no stats — the transport's shape when a provider reports nothing. */
+const draft = (content: string): NlChatResult => ({ content, stats: null });
 
 import { DelegateEditor } from "../src/delegate/DelegateEditor";
 import { useNlAssist, DEFAULT_NL_CONFIG } from "../src/delegate/nl/config";
@@ -89,6 +96,10 @@ function renderEditor(onCommit = vi.fn()) {
 beforeEach(() => {
   validateMock.mockReset();
   chatMock.mockReset();
+  probeMock.mockReset();
+  // Pending by default so the probe's state update can't fire outside act(); the status
+  // line then stays in its "checking…" state, which is all these tests assert on.
+  probeMock.mockReturnValue(new Promise<boolean>(() => {}));
   useNlAssist.setState({ config: DEFAULT_NL_CONFIG, leaveNoticeAccepted: false });
 });
 
@@ -150,8 +161,20 @@ describe("delegate editor gating (FR-25)", () => {
   });
 });
 
-describe("NL assist (FR-26 / nl-assist spec)", () => {
-  it("shows the disabled hint when no backend is configured", () => {
+describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
+  it("is usable with zero configuration — builtin default (nl-assist-ux FR-1)", () => {
+    renderEditor();
+    expect(screen.getByTestId("nl-intent")).toBeInTheDocument();
+    expect(screen.getByTestId("nl-generate")).toBeInTheDocument();
+    expect(screen.getByTestId("nl-backend-status")).toHaveTextContent("built-in");
+    expect(screen.queryByTestId("nl-disabled-hint")).not.toBeInTheDocument();
+  });
+
+  it("shows the disabled hint when custom mode has no endpoint (FR-26.8)", () => {
+    useNlAssist.setState({
+      config: { ...DEFAULT_NL_CONFIG, mode: "custom", endpoint: "" },
+      leaveNoticeAccepted: false,
+    });
     renderEditor();
     expect(screen.getByTestId("nl-disabled-hint")).toBeInTheDocument();
     expect(screen.queryByTestId("nl-generate")).not.toBeInTheDocument();
@@ -160,17 +183,12 @@ describe("NL assist (FR-26 / nl-assist spec)", () => {
   it("runs the invalid-then-valid refine loop, keeping both attempts visible", async () => {
     const user = userEvent.setup();
     useNlAssist.setState({
-      config: {
-        ...DEFAULT_NL_CONFIG,
-        endpoint: "http://localhost:11434",
-        model: "phi4-mini",
-        maxRetries: 2,
-      },
+      config: { ...DEFAULT_NL_CONFIG, maxRetries: 2 },
       leaveNoticeAccepted: false,
     });
     chatMock
-      .mockResolvedValueOnce("return (v) => v.Nope;")
-      .mockResolvedValueOnce('return (v) => v.Label == "person";');
+      .mockResolvedValueOnce(draft("return (v) => v.Nope;"))
+      .mockResolvedValueOnce(draft('return (v) => v.Label == "person";'));
     validateMock.mockImplementation((...args: unknown[]) => {
       const fragment = args[2] as string;
       return Promise.resolve(fragment.includes("Nope") ? INVALID : VALID);
@@ -199,9 +217,113 @@ describe("NL assist (FR-26 / nl-assist spec)", () => {
     );
   });
 
+  it("accumulates drafts across runs and restores a clicked one (nl-assist-ux FR-6/7)", async () => {
+    const user = userEvent.setup();
+    validateMock.mockResolvedValue(VALID);
+    chatMock
+      .mockResolvedValueOnce(draft("return (v) => v.Id < 30;"))
+      .mockResolvedValueOnce(draft('return (v) => v.Label == "person";'));
+
+    renderEditor();
+    await user.type(screen.getByTestId("nl-intent"), "small ids");
+    await user.click(screen.getByTestId("nl-generate"));
+    await waitFor(() =>
+      expect(screen.getByTestId("nl-attempts").querySelectorAll("li")).toHaveLength(1),
+    );
+
+    // Second run does NOT reset the history — numbering continues.
+    await user.click(screen.getByTestId("nl-generate"));
+    await waitFor(() =>
+      expect(screen.getByTestId("nl-attempts").querySelectorAll("li")).toHaveLength(2),
+    );
+    expect(screen.getByRole("button", { name: /draft 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /draft 2/ })).toBeInTheDocument();
+    expect(screen.getByTestId("mock-editor")).toHaveValue(
+      'return (v) => v.Label == "person";',
+    );
+
+    // Clicking a prior draft loads it back into the editor.
+    await user.click(screen.getByRole("button", { name: /draft 1/ }));
+    expect(screen.getByTestId("mock-editor")).toHaveValue("return (v) => v.Id < 30;");
+
+    // The re-draft of the same intent asked for a distinct variant (FR-8).
+    const secondRunMessages = chatMock.mock.calls[1][1] as { content: string }[];
+    expect(
+      secondRunMessages.some((m) => m.content.includes("return (v) => v.Id < 30;")),
+    ).toBe(true);
+
+    await user.click(screen.getByTestId("nl-clear-attempts"));
+    expect(screen.queryByTestId("nl-attempts")).not.toBeInTheDocument();
+  });
+
+  it("pretty-prints a long one-line draft before inserting it (nl-assist-ux FR-9)", async () => {
+    const user = userEvent.setup();
+    validateMock.mockResolvedValue(VALID);
+    chatMock.mockResolvedValueOnce(
+      draft(
+        'return (v) => v.Label == "person" && v.TryGetProperty(out int age, "age") && age > 30 && v.Id < 10;',
+      ),
+    );
+
+    renderEditor();
+    await user.type(screen.getByTestId("nl-intent"), "persons over 30 with small ids");
+    await user.click(screen.getByTestId("nl-generate"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("mock-editor")).toHaveValue(
+        [
+          "return (v) =>",
+          '    v.Label == "person"',
+          '    && v.TryGetProperty(out int age, "age")',
+          "    && age > 30",
+          "    && v.Id < 10;",
+        ].join("\n"),
+      ),
+    );
+    // The formatted text is what got validated, so markers line up with the editor.
+    expect(validateMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.stringContaining("return (v) =>\n"),
+      expect.anything(),
+    );
+  });
+
+  it("renders generation stats per attempt when the provider reports them (nl-assist-ux FR-5)", async () => {
+    const user = userEvent.setup();
+    validateMock.mockResolvedValue(VALID);
+    chatMock.mockResolvedValueOnce({
+      content: "return (v) => true;",
+      stats: {
+        promptTokens: 812,
+        completionTokens: 24,
+        durationMs: 3200,
+        tokensPerSecond: 8,
+        raw: { eval_count: 24, total_duration: 3_200_000_000 },
+      },
+    });
+
+    renderEditor();
+    await user.type(screen.getByTestId("nl-intent"), "anything");
+    await user.click(screen.getByTestId("nl-generate"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("nl-attempts")).toHaveTextContent("812→24 tok"),
+    );
+    expect(screen.getByTestId("nl-attempts")).toHaveTextContent("3.2s");
+    expect(screen.getByTestId("nl-attempts")).toHaveTextContent("8.0 tok/s");
+    expect(screen.getByText("raw stats")).toBeInTheDocument();
+    expect(screen.getByTestId("nl-attempts")).toHaveTextContent("eval_count");
+  });
+
   it("shows the leave-notice for non-loopback endpoints before the first send (FR-26.10)", () => {
     useNlAssist.setState({
-      config: { ...DEFAULT_NL_CONFIG, endpoint: "https://api.example.com", model: "m" },
+      config: {
+        ...DEFAULT_NL_CONFIG,
+        mode: "custom",
+        endpoint: "https://api.example.com",
+        model: "m",
+      },
       leaveNoticeAccepted: false,
     });
     renderEditor();
@@ -211,10 +333,14 @@ describe("NL assist (FR-26 / nl-assist spec)", () => {
 
   it("asks for no API key for the Ollama kind, only for openai-compatible (FR-26.12)", async () => {
     const user = userEvent.setup();
+    useNlAssist.setState({
+      config: { ...DEFAULT_NL_CONFIG, mode: "custom", endpoint: "http://localhost:11434" },
+      leaveNoticeAccepted: false,
+    });
     renderEditor();
     await user.click(screen.getByRole("button", { name: "configure" }));
 
-    // Default config is the Ollama kind (the default local phi4-mini setup): no key field.
+    // The Ollama kind (the default local phi4-mini setup) shows no key field.
     expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
     expect(screen.getByTestId("nl-no-key-hint")).toBeInTheDocument();
 
@@ -226,9 +352,30 @@ describe("NL assist (FR-26 / nl-assist spec)", () => {
     expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
   });
 
+  it("builtin config shows no endpoint fields; a preset prefills custom (nl-assist-ux FR-3)", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.click(screen.getByRole("button", { name: "configure" }));
+
+    // Builtin: nothing to configure.
+    expect(screen.getByTestId("nl-builtin-hint")).toBeInTheDocument();
+    expect(screen.queryByLabelText("endpoint")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("backend"), "custom");
+    await user.selectOptions(screen.getByLabelText("preset"), "OpenAI");
+    expect(screen.getByLabelText("endpoint")).toHaveValue("https://api.openai.com/v1");
+    expect(screen.getByLabelText("api")).toHaveValue("openai");
+    expect(useNlAssist.getState().config.model).toBe("gpt-4o-mini");
+  });
+
   it("shows no leave-notice for loopback endpoints", () => {
     useNlAssist.setState({
-      config: { ...DEFAULT_NL_CONFIG, endpoint: "http://localhost:11434", model: "m" },
+      config: {
+        ...DEFAULT_NL_CONFIG,
+        mode: "custom",
+        endpoint: "http://localhost:11434",
+        model: "m",
+      },
       leaveNoticeAccepted: false,
     });
     renderEditor();

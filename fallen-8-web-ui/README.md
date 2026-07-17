@@ -46,14 +46,19 @@ all-or-nothing: if an API key is configured the whole service (including these e
 needs it, and if not, the whole service is open. So the delegate editor works on a keyless
 instance as long as dynamic code is enabled.
 
-## NL assist (FR-26)
+## NL assist (FR-26 + nl-assist-ux)
 
-Configure under the delegate editor's "nl assist → configure": endpoint, API kind
-(`ollama` | `openai`-compatible), model. Recommended local setup (MIT-only, per the
-nl-assist spec): [Ollama](https://ollama.com) with `ollama run phi4-mini`, and
-`OLLAMA_ORIGINS` set to this app's origin so the browser may call it. Non-loopback
-endpoints show a "text leaves this machine" notice before the first send. Any model API
-key is sent only to the model endpoint, never to a Fallen-8 instance.
+Works out of the box: the default **built-in** backend is the stack `docker-compose.yml`
+ships (local [Ollama](https://ollama.com) on `:11434` with `phi4-mini` — MIT weights +
+MIT runtime, nothing bundled into F8). The panel shows a reachability status; without
+compose, install Ollama, `ollama pull phi4-mini`, and set `OLLAMA_ORIGINS` to this app's
+origin. Switching to **custom** under "nl assist → configure" exposes endpoint, API kind
+(`ollama` | `openai`-compatible), model, temperature, and presets (local Ollama, OpenAI,
+Anthropic) as prefills — hosted endpoints must send CORS headers and show a "text leaves
+this machine" notice before the first send. Any model API key is sent only to the model
+endpoint, never to a Fallen-8 instance. Drafts accumulate as a clickable history with
+per-call token/duration stats (raw provider payload expandable per attempt); re-drafting
+the same description asks the model for a distinct variant.
 
 ## Tests
 
