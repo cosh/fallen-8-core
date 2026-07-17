@@ -42,6 +42,20 @@ deterministic formatter (FR-9), but the example pins down two things for this pi
 the dataset must teach the built-in-vs-user-property distinction explicitly, and a
 compile-only metric cannot see this failure class at all — hence FT-8 below.
 
+A second session the same day (`GraphElementFilter`, intent *"only cars that have an id
+smaller than 1000 and an age greater than 10"*) produced a **structural** failure:
+
+```csharp
+return (ge) => ge.Id < 1000 && ((v) => v.TryGetProperty(out int age, "age"))(ge) && age > 10;
+```
+
+The model reconciled a `v`-spelled idiom with the slot's `ge` parameter by wrapping the
+idiom in an inline-invoked lambda — which does not compile and loses `age`'s scope. The
+prompt side now rewrites every example to the slot's parameter and states a single-lambda
+rule; for this pipeline it means the dataset must hold the shape invariant *per parameter
+name* (source (f) below), so the model never sees a fragment whose example parameter
+differs from its slot's.
+
 ## 2. Concepts (LoRA + model files, briefly)
 
 - **LoRA (Low-Rank Adaptation):** instead of updating all of a model's weights (expensive,
@@ -110,7 +124,11 @@ flowchart LR
   paired rows show `TryGetProperty` used *only* for user-defined properties — the exact
   confusion the base model exhibits; (e) **noisy intents**: a slice of rows carries
   realistic typos and grammar slips ("ppersons", "an with") mapping to the same clean
-  fragments, since real usage is typed free-hand. Target fragments are the canonical
+  fragments, since real usage is typed free-hand; (f) **shape invariance across parameter
+  names** (from the second field example above): every templated intent is emitted for
+  each delegate kind it fits, with the fragment spelled in that kind's own parameter
+  (`v`/`e`/`ge`/`p`), so the model learns the single-lambda shape holds regardless of the
+  parameter name and never bridges a mismatch with a nested or inline-invoked lambda. Target fragments are the canonical
   single-line form — pretty-printing is the UI's job (nl-assist-ux FR-9), not the
   model's. Every row is validated at generation time; the dataset is a build artifact,
   not committed weights.
