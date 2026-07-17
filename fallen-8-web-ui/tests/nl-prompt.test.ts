@@ -72,6 +72,20 @@ describe("generation prompt assembly", () => {
     expect(edgePrompt).not.toContain("GetAllNeighbors");
   });
 
+  it("re-drafting lists prior drafts and asks for a distinct variant (nl-assist-ux FR-8)", () => {
+    const first = buildGenerationPrompt("VertexFilter", "small ids");
+    expect(first.user).not.toMatch(/do NOT repeat/i);
+
+    const redraft = buildGenerationPrompt("VertexFilter", "small ids", [
+      "return (v) => v.Id < 30;",
+    ]);
+    expect(redraft.user).toContain("return (v) => v.Id < 30;");
+    expect(redraft.user).toMatch(/do NOT repeat/i);
+    expect(redraft.user).toMatch(/different valid variant/i);
+    // The system half is unchanged — the variant request travels in the user turn.
+    expect(redraft.system).toBe(first.system);
+  });
+
   it("subgraph kinds carry the Algorithms using", () => {
     const { system } = buildGenerationPrompt("GraphElementFilter", "x");
     expect(system).toContain("NoSQL.GraphDB.Core.Algorithms");

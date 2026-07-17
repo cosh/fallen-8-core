@@ -16,7 +16,11 @@ export interface NlPrompt {
   user: string;
 }
 
-export function buildGenerationPrompt(kind: DelegateKind, intent: string): NlPrompt {
+export function buildGenerationPrompt(
+  kind: DelegateKind,
+  intent: string,
+  priorDrafts: string[] = [],
+): NlPrompt {
   const info = KIND_INFO[kind];
 
   const members = membersForType(info.parameterType)
@@ -48,8 +52,19 @@ export function buildGenerationPrompt(kind: DelegateKind, intent: string): NlPro
     `Examples of valid fragments for this kind:\n\n${fewShot}`,
   ].join("\n\n");
 
-  // (f) intent
-  const user = `Write the ${kind} fragment for: ${intent}`;
+  // (f) intent; re-drafting the same intent lists prior drafts and asks for a distinct
+  // variant, so deterministic sampling doesn't return the same fragment again
+  // (nl-assist-ux FR-8).
+  const user = [
+    `Write the ${kind} fragment for: ${intent}`,
+    ...(priorDrafts.length > 0
+      ? [
+          `Already drafted for this request (do NOT repeat these):\n${priorDrafts
+            .map((draft) => `- ${draft}`)
+            .join("\n")}\nProduce a meaningfully different valid variant.`,
+        ]
+      : []),
+  ].join("\n\n");
 
   return { system, user };
 }

@@ -2,12 +2,19 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 /**
- * NL-assist model backend config (nl-assist spec FR-26.4). GLOBAL scope (not
- * per-instance). The key is stored locally and is only ever sent to the configured model
- * endpoint - never to a Fallen-8 instance (FR-26.11).
+ * NL-assist model backend config (nl-assist spec FR-26.4, nl-assist-ux spec §2). GLOBAL
+ * scope (not per-instance). The key is stored locally and is only ever sent to the
+ * configured model endpoint - never to a Fallen-8 instance (FR-26.11).
+ *
+ * Two backend modes (nl-assist-ux FR-1/FR-3): "builtin" pins the stack the project ships
+ * in docker-compose.yml (local Ollama + phi4-mini, zero configuration), "custom" uses the
+ * stored endpoint fields. Always resolve via effectiveNlConfig() before making calls.
  */
 
+export type NlBackendMode = "builtin" | "custom";
+
 export interface NlAssistConfig {
+  mode: NlBackendMode;
   endpoint: string;
   apiKind: "ollama" | "openai";
   model: string;
@@ -16,7 +23,15 @@ export interface NlAssistConfig {
   maxRetries: number;
 }
 
+/** The compose-shipped backend (docker-compose.yml `ollama` service) — not bundled in F8. */
+export const BUILTIN_NL_BACKEND = {
+  endpoint: "http://localhost:11434",
+  apiKind: "ollama",
+  model: "phi4-mini",
+} as const;
+
 export const DEFAULT_NL_CONFIG: NlAssistConfig = {
+  mode: "builtin",
   endpoint: "",
   apiKind: "ollama",
   model: "phi4-mini",
@@ -25,12 +40,39 @@ export const DEFAULT_NL_CONFIG: NlAssistConfig = {
   maxRetries: 2,
 };
 
+/** Convenience prefills for custom mode (nl-assist-ux FR-3) — not recommendations. */
+export interface NlPreset {
+  name: string;
+  endpoint: string;
+  apiKind: "ollama" | "openai";
+  model: string;
+}
+
+export const NL_PRESETS: NlPreset[] = [
+  { name: "Ollama (local)", endpoint: "http://localhost:11434", apiKind: "ollama", model: "phi4-mini" },
+  { name: "OpenAI", endpoint: "https://api.openai.com/v1", apiKind: "openai", model: "gpt-4o-mini" },
+  { name: "Anthropic", endpoint: "https://api.anthropic.com/v1", apiKind: "openai", model: "claude-opus-4-8" },
+];
+
 interface NlAssistState {
   config: NlAssistConfig;
   /** FR-26.10: non-loopback endpoints show the "text leaves this machine" notice once. */
   leaveNoticeAccepted: boolean;
   setConfig: (patch: Partial<NlAssistConfig>) => void;
   acceptLeaveNotice: () => void;
+}
+
+/**
+ * Persist migration (nl-assist-ux FR-4): pre-mode configs derive it from the stored
+ * endpoint — a user who had configured an endpoint keeps it (custom); everyone else
+ * lands on the zero-config builtin default.
+ */
+export function migrateNlState(persisted: unknown): Partial<NlAssistState> {
+  const state = (persisted ?? {}) as Partial<NlAssistState>;
+  const stored = (state.config ?? {}) as Partial<NlAssistConfig>;
+  const mode: NlBackendMode =
+    stored.mode ?? ((stored.endpoint ?? "").trim() !== "" ? "custom" : "builtin");
+  return { ...state, config: { ...DEFAULT_NL_CONFIG, ...stored, mode } };
 }
 
 export const useNlAssist = create<NlAssistState>()(
@@ -49,17 +91,33 @@ export const useNlAssist = create<NlAssistState>()(
         })),
       acceptLeaveNotice: () => set({ leaveNoticeAccepted: true }),
     }),
-    { name: "f8.nl-assist" },
+    {
+      name: "f8.nl-assist",
+      version: 1,
+      migrate: (persisted) => migrateNlState(persisted) as NlAssistState,
+    },
   ),
 );
 
-/** `enabled` is derived, not stored: no endpoint means no assist (FR-26.8). */
+/** The config to actually call with: builtin mode pins the compose-shipped backend. */
+export function effectiveNlConfig(config: NlAssistConfig): NlAssistConfig {
+  if (config.mode === "builtin") {
+    return { ...config, ...BUILTIN_NL_BACKEND, apiKey: undefined };
+  }
+  return config;
+}
+
+/**
+ * `enabled` is derived, not stored: builtin is always configured (nl-assist-ux FR-1);
+ * custom needs an endpoint and model (FR-26.8).
+ */
 export function isNlConfigured(config: NlAssistConfig): boolean {
+  if (config.mode === "builtin") return true;
   return config.endpoint.trim() !== "" && config.model.trim() !== "";
 }
 
 /**
- * FR-26.12: the native Ollama path (e.g. the default local phi4-mini setup) never
+ * FR-26.12: the native Ollama path (e.g. the builtin local phi4-mini setup) never
  * authenticates - the Ollama transport sends no Authorization header at all. Only
  * OpenAI-compatible custom endpoints can carry a key, so only they get the field.
  */
