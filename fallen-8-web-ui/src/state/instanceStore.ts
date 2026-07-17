@@ -1,6 +1,7 @@
 import { create, type UseBoundStore, type StoreApi } from "zustand";
 import { persist } from "zustand/middleware";
-import type { CanvasEdgeInput, PathREST, VertexREST } from "../api/types";
+import type { CanvasEdgeInput, PathREST, PropertyREST, VertexREST } from "../api/types";
+import { DEFAULT_STYLE_CONFIG, type StyleConfig } from "../canvas/styleConfig";
 
 /**
  * Per-instance workspace state (FR-1c), via a memoized store factory. Each instance id
@@ -9,9 +10,13 @@ import type { CanvasEdgeInput, PathREST, VertexREST } from "../api/types";
  * unrepresentable, not merely discouraged.
  */
 
+/** Scalar property snapshot for data-driven styling (studio-canvas-viz FR-11). */
+export type CanvasProps = Record<string, string | number | boolean>;
+
 export interface CanvasNode {
   id: number;
   label: string | null;
+  props?: CanvasProps;
 }
 
 export interface CanvasEdge {
@@ -20,6 +25,24 @@ export interface CanvasEdge {
   target: number;
   edgePropertyId: string | null;
   label: string | null;
+  props?: CanvasProps;
+}
+
+/** Longest property string kept on the canvas snapshot (FR-11: styling never needs more). */
+export const CANVAS_PROP_MAX_STRING = 200;
+
+/** Scalars only — arrays/objects (e.g. embeddings) are style-less and must not bloat local storage. */
+export function snapshotProps(properties: PropertyREST[] | null | undefined): CanvasProps {
+  const props: CanvasProps = {};
+  for (const p of properties ?? []) {
+    const v = p.propertyValue;
+    if (typeof v === "number" || typeof v === "boolean") {
+      props[p.propertyId] = v;
+    } else if (typeof v === "string") {
+      props[p.propertyId] = v.length > CANVAS_PROP_MAX_STRING ? v.slice(0, CANVAS_PROP_MAX_STRING) : v;
+    }
+  }
+  return props;
 }
 
 export interface ResultSet {
@@ -78,6 +101,7 @@ export interface SubgraphPrefill {
 export interface WorkspaceState {
   canvasNodes: Record<number, CanvasNode>;
   canvasEdges: Record<number, CanvasEdge>;
+  styleConfig: StyleConfig;
   pathOverlay: PathREST | null;
   resultSets: ResultSet[];
   pathDraft: PathDraft;
@@ -87,6 +111,7 @@ export interface WorkspaceState {
   mergeIntoCanvas: (vertices: VertexREST[], edges: CanvasEdgeInput[]) => void;
   removeFromCanvas: (kind: "node" | "edge", id: number) => void;
   clearCanvas: () => void;
+  setStyleConfig: (patch: Partial<StyleConfig>) => void;
   setPathOverlay: (path: PathREST | null) => void;
   addResultSet: (title: string, elementIds: number[]) => void;
   removeResultSet: (id: string) => void;
@@ -101,6 +126,7 @@ function createWorkspaceStore(instanceId: string) {
       (set) => ({
         canvasNodes: {},
         canvasEdges: {},
+        styleConfig: { ...DEFAULT_STYLE_CONFIG },
         pathOverlay: null,
         resultSets: [],
         pathDraft: { ...DEFAULT_PATH_DRAFT },
@@ -112,7 +138,11 @@ function createWorkspaceStore(instanceId: string) {
             const canvasNodes = { ...s.canvasNodes };
             const canvasEdges = { ...s.canvasEdges };
             for (const v of vertices) {
-              canvasNodes[v.id] = { id: v.id, label: v.label ?? null };
+              canvasNodes[v.id] = {
+                id: v.id,
+                label: v.label ?? null,
+                props: snapshotProps(v.properties),
+              };
             }
             for (const e of edges) {
               // An edge can only render when both endpoints are present; add stubs for
@@ -129,6 +159,7 @@ function createWorkspaceStore(instanceId: string) {
                 target: e.targetVertex,
                 edgePropertyId: e.edgePropertyId ?? null,
                 label: e.label ?? e.edgePropertyId ?? null,
+                props: snapshotProps(e.properties),
               };
             }
             return { canvasNodes, canvasEdges };
@@ -152,6 +183,9 @@ function createWorkspaceStore(instanceId: string) {
           }),
 
         clearCanvas: () => set({ canvasNodes: {}, canvasEdges: {}, pathOverlay: null }),
+
+        setStyleConfig: (patch) =>
+          set((s) => ({ styleConfig: { ...s.styleConfig, ...patch } })),
 
         setPathOverlay: (pathOverlay) => set({ pathOverlay }),
 
@@ -180,7 +214,7 @@ function createWorkspaceStore(instanceId: string) {
       }),
       {
         name: `f8.workspace.${instanceId}`,
-        // Deep-merge the path draft so drafts persisted before a field existed pick
+        // Deep-merge drafts/config so state persisted before a field existed picks
         // up its default instead of rehydrating as undefined.
         merge: (persisted, current) => {
           const p = (persisted ?? {}) as Partial<WorkspaceState>;
@@ -188,6 +222,7 @@ function createWorkspaceStore(instanceId: string) {
             ...current,
             ...p,
             pathDraft: { ...DEFAULT_PATH_DRAFT, ...(p.pathDraft ?? {}) },
+            styleConfig: { ...DEFAULT_STYLE_CONFIG, ...(p.styleConfig ?? {}) },
           };
         },
       },

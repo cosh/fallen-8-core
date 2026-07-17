@@ -27,5 +27,23 @@ export function colorForLabel(label: string | null | undefined): string {
   return LABEL_PALETTE[Math.abs(hash) % LABEL_PALETTE.length];
 }
 
+/** Property values color like labels: stringified, then stably hashed (FR-1/FR-2). */
+export function colorForValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return UNLABELED_COLOR;
+  return colorForLabel(String(value));
+}
+
+/** Two-color ramp for all-numeric properties (FR-1): min → cyan, max → pink. */
+export const GRADIENT_LOW = "#39c5cf";
+export const GRADIENT_HIGH = "#f778ba";
+
+export function gradientColor(t: number): string {
+  const clamped = Math.min(1, Math.max(0, t));
+  const lo = [0x39, 0xc5, 0xcf];
+  const hi = [0xf7, 0x78, 0xba];
+  const mix = lo.map((c, i) => Math.round(c + (hi[i] - c) * clamped));
+  return `#${mix.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+
 /** FR-20: past this rendered-element count the canvas degrades (drops labels) instead of freezing. */
 export const DEGRADE_THRESHOLD = 5_000;
