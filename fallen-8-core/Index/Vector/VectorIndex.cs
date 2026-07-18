@@ -457,6 +457,53 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             throw new CollisionException();
         }
 
+        /// <summary>
+        ///   Reconciles the index against live element state: removes every slot whose element is
+        ///   already marked removed. This is the create-time backstop for a BOUND index: an element
+        ///   removed during the lock-free, pre-registration <see cref="RebuildProjection"/> window
+        ///   escapes the engine's write-end purge (the index is not yet in the index map), so it can
+        ///   linger as a pinned tombstone. IndexFactory runs this once the index IS registered, so
+        ///   any removal after registration is already handled by the normal purge and this sweep is
+        ///   the backstop for the window. Idempotent and safe on any index - a fully-live index is a
+        ///   no-op. Takes the write lock, so it serialises with a concurrent RemoveValue.
+        /// </summary>
+        public void PurgeTombstones()
+        {
+            if (WriteResource())
+            {
+                try
+                {
+                    // Collect victims first (RemoveSlotOf swap-last mutates slot indices), exactly
+                    // as TryRemoveKey does.
+                    List<AGraphElementModel> victims = null;
+                    for (var slot = 0; slot < _count; slot++)
+                    {
+                        var element = _elements[slot];
+                        if (element != null && element._removed)
+                        {
+                            (victims ??= new List<AGraphElementModel>()).Add(element);
+                        }
+                    }
+
+                    if (victims != null)
+                    {
+                        foreach (var victim in victims)
+                        {
+                            RemoveSlotOf(victim);
+                        }
+                    }
+                }
+                finally
+                {
+                    FinishWriteResource();
+                }
+
+                return;
+            }
+
+            throw new CollisionException();
+        }
+
         public void Wipe()
         {
             if (WriteResource())

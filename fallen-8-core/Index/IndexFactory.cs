@@ -102,19 +102,36 @@ namespace NoSQL.GraphDB.Core.Index
 
                     if (WriteResource())
                     {
+                        var added = false;
                         try
                         {
                             if (!Indices.ContainsKey(indexName))
                             {
                                 Indices.Add(indexName, index);
-
-                                return true;
+                                added = true;
                             }
-                            _logger.LogError(String.Format("The index with name \"{0}\" already exists.", indexName));
+                            else
+                            {
+                                _logger.LogError(String.Format("The index with name \"{0}\" already exists.", indexName));
+                            }
                         }
                         finally
                         {
                             FinishWriteResource();
+                        }
+
+                        if (added)
+                        {
+                            // A bound vector index populates itself lock-free (RebuildProjection)
+                            // BEFORE it is registered above. An element removed in that window is
+                            // missed by the engine's write-end purge (the index was not yet in the
+                            // map) and would linger as a pinned tombstone. Now that the index IS
+                            // registered - so every subsequent removal's purge sees it - sweep any
+                            // tombstone the window left. Run OUTSIDE the factory lock (the sweep is
+                            // O(elements)); it takes the index's own write lock, serialising with a
+                            // concurrent RemoveValue. Non-vector indices need no sweep.
+                            (index as Vector.VectorIndex)?.PurgeTombstones();
+                            return true;
                         }
                     }
                 }

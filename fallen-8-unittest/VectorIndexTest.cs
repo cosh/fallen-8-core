@@ -708,6 +708,43 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void PurgeTombstones_ReclaimsElementsRemovedWhileTheIndexWasUnobserved()
+        {
+            // Reproduces the bound-index create-time window deterministically: an element removed
+            // while the index is NOT yet registered escapes the engine's write-end purge and lingers
+            // as a pinned tombstone. Here the index is created directly (never added to the factory),
+            // so the engine's purge never reaches it - exactly that window. PurgeTombstones, run once
+            // the index is registered, must reclaim the slot.
+            var a = Vertex();
+            var b = Vertex();
+            var c = Vertex();
+
+            var index = new VectorIndex();
+            index.Initialize(_fallen8, new Dictionary<string, object> { { "dimension", 2 }, { "metric", "L2" } });
+            index.AddOrUpdate(new[] { 1f, 0f }, a);
+            index.AddOrUpdate(new[] { 2f, 0f }, b);
+            index.AddOrUpdate(new[] { 3f, 0f }, c);
+            Assert.AreEqual(3, index.CountOfKeys());
+
+            // Remove b through the engine: the shared model is marked removed, but this unregistered
+            // index is invisible to the write-end purge, so its slot lingers as a tombstone.
+            _fallen8.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = b.Id })
+                .WaitUntilFinished();
+            Assert.AreEqual(3, index.CountOfKeys(), "the unregistered index missed the purge - tombstone lingers");
+            CollectionAssert.DoesNotContain(Knn(index, new[] { 0f, 0f }, 10).Select(h => h.Id).ToList(), b.Id,
+                "kNN already hides the tombstone (read-end defense)");
+
+            index.PurgeTombstones();
+
+            Assert.AreEqual(2, index.CountOfKeys(), "PurgeTombstones reclaims the tombstone slot");
+            Assert.IsTrue(index.TryGetValue(out var stillA, new[] { 1f, 0f }));
+            Assert.AreEqual(a.Id, stillA.Single().Id);
+            Assert.IsTrue(index.TryGetValue(out var stillC, new[] { 3f, 0f }));
+            Assert.AreEqual(c.Id, stillC.Single().Id);
+            Assert.IsFalse(index.TryGetValue(out _, new[] { 2f, 0f }), "the tombstoned vector is gone");
+        }
+
+        [TestMethod]
         public void VectorIndexScan_TheEngineReadHelper_ResolvesAndDelegates()
         {
             var index = CreateIndex("emb", 2, "L2");
