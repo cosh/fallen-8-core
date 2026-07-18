@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import {
   createSubGraph,
   deleteSubGraph,
@@ -29,7 +29,7 @@ import {
 } from "../components/StoredQueryControls";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
-import { getInstanceStore, type FilterSource } from "../state/instanceStore";
+import { type FilterSource } from "../state/instanceStore";
 
 /**
  * Subgraph studio (FR-15/16/17): lifecycle + pattern builder. The builder enforces the
@@ -90,8 +90,7 @@ function describeCreateError(error: unknown): { title: string; body: string } {
 }
 
 export function SubgraphScreen() {
-  const instance = useActiveInstance()!;
-  const store = getInstanceStore(instance.id);
+  const { instance, store } = useInstanceStore();
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
   const queryClient = useQueryClient();
   const navigate = useNavigate();

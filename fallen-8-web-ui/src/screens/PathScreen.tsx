@@ -1,12 +1,10 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import { findPaths, getGraphElement } from "../api/endpoints";
 import { ApiError } from "../api/client";
-import type { PathREST, VertexREST } from "../api/types";
-import { getInstanceStore } from "../state/instanceStore";
-import {
+import type { PathREST, VertexREST } from "../api/types";import {
   buildPathSpecification,
   hasAnyPathFragment,
   pathBlockFromDraft,
@@ -37,8 +35,7 @@ import { Field } from "../components/Field";
  * source toggle keeps the two mutually exclusive (concept spec §5.1).
  */
 export function PathScreen() {
-  const instance = useActiveInstance()!;
-  const store = getInstanceStore(instance.id);
+  const { instance, store } = useInstanceStore();
   const draft = store((s) => s.pathDraft);
   const setDraft = store((s) => s.setPathDraft);
   const setPathOverlay = store((s) => s.setPathOverlay);

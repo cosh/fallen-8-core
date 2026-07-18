@@ -175,6 +175,45 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task DeclarativeMinScore_UnderL2_IsADistanceCeiling_FiltersThePath()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: false);
+            var (a, b, c, d) = Diamond(EngineOf(factory));
+            using var client = factory.CreateClient();
+
+            // Under L2, minScore is a DISTANCE ceiling (lower-is-better): the orthogonal c is far
+            // from [1,0] (dist ~1.41), the b-route vertices are near (<= ~0.28), so a ceiling of 0.5
+            // keeps the b route and drops the c route. Exercises the L2 (lower-is-better) minScore
+            // branch that the Cosine tests never reach.
+            using var filtered = await PostJson(client, $"/path/{a}/to/{d}",
+                "{ \"semantic\": { \"queryVector\": [1, 0], \"metric\": \"L2\", \"minScore\": 0.5 } }");
+            Assert.AreEqual(HttpStatusCode.OK, filtered.StatusCode, await filtered.Content.ReadAsStringAsync());
+            var paths = await ReadJson(filtered);
+            Assert.AreEqual(1, paths.GetArrayLength(), "the far (orthogonal) route must be filtered under L2");
+            CollectionAssert.AreEqual(new List<int> { a, b, d }, FirstPathVertexIds(paths));
+        }
+
+        [TestMethod]
+        public async Task DeclarativeCostBySimilarity_UnderL2_PrefersTheCloserRoute()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: false);
+            var (a, b, c, d) = Diamond(EngineOf(factory));
+            using var client = factory.CreateClient();
+
+            // Under L2 the vertex cost is the raw distance (lower-is-better): the b route is
+            // metrically nearer to [1,0] than the orthogonal c route, so DIJKSTRA picks it.
+            // Exercises the L2 branch of the cost mapping (SemanticTraversalHelper's non-Cosine cost).
+            using var response = await PostJson(client, $"/path/{a}/to/{d}",
+                "{ \"pathAlgorithmName\": \"DIJKSTRA\", \"maxResults\": 1, " +
+                "  \"semantic\": { \"queryVector\": [1, 0], \"metric\": \"L2\", \"costBySimilarity\": true } }");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+            var paths = await ReadJson(response);
+            Assert.AreEqual(1, paths.GetArrayLength());
+            CollectionAssert.AreEqual(new List<int> { a, b, d }, FirstPathVertexIds(paths),
+                "the metrically closer b route must win under L2 cost-by-similarity");
+        }
+
+        [TestMethod]
         public async Task DeclarativeSemantic_400Table()
         {
             using var factory = new SemanticFactory(enableDynamicCode: false);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useActiveInstance } from "../instances/registry";
+import { useActiveInstance, useInstanceStore } from "../instances/registry";
 import {
   deleteElementEmbedding,
   embedElement,
@@ -26,9 +26,7 @@ import { ElementTable } from "../components/ElementTable";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
-import { MutationsPanel } from "../components/MutationsPanel";
-import { getInstanceStore } from "../state/instanceStore";
-import {
+import { MutationsPanel } from "../components/MutationsPanel";import {
   embeddingProvider,
   useGraphShape,
   EMBEDDING_PROPERTY_PREFIX as EMBEDDING_PREFIX,
@@ -469,8 +467,7 @@ function ElementDetail({
 }
 
 export function BrowserScreen() {
-  const instance = useActiveInstance()!;
-  const store = getInstanceStore(instance.id);
+  const { instance, store } = useInstanceStore();
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
   const [idInput, setIdInput] = useState("");
   const [lookupKind, setLookupKind] = useState<"graphelement" | "vertex" | "edge">(
