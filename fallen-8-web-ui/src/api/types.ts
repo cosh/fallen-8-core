@@ -1,9 +1,9 @@
 /**
  * REST DTO shapes, mirroring features/done/web-ui/openapi-v0.1.json (camelCase on the wire).
- * The contract test (tests/api-contract.test.ts) asserts every route used by the client
- * exists in that OpenAPI snapshot with the method we call it with, so drift between these
- * hand-maintained shapes and the server surfaces loudly. Regenerate machine types with
- * `npm run gen:api` when the snapshot changes.
+ * This hand-curated file is the intentional client contract. The contract test
+ * (tests/api-contract.test.ts) asserts every route used by the client exists in that OpenAPI
+ * snapshot with the method we call it with, so route/method drift between these shapes and the
+ * server surfaces loudly.
  */
 
 /** A registered index: id + plugin type (on /status and in save-game KPIs). */

@@ -516,6 +516,50 @@ namespace NoSQL.GraphDB.Core.Model
         }
 
         /// <summary>
+        ///   Sets <paramref name="propertyId" /> to exactly <paramref name="property" />, replacing any
+        ///   existing value in a SINGLE copy-on-write allocation. This is the "set to exactly this
+        ///   value" primitive: unlike <see cref="RemoveProperty" /> + <see cref="SetProperty" /> (two
+        ///   reallocations on the replace path) it never hits SetProperty's same-key conflict throw.
+        ///   The first-property and sorted-insert paths are identical to <see cref="SetProperty" />, so
+        ///   ordinal key order, the canonicalized stored value and the lock-free single-publish
+        ///   discipline are unchanged; only the replace path is cheaper.
+        /// </summary>
+        internal void ReplaceOrAddProperty(String propertyId, object property)
+        {
+            property = Canonicalize(property);
+            var store = _properties;
+
+            if (store == null)
+            {
+                _properties = new[] { new KeyValuePair<String, Object>(propertyId, property) };
+            }
+            else
+            {
+                int idx = IndexOfKey(store, propertyId);
+                if (idx >= 0)
+                {
+                    // Key present: replace the value in one copy (never mutate the live array).
+                    var next = new KeyValuePair<String, Object>[store.Length];
+                    Array.Copy(store, next, store.Length);
+                    next[idx] = new KeyValuePair<String, Object>(propertyId, property);
+                    _properties = next;
+                }
+                else
+                {
+                    // Insert at the sorted position, copy-on-write - identical to SetProperty.
+                    int insert = ~idx;
+                    var next = new KeyValuePair<String, Object>[store.Length + 1];
+                    Array.Copy(store, 0, next, 0, insert);
+                    next[insert] = new KeyValuePair<String, Object>(propertyId, property);
+                    Array.Copy(store, insert, next, insert + 1, store.Length - insert);
+                    _properties = next;
+                }
+            }
+
+            ModificationDate = DateHelper.GetModificationDate(CreationDate);
+        }
+
+        /// <summary>
         ///   Tries to remove a property.
         /// </summary>
         /// <returns> <c>true</c> if the property was removed; otherwise, <c>false</c> if there was no such property. </returns>
@@ -622,18 +666,24 @@ namespace NoSQL.GraphDB.Core.Model
         }
 
         /// <summary>
-        ///   Restores a property to its pre-transaction state as part of a rolled-back batch
-        ///   (feature transaction-atomicity): drops whatever value the batch set (if any) and, when
-        ///   the key existed before the batch, re-adds its prior value. Implemented via
-        ///   <see cref="RemoveProperty" /> + <see cref="SetProperty" /> so the re-add never hits the
-        ///   conflict throw (the key is absent after the remove).
+        ///   Sets the property to exactly a target state - the "set to this state" primitive used both
+        ///   as the embedding write (<see cref="Fallen8.SetEmbeddings_internal" />) and to restore a
+        ///   property when a batch is rolled back (feature transaction-atomicity). When
+        ///   <paramref name="hadValueBefore" /> is <c>true</c> the key ends holding
+        ///   <paramref name="priorValue" /> (added or replaced); otherwise the key is dropped. Routed
+        ///   through <see cref="ReplaceOrAddProperty" /> so the replace path costs one copy, never hits
+        ///   the same-key conflict throw, and leaves final store contents, ordinal key order and
+        ///   ModificationDate identical to the former remove-then-set implementation.
         /// </summary>
         internal void RestoreProperty(String propertyId, Boolean hadValueBefore, Object priorValue)
         {
-            RemoveProperty(propertyId);
             if (hadValueBefore)
             {
-                SetProperty(propertyId, priorValue);
+                ReplaceOrAddProperty(propertyId, priorValue);
+            }
+            else
+            {
+                RemoveProperty(propertyId);
             }
         }
 

@@ -80,6 +80,22 @@ namespace NoSQL.GraphDB.App.Controllers
                 : ProblemResults.Create(StatusCodes.Status502BadGateway, "Embedding backend produced invalid output", ex.Message);
         }
 
+        /// <summary>Runs the provider embed call, mapping its two fault types to a problem result via
+        /// <see cref="ProviderProblem"/> (the single home for that mapping). Returns the vectors with a
+        /// null error on success, or null vectors and the problem result on a provider fault.</summary>
+        private async Task<(Single[][] vectors, ActionResult error)> TryEmbedAsync(
+            IReadOnlyList<String> texts, CancellationToken cancellationToken)
+        {
+            try
+            {
+                return (await _provider.EmbedAsync(texts, cancellationToken), null);
+            }
+            catch (Exception ex) when (ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)
+            {
+                return (null, ProviderProblem(ex));
+            }
+        }
+
         private String ValidateText(String text, out ActionResult error)
         {
             error = null;
@@ -196,14 +212,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 return contractError;
             }
 
-            Single[][] vectors;
-            try
+            var (vectors, embedError) = await TryEmbedAsync(new[] { definition.Text }, cancellationToken);
+            if (embedError != null)
             {
-                vectors = await _provider.EmbedAsync(new[] { definition.Text }, cancellationToken);
-            }
-            catch (Exception ex) when (ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)
-            {
-                return ProviderProblem(ex);
+                return embedError;
             }
 
             var tx = new SetEmbeddingsTransaction()
@@ -292,14 +304,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 return contractError;
             }
 
-            Single[][] vectors;
-            try
+            var (vectors, embedError) = await TryEmbedAsync(definition.Items.Select(i => i.Text).ToList(), cancellationToken);
+            if (embedError != null)
             {
-                vectors = await _provider.EmbedAsync(definition.Items.Select(i => i.Text).ToList(), cancellationToken);
-            }
-            catch (Exception ex) when (ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)
-            {
-                return ProviderProblem(ex);
+                return embedError;
             }
 
             var tx = new SetEmbeddingsTransaction();
@@ -391,36 +399,16 @@ namespace NoSQL.GraphDB.App.Controllers
                     definition.IndexId, vectorIndex.Model, _provider.Identity.Stamp));
             }
 
-            VectorSearchConstraint constraint = null;
-            if (!String.IsNullOrEmpty(definition.Kind) || definition.Label != null)
+            if (!NoSQL.GraphDB.App.Helper.VectorSearchConstraintBuilder.TryBuild(
+                    definition.Kind, definition.Label, out var constraint, out var constraintError))
             {
-                constraint = new VectorSearchConstraint { Label = definition.Label };
-                switch (definition.Kind)
-                {
-                    case null:
-                    case "":
-                    case "any":
-                        constraint.Kind = VectorSearchElementKind.Any;
-                        break;
-                    case "vertex":
-                        constraint.Kind = VectorSearchElementKind.Vertex;
-                        break;
-                    case "edge":
-                        constraint.Kind = VectorSearchElementKind.Edge;
-                        break;
-                    default:
-                        return BadRequest(String.Format("'{0}' is not a valid kind. Expected vertex, edge or any.", definition.Kind));
-                }
+                return BadRequest(constraintError);
             }
 
-            Single[][] vectors;
-            try
+            var (vectors, embedError) = await TryEmbedAsync(new[] { _provider.ApplyQueryPrefix(definition.Text) }, cancellationToken);
+            if (embedError != null)
             {
-                vectors = await _provider.EmbedAsync(new[] { _provider.ApplyQueryPrefix(definition.Text) }, cancellationToken);
-            }
-            catch (Exception ex) when (ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)
-            {
-                return ProviderProblem(ex);
+                return embedError;
             }
 
             if (!vectorIndex.TryNearestNeighbors(out var result, vectors[0], definition.K, constraint))
@@ -493,14 +481,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             }
 
-            Single[][] vectors;
-            try
+            var (vectors, embedError) = await TryEmbedAsync(definition.Texts, cancellationToken);
+            if (embedError != null)
             {
-                vectors = await _provider.EmbedAsync(definition.Texts, cancellationToken);
-            }
-            catch (Exception ex) when (ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)
-            {
-                return ProviderProblem(ex);
+                return embedError;
             }
 
             return Ok(new EmbeddingVectorsREST

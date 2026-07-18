@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useActiveInstance } from "../instances/registry";
+import { useActiveInstance, useInstanceStore } from "../instances/registry";
 import { embeddingProvider, shapeSuggestions, useGraphShape } from "../state/graphShape";
 import { useStatus } from "../state/status";
 import {
@@ -31,8 +31,6 @@ import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 import { ElementTable } from "../components/ElementTable";
 import { ErrorBox } from "../components/ErrorBox";
-import { getInstanceStore } from "../state/instanceStore";
-
 /**
  * Query workspace (FR-8/9/10/11): the scan types with typed literals, id-list
  * hydration with progress, open-as-table + send-to-canvas, and index management.
@@ -50,8 +48,7 @@ const OPERATORS = Object.keys(BINARY_OPERATORS) as BinaryOperatorName[];
 const RESULT_TYPES = ["Vertices", "Edges", "Both"] as const;
 
 export function QueryScreen() {
-  const instance = useActiveInstance()!;
-  const store = getInstanceStore(instance.id);
+  const { instance, store } = useInstanceStore();
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
   const addResultSet = store((s) => s.addResultSet);
 

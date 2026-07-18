@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import { shapeSuggestions, useGraphShape } from "../state/graphShape";
-import { getInstanceStore } from "../state/instanceStore";
 import {
   getPartitionMembers,
   listAnalyticsAlgorithms,
@@ -132,8 +131,7 @@ function describeRunError(error: unknown): string | null {
 }
 
 function AnalyticsRunner() {
-  const instance = useActiveInstance()!;
-  const store = getInstanceStore(instance.id);
+  const { instance, store } = useInstanceStore();
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
   const addResultSet = store((s) => s.addResultSet);
   const suggestions = shapeSuggestions(useGraphShape(instance).data);
@@ -613,9 +611,8 @@ function AnalyticsRunner() {
 }
 
 function GraphShapePanel() {
-  const instance = useActiveInstance()!;
+  const { instance, store } = useInstanceStore();
   const shape = useGraphShape(instance);
-  const store = getInstanceStore(instance.id);
   const setScanPrefill = store((s) => s.setScanPrefill);
   const navigate = useNavigate();
   const data = shape.data;

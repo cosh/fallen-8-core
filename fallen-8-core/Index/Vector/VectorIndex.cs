@@ -204,7 +204,7 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                     continue;
                 }
 
-                AddOrUpdateCore(vector.ToArray(), element);
+                AddOrUpdateCore(vector, element);
             }
 
             if (skipped > 0)
@@ -315,8 +315,10 @@ namespace NoSQL.GraphDB.Core.Index.Vector
         }
 
         /// <summary>Insert/replace without locking - the caller holds the write lock or has
-        /// exclusive access (Initialize/Load rebuild of an unpublished or lock-held index).</summary>
-        private void AddOrUpdateCore(float[] vector, AGraphElementModel graphElement)
+        /// exclusive access (Initialize/Load rebuild of an unpublished or lock-held index). Takes a
+        /// span so the projection rebuild can hand its embedding slice straight through with no
+        /// throwaway array copy.</summary>
+        private void AddOrUpdateCore(ReadOnlySpan<Single> vector, AGraphElementModel graphElement)
         {
             // Close the purge/re-add race: an element tombstoned by a committed removal
             // must never (re-)enter a slot, or it would be pinned forever (the engine's
@@ -332,7 +334,7 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             if (_slotByElement.TryGetValue(graphElement, out var existingSlot))
             {
                 // One vector per element: add-again replaces in place.
-                Array.Copy(vector, 0, _vectors, existingSlot * Dimension, Dimension);
+                vector.CopyTo(_vectors.AsSpan(existingSlot * Dimension, Dimension));
                 return;
             }
 
@@ -352,7 +354,7 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                 Array.Resize(ref _elements, newCapacity);
             }
 
-            Array.Copy(vector, 0, _vectors, _count * Dimension, Dimension);
+            vector.CopyTo(_vectors.AsSpan(_count * Dimension, Dimension));
             _elements[_count] = graphElement;
             _slotByElement[graphElement] = _count;
             _count++;
@@ -401,6 +403,20 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             _elements[last] = null;
             _slotByElement.Remove(graphElement);
             _count = last;
+
+            // Reclaim slab/element memory once the live set falls well below capacity (feature
+            // memory-footprint): the arrays otherwise stay pinned at their high-water mark after
+            // removals/purges. Hysteresis (shrink to 2x the live count, never below the 16-slot floor
+            // a fresh index starts with) avoids churn; the Int64 guard/target keep an extreme count at
+            // small Dimension from overflowing. Live elements occupy slots [0.._count) and a shrinking
+            // Array.Resize preserves exactly those, so slot indices and _slotByElement stay valid -
+            // safe to run per victim inside TryRemoveKey's loop (the slot is re-looked-up each time).
+            if (_elements.Length > 16 && (Int64)_count * 4 < _elements.Length)
+            {
+                var newCapacity = (Int32)Math.Max(16L, (Int64)_count * 2);
+                Array.Resize(ref _vectors, newCapacity * Dimension);
+                Array.Resize(ref _elements, newCapacity);
+            }
         }
 
         public Boolean TryRemoveKey(Object key)
@@ -441,14 +457,63 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             throw new CollisionException();
         }
 
+        /// <summary>
+        ///   Reconciles the index against live element state: removes every slot whose element is
+        ///   already marked removed. This is the create-time backstop for a BOUND index: an element
+        ///   removed during the lock-free, pre-registration <see cref="RebuildProjection"/> window
+        ///   escapes the engine's write-end purge (the index is not yet in the index map), so it can
+        ///   linger as a pinned tombstone. IndexFactory runs this once the index IS registered, so
+        ///   any removal after registration is already handled by the normal purge and this sweep is
+        ///   the backstop for the window. Idempotent and safe on any index - a fully-live index is a
+        ///   no-op. Takes the write lock, so it serialises with a concurrent RemoveValue.
+        /// </summary>
+        public void PurgeTombstones()
+        {
+            if (WriteResource())
+            {
+                try
+                {
+                    // Collect victims first (RemoveSlotOf swap-last mutates slot indices), exactly
+                    // as TryRemoveKey does.
+                    List<AGraphElementModel> victims = null;
+                    for (var slot = 0; slot < _count; slot++)
+                    {
+                        var element = _elements[slot];
+                        if (element != null && element._removed)
+                        {
+                            (victims ??= new List<AGraphElementModel>()).Add(element);
+                        }
+                    }
+
+                    if (victims != null)
+                    {
+                        foreach (var victim in victims)
+                        {
+                            RemoveSlotOf(victim);
+                        }
+                    }
+                }
+                finally
+                {
+                    FinishWriteResource();
+                }
+
+                return;
+            }
+
+            throw new CollisionException();
+        }
+
         public void Wipe()
         {
             if (WriteResource())
             {
                 try
                 {
-                    Array.Clear(_vectors, 0, _count * Dimension);
-                    Array.Clear(_elements, 0, _count);
+                    // Release the high-water-mark slab rather than just clearing it (feature
+                    // memory-footprint): reset to the 16-slot arrays a fresh index starts with.
+                    _vectors = new float[Dimension * 16];
+                    _elements = new AGraphElementModel[16];
                     _slotByElement.Clear();
                     _count = 0;
                 }
@@ -793,10 +858,14 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                     }
 
                     writer.Write(_count);
+                    // Reuse one scratch row across slots instead of allocating a float[] per slot
+                    // (writer.Write serializes it synchronously, so the buffer is free to reuse).
+                    var scratch = new float[Dimension];
                     for (var slot = 0; slot < _count; slot++)
                     {
                         writer.Write(_elements[slot].Id);
-                        writer.Write(CopySlot(slot));
+                        Array.Copy(_vectors, slot * Dimension, scratch, 0, Dimension);
+                        writer.Write(scratch);
                     }
                 }
                 finally
@@ -883,8 +952,18 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                             "Invalid persisted vector index entry count: {0}.", persistedCount));
                     }
 
-                    _vectors = new float[Math.Max(16, persistedCount) * dimension];
-                    _elements = new AGraphElementModel[Math.Max(16, persistedCount)];
+                    var loadCapacity = Math.Max(16, persistedCount);
+                    // Guard the slab allocation against an untrusted count exactly as the grow path
+                    // does (AddOrUpdateCore): an overflowing capacity*dimension is a corrupt sidecar,
+                    // reported like the other corrupt-count cases rather than silently wrapping Int32.
+                    if ((Int64)loadCapacity * dimension > Int32.MaxValue)
+                    {
+                        _logger?.LogError("A persisted vector index declares a slab ({Count} x {Dimension}) larger than an array can hold; the index is skipped.", persistedCount, dimension);
+                        throw new System.IO.InvalidDataException(String.Format(
+                            "Persisted vector index slab {0} x {1} exceeds the maximum array length.", persistedCount, dimension));
+                    }
+                    _vectors = new float[loadCapacity * dimension];
+                    _elements = new AGraphElementModel[loadCapacity];
                     _slotByElement = new Dictionary<AGraphElementModel, Int32>(persistedCount);
                     _count = 0;
 

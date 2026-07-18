@@ -73,10 +73,10 @@ namespace NoSQL.GraphDB.Tests
             var fallen8 = CreatePeopleGraph();
             fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxSubGraphCount = 1 };
 
-            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out _, "first", AllPersons("first")), "first create is within the limit");
 
-            var second = fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            var second = fallen8.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out var secondResult, "second", AllPersons("second"));
 
             Assert.IsFalse(second, "second create exceeds MaxSubGraphCount");
@@ -92,7 +92,7 @@ namespace NoSQL.GraphDB.Tests
             // The subgraph would have 3 person vertices; cap it at 2.
             fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxElementsPerSubGraph = 2 };
 
-            var created = fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            var created = fallen8.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out var result, "big", AllPersons("big"));
 
             Assert.IsFalse(created, "a 3-element subgraph exceeds the per-subgraph limit of 2");
@@ -107,7 +107,7 @@ namespace NoSQL.GraphDB.Tests
             var fallen8 = CreatePeopleGraph();
             fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxElementsPerSubGraph = 3 };
 
-            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out var result, "exact", AllPersons("exact")), "3 elements is within a limit of 3");
             Assert.AreEqual(3, result.SubGraph.VertexCount);
         }
@@ -120,9 +120,9 @@ namespace NoSQL.GraphDB.Tests
             // (3) fits, the second (would make 6) is rejected.
             fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxTotalElements = 5 };
 
-            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out _, "a", AllPersons("a")));
-            Assert.IsFalse(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsFalse(fallen8.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out var b, "b", AllPersons("b")), "second subgraph would exceed the total element limit");
             Assert.IsNull(b);
             Assert.AreEqual(1, fallen8.SubGraphFactory.SubGraphCount);
@@ -137,7 +137,7 @@ namespace NoSQL.GraphDB.Tests
             // subgraphs - is unaffected by the ceiling.
             for (int i = 0; i < 10; i++)
             {
-                Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+                Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                     out _, "sg" + i, AllPersons("sg" + i)), "generous default does not block ordinary use");
             }
 

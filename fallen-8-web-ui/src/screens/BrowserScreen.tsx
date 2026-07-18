@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useActiveInstance } from "../instances/registry";
+import { useActiveInstance, useInstanceStore } from "../instances/registry";
 import {
   deleteElementEmbedding,
   embedElement,
@@ -27,12 +27,13 @@ import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 import { MutationsPanel } from "../components/MutationsPanel";
-import { getInstanceStore } from "../state/instanceStore";
-import { embeddingProvider, useGraphShape } from "../state/graphShape";
+import {
+  embeddingProvider,
+  useGraphShape,
+  EMBEDDING_PROPERTY_PREFIX as EMBEDDING_PREFIX,
+  EMBEDDING_MODEL_PROPERTY_PREFIX as EMBEDDING_MODEL_PREFIX,
+} from "../state/graphShape";
 import type { InstanceConfig } from "../instances/types";
-
-const EMBEDDING_PREFIX = "$embedding:";
-const EMBEDDING_MODEL_PREFIX = "$embeddingModel:";
 
 /** A property is reserved (embedding state) when it uses either embedding prefix. */
 function isReservedEmbeddingProperty(propertyId: string): boolean {
@@ -467,8 +468,7 @@ function ElementDetail({
 }
 
 export function BrowserScreen() {
-  const instance = useActiveInstance()!;
-  const store = getInstanceStore(instance.id);
+  const { instance, store } = useInstanceStore();
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
   const [idInput, setIdInput] = useState("");
   const [lookupKind, setLookupKind] = useState<"graphelement" | "vertex" | "edge">(

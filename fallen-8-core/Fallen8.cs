@@ -229,7 +229,7 @@ namespace NoSQL.GraphDB.Core
         private readonly TransactionManager _txManager;
 
         /// <summary>
-        ///   The persisitency factory.
+        ///   The persistency factory.
         /// </summary>
         private readonly PersistencyFactory _persistencyFactory;
 
@@ -2639,7 +2639,7 @@ namespace NoSQL.GraphDB.Core
             // assumption visible if a future multi-algorithm create regresses it.
             if (!string.IsNullOrEmpty(recipe.AlgorithmPluginName) &&
                 !string.Equals(recipe.AlgorithmPluginName,
-                    Algorithms.SubGraph.BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName, StringComparison.Ordinal))
+                    Algorithms.SubGraph.BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName, StringComparison.Ordinal))
             {
                 _logger.LogWarning(
                     "Logged subgraph \"{Name}\" was created with algorithm \"{Algorithm}\", but replay recreates it with the default algorithm.",
@@ -3125,10 +3125,13 @@ namespace NoSQL.GraphDB.Core
         /// <returns>A list of matching graph elements</returns>
         private List<AGraphElementModel> FindElements(ElementSeeker seeker, String interestingLabel = null)
         {
+            // One fused predicate over the parallel live scan instead of three chained Where stages:
+            // identical short-circuit order (null/removed first, then label, then seeker), so removed
+            // or null elements never reach the seeker and the result multiset is unchanged - but only
+            // one PLINQ operator (and no per-query intermediate closures) instead of three.
+            var labelMatches = CheckLabel(interestingLabel);
             return LiveElements(_snapshot)
-                .Where(_ => _ != null && !_._removed)
-                .Where(CheckLabel(interestingLabel))
-                .Where(_ => seeker(_))
+                .Where(_ => _ != null && !_._removed && labelMatches(_) && seeker(_))
                 .ToList();
         }
 
@@ -3279,7 +3282,7 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Method for binary comparism
+        ///   Method for binary comparison
         /// </summary>
         /// <returns> <c>true</c> for equality; otherwise, <c>false</c> . </returns>
         /// <param name='property'> Property. </param>
@@ -3290,7 +3293,7 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Method for binary comparism
+        ///   Method for binary comparison
         /// </summary>
         /// <returns> <c>true</c> for inequality; otherwise, <c>false</c> . </returns>
         /// <param name='property'> Property. </param>
@@ -3301,7 +3304,7 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Method for binary comparism
+        ///   Method for binary comparison
         /// </summary>
         /// <returns> <c>true</c> for greater property; otherwise, <c>false</c> . </returns>
         /// <param name='property'> Property. </param>
@@ -3312,7 +3315,7 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Method for binary comparism
+        ///   Method for binary comparison
         /// </summary>
         /// <returns> <c>true</c> for lower property; otherwise, <c>false</c> . </returns>
         /// <param name='property'> Property. </param>
@@ -3323,7 +3326,7 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Method for binary comparism
+        ///   Method for binary comparison
         /// </summary>
         /// <returns> <c>true</c> for lower or equal property; otherwise, <c>false</c> . </returns>
         /// <param name='property'> Property. </param>
@@ -3334,7 +3337,7 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Method for binary comparism
+        ///   Method for binary comparison
         /// </summary>
         /// <returns> <c>true</c> for greater or equal property; otherwise, <c>false</c> . </returns>
         /// <param name='property'> Property. </param>

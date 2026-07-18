@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { InstanceConfig } from "./types";
 import { normalizeBaseUrl } from "./types";
+import { getInstanceStore } from "../state/instanceStore";
 
 /**
  * Global instance registry (FR-1a) + the single active instance (FR-1b).
@@ -79,4 +80,13 @@ export const useRegistry = create<RegistryState>()(
 
 export function useActiveInstance(): InstanceConfig | null {
   return useRegistry((s) => s.instances.find((instance) => instance.id === s.activeId) ?? null);
+}
+
+/**
+ * The active instance plus its per-instance workspace store - the preamble every connected
+ * screen needs (the AppShell connection gate guarantees an active instance, hence the non-null).
+ */
+export function useInstanceStore() {
+  const instance = useActiveInstance()!;
+  return { instance, store: getInstanceStore(instance.id) };
 }

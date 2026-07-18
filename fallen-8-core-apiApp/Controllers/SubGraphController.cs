@@ -123,29 +123,6 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        ///   Imperative dynamic-code capability check: evaluates the SAME
-        ///   <see cref="Security.DynamicCapabilityRequirement"/> the declarative
-        ///   <c>DynamicCodePolicy</c> uses (one source of truth) and returns the same 403 shape on
-        ///   denial, or null when the capability is enabled. Null-service means direct construction
-        ///   (unit tests bypass the pipeline exactly as they bypassed the former endpoint-level
-        ///   policy); the hosted pipeline always supplies the service. The awaited handler is
-        ///   synchronous (an options check), so blocking here cannot deadlock.
-        /// </summary>
-        private IActionResult DenyUnlessDynamicCodeCapability()
-        {
-            if (_authorizationService == null)
-            {
-                return null;
-            }
-
-            var authorization = _authorizationService.AuthorizeAsync(User, null,
-                    new Security.DynamicCapabilityRequirement(Security.DynamicCapabilityRequirement.Capability.DynamicCodeExecution))
-                .GetAwaiter().GetResult();
-
-            return authorization.Succeeded ? null : Forbid();
-        }
-
-        /// <summary>
         /// Creates and registers a new subgraph from a specification.
         /// </summary>
         /// <param name="specification">The subgraph specification (name, filters, patterns)</param>
@@ -232,13 +209,10 @@ namespace NoSQL.GraphDB.App.Controllers
             // user-supplied code and passes with the switch off. Authentication itself is
             // unchanged (the fallback policy applies as on every endpoint); this replaces the
             // former endpoint-level DynamicCodePolicy.
-            if (CarriesInlineCode(specification))
+            if (CarriesInlineCode(specification) &&
+                Security.DynamicCodeCapabilityGate.IsDenied(_authorizationService, User))
             {
-                var denied = DenyUnlessDynamicCodeCapability();
-                if (denied != null)
-                {
-                    return denied;
-                }
+                return Forbid();
             }
 
             if (String.IsNullOrWhiteSpace(specification.Name))

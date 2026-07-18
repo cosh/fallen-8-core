@@ -37,7 +37,7 @@ using NoSQL.GraphDB.Core.Model;
 namespace NoSQL.GraphDB.Core.Algorithms.Path
 {
     /// <summary>
-    ///   Bidirctional level synchronous SSSP algorithm
+    ///   Bidirectional level synchronous SSSP algorithm
     /// </summary>
     public sealed class BidirectionalLevelSynchronousSSSP : IShortestPathAlgorithm
     {

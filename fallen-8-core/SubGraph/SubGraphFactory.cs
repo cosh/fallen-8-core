@@ -156,7 +156,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="parameter">Parameter for the algorithm. Default is null.</param>
         /// <returns><c>true</c> if the subgraph was created; otherwise, <c>false</c>.</returns>
         public bool TryCreateSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
-                                      string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
+                                      string algorithmTypeName = BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
                                       IDictionary<string, object> parameter = null)
         {
             return TryCreateSubGraph(out subGraph, subGraphName, definition, out _, algorithmTypeName, parameter);
@@ -170,7 +170,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// </summary>
         internal bool TryCreateSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                       out TransactionFailureReason reason,
-                                      string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
+                                      string algorithmTypeName = BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
                                       IDictionary<string, object> parameter = null)
         {
             return TryCreateSubGraphFromSource(out subGraph, subGraphName, definition, _fallen8, out reason, algorithmTypeName, parameter);
@@ -184,7 +184,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// </summary>
         public bool TryCreateSubGraphFromSource(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                       IFallen8 source,
-                                      string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
+                                      string algorithmTypeName = BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
                                       IDictionary<string, object> parameter = null)
         {
             return TryCreateSubGraphFromSource(out subGraph, subGraphName, definition, source, out _, algorithmTypeName, parameter);
@@ -197,7 +197,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         internal bool TryCreateSubGraphFromSource(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                       IFallen8 source,
                                       out TransactionFailureReason reason,
-                                      string algorithmTypeName = BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
+                                      string algorithmTypeName = BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
                                       IDictionary<string, object> parameter = null)
         {
             reason = TransactionFailureReason.None;

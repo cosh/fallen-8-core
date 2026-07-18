@@ -1,6 +1,6 @@
 ﻿// MIT License
 //
-// VertexSpecification.cs
+// Vertex.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -42,13 +42,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// <example>
     /// {
     ///   "id": 1,
-    ///   "creationDate": 1713862800,
-    ///   "modificationDate": 1713862800,
+    ///   "creationDate": "2025-04-22T10:00:00Z",
+    ///   "modificationDate": "2025-04-22T10:00:00Z",
     ///   "label": "person",
-    ///   "properties": {
-    ///     "name": "John Doe",
-    ///     "age": 30
-    ///   },
+    ///   "properties": [
+    ///     { "propertyId": "name", "fullQualifiedTypeName": "System.String", "propertyValue": "John Doe" },
+    ///     { "propertyId": "age", "fullQualifiedTypeName": "System.Int32", "propertyValue": "30" }
+    ///   ],
     ///   "outEdges": {
     ///     "knows": [10, 15]
     ///   },

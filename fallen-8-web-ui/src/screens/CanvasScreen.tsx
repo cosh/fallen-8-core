@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useActiveInstance } from "../instances/registry";
-import { getInstanceStore } from "../state/instanceStore";
+import { useInstanceStore } from "../instances/registry";
 import { GraphCanvas, type ElementRef } from "../canvas/GraphCanvas";
 import { StylePanel } from "../canvas/StylePanel";
 import { buildLegend, knownPropertyKeys } from "../canvas/styleEngine";
@@ -25,8 +24,7 @@ import { ErrorBox } from "../components/ErrorBox";
  * (view only!), and expand-on-demand which merges a vertex's edges + neighbors.
  */
 export function CanvasScreen() {
-  const instance = useActiveInstance()!;
-  const store = getInstanceStore(instance.id);
+  const { instance, store } = useInstanceStore();
   const canvasNodes = store((s) => s.canvasNodes);
   const canvasEdges = store((s) => s.canvasEdges);
   const pathOverlay = store((s) => s.pathOverlay);

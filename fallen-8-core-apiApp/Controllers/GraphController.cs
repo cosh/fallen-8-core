@@ -146,26 +146,24 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        ///   Imperative dynamic-code capability check: evaluates the SAME
-        ///   <see cref="Security.DynamicCapabilityRequirement"/> the declarative
-        ///   <c>DynamicCodePolicy</c> uses (one source of truth) and returns the same 403 shape on
-        ///   denial, or null when the capability is enabled. Null-service means direct construction
-        ///   (unit tests bypass the pipeline exactly as they bypassed the former endpoint-level
-        ///   policy); the hosted pipeline always supplies the service. The awaited handler is
-        ///   synchronous (an options check), so blocking here cannot deadlock.
+        ///   Shared epilogue for the write endpoints. The caller enqueues; when it asked to wait, we
+        ///   await the outcome and surface a rolled-back write as its failure result rather than a
+        ///   false success (the worker rolls a faulting transaction back - correctness-fixes B6),
+        ///   otherwise the write is 202 Accepted. Single home for that wait-and-map logic.
         /// </summary>
-        private ActionResult DenyUnlessDynamicCodeCapability()
+        private async Task<IActionResult> AwaitAndAccept(TransactionInformation transaction, bool waitForCompletion)
         {
-            if (_authorizationService == null)
+            if (waitForCompletion)
             {
-                return null;
+                await transaction.Completion;
+
+                if (transaction.TransactionState == TransactionState.RolledBack)
+                {
+                    return RolledBackResult(transaction.FailureReason);
+                }
             }
 
-            var authorization = _authorizationService.AuthorizeAsync(User, null,
-                    new Security.DynamicCapabilityRequirement(Security.DynamicCapabilityRequirement.Capability.DynamicCodeExecution))
-                .GetAwaiter().GetResult();
-
-            return authorization.Succeeded ? null : Forbid();
+            return Accepted();
         }
 
         #region IDisposable Members
@@ -212,7 +210,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (definition == null)
             {
-                throw new ArgumentNullException("definition");
+                return BadRequest("A vertex specification is required.");
             }
 
             #endregion
@@ -227,21 +225,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             };
 
-            var transactionTask = _fallen8.EnqueueTransaction(tx);
-
-            if (waitForCompletion)
-            {
-                await transactionTask.Completion;
-
-                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
-                // caller waited for the outcome, a rolled-back write must not be reported as success.
-                if (transactionTask.TransactionState == TransactionState.RolledBack)
-                {
-                    return RolledBackResult(transactionTask.FailureReason);
-                }
-            }
-
-            return Accepted();
+            return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
         }
 
         /// <summary>
@@ -327,7 +311,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (definition == null)
             {
-                throw new ArgumentNullException("definition");
+                return BadRequest("An edge specification is required.");
             }
 
             #endregion
@@ -345,21 +329,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             };
 
-            var transactionTask = _fallen8.EnqueueTransaction(tx);
-
-            if (waitForCompletion)
-            {
-                await transactionTask.Completion;
-
-                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
-                // caller waited for the outcome, a rolled-back write must not be reported as success.
-                if (transactionTask.TransactionState == TransactionState.RolledBack)
-                {
-                    return RolledBackResult(transactionTask.FailureReason);
-                }
-            }
-
-            return Accepted();
+            return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
         }
 
         /// <summary>
@@ -971,20 +941,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             }
 
-            var transactionTask = _fallen8.EnqueueTransaction(
-                new SetEmbeddingsTransaction().SetEmbedding(graphElementIdentifier, embeddingName, vector));
-
-            if (waitForCompletion)
-            {
-                await transactionTask.Completion;
-
-                if (transactionTask.TransactionState == TransactionState.RolledBack)
-                {
-                    return RolledBackResult(transactionTask.FailureReason);
-                }
-            }
-
-            return Accepted();
+            return await AwaitAndAccept(
+                _fallen8.EnqueueTransaction(
+                    new SetEmbeddingsTransaction().SetEmbedding(graphElementIdentifier, embeddingName, vector)),
+                waitForCompletion);
         }
 
         /// <summary>
@@ -1019,20 +979,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 return NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
             }
 
-            var transactionTask = _fallen8.EnqueueTransaction(
-                new SetEmbeddingsTransaction().SetEmbedding(graphElementIdentifier, embeddingName, null));
-
-            if (waitForCompletion)
-            {
-                await transactionTask.Completion;
-
-                if (transactionTask.TransactionState == TransactionState.RolledBack)
-                {
-                    return RolledBackResult(transactionTask.FailureReason);
-                }
-            }
-
-            return Accepted();
+            return await AwaitAndAccept(
+                _fallen8.EnqueueTransaction(
+                    new SetEmbeddingsTransaction().SetEmbedding(graphElementIdentifier, embeddingName, null)),
+                waitForCompletion);
         }
 
         /// <summary>
@@ -1127,26 +1077,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 return BadRequest(String.Format("Index '{0}' is not a vector index.", definition.IndexId));
             }
 
-            VectorSearchConstraint constraint = null;
-            if (!String.IsNullOrEmpty(definition.Kind) || definition.Label != null)
+            if (!NoSQL.GraphDB.App.Helper.VectorSearchConstraintBuilder.TryBuild(
+                    definition.Kind, definition.Label, out var constraint, out var constraintError))
             {
-                constraint = new VectorSearchConstraint { Label = definition.Label };
-                switch (definition.Kind)
-                {
-                    case null:
-                    case "":
-                    case "any":
-                        constraint.Kind = VectorSearchElementKind.Any;
-                        break;
-                    case "vertex":
-                        constraint.Kind = VectorSearchElementKind.Vertex;
-                        break;
-                    case "edge":
-                        constraint.Kind = VectorSearchElementKind.Edge;
-                        break;
-                    default:
-                        return BadRequest(String.Format("'{0}' is not a valid kind. Expected vertex, edge or any.", definition.Kind));
-                }
+                return BadRequest(constraintError);
             }
 
             if (!vectorIndex.TryNearestNeighbors(out var result, definition.Query, definition.K, constraint))
@@ -1295,21 +1229,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             };
 
-            var transactionTask = _fallen8.EnqueueTransaction(tx);
-
-            if (waitForCompletion)
-            {
-                await transactionTask.Completion;
-
-                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
-                // caller waited for the outcome, a rolled-back write must not be reported as success.
-                if (transactionTask.TransactionState == TransactionState.RolledBack)
-                {
-                    return RolledBackResult(transactionTask.FailureReason);
-                }
-            }
-
-            return Accepted();
+            return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
 
         }
 
@@ -1343,21 +1263,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 PropertyId = propertyId
             };
 
-            var transactionTask = _fallen8.EnqueueTransaction(tx);
-
-            if (waitForCompletion)
-            {
-                await transactionTask.Completion;
-
-                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
-                // caller waited for the outcome, a rolled-back write must not be reported as success.
-                if (transactionTask.TransactionState == TransactionState.RolledBack)
-                {
-                    return RolledBackResult(transactionTask.FailureReason);
-                }
-            }
-
-            return Accepted();
+            return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
 
         }
 
@@ -1388,21 +1294,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 GraphElementId = graphElementId
             };
 
-            var transactionTask = _fallen8.EnqueueTransaction(tx);
-
-            if (waitForCompletion)
-            {
-                await transactionTask.Completion;
-
-                // The worker rolls a faulting transaction back (correctness-fixes B6). When the
-                // caller waited for the outcome, a rolled-back write must not be reported as success.
-                if (transactionTask.TransactionState == TransactionState.RolledBack)
-                {
-                    return RolledBackResult(transactionTask.FailureReason);
-                }
-            }
-
-            return Accepted();
+            return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
         }
 
         /// <summary>
@@ -1618,13 +1510,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 // Authentication itself is unchanged (the fallback policy applies as on every
                 // endpoint); this replaces the former endpoint-level DynamicCodePolicy, which
                 // gated the whole endpoint regardless of request shape.
-                if (CarriesInlineCode(definition))
+                if (CarriesInlineCode(definition) &&
+                    Security.DynamicCodeCapabilityGate.IsDenied(_authorizationService, User))
                 {
-                    var denied = DenyUnlessDynamicCodeCapability();
-                    if (denied != null)
-                    {
-                        return denied;
-                    }
+                    return Forbid();
                 }
 
                 // Special case - when MaxDepth is 0, no paths can be found

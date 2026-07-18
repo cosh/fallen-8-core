@@ -631,6 +631,68 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void ShrinkAfterRemovals_PreservesEveryLiveVectorAndKnnOrder()
+        {
+            // Pins the memory-footprint slab shrink (VectorIndex.RemoveSlotOf): growing well past the
+            // 16-slot floor and then removing down below a quarter of capacity must reclaim memory
+            // WITHOUT dropping or mis-mapping any live slot.
+            var index = CreateIndex("emb", 2, "L2");
+            var vertices = new List<VertexModel>();
+            for (var i = 1; i <= 40; i++) // capacity doubles 16 -> 32 -> 64
+            {
+                var v = Vertex();
+                vertices.Add(v);
+                index.AddOrUpdate(new[] { (float)i, 0f }, v);
+            }
+            Assert.AreEqual(40, index.CountOfValues());
+
+            // Remove the far 32 ({9,0}..{40,0}); 8 live * 4 = 32 < 64 capacity fires the shrink.
+            for (var i = 9; i <= 40; i++)
+            {
+                index.RemoveValue(vertices[i - 1]);
+            }
+            Assert.AreEqual(8, index.CountOfValues(), "8 survivors after the slab shrank");
+
+            // Every survivor is still mapped to its exact vector (the slot map survived the resize).
+            for (var i = 1; i <= 8; i++)
+            {
+                Assert.IsTrue(index.TryGetValue(out var bucket, new[] { (float)i, 0f }),
+                    "survivor at {" + i + ",0} must still be found after the slab shrank");
+                Assert.AreEqual(vertices[i - 1].Id, bucket.Single().Id);
+            }
+
+            // kNN over the shrunk slab returns exactly the 8 live ids, nearest ({1,0}) first.
+            var hits = Knn(index, new[] { 0f, 0f }, 100);
+            var expected = Enumerable.Range(1, 8).Select(i => vertices[i - 1].Id).ToArray();
+            CollectionAssert.AreEqual(expected, hits.Select(h => h.Id).ToArray(),
+                "shrink preserves every live vector and ascending-distance order");
+        }
+
+        [TestMethod]
+        public void Wipe_ReleasesGrownSlab_ThenStaysUsable()
+        {
+            // Pins the Wipe() slab release (VectorIndex.Wipe): a grown index resets to the 16-slot
+            // arrays a fresh index starts with, and the reset arrays remain valid for reuse.
+            var index = CreateIndex("emb", 2, "L2");
+            for (var i = 1; i <= 40; i++) // grow capacity past the 16-slot floor
+            {
+                index.AddOrUpdate(new[] { (float)i, 0f }, Vertex());
+            }
+            Assert.AreEqual(40, index.CountOfValues());
+
+            index.Wipe();
+            Assert.AreEqual(0, index.CountOfValues());
+            Assert.AreEqual(0, Knn(index, new[] { 0f, 0f }, 10).Count, "a wiped index yields no neighbors");
+
+            // The freshly reset 16-slot arrays are usable: adding works and ranks correctly.
+            var v = Vertex();
+            index.AddOrUpdate(new[] { 2f, 0f }, v);
+            var hits = Knn(index, new[] { 0f, 0f }, 5);
+            Assert.AreEqual(1, hits.Count);
+            Assert.AreEqual(v.Id, hits[0].Id);
+        }
+
+        [TestMethod]
         public void AddOrUpdate_SkipsATombstonedElement_ClosingThePurgeReAddRace()
         {
             // If a re-add slips in AFTER the write-end purge ran for a committed removal,
@@ -643,6 +705,43 @@ namespace NoSQL.GraphDB.Tests
             index.AddOrUpdate(new[] { 1f, 1f }, doomed);
 
             Assert.AreEqual(0, index.CountOfValues(), "a removed element never (re-)enters a slot");
+        }
+
+        [TestMethod]
+        public void PurgeTombstones_ReclaimsElementsRemovedWhileTheIndexWasUnobserved()
+        {
+            // Reproduces the bound-index create-time window deterministically: an element removed
+            // while the index is NOT yet registered escapes the engine's write-end purge and lingers
+            // as a pinned tombstone. Here the index is created directly (never added to the factory),
+            // so the engine's purge never reaches it - exactly that window. PurgeTombstones, run once
+            // the index is registered, must reclaim the slot.
+            var a = Vertex();
+            var b = Vertex();
+            var c = Vertex();
+
+            var index = new VectorIndex();
+            index.Initialize(_fallen8, new Dictionary<string, object> { { "dimension", 2 }, { "metric", "L2" } });
+            index.AddOrUpdate(new[] { 1f, 0f }, a);
+            index.AddOrUpdate(new[] { 2f, 0f }, b);
+            index.AddOrUpdate(new[] { 3f, 0f }, c);
+            Assert.AreEqual(3, index.CountOfKeys());
+
+            // Remove b through the engine: the shared model is marked removed, but this unregistered
+            // index is invisible to the write-end purge, so its slot lingers as a tombstone.
+            _fallen8.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = b.Id })
+                .WaitUntilFinished();
+            Assert.AreEqual(3, index.CountOfKeys(), "the unregistered index missed the purge - tombstone lingers");
+            CollectionAssert.DoesNotContain(Knn(index, new[] { 0f, 0f }, 10).Select(h => h.Id).ToList(), b.Id,
+                "kNN already hides the tombstone (read-end defense)");
+
+            index.PurgeTombstones();
+
+            Assert.AreEqual(2, index.CountOfKeys(), "PurgeTombstones reclaims the tombstone slot");
+            Assert.IsTrue(index.TryGetValue(out var stillA, new[] { 1f, 0f }));
+            Assert.AreEqual(a.Id, stillA.Single().Id);
+            Assert.IsTrue(index.TryGetValue(out var stillC, new[] { 3f, 0f }));
+            Assert.AreEqual(c.Id, stillC.Single().Id);
+            Assert.IsFalse(index.TryGetValue(out _, new[] { 2f, 0f }), "the tombstoned vector is gone");
         }
 
         [TestMethod]

@@ -6,6 +6,9 @@ import type { InstanceConfig } from "../instances/types";
 /** The reserved property-key prefix element embeddings are stored under (server contract). */
 export const EMBEDDING_PROPERTY_PREFIX = "$embedding:";
 
+/** The reserved prefix carrying an embedding's model stamp (server contract, paired with the above). */
+export const EMBEDDING_MODEL_PROPERTY_PREFIX = "$embeddingModel:";
+
 /**
  * The per-instance graph-shape snapshot (feature studio-coverage): one react-query cache
  * entry shared by every consumer. `enabled: false` — the endpoint is a budgeted O(V+E)
