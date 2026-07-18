@@ -118,6 +118,24 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void RestProjection_SerializesAnEmbeddingAsItsNumbers_NotSystemSingleArray()
+        {
+            // A Single[] embedding leaking into the generic property projection must serialize to its
+            // real numbers, not the literal "System.Single[]" that plain ToString() produced (the
+            // studio's embedding preview reads the numbers). Scalars are unaffected.
+            var v = Vertex();
+            SetEmbedding(v, "default", new[] { 0.5f, -1.25f, 2f });
+
+            var dto = new NoSQL.GraphDB.App.Controllers.Model.Vertex((VertexModel)Element(v));
+            var embedding = dto.Properties.Single(p => p.PropertyId.StartsWith("$embedding:"));
+
+            Assert.AreEqual("System.Single[]", embedding.FullQualifiedTypeName,
+                "the type name still tells a client it is a float array");
+            Assert.AreEqual("[0.5,-1.25,2]", embedding.PropertyValue,
+                "the value carries the real numbers, not the type name");
+        }
+
+        [TestMethod]
         public void TryGetEmbedding_NamedEmbeddings_AreIndependent_AndMayDifferInDimension()
         {
             var v = Vertex();

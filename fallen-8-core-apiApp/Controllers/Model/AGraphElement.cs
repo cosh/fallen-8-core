@@ -26,6 +26,7 @@
 using NoSQL.GraphDB.Core.Helper;
 using System;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -60,9 +61,32 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             Properties = properties.Select(_ => new PropertySpecification
             {
                 PropertyId = _.Key,
-                PropertyValue = _.Value.ToString(),
+                PropertyValue = FormatPropertyValue(_.Value),
                 FullQualifiedTypeName = _.Value.GetType().FullName
             }).ToList();
+        }
+
+        /// <summary>
+        ///   Faithful string form of a property value for the REST projection. Scalars keep their
+        ///   existing <see cref="Object.ToString()"/> form, but the two cases plain ToString() rendered
+        ///   uselessly get a real value: a <see cref="Single"/>[] (e.g. an element embedding, which
+        ///   otherwise serialized to the literal "System.Single[]") becomes its bracketed
+        ///   invariant-culture element list, and a <see cref="DateTime"/> becomes a round-trippable
+        ///   ISO-8601 ("O") string rather than a server-locale-specific one.
+        /// </summary>
+        private static String FormatPropertyValue(Object value)
+        {
+            switch (value)
+            {
+                case null:
+                    return null;
+                case Single[] vector:
+                    return "[" + String.Join(",", vector.Select(v => v.ToString("R", CultureInfo.InvariantCulture))) + "]";
+                case DateTime dateTime:
+                    return dateTime.ToString("O", CultureInfo.InvariantCulture);
+                default:
+                    return value.ToString();
+            }
         }
 
         /// <summary>
