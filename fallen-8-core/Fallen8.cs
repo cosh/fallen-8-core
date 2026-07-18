@@ -2639,7 +2639,7 @@ namespace NoSQL.GraphDB.Core
             // assumption visible if a future multi-algorithm create regresses it.
             if (!string.IsNullOrEmpty(recipe.AlgorithmPluginName) &&
                 !string.Equals(recipe.AlgorithmPluginName,
-                    Algorithms.SubGraph.BreathFirstSearchSubgraphAlgorithm.AlgorithmPluginName, StringComparison.Ordinal))
+                    Algorithms.SubGraph.BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName, StringComparison.Ordinal))
             {
                 _logger.LogWarning(
                     "Logged subgraph \"{Name}\" was created with algorithm \"{Algorithm}\", but replay recreates it with the default algorithm.",

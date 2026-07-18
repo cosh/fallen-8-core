@@ -214,7 +214,7 @@ namespace NoSQL.GraphDB.Tests
                 }
             };
 
-            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out _, "delegate-only", definition));
 
             var recipes = new List<SubGraphRecipe>(fallen8.SubGraphFactory.GetPersistableRecipes());

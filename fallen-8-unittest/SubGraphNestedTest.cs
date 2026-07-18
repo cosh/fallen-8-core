@@ -85,12 +85,12 @@ namespace NoSQL.GraphDB.Tests
         {
             var root = CreatePeopleGraph();
 
-            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out var a, "A", AllPersons("A")), "root subgraph A");
             Assert.AreEqual(3, a.SubGraph.VertexCount);
 
             // B is sourced from A (a subgraph), registered on the root factory.
-            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraphFromSource<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraphFromSource<BreadthFirstSearchSubgraphAlgorithm>(
                 out var b, "B", PersonsAtLeast30("B"), a.SubGraph), "nested subgraph B from A");
 
             Assert.AreEqual(2, b.SubGraph.VertexCount, "Alice(30) and Carol(35) from A");
@@ -103,9 +103,9 @@ namespace NoSQL.GraphDB.Tests
         {
             var root = CreatePeopleGraph();
 
-            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out var a, "A", AllPersons("A")));
-            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraphFromSource<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraphFromSource<BreadthFirstSearchSubgraphAlgorithm>(
                 out var b, "B", PersonsAtLeast30("B"), a.SubGraph));
 
             Assert.AreEqual(3, a.SubGraph.VertexCount);
@@ -134,11 +134,11 @@ namespace NoSQL.GraphDB.Tests
             var root = CreatePeopleGraph();
 
             // A: all persons; B: age >= 30 from A; C: age >= 30 from B (same filter, deeper).
-            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraph<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraph<BreadthFirstSearchSubgraphAlgorithm>(
                 out var a, "A", AllPersons("A")));
-            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraphFromSource<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraphFromSource<BreadthFirstSearchSubgraphAlgorithm>(
                 out var b, "B", PersonsAtLeast30("B"), a.SubGraph));
-            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraphFromSource<BreathFirstSearchSubgraphAlgorithm>(
+            Assert.IsTrue(root.SubGraphFactory.TryCreateSubGraphFromSource<BreadthFirstSearchSubgraphAlgorithm>(
                 out var c, "C", PersonsAtLeast30("C"), b.SubGraph));
 
             Assert.AreEqual(2, c.SubGraph.VertexCount);

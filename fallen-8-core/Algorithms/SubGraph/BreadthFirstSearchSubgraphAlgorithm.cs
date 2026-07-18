@@ -1,6 +1,6 @@
 // MIT License
 //
-// BreathFirstSearchSubgraphAlgorithm.cs
+// BreadthFirstSearchSubgraphAlgorithm.cs
 //
 // Copyright (c) 2025 Henning Rauch
 //
@@ -40,7 +40,7 @@ using System.Runtime.CompilerServices;
 
 namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
 {
-    public sealed class BreathFirstSearchSubgraphAlgorithm : ISubGraphAlgorithm
+    public sealed class BreadthFirstSearchSubgraphAlgorithm : ISubGraphAlgorithm
     {
         /// <summary>
         /// The plugin name this algorithm registers under. Plugins are discovered and
@@ -62,13 +62,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         public string Manufacturer => "Henning Rauch";
 
         private IFallen8 _fallen8;
-        private ILogger<BreathFirstSearchSubgraphAlgorithm> _logger;
+        private ILogger<BreadthFirstSearchSubgraphAlgorithm> _logger;
 
         /// <inheritdoc />
         public void Initialize(IFallen8 fallen8, IDictionary<string, object> configuration)
         {
             _fallen8 = fallen8;
-            _logger = fallen8.LoggerFactory.CreateLogger<BreathFirstSearchSubgraphAlgorithm>();
+            _logger = fallen8.LoggerFactory.CreateLogger<BreadthFirstSearchSubgraphAlgorithm>();
         }
 
         /// <inheritdoc />

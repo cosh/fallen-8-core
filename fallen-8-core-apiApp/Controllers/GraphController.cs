@@ -210,7 +210,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (definition == null)
             {
-                throw new ArgumentNullException("definition");
+                return BadRequest("A vertex specification is required.");
             }
 
             #endregion
@@ -311,7 +311,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (definition == null)
             {
-                throw new ArgumentNullException("definition");
+                return BadRequest("An edge specification is required.");
             }
 
             #endregion
