@@ -6223,13 +6223,21 @@
         "description": "Represents an edge (relationship) between two vertices in the graph",
         "example": {
           "id": 10,
-          "creationDate": 1713862800,
-          "modificationDate": 1713862800,
+          "creationDate": "2025-04-22T10:00:00Z",
+          "modificationDate": "2025-04-22T10:00:00Z",
           "label": "friendship",
-          "properties": {
-            "since": "2024-01-15T00:00:00",
-            "strength": 0.85
-          },
+          "properties": [
+            {
+              "propertyId": "since",
+              "fullQualifiedTypeName": "System.DateTime",
+              "propertyValue": "2024-01-15T00:00:00.0000000"
+            },
+            {
+              "propertyId": "strength",
+              "fullQualifiedTypeName": "System.Single",
+              "propertyValue": "0.85"
+            }
+          ],
           "sourceVertex": 1,
           "targetVertex": 2
         }
@@ -9091,13 +9099,21 @@
         "description": "Represents a vertex (node) in the graph with its properties and connected edges",
         "example": {
           "id": 1,
-          "creationDate": 1713862800,
-          "modificationDate": 1713862800,
+          "creationDate": "2025-04-22T10:00:00Z",
+          "modificationDate": "2025-04-22T10:00:00Z",
           "label": "person",
-          "properties": {
-            "name": "John Doe",
-            "age": 30
-          },
+          "properties": [
+            {
+              "propertyId": "name",
+              "fullQualifiedTypeName": "System.String",
+              "propertyValue": "John Doe"
+            },
+            {
+              "propertyId": "age",
+              "fullQualifiedTypeName": "System.Int32",
+              "propertyValue": "30"
+            }
+          ],
           "outEdges": {
             "knows": [
               10,

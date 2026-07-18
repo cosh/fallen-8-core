@@ -42,13 +42,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// <example>
     /// {
     ///   "id": 10,
-    ///   "creationDate": 1713862800,
-    ///   "modificationDate": 1713862800,
+    ///   "creationDate": "2025-04-22T10:00:00Z",
+    ///   "modificationDate": "2025-04-22T10:00:00Z",
     ///   "label": "friendship",
-    ///   "properties": {
-    ///     "since": "2024-01-15T00:00:00",
-    ///     "strength": 0.85
-    ///   },
+    ///   "properties": [
+    ///     { "propertyId": "since", "fullQualifiedTypeName": "System.DateTime", "propertyValue": "2024-01-15T00:00:00.0000000" },
+    ///     { "propertyId": "strength", "fullQualifiedTypeName": "System.Single", "propertyValue": "0.85" }
+    ///   ],
     ///   "sourceVertex": 1,
     ///   "targetVertex": 2
     /// }
