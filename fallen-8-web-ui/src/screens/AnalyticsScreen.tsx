@@ -3,7 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
-import { shapeSuggestions, useGraphShape } from "../state/graphShape";import {
+import { shapeSuggestions, useGraphShape } from "../state/graphShape";
+import {
   getPartitionMembers,
   listAnalyticsAlgorithms,
   runAnalytics,

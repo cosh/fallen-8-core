@@ -26,7 +26,8 @@ import { ElementTable } from "../components/ElementTable";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
-import { MutationsPanel } from "../components/MutationsPanel";import {
+import { MutationsPanel } from "../components/MutationsPanel";
+import {
   embeddingProvider,
   useGraphShape,
   EMBEDDING_PROPERTY_PREFIX as EMBEDDING_PREFIX,

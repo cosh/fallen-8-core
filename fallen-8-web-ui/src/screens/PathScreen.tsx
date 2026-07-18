@@ -4,7 +4,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { useInstanceStore } from "../instances/registry";
 import { findPaths, getGraphElement } from "../api/endpoints";
 import { ApiError } from "../api/client";
-import type { PathREST, VertexREST } from "../api/types";import {
+import type { PathREST, VertexREST } from "../api/types";
+import {
   buildPathSpecification,
   hasAnyPathFragment,
   pathBlockFromDraft,
