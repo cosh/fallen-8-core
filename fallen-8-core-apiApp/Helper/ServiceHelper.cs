@@ -123,14 +123,14 @@ namespace NoSQL.GraphDB.App.Helper
         /// <summary>
         ///   The single home for turning a <see cref="PropertySpecification"/> into a stored value:
         ///   pass the raw value through when no type is given, otherwise convert it via the primitive
-        ///   allow-list. Both <c>GenerateProperties</c> overloads route through here.
+        ///   allow-list. Both <c>GenerateProperties</c> overloads route through here; the convert
+        ///   branch reuses <see cref="CreateObject"/> (the one place the allow-list resolve lives).
         /// </summary>
-        [UnconditionalSuppressMessage("Trimming", "IL2096:Call to 'System.Type.GetType' can perform case insensitive lookup of the type", Justification = "Type names are provided by API users and need case-insensitive lookup. Trimming is disabled for this application.")]
         public static Object Transform(PropertySpecification definition)
         {
             return definition.FullQualifiedTypeName == null
                 ? definition.PropertyValue
-                : Convert.ChangeType(definition.PropertyValue, AllowedLiteralTypes.Resolve(definition.FullQualifiedTypeName));
+                : CreateObject(definition);
         }
     }
 }

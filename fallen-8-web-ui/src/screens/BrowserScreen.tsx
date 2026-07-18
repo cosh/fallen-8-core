@@ -28,11 +28,13 @@ import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 import { MutationsPanel } from "../components/MutationsPanel";
 import { getInstanceStore } from "../state/instanceStore";
-import { embeddingProvider, useGraphShape } from "../state/graphShape";
+import {
+  embeddingProvider,
+  useGraphShape,
+  EMBEDDING_PROPERTY_PREFIX as EMBEDDING_PREFIX,
+  EMBEDDING_MODEL_PROPERTY_PREFIX as EMBEDDING_MODEL_PREFIX,
+} from "../state/graphShape";
 import type { InstanceConfig } from "../instances/types";
-
-const EMBEDDING_PREFIX = "$embedding:";
-const EMBEDDING_MODEL_PREFIX = "$embeddingModel:";
 
 /** A property is reserved (embedding state) when it uses either embedding prefix. */
 function isReservedEmbeddingProperty(propertyId: string): boolean {

@@ -631,6 +631,68 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void ShrinkAfterRemovals_PreservesEveryLiveVectorAndKnnOrder()
+        {
+            // Pins the memory-footprint slab shrink (VectorIndex.RemoveSlotOf): growing well past the
+            // 16-slot floor and then removing down below a quarter of capacity must reclaim memory
+            // WITHOUT dropping or mis-mapping any live slot.
+            var index = CreateIndex("emb", 2, "L2");
+            var vertices = new List<VertexModel>();
+            for (var i = 1; i <= 40; i++) // capacity doubles 16 -> 32 -> 64
+            {
+                var v = Vertex();
+                vertices.Add(v);
+                index.AddOrUpdate(new[] { (float)i, 0f }, v);
+            }
+            Assert.AreEqual(40, index.CountOfValues());
+
+            // Remove the far 32 ({9,0}..{40,0}); 8 live * 4 = 32 < 64 capacity fires the shrink.
+            for (var i = 9; i <= 40; i++)
+            {
+                index.RemoveValue(vertices[i - 1]);
+            }
+            Assert.AreEqual(8, index.CountOfValues(), "8 survivors after the slab shrank");
+
+            // Every survivor is still mapped to its exact vector (the slot map survived the resize).
+            for (var i = 1; i <= 8; i++)
+            {
+                Assert.IsTrue(index.TryGetValue(out var bucket, new[] { (float)i, 0f }),
+                    "survivor at {" + i + ",0} must still be found after the slab shrank");
+                Assert.AreEqual(vertices[i - 1].Id, bucket.Single().Id);
+            }
+
+            // kNN over the shrunk slab returns exactly the 8 live ids, nearest ({1,0}) first.
+            var hits = Knn(index, new[] { 0f, 0f }, 100);
+            var expected = Enumerable.Range(1, 8).Select(i => vertices[i - 1].Id).ToArray();
+            CollectionAssert.AreEqual(expected, hits.Select(h => h.Id).ToArray(),
+                "shrink preserves every live vector and ascending-distance order");
+        }
+
+        [TestMethod]
+        public void Wipe_ReleasesGrownSlab_ThenStaysUsable()
+        {
+            // Pins the Wipe() slab release (VectorIndex.Wipe): a grown index resets to the 16-slot
+            // arrays a fresh index starts with, and the reset arrays remain valid for reuse.
+            var index = CreateIndex("emb", 2, "L2");
+            for (var i = 1; i <= 40; i++) // grow capacity past the 16-slot floor
+            {
+                index.AddOrUpdate(new[] { (float)i, 0f }, Vertex());
+            }
+            Assert.AreEqual(40, index.CountOfValues());
+
+            index.Wipe();
+            Assert.AreEqual(0, index.CountOfValues());
+            Assert.AreEqual(0, Knn(index, new[] { 0f, 0f }, 10).Count, "a wiped index yields no neighbors");
+
+            // The freshly reset 16-slot arrays are usable: adding works and ranks correctly.
+            var v = Vertex();
+            index.AddOrUpdate(new[] { 2f, 0f }, v);
+            var hits = Knn(index, new[] { 0f, 0f }, 5);
+            Assert.AreEqual(1, hits.Count);
+            Assert.AreEqual(v.Id, hits[0].Id);
+        }
+
+        [TestMethod]
         public void AddOrUpdate_SkipsATombstonedElement_ClosingThePurgeReAddRace()
         {
             // If a re-add slips in AFTER the write-end purge ran for a committed removal,
