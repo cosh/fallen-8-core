@@ -21,7 +21,8 @@
   },
 
   "training": {
-    "epochs": 3,
+    "$epochsNote": "2 (was 3): the eval showed near-zero loss by epoch 1 and a GraphElementFilter compile regression - classic overfitting to the templates. Fewer passes generalize better; raise again only if the eval gate wants it.",
+    "epochs": 2,
     "perDeviceBatchSize": 2,
     "gradAccumSteps": 8,
     "learningRate": 0.0002,

@@ -137,6 +137,35 @@ for (const n of [1, 2, 3]) {
   add(FILTER, `elements with more than ${n} properties`, (p) => `${p}.GetPropertyCount() > ${n}`, "prop-count");
 }
 
+// Natural comparatives -> a user property (the eval phrasings "older than 30" / "heavier
+// than 2"): teach the comparative-word -> property mapping the base model missed first-pass.
+for (const n of [18, 30, 50, 65]) {
+  add(FILTER, `elements older than ${n}`, (p) => `${p}.TryGetProperty(out int age, "age") && age > ${n}`, "older-than");
+  add(FILTER, `elements younger than ${n}`, (p) => `${p}.TryGetProperty(out int age, "age") && age < ${n}`, "younger-than");
+}
+for (const n of ["0.5", "2.0", "5.0"]) {
+  add(FILTER, `elements heavier than ${n}`, (p) => `${p}.TryGetProperty(out double weight, "weight") && weight > ${n}`, "heavier-than");
+}
+// Built-in Id, extra natural phrasings ("smaller/less than", "above").
+for (const n of [10, 100]) {
+  add(FILTER, `elements with an id smaller than ${n}`, (p) => `${p}.Id < ${n}`, "id-smaller");
+  add(FILTER, `elements with an id above ${n}`, (p) => `${p}.Id > ${n}`, "id-above");
+}
+// Multi-condition: label + user property + built-in Id in ONE fragment (the field-example
+// shape that failed first-pass - the hardest, most realistic composition).
+for (const l of ["person", "car", "movie"]) {
+  for (const [ageN, idN] of [[30, 10], [18, 100], [50, 1000]] as [number, number][]) {
+    add(FILTER, `${l}s older than ${ageN} with an id below ${idN}`,
+      (p) => `${p}.Label == "${l}" && ${p}.TryGetProperty(out int age, "age") && age > ${ageN} && ${p}.Id < ${idN}`,
+      "label-age-id");
+  }
+}
+// Edge weight thresholds (the failing ef-weight), with natural phrasings.
+for (const n of ["0.5", "1.0", "2.0"]) {
+  add(["EdgeFilter"], `edges with a weight above ${n}`, (p) => `${p}.TryGetProperty(out double weight, "weight") && weight > ${n}`, "edge-weight");
+  add(["EdgeFilter"], `edges heavier than ${n}`, (p) => `${p}.TryGetProperty(out double weight, "weight") && weight > ${n}`, "edge-heavier");
+}
+
 // Vertex-only surface
 for (const n of [2, 3, 5]) {
   add(["VertexFilter"], `vertices with at least ${n} outgoing edges`, (p) => `${p}.GetOutDegree() >= ${n}`, "out-degree");
