@@ -1,5 +1,17 @@
-# Reproducible artifacts - never committed (spec FT-5).
+# Reproducible artifacts - never committed (spec FT-5). The generator, trainer config,
+# Modelfile.template and eval harness ARE committed; the produced dataset, weights, and
+# per-run outputs below are not.
 eval/results/
 dataset/
-*.gguf
+merged/
 adapter*/
+*.gguf
+
+# Generated per run from the committed templates/config.
+Modelfile
+PROVENANCE.md
+
+# Toolchain working dirs.
+train/.venv/
+llama.cpp/
+__pycache__/

@@ -1,0 +1,23 @@
+# LoRA fine-tuning toolchain (nl-assist-finetune plan phase 3, spec Stage 2).
+# MIT/Apache/BSD tooling only, none of it shipped in Fallen-8 - it runs on the operator's
+# machine to PRODUCE an artifact (spec FT-5/FT-7). Pinned as a coherent set (spec FT-1);
+# if you bump one, bump the group and re-run the eval gate.
+#
+# Target: WSL2 (Ubuntu) with an 8GB+ NVIDIA GPU and a CUDA 12.x driver. The torch wheels
+# come from the CUDA index below. On a different CUDA version, change the index URL to the
+# matching one from https://pytorch.org/get-started/locally/.
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+torch==2.5.1
+transformers==4.48.0
+peft==0.14.0
+trl==0.13.0
+datasets==3.2.0
+accelerate==1.2.1
+bitsandbytes==0.45.0
+sentencepiece==0.2.0
+protobuf==5.29.2
+
+# llama.cpp (GGUF conversion + quantization) is NOT a pip dependency - run.sh clones and
+# builds it, or set LLAMA_CPP to an existing checkout. Its conversion script has its own
+# light requirements (numpy, gguf) that its repo pins.

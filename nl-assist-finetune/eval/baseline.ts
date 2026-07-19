@@ -26,18 +26,23 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DelegateKind } from "../../fallen-8-web-ui/src/api/types";
 import { formatFragment } from "../../fallen-8-web-ui/src/delegate/nl/format";
-import { initialMessages, type ChatTurn } from "../../fallen-8-web-ui/src/delegate/nl/generate";
+import { initialMessages } from "../../fallen-8-web-ui/src/delegate/nl/generate";
 import {
   buildGenerationPrompt,
   extractFragment,
 } from "../../fallen-8-web-ui/src/delegate/nl/prompt";
+import {
+  compileErrors,
+  ENDPOINT,
+  F8,
+  type GenStats,
+  MODEL,
+  ollamaChat,
+  ollamaReachable,
+  validate,
+} from "../shared/f8";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-
-const MODEL = process.env.NL_EVAL_MODEL ?? "phi4-mini";
-const ENDPOINT = process.env.NL_EVAL_ENDPOINT ?? "http://localhost:11434";
-const F8 = process.env.NL_EVAL_F8 ?? "http://localhost:5000";
-const PER_CALL_TIMEOUT_MS = 6 * 60 * 1000; // CPU inference is slow; be generous.
 
 interface EvalRow {
   id: string;
@@ -57,90 +62,7 @@ interface RowResult {
   compileErrors: string[];
   failedChecks: string[];
   pass: boolean;
-  stats: {
-    promptTokens?: number;
-    completionTokens?: number;
-    durationMs?: number;
-    tokensPerSecond?: number;
-  } | null;
-}
-
-/**
- * Streaming Ollama chat for the harness. The web UI's chatWithModel is non-streaming,
- * which is fine in a browser but trips Node/undici's 5-minute headers timeout on slow
- * CPU generations (headers only arrive when the full body is ready). Streaming delivers
- * headers immediately and chunks every token; the final chunk carries the stats.
- */
-async function ollamaChat(
-  messages: ChatTurn[],
-): Promise<{ content: string; stats: RowResult["stats"] }> {
-  const response = await fetch(`${ENDPOINT.replace(/\/+$/, "")}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      stream: true,
-      options: { temperature: 0.1 },
-    }),
-    signal: AbortSignal.timeout(PER_CALL_TIMEOUT_MS),
-  });
-  if (!response.ok || !response.body) {
-    throw new Error(`Model endpoint returned HTTP ${response.status}.`);
-  }
-
-  let content = "";
-  let stats: RowResult["stats"] = null;
-  let buffered = "";
-  const decoder = new TextDecoder();
-  for await (const chunk of response.body) {
-    buffered += decoder.decode(chunk as Uint8Array, { stream: true });
-    let newline: number;
-    while ((newline = buffered.indexOf("\n")) >= 0) {
-      const line = buffered.slice(0, newline).trim();
-      buffered = buffered.slice(newline + 1);
-      if (!line) continue;
-      const parsed = JSON.parse(line) as {
-        message?: { content?: string };
-        done?: boolean;
-        total_duration?: number;
-        prompt_eval_count?: number;
-        eval_count?: number;
-        eval_duration?: number;
-      };
-      content += parsed.message?.content ?? "";
-      if (parsed.done) {
-        stats = {
-          promptTokens: parsed.prompt_eval_count,
-          completionTokens: parsed.eval_count,
-          durationMs:
-            parsed.total_duration !== undefined ? parsed.total_duration / 1e6 : undefined,
-          tokensPerSecond:
-            parsed.eval_count !== undefined && parsed.eval_duration
-              ? parsed.eval_count / (parsed.eval_duration / 1e9)
-              : undefined,
-        };
-      }
-    }
-  }
-  return { content, stats };
-}
-
-async function validate(kind: DelegateKind, fragment: string) {
-  const response = await fetch(`${F8}/delegates/validate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ delegateKind: kind, fragment }),
-  });
-  if (!response.ok) {
-    throw new Error(
-      `/delegates/validate returned HTTP ${response.status} - is the apiApp running with Fallen8__Security__EnableDynamicCodeExecution=true?`,
-    );
-  }
-  return (await response.json()) as {
-    valid: boolean;
-    diagnostics: { severity: string; id: string; message: string }[];
-  };
+  stats: GenStats | null;
 }
 
 function runChecks(row: EvalRow, fragment: string): string[] {
@@ -171,8 +93,7 @@ async function main() {
     // Preflight both dependencies with a known-good fragment before burning model time.
     const preflight = await validate("VertexFilter", "return (v) => true;");
     if (!preflight.valid) throw new Error("Preflight validate failed unexpectedly.");
-    const version = await fetch(`${ENDPOINT}/api/version`);
-    if (!version.ok) throw new Error(`Ollama not reachable at ${ENDPOINT}.`);
+    if (!(await ollamaReachable())) throw new Error(`Ollama not reachable at ${ENDPOINT}.`);
   }
 
   const resultsDir = path.join(here, "results");
@@ -208,9 +129,7 @@ async function main() {
       intent: row.intent,
       fragment,
       compileValid: validation.valid,
-      compileErrors: validation.diagnostics
-        .filter((d) => d.severity === "error")
-        .map((d) => `${d.id} ${d.message}`),
+      compileErrors: compileErrors(validation),
       failedChecks,
       pass: validation.valid && failedChecks.length === 0,
       stats,

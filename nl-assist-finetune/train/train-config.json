@@ -1,0 +1,43 @@
+{
+  "$comment": "Recorded LoRA fine-tune configuration (spec FT-1: committed config + seed => reproducible model). Consumed by train_lora.py; tuned for a single 8GB+ NVIDIA GPU under WSL2. Bump 'baseModel' only to another MIT-licensed base (spec FT-7/parent FR-26.1).",
+
+  "baseModel": "microsoft/Phi-4-mini-instruct",
+  "baseModelLicense": "MIT",
+  "seed": 20260719,
+  "maxSeqLength": 2048,
+
+  "lora": {
+    "r": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "targetModules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  },
+
+  "quantize": {
+    "load4bit": true,
+    "bnbQuantType": "nf4",
+    "computeDtype": "bfloat16",
+    "useDoubleQuant": true
+  },
+
+  "training": {
+    "epochs": 3,
+    "perDeviceBatchSize": 2,
+    "gradAccumSteps": 8,
+    "learningRate": 0.0002,
+    "lrScheduler": "cosine",
+    "warmupRatio": 0.03,
+    "weightDecay": 0.0,
+    "gradientCheckpointing": true,
+    "optim": "paged_adamw_8bit",
+    "loggingSteps": 5
+  },
+
+  "$responseTemplateNote": "The completion-only collator masks everything up to and including this marker so loss is computed on the fragment only. It MUST match how the tokenizer's chat template opens an assistant turn - verify on your box with 'python train_lora.py --inspect' and adjust if the printed marker differs (Phi model revisions have used both '<|assistant|>' and '<|im_start|>assistant').",
+  "responseTemplate": "<|assistant|>",
+
+  "output": {
+    "ggufQuant": "Q4_K_M",
+    "ollamaModel": "f8-delegate"
+  }
+}
