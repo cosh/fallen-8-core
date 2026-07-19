@@ -5,6 +5,7 @@
     <RootNamespace>NoSQL.GraphDB.Tests</RootNamespace>
 
     <IsPackable>false</IsPackable>
+    <RunSettingsFilePath>$(MSBuildProjectDirectory)/test.runsettings</RunSettingsFilePath>
   </PropertyGroup>
 
   <ItemGroup>

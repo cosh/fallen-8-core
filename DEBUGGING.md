@@ -67,6 +67,33 @@ and serves it from `:5000`.
 - **Backend (MSTest):** the .NET Test Explorer debugs a single method; CLI is
   `dotnet test fallen-8-core.sln`.
 
+### WSL/Linux note for backend tests
+
+- The repository configures backend tests with `fallen-8-unittest/test.runsettings`,
+  which sets `DOTNET_hostBuilder__reloadConfigOnChange=false` so full-suite API tests
+  do not exhaust inotify instances when many `WebApplicationFactory` hosts spin up.
+- The test assembly also sets the same guard in `fallen-8-unittest/TestEnvironmentBootstrap.cs`
+  at `[AssemblyInitialize]`, because some Test Explorer runners do not always honor
+  project-level runsettings.
+- If your machine still reports inotify-limit errors, raise Linux limits once:
+  `sudo sysctl -w fs.inotify.max_user_instances=1024`
+  and `sudo sysctl -w fs.inotify.max_user_watches=1048576`.
+
+### WSL/Linux note for Playwright e2e
+
+The e2e suite lives in `fallen-8-web-ui/` (see `## Tests` above); WSL only needs two
+one-time setup steps beyond `npm ci`:
+
+- Install the browser **and its Linux system libraries**:
+  `cd fallen-8-web-ui && npx playwright install --with-deps chromium`. The
+  `--with-deps` flag pulls the apt packages headless Chromium needs, which a fresh
+  WSL/Ubuntu image lacks.
+- Then run it from the repo root with `npm run e2e` (delegates to `fallen-8-web-ui`)
+  or from `fallen-8-web-ui/` with `npx playwright test`. The config builds the SPA and
+  launches its own apiApp on `:5000`, so nothing needs to be running first.
+- The inotify note above applies here too — the apiApp the suite launches watches its
+  config files. Raise the limits if a run fails to start under load.
+
 ## Debugging inside a container (only when needed)
 
 Reserve this for a bug that reproduces **only** in Docker (e.g. a volume/path issue).

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <!-- Avoid per-host JSON file watchers during WebApplicationFactory startup. -->
+      <DOTNET_hostBuilder__reloadConfigOnChange>false</DOTNET_hostBuilder__reloadConfigOnChange>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>
