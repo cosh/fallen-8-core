@@ -106,6 +106,10 @@ train/.venv/bin/python train/train_lora.py --inspect
 > If `./run.sh deps` fails with an `ensurepip` / "python3-venv is not available" error, install
 > the packages from Prerequisites, then `rm -rf train/.venv` before retrying — `deps` skips
 > creation when the directory already exists, so a half-built venv must be cleared first.
+>
+> `deps` installs torch from the CUDA wheel index in `TORCH_INDEX` (default `cu124`), letting
+> pip pick the build for your Python + driver. If torch install fails or CUDA is unavailable at
+> train time, set `TORCH_INDEX` to the index matching `nvidia-smi`'s CUDA version (e.g. `cu121`).
 
 `run.sh` produces the Ollama model `f8-delegate` and a `PROVENANCE.md` (base model + MIT
 license, pinned tool versions, dataset hash — spec FT-7). Config, seed, and LoRA
@@ -157,4 +161,6 @@ npx tsx nl-assist-finetune/eval/fixture.ts   # self-test
 Shared by every script (defined in `shared/f8.ts`):
 `NL_EVAL_MODEL` (default `phi4-mini`), `NL_EVAL_ENDPOINT` (default `http://localhost:11434`),
 `NL_EVAL_F8` (default `http://localhost:5000`). Generator-only: `NL_GEN_BOOTSTRAP`,
-`NL_GEN_OUT`. `run.sh`: `VENV`, `LLAMA_CPP`, `OLLAMA_MODEL`.
+`NL_GEN_OUT`. `run.sh`: `VENV`, `LLAMA_CPP`, `OLLAMA_MODEL`, and `TORCH_INDEX` (the CUDA wheel
+index torch is installed from; default `cu124`, set to e.g. `https://download.pytorch.org/whl/cu121`
+for an older driver — check `nvidia-smi`'s CUDA version against https://pytorch.org/get-started/locally/).

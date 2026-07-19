@@ -34,6 +34,10 @@ deps() {
   log "deps: python venv + pinned toolchain"
   [ -d "$VENV" ] || python3 -m venv "$VENV"
   "$VENV/bin/pip" install --upgrade pip >/dev/null
+  # torch matches YOUR CUDA + Python: pip picks the newest compatible wheel from this index,
+  # so there is no brittle version pin to miss (e.g. no torch==2.5.1 wheel for Python 3.13).
+  # Override TORCH_INDEX for an older driver, e.g. TORCH_INDEX=https://download.pytorch.org/whl/cu121
+  "$VENV/bin/pip" install torch --index-url "${TORCH_INDEX:-https://download.pytorch.org/whl/cu124}"
   "$VENV/bin/pip" install -r "$HERE/train/requirements.txt"
 }
 
