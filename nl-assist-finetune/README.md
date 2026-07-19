@@ -44,13 +44,23 @@ Fallen8__Security__EnableDynamicCodeExecution=true \
 dotnet run --project fallen-8-core-apiApp
 ```
 
-Training (phase 3) additionally needs WSL2 (Ubuntu) with an **8GB+ NVIDIA GPU** (CUDA 12.x
-driver visible via `nvidia-smi`), Node.js (for the generator), `ollama`, and Python 3.10+
-**with its venv and pip packages** — on Ubuntu these are separate from `python3` itself, and
-`./run.sh deps` cannot build the virtualenv without them:
+Training (phase 3) additionally needs WSL2 (Ubuntu) with an **8GB+ NVIDIA GPU** (any modern
+CUDA driver — `nvidia-smi` shows the version; a newer driver runs the torch wheels fine),
+Node.js (for the generator), `ollama`, and **Python 3.10+**.
+
+Mind the Python version: the distro default (`python3 --version`) is often too old — Ubuntu
+20.04 ships Python **3.8**, which is EOL and has no wheels for the toolchain, so `./run.sh
+deps` fails with "No matching distribution found". Install a supported Python + its venv
+package and point `deps` at it with the `PYTHON` env var:
 
 ```bash
-sudo apt update && sudo apt install -y python3-venv python3-pip
+# python3 < 3.10 → install a newer one (deadsnakes covers 20.04/22.04):
+sudo add-apt-repository -y ppa:deadsnakes/ppa
+sudo apt update && sudo apt install -y python3.12 python3.12-venv
+# then, in Phase 3:  PYTHON=python3.12 ./run.sh deps
+
+# python3 already >= 3.10 → just its venv/pip packages:
+sudo apt install -y python3-venv python3-pip
 ```
 
 ## Phase 2 — generate the dataset
@@ -88,7 +98,8 @@ From `nl-assist-finetune/` inside WSL2, in this order:
 
 ```bash
 # 1. Build the toolchain FIRST: this creates train/.venv and installs the pinned deps.
-#    Nothing under train/.venv exists until this has run.
+#    Nothing under train/.venv exists until this has run. If your default python3 is < 3.10,
+#    prefix with a newer interpreter:  PYTHON=python3.12 ./run.sh deps
 ./run.sh deps
 
 # 2. (Optional pre-flight) eyeball the assistant marker the completion-only trainer keys on
@@ -161,6 +172,8 @@ npx tsx nl-assist-finetune/eval/fixture.ts   # self-test
 Shared by every script (defined in `shared/f8.ts`):
 `NL_EVAL_MODEL` (default `phi4-mini`), `NL_EVAL_ENDPOINT` (default `http://localhost:11434`),
 `NL_EVAL_F8` (default `http://localhost:5000`). Generator-only: `NL_GEN_BOOTSTRAP`,
-`NL_GEN_OUT`. `run.sh`: `VENV`, `LLAMA_CPP`, `OLLAMA_MODEL`, and `TORCH_INDEX` (the CUDA wheel
-index torch is installed from; default `cu124`, set to e.g. `https://download.pytorch.org/whl/cu121`
-for an older driver — check `nvidia-smi`'s CUDA version against https://pytorch.org/get-started/locally/).
+`NL_GEN_OUT`. `run.sh`: `VENV`, `LLAMA_CPP`, `OLLAMA_MODEL`, `PYTHON` (interpreter used to build
+the venv; default `python3`, set to e.g. `python3.12` when the default is too old), and
+`TORCH_INDEX` (the CUDA wheel index torch is installed from; default `cu124`, set to e.g.
+`https://download.pytorch.org/whl/cu121` for an older driver — check `nvidia-smi`'s CUDA version
+against https://pytorch.org/get-started/locally/).

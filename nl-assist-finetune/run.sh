@@ -32,11 +32,23 @@ py() { "$VENV/bin/python" "$@"; }
 
 deps() {
   log "deps: python venv + pinned toolchain"
-  [ -d "$VENV" ] || python3 -m venv "$VENV"
+  local py="${PYTHON:-python3}"
+  # The toolchain (transformers/peft/trl/torch) needs Python >= 3.10. The distro's default
+  # python3 is often too old (Ubuntu 20.04 ships 3.8, EOL) and yields cryptic per-package
+  # "No matching distribution" errors. Fail early with guidance; override with PYTHON.
+  if ! command -v "$py" >/dev/null 2>&1 || \
+     ! "$py" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)' 2>/dev/null; then
+    echo "ERROR: '$py' is $("$py" --version 2>&1 | awk '{print $NF}') - this pipeline needs Python >= 3.10." >&2
+    echo "Install one and re-run with it, e.g.:  PYTHON=python3.12 ./run.sh deps" >&2
+    echo "  Ubuntu: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.12 python3.12-venv" >&2
+    return 1
+  fi
+  [ -d "$VENV" ] || "$py" -m venv "$VENV"
   "$VENV/bin/pip" install --upgrade pip >/dev/null
   # torch matches YOUR CUDA + Python: pip picks the newest compatible wheel from this index,
   # so there is no brittle version pin to miss (e.g. no torch==2.5.1 wheel for Python 3.13).
-  # Override TORCH_INDEX for an older driver, e.g. TORCH_INDEX=https://download.pytorch.org/whl/cu121
+  # A newer driver (CUDA 13.x) runs these older-CUDA wheels fine; override TORCH_INDEX for an
+  # older driver, e.g. TORCH_INDEX=https://download.pytorch.org/whl/cu121
   "$VENV/bin/pip" install torch --index-url "${TORCH_INDEX:-https://download.pytorch.org/whl/cu124}"
   "$VENV/bin/pip" install -r "$HERE/train/requirements.txt"
 }
