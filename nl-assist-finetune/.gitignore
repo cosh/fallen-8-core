@@ -15,3 +15,8 @@ PROVENANCE.md
 train/.venv/
 llama.cpp/
 __pycache__/
+
+# Optional local `pip freeze` snapshot (machine/platform-specific, e.g. +cuXXX torch). The
+# exact working versions are already pinned in train/requirements.txt, so this is just a
+# personal reference, never committed.
+train/requirements.lock
