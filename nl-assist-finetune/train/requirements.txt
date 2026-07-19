@@ -9,15 +9,18 @@
 #     pip install torch --index-url $TORCH_INDEX   (default cu124; override for your driver)
 # See https://pytorch.org/get-started/locally/ for the index matching your CUDA.
 #
-# These are lower-bound FLOORS, not exact pins, on purpose: torch is installed unpinned
-# (above) so it tracks your Python/driver, and exact library pins from an older torch break
-# against a newer one - e.g. transformers/bitsandbytes built for Triton 2.x fail with
-# "No module named 'triton.ops'" once a newer torch pulls Triton 3.x. Floors let pip pick the
-# matching current releases. For strict reproducibility (spec FT-1), freeze the exact versions
-# that work on your box afterwards: `train/.venv/bin/pip freeze > train/requirements.lock`.
-transformers>=4.48
+# Version strategy (learned the hard way): "install latest of everything" breaks both ways -
+#   - libs too OLD for the fresh torch  -> transformers/bitsandbytes built for Triton 2.x hit
+#     "No module named 'triton.ops'" once torch pulls Triton 3.x;
+#   - transformers too NEW for trl/peft -> "cannot import LossKwargs from transformers.utils"
+#     (a newer transformers moved a symbol the trainer libs still import).
+# So: keep transformers+trl as a COHERENT contemporaneous pair (capped), and let bitsandbytes
+# float up (its newer releases are the ones that dropped the triton.ops import). torch is
+# installed unpinned above (tracks your Python/driver). For strict reproducibility (spec FT-1),
+# freeze the combo that works once training runs: `train/.venv/bin/pip freeze > train/requirements.lock`.
+transformers>=4.48,<4.49
+trl>=0.13,<0.14
 peft>=0.14
-trl>=0.13
 datasets>=3.2
 accelerate>=1.2
 bitsandbytes>=0.45
