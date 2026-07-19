@@ -14,14 +14,14 @@ on your own machine.
 | 1 | Baseline evaluation harness (`eval/`) | done |
 | 2 | Dataset generator (`dataset-gen/`), every row compile-gated | done |
 | 3 | LoRA training pipeline (`train/`, `run.sh`), WSL2 + NVIDIA GPU | done |
-| 4 | Semantic eval gate (FT-8: seeded-graph element-set comparison) | pending — the `eval/` harness's regex checks are the interim semantic proxy |
+| 4 | Semantic eval gate (FT-8: seeded-graph element-set comparison, `eval/fixture.ts`) | done |
 
 ## Layout
 
 ```
-shared/f8.ts         validate() (compile authority) + streaming ollamaChat(), shared by all scripts
+shared/f8.ts         f8Fetch (429-retry) + validate() (compile authority) + streaming ollamaChat(), shared by all scripts
 dataset-gen/         phase 2 — generate.ts: contract -> validated (intent, fragment) pairs
-eval/                phase 1 — baseline.ts + eval-set.json (held-out; never train on it)
+eval/                phases 1+4 — baseline.ts (+ --semantic), fixture.ts (FT-8 gate), eval-set.json (held-out)
 train/               phase 3 — requirements.txt, train-config.json, train_lora.py, merge.py, Modelfile.template
 run.sh               phase 3 orchestrator (WSL2): dataset -> train -> merge -> gguf -> ollama create -> provenance
 dataset/ adapter/ merged/ *.gguf Modelfile PROVENANCE.md   generated, gitignored (spec FT-5)
@@ -93,20 +93,38 @@ Fallen-8 code changes; with nothing configured the stock base model is used as b
 ## Evaluation (baseline / comparison runs)
 
 ```bash
-npx tsx nl-assist-finetune/eval/baseline.ts                          # stock base model
-NL_EVAL_MODEL=f8-delegate npx tsx nl-assist-finetune/eval/baseline.ts # a fine-tuned model
+npx tsx nl-assist-finetune/eval/baseline.ts                              # stock base model
+NL_EVAL_MODEL=f8-delegate npx tsx nl-assist-finetune/eval/baseline.ts    # a fine-tuned model
+npx tsx nl-assist-finetune/eval/baseline.ts --semantic                   # + FT-8 element-set gate
+npx tsx nl-assist-finetune/eval/baseline.ts --rescore --semantic         # re-score recorded fragments, no model calls
 ```
 
 One first-pass call per `eval/eval-set.json` row through the web UI's real prompt/format
-modules, scored on compile (`POST /delegates/validate`), the row's semantic-proxy checks,
-and performance. Resumable; raw results in `eval/results/` (gitignored). Summary numbers go
-into the **run ledger** in [plan.md](../features/open/nl-assist-finetune/plan.md) so
-movement is visible run-over-run (performance numbers are hardware-bound — compare same
+modules, scored on compile (`POST /delegates/validate`), the row's regex semantic-proxy
+checks, and performance. Resumable; raw results in `eval/results/` (gitignored). Summary
+numbers go into the **run ledger** in [plan.md](../features/open/nl-assist-finetune/plan.md)
+so movement is visible run-over-run (performance numbers are hardware-bound — compare same
 machine only). `eval/eval-set.json` is held out: never feed it to training (spec FT-4).
 
-The full FT-8 semantic gate (phase 4) — seeding the sample graph and comparing the element
-sets the generated and reference fragments select — is not built yet; the `mustMatch`/
-`mustNotMatch` regexes are the interim semantic proxy until it lands.
+### FT-8 semantic gate (phase 4)
+
+`--semantic` adds the real element-set metric (spec FT-8): [fixture.ts](eval/fixture.ts)
+seeds a purpose-built fixture graph, then runs BOTH the generated and the reference
+fragment through the existing `/subgraph` endpoint and compares the element sets they
+select — catching drafts that **compile but select the wrong elements** (the field-example
+`TryGetProperty(out string label, "label")` class), which compile-only scoring is blind to.
+Filter kinds map to subgraph filters (VertexFilter/GraphElementFilter → vertices,
+EdgeFilter → edges); kinds with no element-set mapping (EdgePropertyFilter, the cost kinds)
+and fragments needing a VertexModel/EdgeModel-only member keep the regex proxy and are
+reported "n/a" (the `semanticN` column is the applicable-row count, never hidden).
+
+Requires a **dedicated volatile apiApp** (so the fixture is the only data). Verify the
+comparator itself without a model — ref-vs-ref must pass, select-nothing negatives must be
+caught:
+
+```bash
+npx tsx nl-assist-finetune/eval/fixture.ts   # self-test
+```
 
 ## Env vars
 

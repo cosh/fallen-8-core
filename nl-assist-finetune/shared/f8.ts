@@ -43,39 +43,44 @@ export interface ValidationResult {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * The product's compile authority. Errors loudly if the apiApp isn't reachable/configured.
+ * fetch against the apiApp that transparently retries the sensitive-endpoint 429.
  *
- * /delegates/validate sits behind the sensitive-endpoint fixed-window limiter (default
- * 30 requests / 10 s). A batch caller (the dataset generator) bursts past that, so we
- * transparently retry 429s - honouring Retry-After when the server sends it, otherwise
- * backing off ~1.5 s until the window replenishes. This keeps callers decoupled from the
- * server's limit rather than hard-coding a client-side rate.
+ * /delegates/validate and /subgraph sit behind a fixed-window limiter (default 30 requests
+ * / 10 s). Batch callers (the dataset generator, the semantic-eval harness) burst past it,
+ * so we retry - honouring Retry-After when sent, otherwise backing off ~1.5 s until the
+ * window replenishes - keeping callers decoupled from the server's rate rather than
+ * hard-coding a client-side one. `path` is relative to the apiApp base URL.
  */
-export async function validate(
-  kind: DelegateKind,
-  fragment: string,
-): Promise<ValidationResult> {
-  const body = JSON.stringify({ delegateKind: kind, fragment });
+export async function f8Fetch(path: string, init?: RequestInit): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
-    const response = await fetch(`${F8}/delegates/validate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
+    const response = await fetch(`${F8}${path}`, init);
     if (response.status === 429) {
       await response.text().catch(() => undefined); // drain so the connection is reusable
-      if (attempt >= 20) throw new Error("/delegates/validate: still rate-limited after 20 retries.");
+      if (attempt >= 20) throw new Error(`${path}: still rate-limited after 20 retries.`);
       const retryAfter = Number(response.headers.get("retry-after"));
       await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500);
       continue;
     }
-    if (!response.ok) {
-      throw new Error(
-        `/delegates/validate returned HTTP ${response.status} - is the apiApp running with Fallen8__Security__EnableDynamicCodeExecution=true?`,
-      );
-    }
-    return (await response.json()) as ValidationResult;
+    return response;
   }
+}
+
+/** The product's compile authority. Errors loudly if the apiApp isn't reachable/configured. */
+export async function validate(
+  kind: DelegateKind,
+  fragment: string,
+): Promise<ValidationResult> {
+  const response = await f8Fetch("/delegates/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ delegateKind: kind, fragment }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `/delegates/validate returned HTTP ${response.status} - is the apiApp running with Fallen8__Security__EnableDynamicCodeExecution=true?`,
+    );
+  }
+  return (await response.json()) as ValidationResult;
 }
 
 /** Error strings from a validation result (severity=error), formatted "<id> <message>". */

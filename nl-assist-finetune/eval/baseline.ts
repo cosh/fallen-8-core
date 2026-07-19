@@ -41,6 +41,7 @@ import {
   ollamaReachable,
   validate,
 } from "../shared/f8";
+import { compareSemantics, ensureFixture } from "./fixture";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -63,6 +64,9 @@ interface RowResult {
   failedChecks: string[];
   pass: boolean;
   stats: GenStats | null;
+  /** FT-8 element-set verdict (only when run with --semantic). undefined pass = not applicable. */
+  semanticApplicable?: boolean;
+  semanticPass?: boolean;
 }
 
 function runChecks(row: EvalRow, fragment: string): string[] {
@@ -88,12 +92,19 @@ async function main() {
   ).rows;
 
   const rescore = process.argv.includes("--rescore");
+  const semantic = process.argv.includes("--semantic");
 
   if (!rescore) {
     // Preflight both dependencies with a known-good fragment before burning model time.
     const preflight = await validate("VertexFilter", "return (v) => true;");
     if (!preflight.valid) throw new Error("Preflight validate failed unexpectedly.");
     if (!(await ollamaReachable())) throw new Error(`Ollama not reachable at ${ENDPOINT}.`);
+  }
+
+  // FT-8 semantic scoring seeds the fixture graph on the apiApp (idempotent per instance).
+  if (semantic) {
+    const info = await ensureFixture();
+    console.log(`semantic fixture: ${info.seeded ? "seeded" : "present"} (${info.vertices}v/${info.edges}e)`);
   }
 
   const resultsDir = path.join(here, "results");
@@ -110,6 +121,11 @@ async function main() {
       if (!row) continue;
       result.failedChecks = runChecks(row, result.fragment);
       result.pass = result.compileValid && result.failedChecks.length === 0;
+      if (semantic) {
+        const verdict = await compareSemantics(row.kind, row.reference, result.fragment);
+        result.semanticApplicable = verdict.applicable;
+        result.semanticPass = verdict.applicable ? verdict.pass : undefined;
+      }
     }
   }
 
@@ -134,12 +150,20 @@ async function main() {
       pass: validation.valid && failedChecks.length === 0,
       stats,
     };
+    if (semantic) {
+      const verdict = await compareSemantics(row.kind, row.reference, fragment);
+      result.semanticApplicable = verdict.applicable;
+      result.semanticPass = verdict.applicable ? verdict.pass : undefined;
+    }
     results.push(result);
     writeFileSync(outFile, JSON.stringify({ model: MODEL, rows: results }, null, 2));
+    const sem = semantic
+      ? ` sem=${result.semanticApplicable ? (result.semanticPass ? "ok" : "MISS") : "n/a"}`
+      : "";
     console.log(
       `${result.pass ? "PASS" : "FAIL"} ${row.id} compile=${result.compileValid} checks=${
         failedChecks.length === 0 ? "ok" : failedChecks.join("; ")
-      } ${result.stats ? `${((result.stats.durationMs ?? 0) / 1000).toFixed(1)}s ${result.stats.tokensPerSecond?.toFixed(1) ?? "?"} tok/s` : ""}`,
+      }${sem} ${result.stats ? `${((result.stats.durationMs ?? 0) / 1000).toFixed(1)}s ${result.stats.tokensPerSecond?.toFixed(1) ?? "?"} tok/s` : ""}`,
     );
   }
 
@@ -154,10 +178,19 @@ async function main() {
     const meanTokensPerSecond =
       withStats.reduce((sum, result) => sum + (result.stats!.tokensPerSecond ?? 0), 0) /
       Math.max(1, withStats.length);
+    const applicable = subset.filter((result) => result.semanticApplicable);
     return {
       n: subset.length,
       compile: percent(subset.filter((result) => result.compileValid).length, subset.length),
       semanticProxy: percent(subset.filter((result) => result.pass).length, subset.length),
+      // FT-8 element-set rate over the rows it applies to (n/a rows excluded); the "N"
+      // column is that applicable count, so a small denominator is never hidden.
+      ...(semantic
+        ? {
+            semantic: percent(applicable.filter((result) => result.semanticPass).length, applicable.length),
+            semanticN: applicable.length,
+          }
+        : {}),
       meanSecondsPerDraft: Number(meanSeconds.toFixed(1)),
       meanTokensPerSecond: Number(meanTokensPerSecond.toFixed(1)),
     };
