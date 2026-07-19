@@ -9,21 +9,20 @@
 #     pip install torch --index-url $TORCH_INDEX   (default cu124; override for your driver)
 # See https://pytorch.org/get-started/locally/ for the index matching your CUDA.
 #
-# Version strategy (learned the hard way): "install latest of everything" breaks both ways -
-#   - libs too OLD for the fresh torch  -> transformers/bitsandbytes built for Triton 2.x hit
-#     "No module named 'triton.ops'" once torch pulls Triton 3.x;
-#   - transformers too NEW for trl/peft -> "cannot import LossKwargs from transformers.utils"
-#     (a newer transformers moved a symbol the trainer libs still import).
-# So: keep transformers+trl as a COHERENT contemporaneous pair (capped), and let bitsandbytes
-# float up (its newer releases are the ones that dropped the triton.ops import). torch is
-# installed unpinned above (tracks your Python/driver). For strict reproducibility (spec FT-1),
-# freeze the combo that works once training runs: `train/.venv/bin/pip freeze > train/requirements.lock`.
-transformers>=4.48,<4.49
-trl>=0.13,<0.14
-peft>=0.14
-datasets>=3.2
-accelerate>=1.2
-bitsandbytes>=0.45
+# VALIDATED SET - the exact combo that trained cleanly on an RTX 3080 (10GB) / Python 3.12 /
+# CUDA 12.4 / torch 2.6.0 (run.sh installs that torch; see TORCH_VERSION). Pinned for
+# reproducibility (spec FT-1) after a version dance worth remembering:
+#   - transformers+trl MUST stay a coherent pair: a newer transformers moved LossKwargs and
+#     broke trl ("cannot import LossKwargs from transformers.utils");
+#   - bitsandbytes MUST be new enough for the installed Triton: older releases import the
+#     removed triton.ops ("No module named 'triton.ops'") once torch pulls Triton 3.x.
+# To move to a newer torch, bump the whole group together and re-run the eval gate.
+transformers==4.48.3
+trl==0.13.0
+peft==0.19.1
+datasets==5.0.0
+accelerate==1.14.0
+bitsandbytes==0.49.2
 sentencepiece>=0.2
 protobuf>=5.29
 

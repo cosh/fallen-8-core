@@ -148,6 +148,9 @@ def main() -> None:
         logging_steps=train["loggingSteps"],
         optim=train["optim"],
         gradient_checkpointing=train["gradientCheckpointing"],
+        # Use non-reentrant checkpointing (torch's recommended mode; silences the 2.5+ warning
+        # about the default flipping). Ignored when gradient_checkpointing is off.
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         bf16=True,
         max_seq_length=cfg["maxSeqLength"],
         dataset_text_field="text",
