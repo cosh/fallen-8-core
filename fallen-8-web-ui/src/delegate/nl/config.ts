@@ -6,9 +6,11 @@ import { persist } from "zustand/middleware";
  * scope (not per-instance). The key is stored locally and is only ever sent to the
  * configured model endpoint - never to a Fallen-8 instance (FR-26.11).
  *
- * Two backend modes (nl-assist-ux FR-1/FR-3): "builtin" pins the stack the project ships
- * in docker-compose.yml (local Ollama + phi4-mini, zero configuration), "custom" uses the
- * stored endpoint fields. Always resolve via effectiveNlConfig() before making calls.
+ * Two backend modes (nl-assist-ux FR-1/FR-3): "builtin" pins the local Ollama stack from
+ * docker-compose.yml and defaults to the fine-tuned "f8-delegate" model (nl-assist-finetune,
+ * higher first-pass accuracy on the delegate surface); "custom" uses the stored endpoint
+ * fields. To use the stock base model instead, switch to custom and pick the
+ * "Ollama (stock phi4-mini)" preset. Always resolve via effectiveNlConfig() before calls.
  */
 
 export type NlBackendMode = "builtin" | "custom";
@@ -23,18 +25,24 @@ export interface NlAssistConfig {
   maxRetries: number;
 }
 
-/** The compose-shipped backend (docker-compose.yml `ollama` service) — not bundled in F8. */
+/**
+ * The local Ollama backend (docker-compose.yml `ollama` service) — not bundled in F8. The
+ * default model is the fine-tuned "f8-delegate" (produced by nl-assist-finetune); the
+ * compose stack still pulls "phi4-mini" as its base and the selectable fallback. If
+ * f8-delegate is not present on the Ollama host, create it with the training pipeline or
+ * switch to the stock phi4-mini preset (custom mode) — otherwise calls 404.
+ */
 export const BUILTIN_NL_BACKEND = {
   endpoint: "http://localhost:11434",
   apiKind: "ollama",
-  model: "phi4-mini",
+  model: "f8-delegate",
 } as const;
 
 export const DEFAULT_NL_CONFIG: NlAssistConfig = {
   mode: "builtin",
   endpoint: "",
   apiKind: "ollama",
-  model: "phi4-mini",
+  model: "f8-delegate",
   apiKey: undefined,
   temperature: 0.1,
   maxRetries: 2,
@@ -49,7 +57,8 @@ export interface NlPreset {
 }
 
 export const NL_PRESETS: NlPreset[] = [
-  { name: "Ollama (local)", endpoint: "http://localhost:11434", apiKind: "ollama", model: "phi4-mini" },
+  { name: "Ollama (stock phi4-mini)", endpoint: "http://localhost:11434", apiKind: "ollama", model: "phi4-mini" },
+  { name: "Ollama (fine-tuned f8-delegate)", endpoint: "http://localhost:11434", apiKind: "ollama", model: "f8-delegate" },
   { name: "OpenAI", endpoint: "https://api.openai.com/v1", apiKind: "openai", model: "gpt-4o-mini" },
   { name: "Anthropic", endpoint: "https://api.anthropic.com/v1", apiKind: "openai", model: "claude-opus-4-8" },
 ];

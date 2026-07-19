@@ -12,7 +12,10 @@
 # bind the user running them.
 #
 #   F8 Studio:  http://localhost:8080
-#   NL assist:  endpoint http://localhost:11434, api kind "ollama", model "phi4-mini"
+#   NL assist:  endpoint http://localhost:11434, api kind "ollama". The UI DEFAULTS to the
+#               fine-tuned "f8-delegate" model (nl-assist-finetune); ollama-init below pulls
+#               "phi4-mini" as its base and the stock fallback. Create f8-delegate with the
+#               training pipeline (nl-assist-finetune/run.sh) or pick the phi4-mini preset.
 
 services:
   fallen8:

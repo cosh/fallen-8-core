@@ -95,13 +95,16 @@ describe("persisted-state migration (nl-assist-ux FR-4)", () => {
 describe("presets (nl-assist-ux FR-3)", () => {
   it("offers local Ollama plus hosted OpenAI-compatible prefills", () => {
     const names = NL_PRESETS.map((preset) => preset.name);
-    expect(names).toContain("Ollama (local)");
+    // Both local models are selectable: the stock base and the fine-tuned default.
+    expect(names).toContain("Ollama (stock phi4-mini)");
+    expect(names).toContain("Ollama (fine-tuned f8-delegate)");
     expect(names).toContain("OpenAI");
     expect(names).toContain("Anthropic");
-    const ollama = NL_PRESETS.find((preset) => preset.name === "Ollama (local)")!;
-    expect(ollama).toMatchObject({ endpoint: "http://localhost:11434", apiKind: "ollama" });
-    // Hosted presets ride the OpenAI-compatible transport (only kind with a key field).
-    for (const hosted of NL_PRESETS.filter((preset) => preset.name !== "Ollama (local)")) {
+    const ollama = NL_PRESETS.find((preset) => preset.name === "Ollama (stock phi4-mini)")!;
+    expect(ollama).toMatchObject({ endpoint: "http://localhost:11434", apiKind: "ollama", model: "phi4-mini" });
+    // Hosted (non-Ollama) presets ride the OpenAI-compatible transport (the only kind with
+    // a key field); both local presets use the Ollama transport.
+    for (const hosted of NL_PRESETS.filter((preset) => !preset.name.startsWith("Ollama"))) {
       expect(hosted.apiKind).toBe("openai");
     }
   });
