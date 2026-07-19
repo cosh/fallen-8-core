@@ -18,7 +18,7 @@
  *                                            with EnableDynamicCodeExecution=true)
  *
  * Results are written per-row (resumable) to eval/results/baseline-<model>.json; the
- * summary numbers belong in features/open/nl-assist-finetune/plan.md's run ledger.
+ * summary numbers belong in features/done/nl-assist-finetune/plan.md's run ledger.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

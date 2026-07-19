@@ -1,8 +1,8 @@
 # nl-assist-finetune
 
 Offline pipeline that specializes the NL-assist model
-([spec](../features/open/nl-assist-finetune/spec.md),
-[plan](../features/open/nl-assist-finetune/plan.md)). Nothing here is required to build or
+([spec](../features/done/nl-assist-finetune/spec.md),
+[plan](../features/done/nl-assist-finetune/plan.md)). Nothing here is required to build or
 run Fallen-8, and no weights or datasets are ever committed (spec FT-5): the repo ships the
 **generator, trainer config, Modelfile template, and eval harness** — you produce the model
 on your own machine.
@@ -102,7 +102,7 @@ npx tsx nl-assist-finetune/eval/baseline.ts --rescore --semantic         # re-sc
 One first-pass call per `eval/eval-set.json` row through the web UI's real prompt/format
 modules, scored on compile (`POST /delegates/validate`), the row's regex semantic-proxy
 checks, and performance. Resumable; raw results in `eval/results/` (gitignored). Summary
-numbers go into the **run ledger** in [plan.md](../features/open/nl-assist-finetune/plan.md)
+numbers go into the **run ledger** in [plan.md](../features/done/nl-assist-finetune/plan.md)
 so movement is visible run-over-run (performance numbers are hardware-bound — compare same
 machine only). `eval/eval-set.json` is held out: never feed it to training (spec FT-4).
 
