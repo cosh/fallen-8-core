@@ -39,6 +39,7 @@ runs from the same machine; this ledger's rows so far are the CPU-only dev box).
 | date | model | prompt | n | compile | semantic proxy | s/draft | tok/s | vs. previous |
 |---|---|---|---|---|---|---|---|---|
 | 2026-07-17 | phi4-mini (stock, Q4_K_M) | FR-10 steering + trailing-prose strip | 18 | 72% | 61% | 36.9 | 0.7 | baseline |
+| 2026-07-19 | phi4-mini (stock, Q4_K_M) | + FT-8 element-set gate (phase 4) | 18 | 72% | 61% | 36.9 | 0.7 | element-set semantic 45% over 11 applicable rows (< proxy < compile: the metric sees compiling-but-wrong drafts) — phase-4 champion base to beat |
 
 Per kind (baseline): VertexFilter 50%/33% (compile/semantic, n=6), EdgeFilter 67%/67%
 (n=3), GraphElementFilter 100%/75% (n=4), EdgePropertyFilter 100%/100% (n=2),

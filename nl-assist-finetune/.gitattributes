@@ -1,0 +1,6 @@
+# These run under WSL2 (bash/python); a CR in the shebang or a sed pattern breaks them.
+# Force LF in the working tree regardless of core.autocrlf.
+run.sh              text eol=lf
+*.sh                text eol=lf
+*.py                text eol=lf
+Modelfile.template  text eol=lf
