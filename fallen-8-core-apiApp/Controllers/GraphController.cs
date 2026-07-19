@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using Microsoft.AspNetCore.Authorization;
@@ -590,9 +591,12 @@ namespace NoSQL.GraphDB.App.Controllers
 
             try
             {
+                // Invariant parse of the wire literal (feature property-ingestion-culture; the
+                // ingest home is ServiceHelper.CreateObject): a comma-decimal host must not read
+                // "0.8" as 8.
                 value = targetType == null
                     ? literal.Value
-                    : (IComparable)Convert.ChangeType(literal.Value, targetType);
+                    : (IComparable)Convert.ChangeType(literal.Value, targetType, CultureInfo.InvariantCulture);
                 return true;
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
@@ -688,8 +692,10 @@ namespace NoSQL.GraphDB.App.Controllers
             IComparable left, right;
             try
             {
-                left = (IComparable)Convert.ChangeType(definition.LeftLimit, limitType ?? typeof(string));
-                right = (IComparable)Convert.ChangeType(definition.RightLimit, limitType ?? typeof(string));
+                // Invariant parse of the wire limits (feature property-ingestion-culture; ingest
+                // home ServiceHelper.CreateObject).
+                left = (IComparable)Convert.ChangeType(definition.LeftLimit, limitType ?? typeof(string), CultureInfo.InvariantCulture);
+                right = (IComparable)Convert.ChangeType(definition.RightLimit, limitType ?? typeof(string), CultureInfo.InvariantCulture);
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
             {
@@ -1207,9 +1213,11 @@ namespace NoSQL.GraphDB.App.Controllers
             object property;
             try
             {
+                // Invariant parse of the wire value (feature property-ingestion-culture; ingest
+                // home ServiceHelper.CreateObject).
                 property = targetType == null
                     ? definition.PropertyValue
-                    : Convert.ChangeType(definition.PropertyValue, targetType);
+                    : Convert.ChangeType(definition.PropertyValue, targetType, CultureInfo.InvariantCulture);
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
             {

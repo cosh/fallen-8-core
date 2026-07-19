@@ -67,12 +67,16 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        ///   Faithful string form of a property value for the REST projection. Scalars keep their
-        ///   existing <see cref="Object.ToString()"/> form, but the two cases plain ToString() rendered
-        ///   uselessly get a real value: a <see cref="Single"/>[] (e.g. an element embedding, which
-        ///   otherwise serialized to the literal "System.Single[]") becomes its bracketed
-        ///   invariant-culture element list, and a <see cref="DateTime"/> becomes a round-trippable
-        ///   ISO-8601 ("O") string rather than a server-locale-specific one.
+        ///   EGRESS HOME (feature property-ingestion-culture): faithful string form of a property
+        ///   value for the REST projection. Every value that carries a locale-sensitive rendering is
+        ///   formatted with <see cref="CultureInfo.InvariantCulture"/> so the wire value round-trips
+        ///   through <c>PUT</c> (ingest mirrors this in <c>ServiceHelper.CreateObject</c>; the bulk
+        ///   path does the same in <c>JsonlGraphFormat</c>): a <see cref="Single"/>[] (e.g. an element
+        ///   embedding, else the literal "System.Single[]") becomes its bracketed element list, a
+        ///   <see cref="DateTime"/> a round-trippable ISO-8601 ("O") string, and any other
+        ///   <see cref="IFormattable"/> scalar (<c>double</c>/<c>float</c>/<c>decimal</c>) its
+        ///   invariant form ("0.8", never the server-locale "0,8"). Genuinely non-formattable objects
+        ///   keep plain <see cref="Object.ToString()"/>.
         /// </summary>
         private static String FormatPropertyValue(Object value)
         {
@@ -84,6 +88,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                     return "[" + String.Join(",", vector.Select(v => v.ToString("R", CultureInfo.InvariantCulture))) + "]";
                 case DateTime dateTime:
                     return dateTime.ToString("O", CultureInfo.InvariantCulture);
+                case IFormattable formattable:
+                    return formattable.ToString(null, CultureInfo.InvariantCulture);
                 default:
                     return value.ToString();
             }

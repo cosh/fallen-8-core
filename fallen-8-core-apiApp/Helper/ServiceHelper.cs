@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core.Model;
@@ -70,9 +71,16 @@ namespace NoSQL.GraphDB.App.Helper
         {
             // Resolve via the primitive allow-list, never Type.GetType(userString) (feature
             // dynamic-code-resource-limits R3): no arbitrary assembly load / static-ctor execution.
+            //
+            // INGEST HOME (feature property-ingestion-culture): parse with InvariantCulture, never
+            // the host's CurrentCulture. The wire value is data interchange - on a comma-decimal
+            // locale, CurrentCulture would read "0.8" as 8 (the "." a group separator). Egress
+            // mirrors this in AGraphElement.FormatPropertyValue; the bulk path already does so in
+            // JsonlGraphFormat.
             return Convert.ChangeType(
                 key.PropertyValue,
-                AllowedLiteralTypes.Resolve(key.FullQualifiedTypeName));
+                AllowedLiteralTypes.Resolve(key.FullQualifiedTypeName),
+                CultureInfo.InvariantCulture);
         }
 
         /// <summary>
