@@ -12,5 +12,8 @@
     "env:down": "docker compose down",
     "env:logs": "docker compose logs -f",
     "env:status": "docker compose ps && node scripts/env-info.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
   }
 }
