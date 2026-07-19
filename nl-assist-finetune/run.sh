@@ -58,13 +58,16 @@ deps() {
 }
 
 dataset() {
-  log "dataset (phase 2): generate/validate (needs apiApp at ${NL_EVAL_F8:-http://localhost:5000})"
+  # Reuse an existing dataset (it is deterministic, so a copy from the authoring box is
+  # identical) - this lets a training-only box run `all` without Node or the apiApp. To
+  # rebuild, delete it and re-run, or run the generator directly (README phase 2). Only
+  # generation needs Node + a running apiApp at ${NL_EVAL_F8:-http://localhost:5000}.
   if [ -f "$DATASET" ]; then
-    # Present already: only confirm it still matches the delegate contract (spec FT-2).
-    (cd "$REPO" && npx tsx nl-assist-finetune/dataset-gen/generate.ts --check)
-  else
-    (cd "$REPO" && npx tsx nl-assist-finetune/dataset-gen/generate.ts)
+    log "dataset: using existing $(basename "$DATASET") ($(wc -l < "$DATASET") rows)"
+    return 0
   fi
+  log "dataset (phase 2): generating (needs Node + apiApp)"
+  (cd "$REPO" && npx tsx nl-assist-finetune/dataset-gen/generate.ts)
 }
 
 train()   { log "train (Stage 2): QLoRA -> $ADAPTER"; py "$HERE/train/train_lora.py" --dataset "$DATASET" --out "$ADAPTER"; }
@@ -77,7 +80,9 @@ gguf() {
   fi
   "$VENV/bin/pip" install -r "$LLAMA_CPP/requirements.txt" >/dev/null
   if [ ! -x "$LLAMA_CPP/build/bin/llama-quantize" ]; then
-    cmake -S "$LLAMA_CPP" -B "$LLAMA_CPP/build" -DGGML_CUDA=ON
+    # CPU build on purpose: we only convert (Python) and quantize (llama-quantize, CPU) - no
+    # GPU inference here - so this needs cmake + a C/C++ compiler, NOT the CUDA toolkit/nvcc.
+    cmake -S "$LLAMA_CPP" -B "$LLAMA_CPP/build" -DGGML_CUDA=OFF
     cmake --build "$LLAMA_CPP/build" --config Release -j --target llama-quantize
   fi
   py "$LLAMA_CPP/convert_hf_to_gguf.py" "$MERGED" --outfile "$GGUF_F16" --outtype f16

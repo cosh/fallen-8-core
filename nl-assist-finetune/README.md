@@ -44,9 +44,17 @@ Fallen8__Security__EnableDynamicCodeExecution=true \
 dotnet run --project fallen-8-core-apiApp
 ```
 
-Training (phase 3) additionally needs WSL2 (Ubuntu) with an **8GB+ NVIDIA GPU** (any modern
-CUDA driver — `nvidia-smi` shows the version; a newer driver runs the torch wheels fine),
-Node.js (for the generator), `ollama`, and **Python 3.10+**.
+Training (phase 3) runs on WSL2 (Ubuntu) with an **8GB+ NVIDIA GPU** (any modern CUDA driver
+— `nvidia-smi` shows the version; a newer driver runs the torch wheels fine). It needs
+**Python 3.10+**, `ollama` (for `ollama create`), and `cmake` + a C/C++ compiler
+(`build-essential`) for the GGUF stage — that builds llama.cpp **CPU-only**, so no CUDA
+toolkit/`nvcc` is required. Ubuntu 24.04 ships Python 3.12, so no extra Python install is
+needed there.
+
+> **Node.js and the apiApp are only for *generating* the dataset (phase 2).** The dataset is
+> deterministic, so a training-only box can copy `dataset/train.jsonl` (+ `dataset.meta.json`)
+> from wherever it was generated and skip both — `run.sh`'s `dataset` stage reuses an existing
+> file, so `./run.sh all` then needs neither.
 
 Mind the Python version: the distro default (`python3 --version`) is often too old — Ubuntu
 20.04 ships Python **3.8**, which is EOL and has no wheels for the toolchain, so `./run.sh
