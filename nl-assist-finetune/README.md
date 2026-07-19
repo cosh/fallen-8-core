@@ -45,7 +45,13 @@ dotnet run --project fallen-8-core-apiApp
 ```
 
 Training (phase 3) additionally needs WSL2 (Ubuntu) with an **8GB+ NVIDIA GPU** (CUDA 12.x
-driver visible via `nvidia-smi`), Python 3.10+, Node.js (for the generator), and `ollama`.
+driver visible via `nvidia-smi`), Node.js (for the generator), `ollama`, and Python 3.10+
+**with its venv and pip packages** — on Ubuntu these are separate from `python3` itself, and
+`./run.sh deps` cannot build the virtualenv without them:
+
+```bash
+sudo apt update && sudo apt install -y python3-venv python3-pip
+```
 
 ## Phase 2 — generate the dataset
 
@@ -55,10 +61,20 @@ noisy (typo'd) intents, and the same fragment spelled per parameter name (shape 
 the spec calls for. **Every row is compiled through `POST /delegates/validate` before it is
 kept** — an invalid fragment never enters the training set. Fully deterministic.
 
+Run the generator — this is the whole of phase 2:
+
 ```bash
 npx tsx nl-assist-finetune/dataset-gen/generate.ts            # -> dataset/train.jsonl (+ meta)
-npx tsx nl-assist-finetune/dataset-gen/generate.ts --check    # drift guard: dataset vs contract
-NL_GEN_BOOTSTRAP=1 npx tsx nl-assist-finetune/dataset-gen/generate.ts   # also mine base-model phrasings
+```
+
+The two variants below are optional and NOT part of the normal flow:
+
+```bash
+# drift guard: fail if the dataset no longer matches the delegate contract (needs no model)
+npx tsx nl-assist-finetune/dataset-gen/generate.ts --check
+# ALSO mine extra phrasings from a base model - needs Ollama running (ollama serve + the base
+# model pulled); errors out with "Ollama is not reachable" if it isn't. Skip it for a first run.
+NL_GEN_BOOTSTRAP=1 npx tsx nl-assist-finetune/dataset-gen/generate.ts
 ```
 
 Each JSONL row is `{ delegateKind, intent, fragment, source, noisy, messages }`, where
@@ -68,18 +84,28 @@ and the prompt contract lives in one place, not re-encoded in Python.
 
 ## Phase 3 — train on WSL2
 
-From `nl-assist-finetune/` inside WSL2:
+From `nl-assist-finetune/` inside WSL2, in this order:
 
 ```bash
-# 0. First run only: verify the assistant marker the completion-only collator keys on
-#    (Phi model revisions differ) before spending GPU time.
-train/.venv/bin/python train/train_lora.py --inspect     # (after ./run.sh deps creates the venv)
+# 1. Build the toolchain FIRST: this creates train/.venv and installs the pinned deps.
+#    Nothing under train/.venv exists until this has run.
+./run.sh deps
 
-# 1. Whole chain: venv+deps -> dataset check/gen -> QLoRA -> merge -> GGUF -> ollama create -> PROVENANCE
+# 2. (Optional pre-flight) eyeball the assistant marker the completion-only trainer keys on
+#    (Phi model revisions differ) before spending GPU time. Needs step 1 done.
+train/.venv/bin/python train/train_lora.py --inspect
+
+# 3. Run the whole chain: deps -> dataset -> QLoRA -> merge -> GGUF -> ollama create -> PROVENANCE.
+#    Safe to run on its own from a clean checkout - its first stage IS `deps`, so it builds the
+#    venv itself; steps 1-2 above are only useful for the pre-flight.
 ./run.sh all
 
 # or a single stage:  ./run.sh deps | dataset | train | merge | gguf | modelfile | provenance
 ```
+
+> If `./run.sh deps` fails with an `ensurepip` / "python3-venv is not available" error, install
+> the packages from Prerequisites, then `rm -rf train/.venv` before retrying — `deps` skips
+> creation when the directory already exists, so a half-built venv must be cleared first.
 
 `run.sh` produces the Ollama model `f8-delegate` and a `PROVENANCE.md` (base model + MIT
 license, pinned tool versions, dataset hash — spec FT-7). Config, seed, and LoRA
