@@ -9,17 +9,20 @@
 #     pip install torch --index-url $TORCH_INDEX   (default cu124; override for your driver)
 # See https://pytorch.org/get-started/locally/ for the index matching your CUDA.
 #
-# The libraries below are Python-version-tolerant across recent releases; they are pinned as
-# a coherent set (spec FT-1). If pip cannot resolve them against the torch it picked, bump the
-# group together and re-run the eval gate.
-transformers==4.48.0
-peft==0.14.0
-trl==0.13.0
-datasets==3.2.0
-accelerate==1.2.1
-bitsandbytes==0.45.0
-sentencepiece==0.2.0
-protobuf==5.29.2
+# These are lower-bound FLOORS, not exact pins, on purpose: torch is installed unpinned
+# (above) so it tracks your Python/driver, and exact library pins from an older torch break
+# against a newer one - e.g. transformers/bitsandbytes built for Triton 2.x fail with
+# "No module named 'triton.ops'" once a newer torch pulls Triton 3.x. Floors let pip pick the
+# matching current releases. For strict reproducibility (spec FT-1), freeze the exact versions
+# that work on your box afterwards: `train/.venv/bin/pip freeze > train/requirements.lock`.
+transformers>=4.48
+peft>=0.14
+trl>=0.13
+datasets>=3.2
+accelerate>=1.2
+bitsandbytes>=0.45
+sentencepiece>=0.2
+protobuf>=5.29
 
 # llama.cpp (GGUF conversion + quantization) is NOT a pip dependency - run.sh clones and
 # builds it, or set LLAMA_CPP to an existing checkout. Its conversion script has its own
