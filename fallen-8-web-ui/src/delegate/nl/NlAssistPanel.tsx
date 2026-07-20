@@ -11,6 +11,7 @@ import {
   useNlAssist,
   usesApiKey,
 } from "./config";
+import { downloadText, toTrainingJsonl, type TrainingExample, type Verdict } from "./feedback";
 import { formatFragment } from "./format";
 import { buildGenerationPrompt, buildRefinePrompt, extractFragment } from "./prompt";
 import {
@@ -33,6 +34,10 @@ interface NlAttempt {
   valid: boolean | null;
   errorCount: number;
   stats: NlGenerationStats | null;
+  /** FL-2 feedback capture: the user's 👍/👎 on this draft (null until rated). */
+  verdict: Verdict | null;
+  /** Capture time, for the exported training example. */
+  ts: number;
 }
 
 export function NlAssistPanel({
@@ -114,7 +119,7 @@ export function NlAssistPanel({
         // History accumulates across runs (FR-6).
         setAttempts((previous) => [
           ...previous,
-          { fragment: draft, intent, valid: result?.valid ?? null, errorCount, stats },
+          { fragment: draft, intent, valid: result?.valid ?? null, errorCount, stats, verdict: null, ts: Date.now() },
         ]);
 
         if (result === null || result.valid) break;
@@ -134,6 +139,28 @@ export function NlAssistPanel({
       drivingRef.current = false;
       setBusy(null);
     }
+  };
+
+  // FL-2 feedback capture (opt-in, local): rate a draft, then export the rated ones as a
+  // training-example JSONL. No network - the file is the operator's to move (parent privacy rule).
+  const rateAttempt = (index: number, verdict: Verdict) =>
+    setAttempts((previous) =>
+      previous.map((attempt, i) =>
+        i === index ? { ...attempt, verdict: attempt.verdict === verdict ? null : verdict } : attempt,
+      ),
+    );
+
+  const ratedAttempts = attempts.filter((attempt) => attempt.verdict !== null);
+
+  const exportTrainingExamples = () => {
+    const examples: TrainingExample[] = ratedAttempts.map((attempt) => ({
+      delegateKind,
+      intent: attempt.intent,
+      fragment: attempt.fragment,
+      verdict: attempt.verdict,
+      ts: attempt.ts,
+    }));
+    downloadText(`f8-training-${delegateKind}-${Date.now()}.jsonl`, toTrainingJsonl(examples));
   };
 
   return (
@@ -387,8 +414,26 @@ export function NlAssistPanel({
                         {attempt.fragment === currentFragment && " (in editor)"}
                         {attempt.valid === false && ` (${attempt.errorCount} error(s))`}
                       </button>
+                      <span className="ml-auto flex shrink-0 gap-1" data-testid={`nl-verdict-${index}`}>
+                        <button
+                          type="button"
+                          title="good draft — mark to save as a training example"
+                          className={`cursor-pointer ${attempt.verdict === "up" ? "text-accent" : "text-fg-faint hover:text-fg"}`}
+                          onClick={() => rateAttempt(index, "up")}
+                        >
+                          👍
+                        </button>
+                        <button
+                          type="button"
+                          title="bad draft — mark to save as a training example"
+                          className={`cursor-pointer ${attempt.verdict === "down" ? "text-danger" : "text-fg-faint hover:text-fg"}`}
+                          onClick={() => rateAttempt(index, "down")}
+                        >
+                          👎
+                        </button>
+                      </span>
                       {attempt.stats && (
-                        <span className="text-fg-faint ml-auto shrink-0 text-[10px]">
+                        <span className="text-fg-faint shrink-0 text-[10px]">
                           {statsLine(attempt.stats)}
                         </span>
                       )}
@@ -404,6 +449,17 @@ export function NlAssistPanel({
                   </li>
                 ))}
               </ol>
+            )}
+            {ratedAttempts.length > 0 && (
+              <button
+                type="button"
+                data-testid="nl-export-training"
+                className="text-accent-2 cursor-pointer text-[11px] hover:underline"
+                title="Download the rated drafts as a training-example file (stays on this machine)"
+                onClick={exportTrainingExamples}
+              >
+                save {ratedAttempts.length} training example{ratedAttempts.length === 1 ? "" : "s"}
+              </button>
             )}
             {error && <div className="text-danger">{error}</div>}
           </>

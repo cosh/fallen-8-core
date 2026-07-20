@@ -256,6 +256,69 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     expect(screen.queryByTestId("nl-attempts")).not.toBeInTheDocument();
   });
 
+  it("captures a rated draft as a training example, locally and without any network call (FL-2)", async () => {
+    const user = userEvent.setup();
+    validateMock.mockResolvedValue(VALID);
+    chatMock.mockResolvedValueOnce(draft('return (v) => v.Label == "person";'));
+
+    renderEditor();
+    await user.type(screen.getByTestId("nl-intent"), "only persons");
+    await user.click(screen.getByTestId("nl-generate"));
+    await waitFor(() =>
+      expect(screen.getByTestId("nl-attempts").querySelectorAll("li")).toHaveLength(1),
+    );
+
+    // No export affordance until a draft is rated.
+    expect(screen.queryByTestId("nl-export-training")).not.toBeInTheDocument();
+
+    // jsdom implements neither URL.createObjectURL nor a navigating click - DEFINE stubs
+    // (spyOn needs an existing prop) so the export path runs and is observable.
+    const created: Blob[] = [];
+    const original = {
+      create: URL.createObjectURL,
+      revoke: URL.revokeObjectURL,
+      fetch: globalThis.fetch,
+    };
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      created.push(blob);
+      return "blob:mock";
+    }) as typeof URL.createObjectURL;
+    URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL;
+    globalThis.fetch = vi.fn() as typeof globalThis.fetch;
+    const clickSpy = vi.spyOn(HTMLElement.prototype, "click").mockImplementation(() => {});
+
+    try {
+      await user.click(screen.getByRole("button", { name: "👍" }));
+      await user.click(screen.getByTestId("nl-export-training"));
+
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).not.toHaveBeenCalled(); // capture is local; nothing is POSTed
+      expect(created).toHaveLength(1);
+
+      // jsdom's Blob has no .text(); read the captured payload via FileReader.
+      const payload = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(created[0]);
+      });
+      const rows = payload.trim().split("\n").map((line) => JSON.parse(line));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        delegateKind: "VertexFilter",
+        intent: "only persons",
+        fragment: 'return (v) => v.Label == "person";',
+        verdict: "up",
+      });
+      expect(typeof rows[0].ts).toBe("number");
+    } finally {
+      URL.createObjectURL = original.create;
+      URL.revokeObjectURL = original.revoke;
+      globalThis.fetch = original.fetch;
+      clickSpy.mockRestore();
+    }
+  });
+
   it("pretty-prints a long one-line draft before inserting it (nl-assist-ux FR-9)", async () => {
     const user = userEvent.setup();
     validateMock.mockResolvedValue(VALID);
