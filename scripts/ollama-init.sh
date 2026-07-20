@@ -9,7 +9,7 @@ F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/f8-delegate}"
 HEALTH_CHECK_RETRIES=30
 HEALTH_CHECK_INTERVAL=1
 PULL_RETRIES=3
-PULL_TIMEOUT=300  # 5 minutes per model pull
+PULL_TIMEOUT=900  # 15 minutes per model pull (~7GB models need time)
 
 log_info() {
   echo "[ollama-init] INFO: $*"
