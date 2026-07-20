@@ -19,7 +19,6 @@ set -e
 # Configuration
 F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/f8-delegate}"
 DOCKER_VOLUME="f8-ollama-models"
-REQUIRED_MODELS=("phi4-mini" "f8-delegate")
 
 log_info() {
   echo "[ensure-models] INFO: $*"
@@ -34,7 +33,7 @@ log_success() {
 }
 
 # Check if ollama is installed
-if ! command -v ollama &> /dev/null; then
+if ! command -v ollama > /dev/null 2>&1; then
   log_error "ollama is not installed on your system"
   echo ""
   echo "To use the F8 environment, install Ollama:"

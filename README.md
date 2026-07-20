@@ -63,12 +63,8 @@ model backend (Ollama + the MIT default model, pulled on first start). The envir
 managed **as one unit** via compose - do not start/stop individual containers:
 
 ```bash
-# SETUP (one-time): Pre-cache models so startup is fast and reliable
-scripts/ensure-models.sh    # Pre-pulls models to local cache (~20 min, one-time)
-                            # Requires: ollama installed (https://ollama.ai)
-
-# THEN: Start the environment (uses cached models, no downloads)
-npm run env:up      # Start everything; no network needed (models already cached)
+# Start the environment (auto-caches models on first run if needed)
+npm run env:up      # Prompts to pre-cache models if not already cached
 npm run env:down    # Stop everything; data volumes persist
 npm run env:logs    # Follow all logs
 npm run env:status  # Health of the whole environment
@@ -77,11 +73,10 @@ npm run env:status  # Health of the whole environment
 # NL-assist model:  http://localhost:11434 (configure in the delegate editor)
 ```
 
-**On first setup**, you need models cached. `scripts/ensure-models.sh` pulls them once to
-your local Ollama cache (shared with the Docker volume); from then on, containers use the
-cached copies and never need network access. This ensures **reliable, fast startup** without
-timeouts or network issues. (If you don't have Ollama installed, [get it](https://ollama.ai) — it's a
-one-time setup.)
+**First time you run `npm run env:up`**, it will check if models are cached. If not, it
+will ask if you want to pre-cache them (one-time, ~20 minutes). If you say yes and have
+Ollama installed, it will run `scripts/ensure-models.sh` automatically and then start the
+environment. Thereafter, `npm run env:up` just works — no delays, no network dependency.
 
 The delegate editor's compile validation and NL assist run C# fragments through the
 server. That surface is gated by a single capability flag that is **off by default**;
