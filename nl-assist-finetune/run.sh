@@ -53,7 +53,17 @@ deps() {
     if ! command -v "$py" >/dev/null 2>&1 || \
        ! "$py" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)' 2>/dev/null; then
       echo "ERROR: '$py' is $("$py" --version 2>&1 | awk '{print $NF}') - this pipeline needs Python >= 3.10." >&2
-      echo "Ubuntu 26.04 ships a current 3.x; install it (or point PYTHON at a newer interpreter) and re-run." >&2
+      echo "Point PYTHON at a newer interpreter and re-run." >&2
+      return 1
+    fi
+    # PyTorch ships CUDA wheels only up to cp313; Ubuntu 26.04's default python3 is 3.14, which
+    # has none yet, so the torch install below would fail with "No matching distribution". Fail
+    # early with the fix rather than leaving a dead venv behind.
+    if "$py" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 14) else 1)' 2>/dev/null; then
+      echo "ERROR: '$py' is $("$py" --version 2>&1 | awk '{print $NF}') - PyTorch has no CUDA wheels for Python >= 3.14 yet." >&2
+      echo "Use Python 3.13 for the training venv (no deadsnakes needed):" >&2
+      echo "  curl -LsSf https://astral.sh/uv/install.sh | sh && uv python install 3.13" >&2
+      echo "  rm -rf train/.venv && PYTHON=\"\$(uv python find 3.13)\" ./run.sh deps" >&2
       return 1
     fi
     "$py" -m venv "$VENV"

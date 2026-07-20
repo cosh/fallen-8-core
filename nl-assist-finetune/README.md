@@ -49,8 +49,9 @@ box, or a native Ubuntu box. Any modern CUDA driver works (`nvidia-smi` shows th
 newer driver runs the torch wheels fine). The toolchain is **Python 3.10+**, `ollama` (for
 `ollama create`, and to serve a base model for the optional bootstrap + eval steps), and
 `cmake` + a C/C++ compiler (`build-essential`) for the GGUF stage — that builds llama.cpp
-**CPU-only**, so no CUDA toolkit/`nvcc` is required. Ubuntu 26.04 ships a current Python 3.x,
-so no extra Python install is needed.
+**CPU-only**, so no CUDA toolkit/`nvcc` is required. **Heads-up on Python:** Ubuntu 26.04's
+default `python3` is **3.14**, which PyTorch has no CUDA wheels for yet — so build the
+*training* venv with **Python 3.13** (steps below). Dataset generation and eval are fine on 3.14.
 
 > **Node.js and the apiApp are only for *generating* the dataset (phase 2)** and the eval
 > harness. The dataset is deterministic, so a training-only box can copy `dataset/train.jsonl`
@@ -76,6 +77,24 @@ curl -fsSL https://ollama.com/install.sh | sh
 > on **Windows** (531+); WSL2 exposes the GPU automatically, and `nvidia-smi` then works inside
 > the distro. A Linux driver installed in WSL breaks the passthrough. On a **native** Ubuntu box
 > you do install it: `sudo ubuntu-drivers autoinstall`, then reboot.
+
+### Python 3.13 for the training venv (GPU torch)
+
+PyTorch publishes CUDA wheels only up to Python **3.13**, but 26.04's default `python3` is
+**3.14** — so `./run.sh deps` dies with `No matching distribution found for torch`. Ubuntu
+26.04 does not carry 3.13 in its archive, so get it without a PPA via
+[uv](https://docs.astral.sh/uv/) (a standalone CPython, nothing touched system-wide):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh     # install uv, then restart the shell
+uv python install 3.13                              # fetch a standalone CPython 3.13
+rm -rf train/.venv                                  # drop any venv a failed run left on 3.14
+PYTHON="$(uv python find 3.13)" ./run.sh deps       # build train/.venv with 3.13
+```
+
+`run.sh` builds `train/.venv` from `$PYTHON` **once**; later stages reuse it, so `./run.sh all`
+needs no further `PYTHON=`. The validated torch 2.6.0 / cu124 combo has 3.13 wheels; for a newer
+GPU (e.g. RTX 50-series) also set `TORCH_VERSION`/`TORCH_INDEX` (cu128 + torch ≥ 2.7).
 
 ### Start Ollama (prerequisite for the bootstrap + eval steps)
 

@@ -6,8 +6,10 @@
 # because the right build depends on your GPU driver AND your Python version - a single hard
 # pin (e.g. torch==2.5.1 on cu121) has no wheel for, say, Python 3.13 and fails with
 # "No matching distribution found". run.sh runs, before this file:
-#     pip install torch --index-url $TORCH_INDEX   (default cu124; override for your driver)
-# See https://pytorch.org/get-started/locally/ for the index matching your CUDA.
+#     pip install torch==$TORCH_VERSION --index-url $TORCH_INDEX  (defaults: 2.6.0 / cu124)
+# See https://pytorch.org/get-started/locally/ for the index matching your CUDA. NOTE: PyTorch
+# has no CUDA wheels for Python >= 3.14 (Ubuntu 26.04's default) yet - build the venv with
+# Python 3.13 (README Prerequisites:  PYTHON="$(uv python find 3.13)" ./run.sh deps).
 #
 # VALIDATED SET - the exact combo that trained cleanly on an RTX 3080 (10GB) / Python 3.12 /
 # CUDA 12.4 / torch 2.6.0 (run.sh installs that torch; see TORCH_VERSION). Pinned for
