@@ -44,32 +44,60 @@ Fallen8__Security__EnableDynamicCodeExecution=true \
 dotnet run --project fallen-8-core-apiApp
 ```
 
-Training (phase 3) runs on WSL2 (Ubuntu) with an **8GB+ NVIDIA GPU** (any modern CUDA driver
-— `nvidia-smi` shows the version; a newer driver runs the torch wheels fine). It needs
-**Python 3.10+**, `ollama` (for `ollama create`), and `cmake` + a C/C++ compiler
-(`build-essential`) for the GGUF stage — that builds llama.cpp **CPU-only**, so no CUDA
-toolkit/`nvcc` is required. Ubuntu 24.04 ships Python 3.12, so no extra Python install is
-needed there.
+Training (phase 3) runs on **Linux with an 8GB+ NVIDIA GPU** — WSL2 (Ubuntu) on a Windows GPU
+box, or a native Ubuntu box. Any modern CUDA driver works (`nvidia-smi` shows the version; a
+newer driver runs the torch wheels fine). The toolchain is **Python 3.10+**, `ollama` (for
+`ollama create`, and to serve a base model for the optional bootstrap + eval steps), and
+`cmake` + a C/C++ compiler (`build-essential`) for the GGUF stage — that builds llama.cpp
+**CPU-only**, so no CUDA toolkit/`nvcc` is required. Ubuntu 26.04 ships a current Python 3.x,
+so no extra Python install is needed.
 
-> **Node.js and the apiApp are only for *generating* the dataset (phase 2).** The dataset is
-> deterministic, so a training-only box can copy `dataset/train.jsonl` (+ `dataset.meta.json`)
-> from wherever it was generated and skip both — `run.sh`'s `dataset` stage reuses an existing
-> file, so `./run.sh all` then needs neither.
+> **Node.js and the apiApp are only for *generating* the dataset (phase 2)** and the eval
+> harness. The dataset is deterministic, so a training-only box can copy `dataset/train.jsonl`
+> (+ `dataset.meta.json`) from wherever it was generated and skip both — `run.sh`'s `dataset`
+> stage reuses an existing file, so `./run.sh all` then needs neither.
 
-Mind the Python version: the distro default (`python3 --version`) is often too old — Ubuntu
-20.04 ships Python **3.8**, which is EOL and has no wheels for the toolchain, so `./run.sh
-deps` fails with "No matching distribution found". Install a supported Python + its venv
-package and point `deps` at it with the `PYTHON` env var:
+### Install the toolchain (Ubuntu 26.04)
 
 ```bash
-# python3 < 3.10 → install a newer one (deadsnakes covers 20.04/22.04):
-sudo add-apt-repository -y ppa:deadsnakes/ppa
-sudo apt update && sudo apt install -y python3.12 python3.12-venv
-# then, in Phase 3:  PYTHON=python3.12 ./run.sh deps
+# Build tools + Python venv/pip + git/curl (covers the whole GGUF-build + venv chain):
+sudo apt update
+sudo apt install -y build-essential cmake git curl python3-venv python3-pip
 
-# python3 already >= 3.10 → just its venv/pip packages:
-sudo apt install -y python3-venv python3-pip
+# Node.js 22 LTS (only for dataset generation + eval) via NodeSource:
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Ollama (for `ollama create`, and to serve a base model for the bootstrap/eval steps):
+curl -fsSL https://ollama.com/install.sh | sh
 ```
+
+> **On WSL2, do NOT install an NVIDIA driver inside Ubuntu.** Install the current NVIDIA driver
+> on **Windows** (531+); WSL2 exposes the GPU automatically, and `nvidia-smi` then works inside
+> the distro. A Linux driver installed in WSL breaks the passthrough. On a **native** Ubuntu box
+> you do install it: `sudo ubuntu-drivers autoinstall`, then reboot.
+
+### Start Ollama (prerequisite for the bootstrap + eval steps)
+
+The install script registers a systemd service. On native Ubuntu — and on WSL2 with systemd
+enabled (the default on recent releases) — start it and pull the base model:
+
+```bash
+sudo systemctl enable --now ollama       # start now + on every boot
+systemctl status ollama --no-pager       # confirm it is active (listening on :11434)
+ollama pull phi4-mini                     # the base the bootstrap/eval reach for
+```
+
+If `systemctl` reports *"System has not been booted with systemd as init system"* (an older
+WSL2 without systemd), run the server in the background instead:
+
+```bash
+ollama serve > /tmp/ollama.log 2>&1 &     # background the daemon
+ollama pull phi4-mini
+```
+
+Either way, `ollama list` should succeed and the server answers on `http://localhost:11434`
+(the eval's `NL_EVAL_ENDPOINT` default).
 
 ## Phase 2 — generate the dataset
 
@@ -113,8 +141,7 @@ box. The commands below are bash. From `nl-assist-finetune/` inside that shell, 
 
 ```bash
 # 1. Build the toolchain FIRST: this creates train/.venv and installs the pinned deps.
-#    Nothing under train/.venv exists until this has run. If your default python3 is < 3.10,
-#    prefix with a newer interpreter:  PYTHON=python3.12 ./run.sh deps
+#    Nothing under train/.venv exists until this has run.
 ./run.sh deps
 
 # 2. (Optional pre-flight) eyeball the assistant marker the completion-only trainer keys on
@@ -241,8 +268,8 @@ Set them per shell — bash: `NAME=value cmd`; PowerShell: `$env:NAME = "value";
 for the session, `Remove-Item Env:NAME` to clear). Shared by every script (defined in `shared/f8.ts`):
 `NL_EVAL_MODEL` (default `phi4-mini`), `NL_EVAL_ENDPOINT` (default `http://localhost:11434`),
 `NL_EVAL_F8` (default `http://localhost:5000`). Generator-only: `NL_GEN_BOOTSTRAP`,
-`NL_GEN_OUT`. `run.sh`: `VENV`, `LLAMA_CPP`, `OLLAMA_MODEL`, `PYTHON` (interpreter used to build
-the venv; default `python3`, set to e.g. `python3.12` when the default is too old), and
+`NL_GEN_OUT`. `run.sh`: `VARIANT` (`phi4-f8-mini` | `phi4-f8`), `VENV`, `LLAMA_CPP`,
+`OLLAMA_MODEL`, `PYTHON` (interpreter used to build the venv; default `python3`), and
 `TORCH_INDEX` (the CUDA wheel index torch is installed from; default `cu124`, set to e.g.
 `https://download.pytorch.org/whl/cu121` for an older driver — check `nvidia-smi`'s CUDA version
 against https://pytorch.org/get-started/locally/).

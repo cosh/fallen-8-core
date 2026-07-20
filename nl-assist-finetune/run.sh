@@ -46,16 +46,14 @@ deps() {
   log "deps: python venv + pinned toolchain"
   # Only validate/choose an interpreter when the venv must be BUILT; once it exists, pip runs
   # inside it and the system python3 version is irrelevant (so a later `./run.sh all` needn't
-  # re-pass PYTHON). The toolchain needs Python >= 3.10; the distro default is often too old
-  # (Ubuntu 20.04 ships 3.8, EOL) and yields cryptic per-package "No matching distribution"
-  # errors, so fail early with guidance. Override the interpreter with PYTHON.
+  # re-pass PYTHON). The toolchain needs Python >= 3.10; a too-old interpreter yields cryptic
+  # per-package "No matching distribution" errors, so fail early with guidance. Override with PYTHON.
   if [ ! -d "$VENV" ]; then
     local py="${PYTHON:-python3}"
     if ! command -v "$py" >/dev/null 2>&1 || \
        ! "$py" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)' 2>/dev/null; then
       echo "ERROR: '$py' is $("$py" --version 2>&1 | awk '{print $NF}') - this pipeline needs Python >= 3.10." >&2
-      echo "Install one and re-run with it, e.g.:  PYTHON=python3.12 ./run.sh deps" >&2
-      echo "  Ubuntu: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.12 python3.12-venv" >&2
+      echo "Ubuntu 26.04 ships a current 3.x; install it (or point PYTHON at a newer interpreter) and re-run." >&2
       return 1
     fi
     "$py" -m venv "$VENV"
