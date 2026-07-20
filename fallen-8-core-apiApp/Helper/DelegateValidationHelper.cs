@@ -71,6 +71,31 @@ namespace NoSQL.GraphDB.Core.App.Helper
         public static String KnownKindsList => String.Join(", ", _kinds.Keys);
 
         /// <summary>
+        ///   The canonical (case-normalized, bounded) name for a known kind, so a metric tag
+        ///   carries "VertexFilter" rather than whatever casing the caller sent (feature
+        ///   nl-assist-feedback-loop, FL-1 tag hygiene). False for an unknown kind.
+        /// </summary>
+        public static Boolean TryCanonicalKind(String delegateKind, out String canonical)
+        {
+            canonical = null;
+            if (String.IsNullOrWhiteSpace(delegateKind))
+            {
+                return false;
+            }
+
+            var trimmed = delegateKind.Trim();
+            foreach (var key in _kinds.Keys)
+            {
+                if (String.Equals(key, trimmed, StringComparison.OrdinalIgnoreCase))
+                {
+                    canonical = key;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         ///   Validates a fragment against a delegate kind.
         /// </summary>
         /// <param name="delegateKind">One of the §6.1 kinds (case-insensitive).</param>
