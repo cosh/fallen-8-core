@@ -25,3 +25,10 @@ publish/
 
 # dotnet run file-based-app discovery cache (machine-specific)
 /dotnet/
+
+# Runtime logs and temporary files
+*.log
+docker-*.log
+*-startup.log
+.env.local
+/tmp/
