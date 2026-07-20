@@ -40,6 +40,8 @@ runs from the same machine; this ledger's rows so far are the CPU-only dev box).
 |---|---|---|---|---|---|---|---|---|
 | 2026-07-17 | phi4-mini (stock, Q4_K_M) | FR-10 steering + trailing-prose strip | 18 | 72% | 61% | 36.9 | 0.7 | baseline |
 | 2026-07-19 | phi4-mini (stock, Q4_K_M) | + FT-8 element-set gate (phase 4) | 18 | 72% | 61% | 36.9 | 0.7 | element-set semantic 45% over 11 applicable rows (< proxy < compile: the metric sees compiling-but-wrong drafts) — phase-4 champion base to beat |
+| 2026-07-19 | f8-delegate v1 (LoRA, 3 epochs) | shipping prompt | 18 | 83% | 83% | — | — | RTX 3080 (perf not comparable to CPU rows). First fine-tune: beats base on compile+proxy but overfit — GraphElementFilter compile regressed 100%→75% and 3 property-threshold rows failed first-pass |
+| 2026-07-20 | f8-delegate v2 (LoRA, 2 epochs) | shipping prompt | 18 | **100%** | **94%** | 0.5 | 172 | RTX 3080. FT-8 element-set semantic **100%** (11 applicable). 359-row dataset (natural comparatives + multi-condition label+prop+id + edge-weight) and 2 epochs fixed all 3 v1 compile misses and the GEF regression. Sole proxy miss: `epf-knows` drafted `StartsWith("know")` instead of `== "knows"` |
 
 Per kind (baseline): VertexFilter 50%/33% (compile/semantic, n=6), EdgeFilter 67%/67%
 (n=3), GraphElementFilter 100%/75% (n=4), EdgePropertyFilter 100%/100% (n=2),
