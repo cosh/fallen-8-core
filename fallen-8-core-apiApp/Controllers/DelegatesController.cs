@@ -30,6 +30,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Diagnostics;
 using NoSQL.GraphDB.Core.App.Helper;
 
 namespace NoSQL.GraphDB.App.Controllers
@@ -99,6 +100,14 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 return BadRequest(String.Format("Unknown delegateKind '{0}'. Expected one of: {1}.",
                     specification.DelegateKind, DelegateValidationHelper.KnownKindsList));
+            }
+
+            // FL-1 (feature nl-assist-feedback-loop): emit the aggregate first-pass compile signal
+            // (canonical kind + valid/invalid, no content). Only for known kinds - an unknown kind
+            // is a malformed request (400 above), not a compile outcome.
+            if (DelegateValidationHelper.TryCanonicalKind(specification.DelegateKind, out var canonicalKind))
+            {
+                AppDiagnostics.RecordDelegateValidation(canonicalKind, result.Valid);
             }
 
             return result;

@@ -66,6 +66,11 @@ namespace NoSQL.GraphDB.App.Diagnostics
         private static readonly Counter<Int64> _compileFailures = _meter.CreateCounter<Int64>(
             "fallen8.codegen.compile.failures", "{failure}", "Failed Roslyn compiles (diagnostics in the 400 response, never here).");
 
+        // FL-1 (feature nl-assist-feedback-loop): the content-free first-pass compile signal.
+        private static readonly Counter<Int64> _delegateValidations = _meter.CreateCounter<Int64>(
+            "fallen8.delegate.validate", "{validation}",
+            "Delegate-fragment validations by kind and result - the first-pass compile signal for the NL assist. Aggregate only: never the fragment or the NL intent.");
+
         // CONTAINMENT: Counter.Add / Histogram.Record invoke listener callbacks inline and the
         // BCL does not swallow their exceptions - observability must never fault the observed.
 
@@ -98,6 +103,23 @@ namespace NoSQL.GraphDB.App.Diagnostics
                 {
                     _compileFailures.Add(1, new KeyValuePair<String, Object>("artifact", artifact));
                 }
+            }
+            catch { /* contained */ }
+        }
+
+        /// <summary>
+        ///   FL-1 (feature nl-assist-feedback-loop): record one delegate validation. Tags are the
+        ///   CANONICAL delegate kind (one of the six bounded values) and result valid/invalid -
+        ///   never the fragment text and never the NL intent (which never reaches this server at
+        ///   all). This is the aggregate "when to retrain" signal, not training data.
+        /// </summary>
+        internal static void RecordDelegateValidation(String kind, Boolean valid)
+        {
+            try
+            {
+                _delegateValidations.Add(1,
+                    new KeyValuePair<String, Object>("kind", kind),
+                    new KeyValuePair<String, Object>("result", valid ? "valid" : "invalid"));
             }
             catch { /* contained */ }
         }
