@@ -505,6 +505,80 @@ and `/healthz` + `/readyz` cover probes. See
 [features/observability/](features/done/observability/) for the metric reference, scrape
 config, and the measured (noise-level) overhead.
 
+## Troubleshooting
+
+### f8-delegate model fails to load (HTTP 404 in UI)
+
+**Symptom**: When trying to use the "built-in (Local Ollama)" f8-delegate model in F8 Studio's delegate editor, you get "Model endpoint returned HTTP 404."
+
+**Cause**: The Ollama model (phi4-mini + f8-delegate) failed to pull during `npm run env:up`. This typically happens when the Docker container cannot reach the Ollama registry (`registry.ollama.ai`) due to network isolation or firewall rules.
+
+**Solution**:
+1. **Check model status:**
+   ```bash
+   docker exec fallen-8-core-ollama-1 ollama list
+   ```
+   If no models appear, they didn't pull. 
+
+2. **Fix network access** (recommended):
+   - Ensure the Docker container has outbound internet access to `registry.ollama.ai:443`
+   - Check host firewall and routing rules
+   - Verify DNS resolution inside the container:
+     ```bash
+     docker exec fallen-8-core-ollama-1 nslookup registry.ollama.ai
+     ```
+
+3. **Workaround if network is blocked**:
+   - Pull models on your host (if you have `ollama` installed locally):
+     ```bash
+     ollama pull phi4-mini
+     ollama pull stoic_hellman_728/f8-delegate
+     ollama cp stoic_hellman_728/f8-delegate f8-delegate
+     ```
+   - The `ollama-models` Docker volume is shared, so the container will find them:
+     ```bash
+     docker exec fallen-8-core-ollama-1 ollama list
+     ```
+
+4. **Manually pull inside container** (if host ollama unavailable):
+   ```bash
+   # Kill the container to let you pull models manually
+   npm run env:down
+   
+   # Start just ollama (without the init script trying to auto-pull)
+   docker run -d --name temp-ollama -v f8-ollama-models:/root/.ollama ollama/ollama:latest
+   
+   # Pull models with a timeout allowance (these are large files)
+   docker exec temp-ollama ollama pull phi4-mini        # ~7GB, 5-10 minutes
+   docker exec temp-ollama ollama pull stoic_hellman_728/f8-delegate  # ~7GB, 5-10 minutes
+   docker exec temp-ollama ollama cp stoic_hellman_728/f8-delegate f8-delegate
+   
+   # Stop the temp container
+   docker stop temp-ollama && docker rm temp-ollama
+   
+   # Restart the full environment
+   npm run env:up
+   ```
+
+### GPU acceleration not working
+
+- **CPU-only mode** (default if no NVIDIA GPU detected):
+  ```bash
+  npm run env:up  # auto-detects GPU
+  ```
+  
+- **Force CPU-only** (disable GPU even if present):
+  ```bash
+  F8_GPU=0 npm run env:up
+  ```
+
+- **Force GPU** (requires NVIDIA GPU + container toolkit):
+  ```bash
+  F8_GPU=1 npm run env:up
+  ```
+
+If GPU mode fails, install [nvidia-docker](https://github.com/NVIDIA/nvidia-docker).
+
 ## Additional information
 
 [Graph databases - Henning Rauch](http://www.slideshare.net/HenningRauch/graphdatabases)

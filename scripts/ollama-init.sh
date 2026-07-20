@@ -45,8 +45,13 @@ pull_model() {
   
   while [ $attempt -lt "$PULL_RETRIES" ]; do
     if timeout "$PULL_TIMEOUT" ollama pull "$model" 2>&1 | tee -a /tmp/ollama-pull.log; then
-      log_info "Successfully pulled: $model"
-      return 0
+      # Verify model actually exists in the list
+      if ollama list | grep -q "^${model}"; then
+        log_info "Successfully pulled: $model"
+        return 0
+      else
+        log_error "Pull appeared to succeed but model not found in ollama list"
+      fi
     fi
     attempt=$((attempt + 1))
     if [ $attempt -lt "$PULL_RETRIES" ]; then
