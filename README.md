@@ -63,8 +63,7 @@ model backend (Ollama + the MIT default model, pulled on first start). The envir
 managed **as one unit** via compose - do not start/stop individual containers:
 
 ```bash
-# Start the environment (auto-caches models on first run if needed)
-npm run env:up      # Prompts to pre-cache models if not already cached
+npm run env:up      # Start everything (auto-detects an NVIDIA GPU; CPU otherwise)
 npm run env:down    # Stop everything; data volumes persist
 npm run env:logs    # Follow all logs
 npm run env:status  # Health of the whole environment
@@ -73,10 +72,18 @@ npm run env:status  # Health of the whole environment
 # NL-assist model:  http://localhost:11434 (configure in the delegate editor)
 ```
 
-**First time you run `npm run env:up`**, it will check if models are cached. If not, it
-will ask if you want to pre-cache them (one-time, ~20 minutes). If you say yes and have
-Ollama installed, it will run `scripts/ensure-models.sh` automatically and then start the
-environment. Thereafter, `npm run env:up` just works — no delays, no network dependency.
+**On first start** the Ollama container pulls its two models — `phi4-mini` (base) and
+`f8-delegate` (the fine-tune, the UI default) — straight into the `f8-ollama-models` volume.
+That is a few GB, so it takes a few minutes on the first `env:up`; watch it with `npm run
+env:logs`. The F8 API and Studio are up immediately; NL assist starts answering once the
+pull finishes. Later starts reuse the cached models, so they are instant and need no network.
+
+The pull needs internet to `registry.ollama.ai` **the first time**. If this machine is
+offline (or you want to skip the wait), pre-seed the volume once from a machine that has
+internet — `scripts/ensure-models.sh` needs only Docker, no host Ollama — then `env:up`
+starts with the models already cached. If a pull fails, the Ollama endpoint still comes up
+with whatever is present (it does not crash-loop); fix the network and re-run `env:up`, or
+run `scripts/ensure-models.sh`.
 
 The delegate editor's compile validation and NL assist run C# fragments through the
 server. That surface is gated by a single capability flag that is **off by default**;
@@ -512,59 +519,67 @@ config, and the measured (noise-level) overhead.
 
 ### f8-delegate model fails to load (HTTP 404 in UI)
 
-**Symptom**: When trying to use the "built-in (Local Ollama)" f8-delegate model in F8 Studio's delegate editor, you get "Model endpoint returned HTTP 404."
+**Symptom**: Using the "built-in (Local Ollama)" backend in F8 Studio's delegate editor
+returns "Model endpoint returned HTTP 404."
 
-**Cause**: Models weren't cached before starting the environment. The Ollama container tries to pull them at startup but times out due to network isolation.
+**Cause**: the `f8-delegate` model is not in the Ollama container's volume yet — usually
+because the first-start pull has not finished, or it failed (no internet to
+`registry.ollama.ai`). The container reuses the `f8-ollama-models` volume, **not** any Ollama
+you have installed on the host; the two caches are separate, so pulling on the host does not
+help the container.
 
-**Solution (Recommended)**: Pre-cache models on your host once, then containers always use the cached copies:
-
-```bash
-# ONE-TIME SETUP (requires ollama: https://ollama.ai)
-scripts/ensure-models.sh    # Downloads both models (~20 minutes)
-                            # Populates docker volume f8-ollama-models
-
-# NOW: env:up works reliably without network access
-npm run env:up
-```
-
-**Why this works**: `ensure-models.sh` pulls models to your local Ollama cache (~/Library/Application\ Support/ollama/ or ~/.ollama/models), which is shared with the Docker volume. Containers use the pre-cached copies and never need to download them.
-
-**If you don't have ollama installed**:
-1. [Download Ollama](https://ollama.ai) for your OS
-2. Run `scripts/ensure-models.sh` 
-3. Run `npm run env:up`
-
-**Alternative if you can't run the script**:
-You can manually pull models on your host and the container will find them:
+**Fix**:
 
 ```bash
-# If you have ollama installed locally
-ollama pull phi4-mini
-ollama pull stoic_hellman_728/f8-delegate
-ollama cp stoic_hellman_728/f8-delegate f8-delegate
-
-# Then start the environment (models already cached)
-npm run env:up
+npm run env:logs                 # is the pull still running, or did it error?
 ```
 
-### GPU acceleration not working
+- Still pulling → wait; the UI works as soon as it finishes (a few GB on first start).
+- Errored (no internet in the container) → pre-seed the volume from a machine with internet,
+  then restart. This needs only Docker (no host Ollama):
 
-- **CPU-only mode** (default if no NVIDIA GPU detected):
   ```bash
-  npm run env:up  # auto-detects GPU
-  ```
-  
-- **Force CPU-only** (disable GPU even if present):
-  ```bash
-  F8_GPU=0 npm run env:up
+  scripts/ensure-models.sh       # pulls phi4-mini + f8-delegate INTO volume f8-ollama-models
+  npm run env:down && npm run env:up
   ```
 
-- **Force GPU** (requires NVIDIA GPU + container toolkit):
-  ```bash
-  F8_GPU=1 npm run env:up
-  ```
+- Meanwhile you can switch the delegate editor's backend to the **"Ollama (stock phi4-mini)"**
+  preset if `phi4-mini` pulled but `f8-delegate` did not.
 
-If GPU mode fails, install [nvidia-docker](https://github.com/NVIDIA/nvidia-docker).
+To seed a different published fine-tune, set `F8_DELEGATE_REPO` (it is tagged locally as
+`f8-delegate` either way): `F8_DELEGATE_REPO=you/your-finetune scripts/ensure-models.sh`.
+
+### GPU acceleration (and the NVIDIA + WSL box)
+
+GPU is auto-detected (`nvidia-smi` present → Ollama gets the GPU via `docker-compose.gpu.yml`):
+
+```bash
+npm run env:up          # auto-detect (recommended)
+F8_GPU=0 npm run env:up # force CPU-only even if a GPU is present
+F8_GPU=1 npm run env:up # force GPU (fails to create the container if it is unavailable)
+```
+
+**On Windows + NVIDIA GPU + WSL2 (Ubuntu 24.04):** the GPU reaches the container through the
+NVIDIA Container Toolkit — install it *in the place the Docker engine runs*:
+
+- **Docker Desktop (WSL2 backend):** install the current NVIDIA driver on Windows and confirm
+  `nvidia-smi` works inside your WSL distro. Docker Desktop's WSL2 backend then exposes the GPU
+  automatically — there is no separate toggle. `npm run env:up` from Windows or WSL detects it.
+- **Docker running natively inside the Ubuntu 24.04 distro:** install
+  [`nvidia-container-toolkit`](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+  in that distro and `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`.
+
+Verify the GPU actually reaches a container before `env:up` (note `--entrypoint nvidia-smi`:
+the `ollama/ollama` image's entrypoint is `ollama`, so a bare trailing `nvidia-smi` would be
+parsed as an ollama subcommand and fail):
+
+```bash
+docker run --rm --gpus all --entrypoint nvidia-smi ollama/ollama:latest   # should list your GPU
+```
+
+If this fails, the GPU is not exposed to Docker (missing/misconfigured toolkit); the stack
+still runs CPU-only with `F8_GPU=0`. AMD GPUs need the `ollama/ollama:rocm` image and are not
+covered by this compose.
 
 ## Additional information
 

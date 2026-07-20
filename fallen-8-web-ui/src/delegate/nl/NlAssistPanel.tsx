@@ -184,9 +184,8 @@ export function NlAssistPanel({
             {reachable === false && config.mode === "builtin" && (
               <>
                 {" "}
-                (start it: <code>docker compose up ollama</code>, or install Ollama,{" "}
-                <code>ollama pull phi4-mini</code> and set <code>OLLAMA_ORIGINS</code> to
-                this origin)
+                (start it with <code>npm run env:up</code>; if models are still downloading
+                on first start, follow <code>npm run env:logs</code>)
               </>
             )}
           </p>

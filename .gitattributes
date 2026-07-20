@@ -1,0 +1,6 @@
+# Files consumed inside Linux containers (docker-compose / Dockerfile.ollama) or under WSL2
+# must keep LF in the working tree regardless of core.autocrlf. A CRLF shebang makes the
+# kernel look for interpreter "/bin/sh\r" and the container fails with "bad interpreter" -
+# the classic "works on my machine, breaks on the freshly-cloned one" trap.
+*.sh          text eol=lf
+Dockerfile*   text eol=lf

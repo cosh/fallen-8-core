@@ -56,10 +56,11 @@ instance as long as dynamic code is enabled.
 ## NL assist (FR-26 + nl-assist-ux)
 
 Works out of the box: the default **built-in** backend is the stack `docker-compose.yml`
-ships (local [Ollama](https://ollama.com) on `:11434` with `phi4-mini` — MIT weights +
-MIT runtime, nothing bundled into F8). The panel shows a reachability status; without
-compose, install Ollama, `ollama pull phi4-mini`, and set `OLLAMA_ORIGINS` to this app's
-origin. Switching to **custom** under "nl assist → configure" exposes endpoint, API kind
+ships (local [Ollama](https://ollama.com) on `:11434`, defaulting to the fine-tuned
+`f8-delegate` model with `phi4-mini` as the selectable base — MIT weights + MIT runtime,
+nothing bundled into F8). The compose stack pulls both on first start. The panel shows a
+reachability status; if it is unreachable, start the stack with `npm run env:up` (and follow
+`npm run env:logs` while the first-run model pull completes). Switching to **custom** under "nl assist → configure" exposes endpoint, API kind
 (`ollama` | `openai`-compatible), model, temperature, and presets (local Ollama, OpenAI,
 Anthropic) as prefills — hosted endpoints must send CORS headers and show a "text leaves
 this machine" notice before the first send. Any model API key is sent only to the model
