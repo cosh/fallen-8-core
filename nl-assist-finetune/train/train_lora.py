@@ -47,10 +47,21 @@ def probe_gpu() -> None:
 
 
 def build_texts(dataset_path: Path, tokenizer):
-    """Load JSONL rows and render each conversation to a single training string."""
+    """Load JSONL rows and render each conversation to a single training string.
+
+    Reads the generated corpus AND, if present, dataset/captured.jsonl - the consolidated
+    real-usage feedback from FL-3 (feature nl-assist-feedback-loop). Same row shape, so they
+    train together; captures are absent on a fresh checkout and simply add nothing.
+    """
     from datasets import load_dataset
 
-    ds = load_dataset("json", data_files=str(dataset_path), split="train")
+    data_files = [str(dataset_path)]
+    captured = dataset_path.parent / "captured.jsonl"
+    if captured.exists():
+        data_files.append(str(captured))
+        print(f"including {captured.name} (consolidated feedback captures)")
+
+    ds = load_dataset("json", data_files=data_files, split="train")
 
     def render(row):
         return {"text": tokenizer.apply_chat_template(row["messages"], tokenize=False)}

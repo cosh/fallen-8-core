@@ -162,6 +162,21 @@ dataset) travels with the artifact (FT-7). This is what makes the `f8-delegate` 
 work beyond the training box — until you publish, a clone without the model 404s and should
 pick the stock phi4-mini preset.
 
+## Consolidate captured feedback into training (feedback-loop FL-3)
+
+Turn the 👍/👎 files the panel exports (FL-2) into training rows. Drop your downloaded
+`f8-training-*.jsonl` into `feedback/inbox/` (or pass paths as args), then:
+
+```bash
+npx tsx nl-assist-finetune/feedback/consolidate.ts   # needs the apiApp (compile authority)
+```
+
+It keeps 👍 rows, **re-validates each fragment** (drops non-compilers), drops any whose intent
+is in the held-out eval set (train/test isolation), dedupes against the existing corpus, and
+appends the survivors to `dataset/captured.jsonl` — **never** touching `eval/eval-set.json`.
+`./run.sh train` then reads `captured.jsonl` alongside the generated `train.jsonl`, so the next
+retrain folds your real-usage feedback in; re-run the eval gate to confirm it still wins.
+
 ## Evaluation (baseline / comparison runs)
 
 ```bash

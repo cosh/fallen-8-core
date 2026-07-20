@@ -16,6 +16,10 @@ train/.venv/
 llama.cpp/
 __pycache__/
 
+# FL-3: dropped-in feedback captures to consolidate (the operator's downloaded files).
+# The consolidation output lands in dataset/ (already ignored above).
+feedback/inbox/
+
 # Optional local `pip freeze` snapshot (machine/platform-specific, e.g. +cuXXX torch). The
 # exact working versions are already pinned in train/requirements.txt, so this is just a
 # personal reference, never committed.
