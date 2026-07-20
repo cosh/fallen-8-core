@@ -17,7 +17,7 @@ from pathlib import Path
 def main() -> None:
     here = Path(__file__).resolve().parent
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", type=Path, default=here / "train-config.json")
+    ap.add_argument("--config", type=Path, default=here / "train-config.phi4-f8-mini.json")
     ap.add_argument("--adapter", type=Path, default=here / "../adapter")
     ap.add_argument("--out", type=Path, default=here / "../merged")
     args = ap.parse_args()

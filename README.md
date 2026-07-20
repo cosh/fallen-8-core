@@ -73,7 +73,7 @@ npm run env:status  # Health of the whole environment
 ```
 
 **On first start** the Ollama container pulls its two models — `phi4-mini` (base) and
-`f8-delegate` (the fine-tune, the UI default) — straight into the `f8-ollama-models` volume.
+`phi4-f8-mini` (the fine-tune, the UI default) — straight into the `f8-ollama-models` volume.
 That is a few GB, so it takes a few minutes on the first `env:up`; watch it with `npm run
 env:logs`. The F8 API and Studio are up immediately; NL assist starts answering once the
 pull finishes. Later starts reuse the cached models, so they are instant and need no network.
@@ -84,6 +84,11 @@ internet — `scripts/ensure-models.sh` needs only Docker, no host Ollama — th
 starts with the models already cached. If a pull fails, the Ollama endpoint still comes up
 with whatever is present (it does not crash-loop); fix the network and re-run `env:up`, or
 run `scripts/ensure-models.sh`.
+
+A larger, GPU-only fine-tune `phi4-f8` (full Phi-4, 14B) is available as an **opt-in**:
+`F8_PULL_PHI4F8=1 npm run env:up` also pulls and serves it (~9 GB). The delegate editor then
+offers it as a preset. See
+[features/delegate-model-variants](features/open/delegate-model-variants/README.md).
 
 The delegate editor's compile validation and NL assist run C# fragments through the
 server. That surface is gated by a single capability flag that is **off by default**;
@@ -517,12 +522,12 @@ config, and the measured (noise-level) overhead.
 
 ## Troubleshooting
 
-### f8-delegate model fails to load (HTTP 404 in UI)
+### Delegate model fails to load (HTTP 404 in UI)
 
 **Symptom**: Using the "built-in (Local Ollama)" backend in F8 Studio's delegate editor
 returns "Model endpoint returned HTTP 404."
 
-**Cause**: the `f8-delegate` model is not in the Ollama container's volume yet — usually
+**Cause**: the `phi4-f8-mini` model is not in the Ollama container's volume yet — usually
 because the first-start pull has not finished, or it failed (no internet to
 `registry.ollama.ai`). The container reuses the `f8-ollama-models` volume, **not** any Ollama
 you have installed on the host; the two caches are separate, so pulling on the host does not
@@ -539,15 +544,15 @@ npm run env:logs                 # is the pull still running, or did it error?
   then restart. This needs only Docker (no host Ollama):
 
   ```bash
-  scripts/ensure-models.sh       # pulls phi4-mini + f8-delegate INTO volume f8-ollama-models
+  scripts/ensure-models.sh       # pulls phi4-mini + phi4-f8-mini INTO volume f8-ollama-models
   npm run env:down && npm run env:up
   ```
 
 - Meanwhile you can switch the delegate editor's backend to the **"Ollama (stock phi4-mini)"**
-  preset if `phi4-mini` pulled but `f8-delegate` did not.
+  preset if `phi4-mini` pulled but `phi4-f8-mini` did not.
 
 To seed a different published fine-tune, set `F8_DELEGATE_REPO` (it is tagged locally as
-`f8-delegate` either way): `F8_DELEGATE_REPO=you/your-finetune scripts/ensure-models.sh`.
+`phi4-f8-mini` either way): `F8_DELEGATE_REPO=you/your-finetune scripts/ensure-models.sh`.
 
 ### GPU acceleration (and the NVIDIA + WSL box)
 

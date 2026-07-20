@@ -43,9 +43,14 @@ which stay selectable too.
 | `phi4-mini` | — (stock) | 3.8B | ~2.5 GB | CPU-OK / GPU | Selectable base / fallback |
 | `phi4` | — (stock) | 14B | ~9 GB | GPU | Selectable base |
 
-**Back-compat.** `f8-delegate` remains a working name — the pipeline tags the mini fine-tune as
-both `phi4-f8-mini` and `f8-delegate`, and the UI keeps resolving existing `f8-delegate`
-configs. No stored config, published `…/f8-delegate` repo, or bookmarked model name breaks.
+**No `f8-delegate` alias (clean rename).** The mini fine-tune is named **only** `phi4-f8-mini`;
+the old `f8-delegate` local tag is retired, not aliased. Back-compat is explicitly *not* a
+goal for this single-operator project — the builtin UI default moves to `phi4-f8-mini`
+automatically (builtin mode ignores any stored model name), so the only thing that "breaks" is
+a *custom-mode* config that a user typed `f8-delegate` into by hand, which is their choice to
+re-point. The already-published `…/f8-delegate` registry repo stays a valid *pull source*
+(the puller tags it locally as `phi4-f8-mini`); it is superseded by `…/phi4-f8-mini` when the
+mini is next republished.
 
 ## 3. Goals and non-goals
 
@@ -102,15 +107,16 @@ training models. Until then, two variants + a config selector is the whole machi
   isolation, or the privacy notice (nl-assist FR-26.*). The zero-config default stays
   `phi4-f8-mini`. A one-line hint states that `phi4-f8` must be pulled and wants a capable host.
 - **DV-6 Serving is opt-in for the big model.** Compose pulls the default set
-  (`phi4-mini` + `phi4-f8-mini`, tagged `f8-delegate`) on first start; `phi4-f8` (and its `phi4`
-  base) are pulled only when explicitly requested (an env flag), because ~9 GB + GPU-bound is a
-  bad default. `ollama-init.sh` / `ensure-models.sh` take the variant set as input; requesting
-  `phi4-f8` on a CPU-only host warns it will be slow. The graceful-degradation guarantee from
-  the model-env fix holds: a failed *optional* pull never crashes the Ollama endpoint.
+  (`phi4-mini` + `phi4-f8-mini`) on first start; `phi4-f8` (the standalone merged fine-tune) is
+  pulled only when explicitly requested (an env flag), because ~9 GB + GPU-bound is a bad
+  default. The stock `phi4` base is not auto-pulled (a manual `ollama pull phi4` if wanted).
+  `ollama-init.sh` / `ensure-models.sh` take the variant set as input; requesting `phi4-f8` on a
+  CPU-only host warns it will be slow. The graceful-degradation guarantee from the model-env fix
+  holds: a failed *optional* pull never crashes the Ollama endpoint.
 - **DV-7 Distribution per variant.** `run.sh publish` pushes the selected variant to its own
-  registry repo (`…/phi4-f8`, `…/phi4-f8-mini`), staying back-compatible with the existing
-  `…/f8-delegate`. `PROVENANCE` is written per variant (base + license + tool pins + dataset
-  hash), so each artifact's licence position travels with it (FT-7).
+  registry repo (`…/phi4-f8`, `…/phi4-f8-mini`). `PROVENANCE` is written per variant (base +
+  license + tool pins + dataset hash), so each artifact's licence position travels with it
+  (FT-7).
 - **DV-8 MIT-only.** Only MIT-licensed bases enter the blessed pipeline (parent FR-26.1); the
   Phi-4 pin's HF licence tag is confirmed at pin time and recorded in that variant's provenance.
 - **DV-9 No engine change.** `fallen-8-core` and the running apiApp are untouched. Changes are
@@ -124,7 +130,7 @@ training models. Until then, two variants + a config selector is the whole machi
 | DV-G2 | Phi-4's assistant-turn marker differs from Phi-4-mini's. | `--inspect` verification is a required pre-flight in the plan; each config carries its own `responseTemplate` (DV-2). |
 | DV-G3 | `phi4-f8` is ~9 GB to pull and store. | Opt-in only (DV-6); pre-seed via `ensure-models.sh`; disk cost documented. |
 | DV-G4 | 14B inference on CPU is impractically slow. | UI hint + docs steer `phi4-f8` to GPU hosts; the default stays the mini (DV-4/DV-5). |
-| DV-G5 | Existing users/configs reference `f8-delegate`. | Kept as a working alias for `phi4-f8-mini`; UI migration preserves stored configs (§2, DV-5). |
+| DV-G5 | Existing users/configs reference `f8-delegate`. | Clean rename, no alias (operator's call — back-compat is not a goal). Builtin default moves to `phi4-f8-mini` automatically; only a hand-typed custom `f8-delegate` needs re-pointing (§2). |
 | DV-G6 | Two variants could drift in dataset or prompt. | One dataset and one prompt module feed both (single home); only base + hyperparameters differ per variant (DV-1). |
 
 ## 6. Testing requirements
@@ -154,8 +160,9 @@ training models. Until then, two variants + a config selector is the whole machi
 - [features/done/nl-assist-finetune/spec.md](../../done/nl-assist-finetune/spec.md) +
   [plan.md](../../done/nl-assist-finetune/plan.md) — the pipeline, eval gate, and run ledger
   this feature extends to a second variant.
-- `nl-assist-finetune/train/train-config.json`, `run.sh`, `train/Modelfile.template`,
-  `train/train_lora.py` — the config-driven pieces to parametrize per variant.
+- `nl-assist-finetune/train/train-config.phi4-f8-mini.json` + `train-config.phi4-f8.json`,
+  `run.sh` (the `VARIANT` selector), `train/Modelfile.template`, `train/train_lora.py`,
+  `train/merge.py` — the config-driven pieces parametrized per variant.
 - `fallen-8-web-ui/src/delegate/nl/config.ts` — presets, `BUILTIN_NL_BACKEND`, and the
   zero-config default the variant selector extends.
 - `docker-compose.yml`, `scripts/ollama-init.sh`, `scripts/ensure-models.sh` — the

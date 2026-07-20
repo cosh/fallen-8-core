@@ -57,8 +57,9 @@ instance as long as dynamic code is enabled.
 
 Works out of the box: the default **built-in** backend is the stack `docker-compose.yml`
 ships (local [Ollama](https://ollama.com) on `:11434`, defaulting to the fine-tuned
-`f8-delegate` model with `phi4-mini` as the selectable base — MIT weights + MIT runtime,
-nothing bundled into F8). The compose stack pulls both on first start. The panel shows a
+`phi4-f8-mini` model with `phi4-mini` as the selectable base; the larger `phi4-f8` is opt-in —
+MIT weights + MIT runtime, nothing bundled into F8). The compose stack pulls the default set on
+first start. The panel shows a
 reachability status; if it is unreachable, start the stack with `npm run env:up` (and follow
 `npm run env:logs` while the first-run model pull completes). Switching to **custom** under "nl assist → configure" exposes endpoint, API kind
 (`ollama` | `openai`-compatible), model, temperature, and presets (local Ollama, OpenAI,

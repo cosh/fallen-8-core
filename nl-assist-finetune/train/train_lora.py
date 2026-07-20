@@ -3,8 +3,9 @@
 
 Trains a small LoRA adapter on the generated (intent -> fragment) dataset so the model's
 FIRST-pass drafts land on Fallen-8's exact delegate surface. 4-bit QLoRA, sized for a
-single 8GB+ NVIDIA GPU under WSL2. Deterministic: same dataset + train-config.json + seed
-=> equivalent adapter (spec FT-1). Never trains in-process in F8 - this is an offline
+single NVIDIA GPU under WSL2 (8GB+ for the mini; ~16GB+ for the 14B phi4-f8). Deterministic:
+same dataset + variant config + seed => equivalent adapter (spec FT-1). Never trains
+in-process in F8 - this is an offline
 operator tool (spec non-goals).
 
 Loss is computed on the assistant fragment only (completion-only collator): the shared,
@@ -35,7 +36,7 @@ def probe_gpu() -> None:
 
     if not torch.cuda.is_available():
         sys.exit(
-            "No CUDA GPU visible to PyTorch. QLoRA on a 3.8B base needs an NVIDIA GPU;\n"
+            "No CUDA GPU visible to PyTorch. QLoRA needs an NVIDIA GPU;\n"
             "on WSL2 confirm `nvidia-smi` works and torch was installed from the cu12x index\n"
             "(see requirements.txt). CPU training is not supported by this script."
         )
@@ -43,7 +44,8 @@ def probe_gpu() -> None:
     total_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
     print(f"GPU: {name} ({total_gb:.1f} GB VRAM), torch {torch.__version__}")
     if total_gb < 7.5:
-        print("  ! <8GB VRAM: if you hit OOM, set training.perDeviceBatchSize to 1 in the config.")
+        print("  ! <8GB VRAM: if you hit OOM, lower training.perDeviceBatchSize / maxSeqLength")
+        print("    in the config. The 14B phi4-f8 variant needs ~16GB+ regardless.")
 
 
 def build_texts(dataset_path: Path, tokenizer):
@@ -72,7 +74,7 @@ def build_texts(dataset_path: Path, tokenizer):
 def main() -> None:
     ap = argparse.ArgumentParser()
     here = Path(__file__).resolve().parent
-    ap.add_argument("--config", type=Path, default=here / "train-config.json")
+    ap.add_argument("--config", type=Path, default=here / "train-config.phi4-f8-mini.json")
     ap.add_argument("--dataset", type=Path, default=here / "../dataset/train.jsonl")
     ap.add_argument("--out", type=Path, default=here / "../adapter")
     ap.add_argument("--inspect", action="store_true", help="render one example and exit")

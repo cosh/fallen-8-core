@@ -12,7 +12,7 @@
  *       --rescore   recompute checks + summary from recorded fragments (no model
  *                   calls) - for when an eval-set check turns out too strict/lax
  * Env:  NL_EVAL_MODEL     model name        (default phi4-mini; set to a fine-tuned
- *                                            model, e.g. f8-delegate, to compare runs)
+ *                                            model, e.g. phi4-f8-mini, to compare runs)
  *       NL_EVAL_ENDPOINT  Ollama endpoint   (default http://localhost:11434)
  *       NL_EVAL_F8        apiApp base URL   (default http://localhost:5000; must run
  *                                            with EnableDynamicCodeExecution=true)

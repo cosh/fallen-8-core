@@ -7,10 +7,10 @@ import { persist } from "zustand/middleware";
  * configured model endpoint - never to a Fallen-8 instance (FR-26.11).
  *
  * Two backend modes (nl-assist-ux FR-1/FR-3): "builtin" pins the local Ollama stack from
- * docker-compose.yml and defaults to the fine-tuned "f8-delegate" model (nl-assist-finetune,
- * higher first-pass accuracy on the delegate surface); "custom" uses the stored endpoint
- * fields. To use the stock base model instead, switch to custom and pick the
- * "Ollama (stock phi4-mini)" preset. Always resolve via effectiveNlConfig() before calls.
+ * docker-compose.yml and defaults to the fine-tuned "phi4-f8-mini" model (nl-assist-finetune,
+ * higher first-pass accuracy on the delegate surface, CPU-OK); "custom" uses the stored
+ * endpoint fields. To use the stock base, or the larger GPU-only "phi4-f8" fine-tune, switch
+ * to custom and pick the matching preset. Always resolve via effectiveNlConfig() before calls.
  */
 
 export type NlBackendMode = "builtin" | "custom";
@@ -27,22 +27,23 @@ export interface NlAssistConfig {
 
 /**
  * The local Ollama backend (docker-compose.yml `ollama` service) — not bundled in F8. The
- * default model is the fine-tuned "f8-delegate" (produced by nl-assist-finetune); the
- * compose stack still pulls "phi4-mini" as its base and the selectable fallback. If
- * f8-delegate is not present on the Ollama host, create it with the training pipeline or
- * switch to the stock phi4-mini preset (custom mode) — otherwise calls 404.
+ * default model is the fine-tuned "phi4-f8-mini" (produced by nl-assist-finetune); the
+ * compose stack also pulls "phi4-mini" as its base and selectable fallback. The larger
+ * "phi4-f8" (full Phi-4, GPU) is opt-in — see feature delegate-model-variants. If the chosen
+ * model is not present on the Ollama host, create it with the training pipeline or switch to
+ * the stock phi4-mini preset (custom mode) — otherwise calls 404.
  */
 export const BUILTIN_NL_BACKEND = {
   endpoint: "http://localhost:11434",
   apiKind: "ollama",
-  model: "f8-delegate",
+  model: "phi4-f8-mini",
 } as const;
 
 export const DEFAULT_NL_CONFIG: NlAssistConfig = {
   mode: "builtin",
   endpoint: "",
   apiKind: "ollama",
-  model: "f8-delegate",
+  model: "phi4-f8-mini",
   apiKey: undefined,
   temperature: 0.1,
   maxRetries: 2,
@@ -57,8 +58,10 @@ export interface NlPreset {
 }
 
 export const NL_PRESETS: NlPreset[] = [
+  { name: "Ollama (fine-tuned phi4-f8-mini)", endpoint: "http://localhost:11434", apiKind: "ollama", model: "phi4-f8-mini" },
+  { name: "Ollama (fine-tuned phi4-f8 — GPU)", endpoint: "http://localhost:11434", apiKind: "ollama", model: "phi4-f8" },
   { name: "Ollama (stock phi4-mini)", endpoint: "http://localhost:11434", apiKind: "ollama", model: "phi4-mini" },
-  { name: "Ollama (fine-tuned f8-delegate)", endpoint: "http://localhost:11434", apiKind: "ollama", model: "f8-delegate" },
+  { name: "Ollama (stock phi4 — GPU)", endpoint: "http://localhost:11434", apiKind: "ollama", model: "phi4" },
   { name: "OpenAI", endpoint: "https://api.openai.com/v1", apiKind: "openai", model: "gpt-4o-mini" },
   { name: "Anthropic", endpoint: "https://api.anthropic.com/v1", apiKind: "openai", model: "claude-opus-4-8" },
 ];

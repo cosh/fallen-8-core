@@ -22,9 +22,9 @@ on your own machine.
 shared/f8.ts         f8Fetch (429-retry) + validate() (compile authority) + streaming ollamaChat(), shared by all scripts
 dataset-gen/         phase 2 — generate.ts: contract -> validated (intent, fragment) pairs
 eval/                phases 1+4 — baseline.ts (+ --semantic), fixture.ts (FT-8 gate), eval-set.json (held-out)
-train/               phase 3 — requirements.txt, train-config.json, train_lora.py, merge.py, Modelfile.template
+train/               phase 3 — requirements.txt, train-config.<variant>.json, train_lora.py, merge.py, Modelfile.template
 run.sh               phase 3 orchestrator (WSL2): dataset -> train -> merge -> gguf -> ollama create -> provenance
-dataset/ adapter/ merged/ *.gguf Modelfile PROVENANCE.md   generated, gitignored (spec FT-5)
+dataset/ adapter/ merged/ *.gguf Modelfile PROVENANCE.*.md   generated, gitignored (spec FT-5)
 ```
 
 ## Prerequisites
@@ -130,40 +130,43 @@ train/.venv/bin/python train/train_lora.py --inspect
 > pip pick the build for your Python + driver. If torch install fails or CUDA is unavailable at
 > train time, set `TORCH_INDEX` to the index matching `nvidia-smi`'s CUDA version (e.g. `cu121`).
 
-`run.sh` produces the Ollama model `f8-delegate` and a `PROVENANCE.md` (base model + MIT
-license, pinned tool versions, dataset hash — spec FT-7). Config, seed, and LoRA
-hyperparameters live in [train/train-config.json](train/train-config.json); the same
-dataset + config + seed reproduce an equivalent model (spec FT-1). If you hit OOM on 8GB,
-drop `training.perDeviceBatchSize` to 1.
+`run.sh` produces an Ollama model named for the variant (`phi4-f8-mini` by default; set
+`VARIANT=phi4-f8` for the full-Phi-4 fine-tune) plus a `PROVENANCE.<model>.md` (base model +
+MIT license, pinned tool versions, dataset hash — spec FT-7). Config, seed, and LoRA
+hyperparameters live in the per-variant `train/train-config.<variant>.json`; the same dataset
++ config + seed reproduce an equivalent model (spec FT-1). If you hit OOM, drop
+`training.perDeviceBatchSize` (and `maxSeqLength`) — the 14B `phi4-f8` needs ~16GB+.
 
-Point the NL assist at it by setting its `model` field to `f8-delegate` (spec FT-6) — no
-Fallen-8 code changes; with nothing configured the stock base model is used as before.
+Point the NL assist at it by setting its `model` field to `phi4-f8-mini` (or `phi4-f8`) — no
+Fallen-8 code changes (spec FT-6). The two variants and the UI selection are documented in
+[features/delegate-model-variants](../features/open/delegate-model-variants/README.md).
 
 ## Distribution — share your model (feedback-loop FL-4)
 
-`f8-delegate` lives only in the ollama on the box that trained it. Fallen-8 core ships no
+A fine-tune lives only in the ollama on the box that trained it. Fallen-8 core ships no
 weights (spec FT-5), so a retrained model reaches *other* instances only if **you** publish
-it — this is your opt-in channel, not something F8 does. After registering this machine's
-Ollama key with your ollama.com account:
+it — your opt-in channel, not something F8 does. After `ollama login` with your ollama.com
+account, publish the variant you built:
 
 ```bash
-PUBLISH_REPO=stoic_hellman_728/f8-delegate ./run.sh publish
+PUBLISH_REPO=<your-namespace>/phi4-f8-mini ./run.sh publish                # the default variant
+PUBLISH_REPO=<your-namespace>/phi4-f8 VARIANT=phi4-f8 ./run.sh publish     # the 14B variant
 ```
 
-A fresh `docker compose up` then pulls it automatically: `ollama-init` pulls
-`$F8_DELEGATE_REPO` (default `stoic_hellman_728/f8-delegate`) and tags it `f8-delegate`, so
-the UI default works out of the box. Point a different deployment at another publisher by
-setting `F8_DELEGATE_REPO`. Without Docker, an operator pulls it by hand:
+A fresh `docker compose up` then pulls automatically: `ollama-init` pulls `$F8_DELEGATE_REPO`
+(default `stoic_hellman_728/f8-delegate`) and tags it `phi4-f8-mini`, so the UI default works
+out of the box; set `F8_PULL_PHI4F8=1` (+ `F8_PHI4F8_REPO`) to also fetch and tag `phi4-f8`.
+Point a deployment at your publisher via those vars. Without Docker, pull by hand:
 
 ```bash
-ollama pull stoic_hellman_728/f8-delegate
-ollama cp stoic_hellman_728/f8-delegate f8-delegate          # adopt it as the UI default…
-#   …or just set the NL-assist model field to stoic_hellman_728/f8-delegate
+ollama pull <your-namespace>/phi4-f8-mini
+ollama cp   <your-namespace>/phi4-f8-mini phi4-f8-mini       # adopt the short UI name…
+#   …or just set the NL-assist model field to <your-namespace>/phi4-f8-mini
 ```
 
-Ship `PROVENANCE.md` alongside so the licence position (Phi-4-mini MIT + MIT-generated
-dataset) travels with the artifact (FT-7). Until the model is published, a fresh deploy's
-`f8-delegate` default 404s and should use the stock phi4-mini preset.
+Ship `PROVENANCE.<model>.md` alongside so the licence position (Phi-4 / Phi-4-mini MIT +
+MIT-generated dataset) travels with the artifact (FT-7). Until a fine-tune is published, a
+fresh deploy's default 404s and should use the stock phi4-mini preset.
 
 ## Consolidate captured feedback into training (feedback-loop FL-3)
 
@@ -184,7 +187,7 @@ retrain folds your real-usage feedback in; re-run the eval gate to confirm it st
 
 ```bash
 npx tsx nl-assist-finetune/eval/baseline.ts                              # stock base model
-NL_EVAL_MODEL=f8-delegate npx tsx nl-assist-finetune/eval/baseline.ts    # a fine-tuned model
+NL_EVAL_MODEL=phi4-f8-mini npx tsx nl-assist-finetune/eval/baseline.ts   # a fine-tuned model
 npx tsx nl-assist-finetune/eval/baseline.ts --semantic                   # + FT-8 element-set gate
 npx tsx nl-assist-finetune/eval/baseline.ts --rescore --semantic         # re-score recorded fragments, no model calls
 ```

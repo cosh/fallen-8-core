@@ -2,19 +2,24 @@
 # MIT License
 #
 # Ollama initialization (entrypoint of Dockerfile.ollama): start the daemon, then pull the
-# models F8 needs - phi4-mini (base) and f8-delegate (the fine-tune, the UI default). Models
-# already present in the mounted volume are reused, so this only downloads on a cold volume.
+# models F8 needs. Default set: phi4-mini (base) + phi4-f8-mini (the mini fine-tune, the UI
+# default). Opt-in: phi4-f8 (the full-Phi-4 fine-tune, ~9 GB, GPU) when F8_PULL_PHI4F8 is set.
+# Feature: delegate-model-variants.
 #
-# Degradation is deliberate: if a pull fails (no internet, registry hiccup), we log a loud,
-# actionable error but KEEP THE DAEMON RUNNING. The Ollama endpoint stays up with whatever is
-# present, so partial setups still work and you can retry the pull (or run
+# Models already present in the mounted volume are reused, so this only downloads on a cold
+# volume. Degradation is deliberate: if a pull fails (no internet, registry hiccup), we log a
+# loud, actionable error but KEEP THE DAEMON RUNNING. The Ollama endpoint stays up with
+# whatever is present, so partial setups still work and you can retry the pull (or run
 # scripts/ensure-models.sh on the host) without the whole container crash-looping.
 
-F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/f8-delegate}"
+# Published fine-tune repos (pull sources), tagged locally to the short variant names.
+F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/f8-delegate}"   # -> phi4-f8-mini
+F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}"           # -> phi4-f8 (opt-in)
+F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-0}"
 HEALTH_CHECK_RETRIES=30
 HEALTH_CHECK_INTERVAL=1
 PULL_RETRIES=3
-PULL_TIMEOUT=900  # 15 minutes per model pull (~2.5GB models need time on a slow link)
+PULL_TIMEOUT=1800  # 30 minutes per pull (phi4-f8 is ~9GB on a slow link)
 
 log_info()  { echo "[ollama-init] INFO: $*"; }
 log_error() { echo "[ollama-init] ERROR: $*" >&2; }
@@ -55,6 +60,36 @@ pull_model() {
   return 1
 }
 
+# A stock base model: pulled under its own name. `ollama list` prints "name:tag", so anchor
+# the presence check with a trailing colon (keeps phi4-f8 from matching phi4-f8-mini).
+ensure_base() {
+  name=$1
+  if ollama list | grep -q "^${name}:"; then
+    log_info "$name already present - skipping pull"
+    return 0
+  fi
+  pull_model "$name"
+}
+
+# A fine-tune: pull <repo> and tag it locally as the short <tag> the UI uses (no f8-delegate
+# alias - feature delegate-model-variants, decision: clean rename).
+ensure_finetune() {
+  repo=$1
+  tag=$2
+  if ollama list | grep -q "^${tag}:"; then
+    log_info "$tag already present - skipping pull"
+    return 0
+  fi
+  if pull_model "$repo"; then
+    if timeout 30 ollama cp "$repo" "$tag" >/dev/null 2>&1; then
+      log_info "Tagged $repo as $tag"
+      return 0
+    fi
+    log_error "Pulled $repo but could not tag it as $tag"
+  fi
+  return 1
+}
+
 # Start the Ollama daemon in the background.
 log_info "Starting Ollama daemon..."
 /bin/ollama serve &
@@ -66,37 +101,19 @@ if ! wait_for_health; then
   exit 1
 fi
 
-# Reuse models already in the volume; only pull what is missing.
-NEED_PHI4=true
-NEED_DELEGATE=true
-if ollama list | grep -q "^phi4-mini"; then
-  log_info "phi4-mini already present - skipping pull"
-  NEED_PHI4=false
-fi
-if ollama list | grep -q "^f8-delegate"; then
-  log_info "f8-delegate already present - skipping pull"
-  NEED_DELEGATE=false
-fi
-
 MISSING=""
 
-if [ "$NEED_PHI4" = true ]; then
-  pull_model "phi4-mini" || MISSING="$MISSING phi4-mini"
-fi
+# Default set: the base + the CPU-OK mini fine-tune (the UI default).
+ensure_base "phi4-mini" || MISSING="$MISSING phi4-mini"
+ensure_finetune "$F8_DELEGATE_REPO" "phi4-f8-mini" || MISSING="$MISSING phi4-f8-mini"
 
-if [ "$NEED_DELEGATE" = true ]; then
-  if pull_model "$F8_DELEGATE_REPO"; then
-    # Tag the pulled repo as the short "f8-delegate" name the UI defaults to.
-    if timeout 30 ollama cp "$F8_DELEGATE_REPO" f8-delegate >/dev/null 2>&1; then
-      log_info "Tagged $F8_DELEGATE_REPO as f8-delegate"
-    else
-      log_error "Pulled $F8_DELEGATE_REPO but could not tag it as f8-delegate"
-      MISSING="$MISSING f8-delegate"
-    fi
-  else
-    MISSING="$MISSING f8-delegate"
-  fi
-fi
+# Opt-in: the full-Phi-4 fine-tune. ~9GB and GPU-bound, so never pulled by default.
+case "$F8_PULL_PHI4F8" in
+  1|true|TRUE|yes|on)
+    log_info "F8_PULL_PHI4F8 set - also fetching phi4-f8 (full Phi-4 fine-tune, ~9GB, GPU recommended)"
+    ensure_finetune "$F8_PHI4F8_REPO" "phi4-f8" || MISSING="$MISSING phi4-f8"
+    ;;
+esac
 
 if [ -n "$MISSING" ]; then
   log_error "Some models are missing:$MISSING"
@@ -104,7 +121,7 @@ if [ -n "$MISSING" ]; then
   log_error "  - check this container has internet to registry.ollama.ai, then: npm run env:down && npm run env:up"
   log_error "  - or pre-seed the volume from a host with internet: scripts/ensure-models.sh"
 else
-  log_info "All required models are ready (phi4-mini + f8-delegate)."
+  log_info "All requested models are ready."
 fi
 
 log_info "Keeping Ollama daemon running..."

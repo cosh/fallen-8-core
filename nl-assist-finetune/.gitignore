@@ -7,9 +7,9 @@ merged/
 adapter*/
 *.gguf
 
-# Generated per run from the committed templates/config.
+# Generated per run from the committed templates/config (one PROVENANCE.<model>.md per variant).
 Modelfile
-PROVENANCE.md
+PROVENANCE*.md
 
 # Toolchain working dirs.
 train/.venv/

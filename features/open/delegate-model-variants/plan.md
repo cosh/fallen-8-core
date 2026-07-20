@@ -19,7 +19,9 @@ GPU-bound steps (train `phi4-f8`, eval both) are isolated on the GPU/WSL box.
 The spec bakes in these defaults so implementation is unambiguous; flag any you want changed:
 
 1. **Default variant stays `phi4-f8-mini`** (turnkey/CPU). `phi4-f8` is opt-in.
-2. **`f8-delegate` is kept as an alias** of `phi4-f8-mini`, not renamed away. Nothing breaks.
+2. **Clean rename, NO `f8-delegate` alias** (operator's decision, 2026-07-20). The mini
+   fine-tune is named only `phi4-f8-mini`; back-compat is not a goal. The builtin default moves
+   automatically; a hand-typed custom `f8-delegate` is the only thing that needs re-pointing.
 3. **Variant selection is config-driven via a `VARIANT` env** (→ `train-config.<variant>.json`),
    not new CLI flags or forked scripts.
 4. **Compose pulls the big model only behind an env flag** (e.g. `F8_DELEGATE_VARIANTS` or
@@ -27,7 +29,7 @@ The spec bakes in these defaults so implementation is unambiguous; flag any you 
 
 ## Phase 1 — Parametrize the pipeline by variant (no GPU)
 
-Goal: one pipeline, two configs, `f8-delegate` alias preserved.
+Goal: one pipeline, two configs, clean rename to `phi4-f8-mini` (no `f8-delegate` alias).
 
 - Rename `train/train-config.json` → `train/train-config.phi4-f8-mini.json`; set
   `output.ollamaModel` to `phi4-f8-mini` (keep `baseModel: microsoft/Phi-4-mini-instruct`,
@@ -37,9 +39,8 @@ Goal: one pipeline, two configs, `f8-delegate` alias preserved.
   All the per-model derived paths (`OLLAMA_MODEL`, GGUF names, `PROVENANCE`) already come from
   the config — confirm they stay variant-scoped so two variants never overwrite each other's
   artifacts (e.g. write `PROVENANCE.<variant>.md`, keep per-variant GGUF filenames).
-- `modelfile()`: after `ollama create <ollamaModel>`, when the variant is `phi4-f8-mini` also
-  `ollama cp phi4-f8-mini f8-delegate` (back-compat alias, DV-2/§2).
-- Unit-guard: a tiny test/asserts that `train/train-config.*.json` each parse, carry a
+- `modelfile()`: `ollama create <ollamaModel>` only — no `f8-delegate` alias (decision #2).
+- Unit-guard: a tiny test asserts that `train/train-config.*.json` each parse, carry a
   `responseTemplate`, and name an MIT `baseModel`.
 
 ## Phase 2 — `phi4-f8` base config + retrain (GPU box)
@@ -70,9 +71,10 @@ Goal: one pipeline, two configs, `f8-delegate` alias preserved.
 ## Phase 4 — UI variant selection (no GPU)
 
 - `config.ts`:
-  - `BUILTIN_NL_BACKEND.model` / `DEFAULT_NL_CONFIG.model` → `phi4-f8-mini` (default unchanged
-    in behaviour; `f8-delegate` still resolves via the alias, and `migrateNlState` keeps any
-    stored `f8-delegate`/custom config working — add a migration note).
+  - `BUILTIN_NL_BACKEND.model` / `DEFAULT_NL_CONFIG.model` → `phi4-f8-mini`. Builtin mode
+    ignores any stored model name, so every builtin user moves to `phi4-f8-mini` automatically;
+    no alias and no `f8-delegate`→`phi4-f8-mini` remap (decision #2 — breaking a hand-typed
+    custom config is acceptable).
   - `NL_PRESETS`: add `Ollama (fine-tuned phi4-f8 — GPU)` and `Ollama (stock phi4)`; keep the
     stock `phi4-mini` and the `phi4-f8-mini` presets.
   - Optionally a small **builtin model chooser** (mini vs phi4-f8) so users switch variant
@@ -85,8 +87,9 @@ Goal: one pipeline, two configs, `f8-delegate` alias preserved.
 
 - `docker-compose.yml`: introduce the opt-in flag (default = mini set only). Header comment
   documents `phi4-f8` as GPU-recommended and ~9 GB.
-- `scripts/ollama-init.sh`: pull the default set `{phi4-mini, phi4-f8-mini→f8-delegate}`; when
-  `phi4-f8` is requested, also pull `phi4` + the `phi4-f8` repo and tag it. Preserve
+- `scripts/ollama-init.sh`: pull the default set `{phi4-mini, phi4-f8-mini}` (tag the pulled
+  mini repo locally as `phi4-f8-mini`, no `f8-delegate` tag); when `phi4-f8` is requested, also
+  pull `phi4` + the `phi4-f8` repo and tag it. Preserve
   graceful degradation (a failed *optional* pull logs and keeps the daemon up — the
   model-env fix's guarantee, regression-tested).
 - `scripts/ensure-models.sh`: seed whichever variant set is requested into the volume.
