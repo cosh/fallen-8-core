@@ -76,30 +76,74 @@ if ! wait_for_health; then
   exit 1
 fi
 
-# Pull required model (base + fallback)
-if ! pull_model "phi4-mini"; then
-  log_error "Failed to pull phi4-mini (required model)"
-  kill $DAEMON_PID 2>/dev/null || true
-  exit 1
+# Check if models are already cached (from docker volume) - skip pulls if present
+log_info "Checking for cached models..."
+PULL_PHI4=true
+PULL_DELEGATE=true
+
+if ollama list | grep -q "^phi4-mini"; then
+  log_info "phi4-mini already present in cache - skipping pull"
+  PULL_PHI4=false
 fi
 
-# Pull required fine-tuned model
-if ! pull_model "$F8_DELEGATE_REPO"; then
-  log_error "Failed to pull $F8_DELEGATE_REPO (required model)"
-  kill $DAEMON_PID 2>/dev/null || true
-  exit 1
+if ollama list | grep -q "^f8-delegate"; then
+  log_info "f8-delegate already present in cache - skipping pull"
+  PULL_DELEGATE=false
 fi
 
-log_info "Tagging $F8_DELEGATE_REPO as f8-delegate..."
-if timeout 30 ollama cp "$F8_DELEGATE_REPO" f8-delegate >/dev/null 2>&1; then
-  log_info "Successfully created f8-delegate alias"
-else
-  log_error "Failed to create f8-delegate alias"
-  kill $DAEMON_PID 2>/dev/null || true
-  exit 1
+# If both models are present, we're done - no pulls needed
+if [ "$PULL_PHI4" = false ] && [ "$PULL_DELEGATE" = false ]; then
+  log_info "Both required models are ready. Keeping Ollama daemon running..."
+  wait $DAEMON_PID
+  exit 0
 fi
 
-log_info "Model initialization complete. Ollama is ready."
+# Models are missing - attempt pulls (may fail on isolated networks)
+log_info "One or more models need to be pulled..."
+
+if [ "$PULL_PHI4" = true ]; then
+  if pull_model "phi4-mini"; then
+    log_info "phi4-mini successfully pulled"
+  else
+    log_error "FATAL: Could not load phi4-mini model"
+    log_error ""
+    log_error "Models could not be pulled due to network constraints."
+    log_error "To fix this:"
+    log_error "  1. Install ollama locally: https://ollama.ai"
+    log_error "  2. Run on your host: scripts/ensure-models.sh"
+    log_error "  3. Then: npm run env:up"
+    kill $DAEMON_PID 2>/dev/null || true
+    exit 1
+  fi
+fi
+
+if [ "$PULL_DELEGATE" = true ]; then
+  if pull_model "$F8_DELEGATE_REPO"; then
+    log_info "Successfully pulled $F8_DELEGATE_REPO"
+  else
+    log_error "FATAL: Could not load f8-delegate model"
+    log_error ""
+    log_error "Models could not be pulled due to network constraints."
+    log_error "To fix this:"
+    log_error "  1. Install ollama locally: https://ollama.ai"
+    log_error "  2. Run on your host: scripts/ensure-models.sh"
+    log_error "  3. Then: npm run env:up"
+    kill $DAEMON_PID 2>/dev/null || true
+    exit 1
+  fi
+  
+  # Create alias for the fine-tuned model
+  log_info "Creating f8-delegate alias..."
+  if timeout 30 ollama cp "$F8_DELEGATE_REPO" f8-delegate >/dev/null 2>&1; then
+    log_info "Successfully created f8-delegate alias"
+  else
+    log_error "Failed to create f8-delegate alias"
+    kill $DAEMON_PID 2>/dev/null || true
+    exit 1
+  fi
+fi
+
+log_info "All required models are ready. Keeping Ollama daemon running..."
 
 # Keep the daemon running in the foreground
 wait $DAEMON_PID

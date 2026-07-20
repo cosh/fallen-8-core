@@ -63,17 +63,25 @@ model backend (Ollama + the MIT default model, pulled on first start). The envir
 managed **as one unit** via compose - do not start/stop individual containers:
 
 ```bash
-npm run env:up      # = docker compose up -d --build   (start everything; uses the
-                    #   host's NVIDIA GPU for Ollama when one is present)
-npm run env:down    # = docker compose down            (stop everything; data volumes persist)
-npm run env:logs    # follow all logs
-npm run env:status  # health of the whole environment
+# SETUP (one-time): Pre-cache models so startup is fast and reliable
+scripts/ensure-models.sh    # Pre-pulls models to local cache (~20 min, one-time)
+                            # Requires: ollama installed (https://ollama.ai)
+
+# THEN: Start the environment (uses cached models, no downloads)
+npm run env:up      # Start everything; no network needed (models already cached)
+npm run env:down    # Stop everything; data volumes persist
+npm run env:logs    # Follow all logs
+npm run env:status  # Health of the whole environment
+
 # F8 Studio:        http://localhost:8080
 # NL-assist model:  http://localhost:11434 (configure in the delegate editor)
 ```
 
-Graph data and the save-game registry live on the `f8-data` volume, model weights on
-`f8-ollama-models` - both survive `env:down`/`env:up` cycles.
+**On first setup**, you need models cached. `scripts/ensure-models.sh` pulls them once to
+your local Ollama cache (shared with the Docker volume); from then on, containers use the
+cached copies and never need network access. This ensures **reliable, fast startup** without
+timeouts or network issues. (If you don't have Ollama installed, [get it](https://ollama.ai) — it's a
+one-time setup.)
 
 The delegate editor's compile validation and NL assist run C# fragments through the
 server. That surface is gated by a single capability flag that is **off by default**;
@@ -511,54 +519,38 @@ config, and the measured (noise-level) overhead.
 
 **Symptom**: When trying to use the "built-in (Local Ollama)" f8-delegate model in F8 Studio's delegate editor, you get "Model endpoint returned HTTP 404."
 
-**Cause**: The Ollama model (phi4-mini + f8-delegate) failed to pull during `npm run env:up`. This typically happens when the Docker container cannot reach the Ollama registry (`registry.ollama.ai`) due to network isolation or firewall rules.
+**Cause**: Models weren't cached before starting the environment. The Ollama container tries to pull them at startup but times out due to network isolation.
 
-**Solution**:
-1. **Check model status:**
-   ```bash
-   docker exec fallen-8-core-ollama-1 ollama list
-   ```
-   If no models appear, they didn't pull. 
+**Solution (Recommended)**: Pre-cache models on your host once, then containers always use the cached copies:
 
-2. **Fix network access** (recommended):
-   - Ensure the Docker container has outbound internet access to `registry.ollama.ai:443`
-   - Check host firewall and routing rules
-   - Verify DNS resolution inside the container:
-     ```bash
-     docker exec fallen-8-core-ollama-1 nslookup registry.ollama.ai
-     ```
+```bash
+# ONE-TIME SETUP (requires ollama: https://ollama.ai)
+scripts/ensure-models.sh    # Downloads both models (~20 minutes)
+                            # Populates docker volume f8-ollama-models
 
-3. **Workaround if network is blocked**:
-   - Pull models on your host (if you have `ollama` installed locally):
-     ```bash
-     ollama pull phi4-mini
-     ollama pull stoic_hellman_728/f8-delegate
-     ollama cp stoic_hellman_728/f8-delegate f8-delegate
-     ```
-   - The `ollama-models` Docker volume is shared, so the container will find them:
-     ```bash
-     docker exec fallen-8-core-ollama-1 ollama list
-     ```
+# NOW: env:up works reliably without network access
+npm run env:up
+```
 
-4. **Manually pull inside container** (if host ollama unavailable):
-   ```bash
-   # Kill the container to let you pull models manually
-   npm run env:down
-   
-   # Start just ollama (without the init script trying to auto-pull)
-   docker run -d --name temp-ollama -v f8-ollama-models:/root/.ollama ollama/ollama:latest
-   
-   # Pull models with a timeout allowance (these are large files)
-   docker exec temp-ollama ollama pull phi4-mini        # ~7GB, 5-10 minutes
-   docker exec temp-ollama ollama pull stoic_hellman_728/f8-delegate  # ~7GB, 5-10 minutes
-   docker exec temp-ollama ollama cp stoic_hellman_728/f8-delegate f8-delegate
-   
-   # Stop the temp container
-   docker stop temp-ollama && docker rm temp-ollama
-   
-   # Restart the full environment
-   npm run env:up
-   ```
+**Why this works**: `ensure-models.sh` pulls models to your local Ollama cache (~/Library/Application\ Support/ollama/ or ~/.ollama/models), which is shared with the Docker volume. Containers use the pre-cached copies and never need to download them.
+
+**If you don't have ollama installed**:
+1. [Download Ollama](https://ollama.ai) for your OS
+2. Run `scripts/ensure-models.sh` 
+3. Run `npm run env:up`
+
+**Alternative if you can't run the script**:
+You can manually pull models on your host and the container will find them:
+
+```bash
+# If you have ollama installed locally
+ollama pull phi4-mini
+ollama pull stoic_hellman_728/f8-delegate
+ollama cp stoic_hellman_728/f8-delegate f8-delegate
+
+# Then start the environment (models already cached)
+npm run env:up
+```
 
 ### GPU acceleration not working
 
