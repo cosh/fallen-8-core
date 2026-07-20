@@ -34,7 +34,7 @@ Every evaluation run (baseline, fine-tuned candidates, prompt changes) appends a
 here, so quality and performance movement — improving or regressing — is visible
 run-over-run. Quality = compile rate and semantic-proxy rate on the held-out set;
 performance = mean seconds per draft and tokens/second (hardware-bound: only compare
-runs from the same machine; this ledger's rows so far are the CPU-only dev box).
+runs from the same machine; the host is noted per row).
 
 | date | model | prompt | n | compile | semantic proxy | s/draft | tok/s | vs. previous |
 |---|---|---|---|---|---|---|---|---|
@@ -42,6 +42,8 @@ runs from the same machine; this ledger's rows so far are the CPU-only dev box).
 | 2026-07-19 | phi4-mini (stock, Q4_K_M) | + FT-8 element-set gate (phase 4) | 18 | 72% | 61% | 36.9 | 0.7 | element-set semantic 45% over 11 applicable rows (< proxy < compile: the metric sees compiling-but-wrong drafts) — phase-4 champion base to beat |
 | 2026-07-19 | f8-delegate v1 (LoRA, 3 epochs) | shipping prompt | 18 | 83% | 83% | — | — | RTX 3080 (perf not comparable to CPU rows). First fine-tune: beats base on compile+proxy but overfit — GraphElementFilter compile regressed 100%→75% and 3 property-threshold rows failed first-pass |
 | 2026-07-20 | f8-delegate v2 (LoRA, 2 epochs) | shipping prompt | 18 | **100%** | **94%** | 0.5 | 172 | RTX 3080. FT-8 element-set semantic **100%** (11 applicable). 359-row dataset (natural comparatives + multi-condition label+prop+id + edge-weight) and 2 epochs fixed all 3 v1 compile misses and the GEF regression. Sole proxy miss: `epf-knows` drafted `StartsWith("know")` instead of `== "knows"` |
+| 2026-07-21 | phi4-mini (stock, Q4_K_M) | shipping prompt | 18 | 72% | 56% | 0.6 | 166 | Ryzen box (new eval host; perf not comparable to prior rows). `--rescore --semantic`: FT-8 element-set semantic **45%** over 11 applicable rows — re-confirms the stock baseline on this machine |
+| 2026-07-21 | phi4-f8-mini (== f8-delegate v2, now published `stoic_hellman_728/phi4-f8-mini`) | shipping prompt | 18 | **100%** | **89%** | 0.5 | 169 | Ryzen box, SAME host/eval as the stock row above — apples-to-apples: compile 72%→**100%**, proxy 56%→**89%** (VertexFilter 33%→100%, EdgeFilter 67%→100%, EdgeCost 50%→100%). Remaining proxy misses: `gef-field-example` (draft omits `.Id` + `TryGetProperty "age"`) and `epf-knows` (`StartsWith`-style vs `== "knows"`). `--semantic` not run this pass |
 
 Per kind (baseline): VertexFilter 50%/33% (compile/semantic, n=6), EdgeFilter 67%/67%
 (n=3), GraphElementFilter 100%/75% (n=4), EdgePropertyFilter 100%/100% (n=2),

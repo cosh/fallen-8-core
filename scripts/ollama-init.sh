@@ -13,7 +13,7 @@
 # scripts/ensure-models.sh on the host) without the whole container crash-looping.
 
 # Published fine-tune repos (pull sources), tagged locally to the short variant names.
-F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/f8-delegate}"   # -> phi4-f8-mini
+F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}"  # -> phi4-f8-mini
 F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}"           # -> phi4-f8 (opt-in)
 F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-0}"
 HEALTH_CHECK_RETRIES=30

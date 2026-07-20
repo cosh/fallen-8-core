@@ -19,7 +19,7 @@
 
 set -e
 
-F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/f8-delegate}"
+F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}"
 F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}"
 F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-0}"
 VOLUME="f8-ollama-models"
