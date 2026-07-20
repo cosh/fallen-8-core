@@ -58,43 +58,28 @@ default `python3` is **3.14**, which PyTorch has no CUDA wheels for yet — so b
 > (+ `dataset.meta.json`) from wherever it was generated and skip both — `run.sh`'s `dataset`
 > stage reuses an existing file, so `./run.sh all` then needs neither.
 
-### Install the toolchain (Ubuntu 26.04)
+### Install the toolchain (Ubuntu)
+
+One script installs everything — build tools, Node 22 + tsx, .NET SDK 10, uv + **Python 3.13**,
+and Ollama — and is the single home for these installs (the cloud runner in
+[`infra/`](infra/README.md) runs this same script):
 
 ```bash
-# Build tools + Python venv/pip + git/curl (covers the whole GGUF-build + venv chain):
-sudo apt update
-sudo apt install -y build-essential cmake git curl python3-venv python3-pip
-
-# Node.js 22 LTS (only for dataset generation + eval) via NodeSource:
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# Ollama (for `ollama create`, and to serve a base model for the bootstrap/eval steps):
-curl -fsSL https://ollama.com/install.sh | sh
+./install-prereqs.sh          # idempotent; uses sudo for apt, or runs as root on a VM
+source ./.prereqs-env.sh      # puts dotnet + uv on PATH and exports $PY313
 ```
+
+> **Why Python 3.13:** PyTorch has no CUDA wheels for Ubuntu 26.04's default **3.14**
+> (`./run.sh deps` would otherwise die with `No matching distribution found for torch`), and
+> 26.04 doesn't carry 3.13 in its archive — so the script fetches a standalone 3.13 via
+> [uv](https://docs.astral.sh/uv/) and exports its path as `$PY313`. Pass that to the pipeline
+> (`PYTHON="$PY313" ./run.sh …`). Dataset generation and eval are fine on the system 3.14. For a
+> newer GPU (e.g. RTX 50-series) also set `TORCH_VERSION`/`TORCH_INDEX` (cu128 + torch ≥ 2.7).
 
 > **On WSL2, do NOT install an NVIDIA driver inside Ubuntu.** Install the current NVIDIA driver
 > on **Windows** (531+); WSL2 exposes the GPU automatically, and `nvidia-smi` then works inside
 > the distro. A Linux driver installed in WSL breaks the passthrough. On a **native** Ubuntu box
 > you do install it: `sudo ubuntu-drivers autoinstall`, then reboot.
-
-### Python 3.13 for the training venv (GPU torch)
-
-PyTorch publishes CUDA wheels only up to Python **3.13**, but 26.04's default `python3` is
-**3.14** — so `./run.sh deps` dies with `No matching distribution found for torch`. Ubuntu
-26.04 does not carry 3.13 in its archive, so get it without a PPA via
-[uv](https://docs.astral.sh/uv/) (a standalone CPython, nothing touched system-wide):
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh     # install uv, then restart the shell
-uv python install 3.13                              # fetch a standalone CPython 3.13
-rm -rf train/.venv                                  # drop any venv a failed run left on 3.14
-PYTHON="$(uv python find 3.13)" ./run.sh deps       # build train/.venv with 3.13
-```
-
-`run.sh` builds `train/.venv` from `$PYTHON` **once**; later stages reuse it, so `./run.sh all`
-needs no further `PYTHON=`. The validated torch 2.6.0 / cu124 combo has 3.13 wheels; for a newer
-GPU (e.g. RTX 50-series) also set `TORCH_VERSION`/`TORCH_INDEX` (cu128 + torch ≥ 2.7).
 
 ### Start Ollama (prerequisite for the bootstrap + eval steps)
 
@@ -155,22 +140,25 @@ and the prompt contract lives in one place, not re-encoded in Python.
 
 Training is **not** a Windows-PowerShell step: `run.sh` and the CUDA / QLoRA / GGUF toolchain
 need a Linux shell with an NVIDIA GPU — WSL2 (Ubuntu) on a Windows GPU box, or a native Linux
-box. The commands below are bash. From `nl-assist-finetune/` inside that shell, in this order
-(`VARIANT=phi4-f8` for the 14B variant; default is `phi4-f8-mini`):
+box. Run the toolchain installer once first (Prerequisites above), then from
+`nl-assist-finetune/` (bash):
+
+> **No local GPU big enough?** The 14B `phi4-f8` needs ~16 GB VRAM. [`infra/`](infra/README.md)
+> provisions a throwaway Azure A10 (Spot), runs this whole pipeline, publishes the model, and
+> deletes itself — no manual steps.
 
 ```bash
-# 1. Build the toolchain FIRST: this creates train/.venv and installs the pinned deps.
-#    Nothing under train/.venv exists until this has run.
-./run.sh deps
+# 1. Build train/.venv + install the pinned torch/deps. PYTHON="$PY313" (from install-prereqs)
+#    because 26.04's system python3 is 3.14, which has no CUDA torch wheels.
+PYTHON="$PY313" ./run.sh deps
 
-# 2. (Optional pre-flight) eyeball the assistant marker the completion-only trainer keys on
-#    (Phi model revisions differ) before spending GPU time. Needs step 1 done.
-train/.venv/bin/python train/train_lora.py --inspect
+# 2. (Optional pre-flight, recommended for phi4-f8) eyeball the assistant marker + the LoRA
+#    target modules the trainer keys on, before spending GPU time.
+train/.venv/bin/python train/train_lora.py --inspect --config train/train-config.phi4-f8.json
 
 # 3. Run the whole chain: deps -> dataset -> QLoRA -> merge -> GGUF -> ollama create -> PROVENANCE.
-#    Safe to run on its own from a clean checkout - its first stage IS `deps`, so it builds the
-#    venv itself; steps 1-2 above are only useful for the pre-flight.
-./run.sh all
+#    Mini (default): PYTHON="$PY313" ./run.sh all    |    14B: add VARIANT=phi4-f8
+VARIANT=phi4-f8 PYTHON="$PY313" ./run.sh all
 
 # or a single stage:  ./run.sh deps | dataset | train | merge | gguf | modelfile | provenance
 ```
@@ -207,7 +195,7 @@ PUBLISH_REPO=<your-namespace>/phi4-f8 VARIANT=phi4-f8 ./run.sh publish     # the
 ```
 
 A fresh `docker compose up` then pulls automatically: `ollama-init` pulls `$F8_DELEGATE_REPO`
-(default `stoic_hellman_728/f8-delegate`) and tags it `phi4-f8-mini`, so the UI default works
+(default `stoic_hellman_728/phi4-f8-mini`) and tags it `phi4-f8-mini`, so the UI default works
 out of the box; set `F8_PULL_PHI4F8=1` (+ `F8_PHI4F8_REPO`) to also fetch and tag `phi4-f8`.
 Point a deployment at your publisher via those vars. Without Docker, pull by hand:
 
