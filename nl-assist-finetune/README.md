@@ -139,6 +139,29 @@ drop `training.perDeviceBatchSize` to 1.
 Point the NL assist at it by setting its `model` field to `f8-delegate` (spec FT-6) — no
 Fallen-8 code changes; with nothing configured the stock base model is used as before.
 
+## Distribution — share your model (feedback-loop FL-4)
+
+`f8-delegate` lives only in the ollama on the box that trained it. Fallen-8 core ships no
+weights (spec FT-5), so a retrained model reaches *other* instances only if **you** publish
+it — this is your opt-in channel, not something F8 does:
+
+```bash
+PUBLISH_REPO=<your-namespace>/f8-delegate ./run.sh publish   # after `ollama login`
+```
+
+On another instance:
+
+```bash
+ollama pull <your-namespace>/f8-delegate
+ollama cp <your-namespace>/f8-delegate f8-delegate          # adopt it as the UI default…
+#   …or just set the NL-assist model field to <your-namespace>/f8-delegate
+```
+
+Ship `PROVENANCE.md` alongside so the licence position (Phi-4-mini MIT + MIT-generated
+dataset) travels with the artifact (FT-7). This is what makes the `f8-delegate` UI default
+work beyond the training box — until you publish, a clone without the model 404s and should
+pick the stock phi4-mini preset.
+
 ## Evaluation (baseline / comparison runs)
 
 ```bash
