@@ -1,21 +1,29 @@
 # The complete F8 environment as ONE unit: engine + API + F8 Studio UI in one container,
-# plus the NL-assist model backend (official Ollama image with the MIT default model,
-# phi4-mini). Manage the environment as a whole - not individual containers:
+# plus the NL-assist model backend (Ollama with phi4-mini base + f8-delegate fine-tune).
+# Manage the environment as a whole - not individual containers:
 #
-#   docker compose up -d --build     # start everything (npm run env:up, which also
-#                                    # applies docker-compose.gpu.yml on NVIDIA hosts)
-#   docker compose down              # stop everything; named volumes persist (npm run env:down)
-#   docker compose logs -f           # follow the whole environment (npm run env:logs)
+#   npm run env:up                   # start everything (detects NVIDIA GPU automatically)
+#   F8_GPU=0 npm run env:up          # force CPU-only mode (no GPU acceleration)
+#   F8_GPU=1 npm run env:up          # force GPU mode (fails if no NVIDIA GPU + toolkit)
+#   npm run env:down                 # stop everything; named volumes persist
+#   npm run env:logs                 # follow the whole environment
+#   npm run env:status               # check running status
 #
 # F8 itself bundles no model weights or runtime (nl-assist spec FR-26.2) - Ollama and the
 # weights are pulled ON THIS MACHINE from their upstream registries; their MIT licenses
 # bind the user running them.
 #
+# GPU acceleration is automatic: npm run env:up detects your host's NVIDIA GPU and applies
+# GPU settings automatically. To override:
+#   - Force GPU off (CPU-only):  F8_GPU=0 npm run env:up
+#   - Force GPU on (NVIDIA):     F8_GPU=1 npm run env:up
+#
+# For AMD GPUs, use the Ollama rocm image manually (not yet covered by this compose).
+#
 #   F8 Studio:  http://localhost:8080
-#   NL assist:  endpoint http://localhost:11434, api kind "ollama". The UI DEFAULTS to the
-#               fine-tuned "f8-delegate" model (nl-assist-finetune); ollama-init below pulls
-#               "phi4-mini" as its base and the stock fallback. Create f8-delegate with the
-#               training pipeline (nl-assist-finetune/run.sh) or pick the phi4-mini preset.
+#   NL assist:  endpoint http://localhost:11434, api kind "ollama". The UI uses the
+#               fine-tuned "f8-delegate" model (nl-assist-finetune), which is required.
+#               Override the model source (if running a custom fine-tune) via F8_DELEGATE_REPO.
 
 services:
   fallen8:

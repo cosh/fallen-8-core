@@ -78,16 +78,20 @@ if ! pull_model "phi4-mini"; then
   exit 1
 fi
 
-# Pull optional fine-tuned model (best-effort)
-if pull_model "$F8_DELEGATE_REPO"; then
-  log_info "Tagging $F8_DELEGATE_REPO as f8-delegate..."
-  if timeout 30 ollama cp "$F8_DELEGATE_REPO" f8-delegate >/dev/null 2>&1; then
-    log_info "Successfully created f8-delegate alias"
-  else
-    log_error "Failed to create f8-delegate alias (non-fatal)"
-  fi
+# Pull required fine-tuned model
+if ! pull_model "$F8_DELEGATE_REPO"; then
+  log_error "Failed to pull $F8_DELEGATE_REPO (required model)"
+  kill $DAEMON_PID 2>/dev/null || true
+  exit 1
+fi
+
+log_info "Tagging $F8_DELEGATE_REPO as f8-delegate..."
+if timeout 30 ollama cp "$F8_DELEGATE_REPO" f8-delegate >/dev/null 2>&1; then
+  log_info "Successfully created f8-delegate alias"
 else
-  log_error "Failed to pull $F8_DELEGATE_REPO (optional; UI will fall back to phi4-mini)"
+  log_error "Failed to create f8-delegate alias"
+  kill $DAEMON_PID 2>/dev/null || true
+  exit 1
 fi
 
 log_info "Model initialization complete. Ollama is ready."
