@@ -72,6 +72,12 @@ npm run env:status  # Health of the whole environment
 # NL-assist model:  http://localhost:11434 (configure in the delegate editor)
 ```
 
+> **PowerShell (Windows):** the plain `npm run …` commands work as-is. Where a command below
+> is prefixed with an environment variable (`NAME=value …`, the bash form), set it the
+> PowerShell way instead — `$env:NAME = "value"; …` (it stays set for the session;
+> `Remove-Item Env:NAME` clears it) — and chain commands with `;`, not `&&`. A few `.sh`
+> helpers are bash; run them with `bash script.sh` (Git for Windows ships `bash`).
+
 **On first start** the Ollama container pulls its two models — `phi4-mini` (base) and
 `phi4-f8-mini` (the fine-tune, the UI default) — straight into the `f8-ollama-models` volume.
 That is a few GB, so it takes a few minutes on the first `env:up`; watch it with `npm run
@@ -80,15 +86,23 @@ pull finishes. Later starts reuse the cached models, so they are instant and nee
 
 The pull needs internet to `registry.ollama.ai` **the first time**. If this machine is
 offline (or you want to skip the wait), pre-seed the volume once from a machine that has
-internet — `scripts/ensure-models.sh` needs only Docker, no host Ollama — then `env:up`
-starts with the models already cached. If a pull fails, the Ollama endpoint still comes up
+internet — `scripts/ensure-models.sh` needs only Docker, no host Ollama (on Windows run it as
+`bash scripts/ensure-models.sh`) — then `env:up` starts with the models already cached. If a
+pull fails, the Ollama endpoint still comes up
 with whatever is present (it does not crash-loop); fix the network and re-run `env:up`, or
 run `scripts/ensure-models.sh`.
 
-A larger, GPU-only fine-tune `phi4-f8` (full Phi-4, 14B) is available as an **opt-in**:
-`F8_PULL_PHI4F8=1 npm run env:up` also pulls and serves it (~9 GB). The delegate editor then
-offers it as a preset. See
-[features/delegate-model-variants](features/open/delegate-model-variants/README.md).
+A larger, GPU-only fine-tune `phi4-f8` (full Phi-4, 14B) is available as an **opt-in** — this
+also pulls and serves it (~9 GB), and the delegate editor then offers it as a preset:
+
+```bash
+F8_PULL_PHI4F8=1 npm run env:up
+```
+```powershell
+$env:F8_PULL_PHI4F8 = "1"; npm run env:up
+```
+
+See [features/delegate-model-variants](features/open/delegate-model-variants/README.md).
 
 The delegate editor's compile validation and NL assist run C# fragments through the
 server. That surface is gated by a single capability flag that is **off by default**;
@@ -547,12 +561,23 @@ npm run env:logs                 # is the pull still running, or did it error?
   scripts/ensure-models.sh       # pulls phi4-mini + phi4-f8-mini INTO volume f8-ollama-models
   npm run env:down && npm run env:up
   ```
+  ```powershell
+  bash scripts/ensure-models.sh  # the seed script is bash (Git for Windows ships it)
+  npm run env:down; npm run env:up
+  ```
 
 - Meanwhile you can switch the delegate editor's backend to the **"Ollama (stock phi4-mini)"**
   preset if `phi4-mini` pulled but `phi4-f8-mini` did not.
 
 To seed a different published fine-tune, set `F8_DELEGATE_REPO` (it is tagged locally as
-`phi4-f8-mini` either way): `F8_DELEGATE_REPO=you/your-finetune scripts/ensure-models.sh`.
+`phi4-f8-mini` either way):
+
+```bash
+F8_DELEGATE_REPO=you/your-finetune scripts/ensure-models.sh
+```
+```powershell
+$env:F8_DELEGATE_REPO = "you/your-finetune"; bash scripts/ensure-models.sh
+```
 
 ### GPU acceleration (and the NVIDIA + WSL box)
 
@@ -562,6 +587,12 @@ GPU is auto-detected (`nvidia-smi` present → Ollama gets the GPU via `docker-c
 npm run env:up          # auto-detect (recommended)
 F8_GPU=0 npm run env:up # force CPU-only even if a GPU is present
 F8_GPU=1 npm run env:up # force GPU (fails to create the container if it is unavailable)
+```
+```powershell
+npm run env:up                          # auto-detect (recommended)
+$env:F8_GPU = "0"; npm run env:up       # force CPU-only even if a GPU is present
+$env:F8_GPU = "1"; npm run env:up       # force GPU (fails to create the container if unavailable)
+Remove-Item Env:F8_GPU                  # clear the override for later auto-detect runs
 ```
 
 **On Windows + NVIDIA GPU + WSL2 (Ubuntu 24.04):** the GPU reaches the container through the

@@ -94,15 +94,22 @@ npx tsx nl-assist-finetune/dataset-gen/generate.ts --check
 # model pulled); errors out with "Ollama is not reachable" if it isn't. Skip it for a first run.
 NL_GEN_BOOTSTRAP=1 npx tsx nl-assist-finetune/dataset-gen/generate.ts
 ```
+```powershell
+npx tsx nl-assist-finetune/dataset-gen/generate.ts --check      # drift guard (needs no model)
+$env:NL_GEN_BOOTSTRAP = "1"; npx tsx nl-assist-finetune/dataset-gen/generate.ts   # mine extra phrasings (needs Ollama)
+```
 
 Each JSONL row is `{ delegateKind, intent, fragment, source, noisy, messages }`, where
 `messages` is the real runtime prompt (`system`/`user` from the web UI's own prompt module)
 plus the fragment as the `assistant` turn — so training matches the shipping prompt exactly
 and the prompt contract lives in one place, not re-encoded in Python.
 
-## Phase 3 — train on WSL2
+## Phase 3 — train on WSL2 / Linux (NVIDIA GPU)
 
-From `nl-assist-finetune/` inside WSL2, in this order:
+Training is **not** a Windows-PowerShell step: `run.sh` and the CUDA / QLoRA / GGUF toolchain
+need a Linux shell with an NVIDIA GPU — WSL2 (Ubuntu) on a Windows GPU box, or a native Linux
+box. The commands below are bash. From `nl-assist-finetune/` inside that shell, in this order
+(`VARIANT=phi4-f8` for the 14B variant; default is `phi4-f8-mini`):
 
 ```bash
 # 1. Build the toolchain FIRST: this creates train/.venv and installs the pinned deps.
@@ -185,11 +192,20 @@ retrain folds your real-usage feedback in; re-run the eval gate to confirm it st
 
 ## Evaluation (baseline / comparison runs)
 
+This runs on the host (Windows PowerShell or bash) — it needs a model backend (the compose
+Ollama on `:11434`) and a dynamic-code apiApp, not a GPU.
+
 ```bash
 npx tsx nl-assist-finetune/eval/baseline.ts                              # stock base model
 NL_EVAL_MODEL=phi4-f8-mini npx tsx nl-assist-finetune/eval/baseline.ts   # a fine-tuned model
 npx tsx nl-assist-finetune/eval/baseline.ts --semantic                   # + FT-8 element-set gate
 npx tsx nl-assist-finetune/eval/baseline.ts --rescore --semantic         # re-score recorded fragments, no model calls
+```
+```powershell
+npx tsx nl-assist-finetune/eval/baseline.ts                                       # stock base model
+$env:NL_EVAL_MODEL = "phi4-f8-mini"; npx tsx nl-assist-finetune/eval/baseline.ts  # a fine-tuned model
+npx tsx nl-assist-finetune/eval/baseline.ts --semantic                            # + FT-8 element-set gate
+npx tsx nl-assist-finetune/eval/baseline.ts --rescore --semantic                  # re-score, no model calls
 ```
 
 One first-pass call per `eval/eval-set.json` row through the web UI's real prompt/format
@@ -221,7 +237,8 @@ npx tsx nl-assist-finetune/eval/fixture.ts   # self-test
 
 ## Env vars
 
-Shared by every script (defined in `shared/f8.ts`):
+Set them per shell — bash: `NAME=value cmd`; PowerShell: `$env:NAME = "value"; cmd` (persists
+for the session, `Remove-Item Env:NAME` to clear). Shared by every script (defined in `shared/f8.ts`):
 `NL_EVAL_MODEL` (default `phi4-mini`), `NL_EVAL_ENDPOINT` (default `http://localhost:11434`),
 `NL_EVAL_F8` (default `http://localhost:5000`). Generator-only: `NL_GEN_BOOTSTRAP`,
 `NL_GEN_OUT`. `run.sh`: `VENV`, `LLAMA_CPP`, `OLLAMA_MODEL`, `PYTHON` (interpreter used to build

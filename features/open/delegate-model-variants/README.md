@@ -20,9 +20,12 @@ larger fine-tune, switch the backend to **custom** and pick the
 **"Ollama (fine-tuned phi4-f8 — GPU)"** preset (or type `phi4-f8` into the model field). The
 stock bases have presets too. `phi4-f8` must be present on the Ollama host and wants a GPU.
 
-## Train each variant (GPU/WSL box)
+## Train each variant (Linux + NVIDIA GPU)
 
-One pipeline, selected by `VARIANT` (default `phi4-f8-mini`). From `nl-assist-finetune/`:
+Training is the one step that is **not** PowerShell-native: `run.sh` and the QLoRA/GGUF
+toolchain need a Linux environment with an NVIDIA GPU — WSL2 (Ubuntu) on a Windows GPU box, or
+a native Linux box — so the commands here are bash. One pipeline, selected by `VARIANT`
+(default `phi4-f8-mini`); from `nl-assist-finetune/` inside that Linux/WSL2 shell:
 
 ```bash
 ./run.sh all                        # phi4-f8-mini (Phi-4-mini base; 8GB+ GPU)
@@ -45,15 +48,20 @@ over each variant's own stock base on compile AND semantic rates.
 
 ## Serve `phi4-f8` in Docker (opt-in)
 
-Compose pulls the mini set by default. To also serve the 14B fine-tune:
+Compose pulls the mini set by default. To also serve the 14B fine-tune (this runs on the
+Docker host — Windows PowerShell or bash, no GPU needed to *pull*, only to run it well):
 
 ```bash
-F8_PULL_PHI4F8=1 npm run env:up        # ~9GB extra; GPU strongly recommended
+F8_PULL_PHI4F8=1 npm run env:up             # ~9GB extra; GPU strongly recommended
 F8_PULL_PHI4F8=1 scripts/ensure-models.sh   # or pre-seed the volume offline
+```
+```powershell
+$env:F8_PULL_PHI4F8 = "1"; npm run env:up                 # ~9GB extra; GPU strongly recommended
+$env:F8_PULL_PHI4F8 = "1"; bash scripts/ensure-models.sh  # or pre-seed the volume offline
 ```
 
 Point `F8_DELEGATE_REPO` / `F8_PHI4F8_REPO` at your own published fine-tunes if you retrain and
-publish (`PUBLISH_REPO=<ns>/phi4-f8 VARIANT=phi4-f8 ./run.sh publish`).
+publish one (`PUBLISH_REPO=<ns>/phi4-f8 VARIANT=phi4-f8 ./run.sh publish`, in the Linux/WSL2 shell).
 
 ## Status
 
