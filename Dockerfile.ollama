@@ -1,0 +1,15 @@
+#!/usr/bin/env -S docker build -f - -t fallen-8-ollama .
+# MIT License
+#
+# Custom Ollama image that auto-pulls models on startup, ensuring a ready-to-use
+# environment without manual intervention.
+
+FROM ollama/ollama:latest
+
+# Copy the startup script that waits for Ollama to be healthy, then pulls models.
+COPY scripts/ollama-init.sh /usr/local/bin/ollama-init.sh
+RUN chmod +x /usr/local/bin/ollama-init.sh
+
+# Override the entrypoint to run our initialization script, which starts ollama,
+# waits for health, pulls models, and keeps the process running.
+ENTRYPOINT ["/usr/local/bin/ollama-init.sh"]
