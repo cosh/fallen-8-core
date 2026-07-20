@@ -143,24 +143,27 @@ Fallen-8 code changes; with nothing configured the stock base model is used as b
 
 `f8-delegate` lives only in the ollama on the box that trained it. Fallen-8 core ships no
 weights (spec FT-5), so a retrained model reaches *other* instances only if **you** publish
-it — this is your opt-in channel, not something F8 does:
+it — this is your opt-in channel, not something F8 does. After registering this machine's
+Ollama key with your ollama.com account:
 
 ```bash
-PUBLISH_REPO=<your-namespace>/f8-delegate ./run.sh publish   # after `ollama login`
+PUBLISH_REPO=stoic_hellman_728/f8-delegate ./run.sh publish
 ```
 
-On another instance:
+A fresh `docker compose up` then pulls it automatically: `ollama-init` pulls
+`$F8_DELEGATE_REPO` (default `stoic_hellman_728/f8-delegate`) and tags it `f8-delegate`, so
+the UI default works out of the box. Point a different deployment at another publisher by
+setting `F8_DELEGATE_REPO`. Without Docker, an operator pulls it by hand:
 
 ```bash
-ollama pull <your-namespace>/f8-delegate
-ollama cp <your-namespace>/f8-delegate f8-delegate          # adopt it as the UI default…
-#   …or just set the NL-assist model field to <your-namespace>/f8-delegate
+ollama pull stoic_hellman_728/f8-delegate
+ollama cp stoic_hellman_728/f8-delegate f8-delegate          # adopt it as the UI default…
+#   …or just set the NL-assist model field to stoic_hellman_728/f8-delegate
 ```
 
 Ship `PROVENANCE.md` alongside so the licence position (Phi-4-mini MIT + MIT-generated
-dataset) travels with the artifact (FT-7). This is what makes the `f8-delegate` UI default
-work beyond the training box — until you publish, a clone without the model 404s and should
-pick the stock phi4-mini preset.
+dataset) travels with the artifact (FT-7). Until the model is published, a fresh deploy's
+`f8-delegate` default 404s and should use the stock phi4-mini preset.
 
 ## Consolidate captured feedback into training (feedback-loop FL-3)
 

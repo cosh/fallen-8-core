@@ -64,9 +64,13 @@ services:
       retries: 12
       start_period: 10s
 
-  # One-shot: pulls the MIT default model into the shared volume on first start. Waits for
-  # the healthy daemon, and still retries the pull itself (registry hiccups), so the
-  # advertised default model is reliably present after `up`.
+  # One-shot: pulls the models into the shared volume on first start. Waits for the healthy
+  # daemon and retries the base pull (registry hiccups), so the models are reliably present
+  # after `up`. phi4-mini (base + stock fallback) is REQUIRED; the fine-tuned f8-delegate -
+  # the UI default (feature nl-assist-finetune) - is pulled best-effort from its operator
+  # registry and tagged locally as `f8-delegate`, so a fresh deploy is turnkey once that model
+  # is published (feedback-loop FL-4). Until it is, the pull is skipped and the UI default
+  # 404s - pick the stock phi4-mini preset meanwhile. Override the source with F8_DELEGATE_REPO.
   ollama-init:
     image: ollama/ollama:latest
     depends_on:
@@ -76,9 +80,10 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - "for i in $$(seq 1 20); do ollama pull phi4-mini && exit 0; echo 'pull failed, retrying...'; sleep 5; done; echo 'could not pull phi4-mini; pull it manually'; exit 1"
+      - "ok=0; for i in $$(seq 1 20); do ollama pull phi4-mini && { ok=1; break; }; echo 'phi4-mini pull failed, retrying...'; sleep 5; done; [ $$ok -eq 1 ] || { echo 'could not pull phi4-mini; pull it manually'; exit 1; }; ollama pull \"$$F8_DELEGATE_REPO\" && ollama cp \"$$F8_DELEGATE_REPO\" f8-delegate && echo \"f8-delegate ready (UI default) from $$F8_DELEGATE_REPO\" || echo \"f8-delegate not available at $$F8_DELEGATE_REPO yet; UI default will 404 - use the phi4-mini preset until it is published\"; exit 0"
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - F8_DELEGATE_REPO=${F8_DELEGATE_REPO:-stoic_hellman_728/f8-delegate}
 
 volumes:
   # Explicit names keep the volumes stable regardless of the compose project name (and
