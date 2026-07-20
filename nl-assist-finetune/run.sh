@@ -3,6 +3,8 @@
 # Runs on WSL2 (Ubuntu) with an 8GB+ NVIDIA GPU. Each stage is a function and can be run
 # alone:  ./run.sh <stage>   where stage is one of
 #   deps | dataset | train | merge | gguf | modelfile | provenance | all   (default: all)
+# Plus an opt-in distribution stage, NOT part of `all` (feature nl-assist-feedback-loop, FL-4):
+#   publish   push the produced model to a registry so other instances can pull it
 #
 # Prerequisites the pipeline does NOT install for you:
 #   - Python 3.10+ and a CUDA 12.x driver visible in WSL2 (`nvidia-smi` works)
@@ -11,7 +13,8 @@
 #   - a reachable Fallen-8 apiApp with EnableDynamicCodeExecution=true, for dataset
 #     validation - set NL_EVAL_F8 if it isn't http://localhost:5000
 #
-# Env overrides: VENV, LLAMA_CPP (existing llama.cpp checkout), NL_EVAL_F8, OLLAMA_MODEL.
+# Env overrides: VENV, LLAMA_CPP (existing llama.cpp checkout), NL_EVAL_F8, OLLAMA_MODEL,
+# TORCH_VERSION, TORCH_INDEX, PUBLISH_REPO (the publish target, e.g. <namespace>/f8-delegate).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -134,5 +137,23 @@ EOF
 }
 
 all() { deps; dataset; train; merge; gguf; modelfile; provenance; log "done. Next: evaluate (phase 4) with NL_EVAL_MODEL=$OLLAMA_MODEL"; }
+
+# FL-4 (feature nl-assist-feedback-loop): the operator's OPT-IN distribution channel - how a
+# retrained model reaches instances other than this box. F8 core still ships no weights (spec
+# FT-5); this pushes YOUR artifact to YOUR registry namespace. Deliberately not in `all`.
+publish() {
+  log "publish (FL-4): push '$OLLAMA_MODEL' to a registry"
+  if [ -z "${PUBLISH_REPO:-}" ]; then
+    echo "Set PUBLISH_REPO to your registry target and re-run, e.g.:" >&2
+    echo "  PUBLISH_REPO=<your-namespace>/f8-delegate ./run.sh publish" >&2
+    echo "First create an ollama.com account and 'ollama login'; the namespace must match it." >&2
+    return 1
+  fi
+  ollama cp "$OLLAMA_MODEL" "$PUBLISH_REPO"
+  ollama push "$PUBLISH_REPO"
+  echo "pushed '$PUBLISH_REPO'. On another instance: 'ollama pull $PUBLISH_REPO', then set the"
+  echo "NL-assist model to it (or 'ollama cp $PUBLISH_REPO $OLLAMA_MODEL' to adopt it as the"
+  echo "default f8-delegate). Ship $HERE/PROVENANCE.md alongside so the licence position travels (FT-7)."
+}
 
 "${1:-all}"
