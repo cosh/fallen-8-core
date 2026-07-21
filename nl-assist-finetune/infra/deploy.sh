@@ -209,9 +209,9 @@ ${ollama_files}  - path: /etc/systemd/system/f8-finetune.service
     permissions: '0644'
     content: |
       [Unit]
-      Description=Fire the F8 teardown backstop 8h after boot (survives a hung/SIGKILLed bootstrap)
+      Description=Fire the F8 teardown backstop 6h after boot (survives a hung/SIGKILLed bootstrap)
       [Timer]
-      OnBootSec=8h
+      OnBootSec=6h
       Unit=f8-teardown.service
       [Install]
       WantedBy=timers.target

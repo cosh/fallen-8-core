@@ -51,10 +51,15 @@ teardown(){
     sleep 60
     bash "$WORK/teardown.sh" || log "teardown.sh failed; the f8-teardown.timer backstop will retry (or delete manually)."
   elif [ "$rc" -ne 0 ]; then
-    log "FAILED -> leaving the VM UP so you can read the error. SSH in and check:"
+    log "FAILED -> keeping the VM UP for 1h so you can read the error. SSH in NOW and check:"
     log "  /var/log/f8-finetune.log   and   /var/log/f8-apiapp.log"
-    log "The f8-teardown.timer backstop deletes everything ~8h after boot; delete sooner with:"
-    log "  az group delete --name $AZ_RESOURCE_GROUP --yes"
+    if [ "$DESTROY_ON_FINISH" = "1" ]; then
+      log "This VM auto-deletes in 1h. Delete sooner with: az group delete --name $AZ_RESOURCE_GROUP --yes"
+      sleep 3600
+      bash "$WORK/teardown.sh" || log "teardown.sh failed - delete manually: az group delete --name $AZ_RESOURCE_GROUP --yes"
+    else
+      log "DESTROY_ON_FINISH=0 -> no auto-delete; delete it yourself: az group delete --name $AZ_RESOURCE_GROUP --yes"
+    fi
   else
     log "DESTROY_ON_FINISH != 1 -> leaving the VM up. Delete it yourself: az group delete --name $AZ_RESOURCE_GROUP --yes"
   fi
