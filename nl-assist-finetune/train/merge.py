@@ -32,13 +32,16 @@ def main() -> None:
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     base = cfg["baseModel"]
-    print(f"loading base {base} in fp16 (CPU/GPU auto)")
+    # Merge on CPU: adapter merge isn't GPU-bound, and a 14B in fp16 (~28GB) doesn't fit a 24GB
+    # GPU - device_map="auto" spills to CPU but merge_and_unload then on-loads layers back to the
+    # GPU and OOMs. Loading on CPU (no device_map) avoids that; the training box has ample RAM.
+    print(f"loading base {base} in fp16 on CPU (merge is CPU-bound; keeps a 14B off the GPU)")
     model = AutoModelForCausalLM.from_pretrained(
-        base, torch_dtype=torch.float16, device_map="auto", trust_remote_code=True
+        base, torch_dtype=torch.float16, device_map=None, low_cpu_mem_usage=True, trust_remote_code=True
     )
     print(f"applying adapter {args.adapter}")
     model = PeftModel.from_pretrained(model, str(args.adapter))
-    print("merging adapter into base weights")
+    print("merging adapter into base weights (CPU)")
     model = model.merge_and_unload()
 
     args.out.mkdir(parents=True, exist_ok=True)
