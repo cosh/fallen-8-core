@@ -113,6 +113,16 @@ bash ./install-prereqs.sh || fail "install-prereqs.sh failed" 40
 systemctl enable --now ollama
 for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
 
+# --- capture the PRISTINE GPU state BEFORE touching any driver (the discriminator) -----------
+# If no 10de function shows here, the A10 SR-IOV VF never reached the guest -> a provisioning/
+# capacity fault, and NO driver change helps. If it shows but nvidia is unbound, it is the driver
+# flavor. The dmesg NVRM line then says which: "No NVIDIA GPU found" (device absent) vs
+# "RmInitAdapter failed" (device present, driver won't init). Purely diagnostic; non-fatal.
+command -v lspci >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=600 install -y pciutils >/dev/null 2>&1 || true
+log "GPU PCI state (pre-driver): $(lspci -nn 2>/dev/null | grep -i nvidia || echo 'NO NVIDIA PCI FUNCTION VISIBLE')"
+log "kernel NVIDIA/nouveau messages (pre-driver):"
+dmesg 2>/dev/null | grep -iE 'nvidia|nvrm|nouveau' | tail -n 20 || true
+
 # --- install the Azure GRID (vGPU) driver for the A10 ----------------------------------------
 # THE one home for this explanation. NVadsA10v5 exposes the A10 as a LICENSED vGPU (SR-IOV), so
 # it needs NVIDIA's *Azure GRID* guest driver - NOT the datacenter/CUDA driver. The datacenter
