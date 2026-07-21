@@ -1,10 +1,10 @@
-// Azure IaC for a one-shot phi4-f8 fine-tune on an NVIDIA A10 (NVadsA10v5) VM.
+// Azure IaC for a one-shot phi4-f8 / phi4-f8-mini fine-tune on an NVIDIA A10 (NVadsA10v5) VM.
 // Deployed resource-group-scoped by deploy.sh into a DEDICATED resource group that the VM
-// deletes itself at the end (see bootstrap.sh) - so nothing lingers. The VM is a Spot
-// instance to keep cost down; a system-assigned managed identity + a Contributor role
-// assignment on this resource group let it run `az group delete` on itself.
+// deletes itself at the end (see bootstrap.sh) - so nothing lingers. On-demand by default
+// (Spot A10 quota is often unavailable); set useSpot=true to try Spot. A system-assigned
+// managed identity + a Contributor role assignment on this RG let it run `az group delete`.
 
-@description('Azure region. Must have NVadsA10v5 Spot capacity.')
+@description('Azure region. Must have NVadsA10v5 capacity + quota (Total Regional vCPUs and the family).')
 param location string = resourceGroup().location
 
 @description('VM name / computer name.')
@@ -23,7 +23,10 @@ param adminSshPublicKey string
 @description('Base64 cloud-init (cloud-config) that installs, trains, publishes, self-destroys. Secure: it carries the injected Ollama key and any GIT_TOKEN.')
 param customData string
 
-@description('Spot max price as a string: "-1" = pay up to on-demand (only capacity evicts), or a decimal cap like "0.50".')
+@description('Use a Spot (low-priority) VM instead of on-demand. Default false - Spot A10 quota is often unavailable / auto-declined.')
+param useSpot bool = false
+
+@description('Spot max price as a string (only used when useSpot=true): "-1" = up to on-demand, or a decimal cap like "0.50".')
 param spotMaxPrice string = '-1'
 
 @description('CIDR allowed to SSH in (to watch progress). Default your deploy IP; * is open.')
@@ -32,8 +35,8 @@ param allowedSshCidr string = '*'
 @description('Pinned GRID driver. 535.161 (GRID 16.5) works with CUDA on A10; the default 17.5 does not.')
 param driverVersion string = '535.161'
 
-@description('OS disk size (GB). A 14B fp16 merge + GGUF needs lots of scratch.')
-param osDiskSizeGb int = 256
+@description('OS disk size (GB). Both variants + the 14B fp16 merge + f16/Q4 GGUFs + HF base caches need lots of scratch.')
+param osDiskSizeGb int = 512
 
 var contributorRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
 
@@ -108,9 +111,9 @@ resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
   identity: { type: 'SystemAssigned' }
   properties: {
     hardwareProfile: { vmSize: vmSize }
-    priority: 'Spot'
-    evictionPolicy: 'Deallocate'
-    billingProfile: { maxPrice: json(spotMaxPrice) }
+    priority: useSpot ? 'Spot' : 'Regular'
+    evictionPolicy: useSpot ? 'Deallocate' : null
+    billingProfile: useSpot ? { maxPrice: json(spotMaxPrice) } : null
     storageProfile: {
       imageReference: {
         publisher: 'Canonical'

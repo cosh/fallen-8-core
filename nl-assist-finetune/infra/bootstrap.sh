@@ -3,10 +3,10 @@
 #
 # Runs UNATTENDED on the Azure A10 VM (started by cloud-init as the systemd unit
 # f8-finetune.service). Clones the repo, installs the toolchain via the repo's SINGLE shared
-# installer (nl-assist-finetune/install-prereqs.sh - NOT re-implemented here), trains VARIANT
-# (default phi4-f8 = full Phi-4 14B), publishes it to Ollama, then DELETES the whole resource
-# group so nothing lingers. Everything is mirrored to /var/log/f8-finetune.log and journald so
-# you can watch it live (see the deploy script's printed watch command).
+# installer (nl-assist-finetune/install-prereqs.sh - NOT re-implemented here), trains every
+# variant in VARIANTS (default: phi4-f8-mini + phi4-f8, in one session sharing the dataset),
+# publishes each to Ollama, then DELETES the whole resource group so nothing lingers.
+# Everything is mirrored to /var/log/f8-finetune.log and journald so you can watch it live.
 #
 # Failure handling is explicit: any critical step that fails aborts with a real non-zero code,
 # so a run is never falsely reported "done" - but teardown STILL runs (EXIT trap + an
@@ -19,11 +19,11 @@ touch "$LOG" && chmod 644 "$LOG"
 exec > >(tee -a "$LOG") 2>&1     # mirror stdout/stderr to the log (and journald)
 
 set -a; . /etc/f8-finetune.env; set +a
-: "${VARIANT:=phi4-f8}"
+: "${VARIANTS:=phi4-f8-mini phi4-f8}"    # space-separated; trained in one session, dataset shared
 : "${REPO_URL:?REPO_URL missing}"; : "${REPO_REF:=main}"
 : "${AZ_RESOURCE_GROUP:?}"; : "${AZ_SUBSCRIPTION:?}"
 : "${DESTROY_ON_FINISH:=1}"
-: "${PUBLISH_REPO:=}"
+: "${PUBLISH_PREFIX:=}"                   # each variant publishes to $PUBLISH_PREFIX/<variant>
 : "${GIT_TOKEN:=}"
 WORK=/opt/f8
 MARKER="$WORK/.done"
@@ -104,28 +104,34 @@ log "apiApp healthy."
 
 cd "$WORK/repo/nl-assist-finetune"
 
-# --- build the venv, then LOG the base template / LoRA targets so a watcher can sanity-check --
-# (train-config.$VARIANT.json carries "VERIFY before spending GPU hours" notes; unattended we
-#  can't act on them, but we surface them in the log.)
-VARIANT="$VARIANT" PYTHON="$PY313" ./run.sh deps || fail "run.sh deps failed" 30
-log "inspecting base chat template + LoRA target modules for $VARIANT (sanity-check in the log):"
-train/.venv/bin/python train/train_lora.py --inspect --config "train/train-config.$VARIANT.json" 2>&1 | head -n 40 || true
+# Build the venv ONCE - it is variant-agnostic (same torch/deps for both the mini and the 14B).
+PYTHON="$PY313" ./run.sh deps || fail "run.sh deps failed" 30
 
-# --- run the whole pipeline (deps reused): dataset -> train -> merge -> gguf -> ollama create -
-log "running: VARIANT=$VARIANT PYTHON=$PY313 ./run.sh all  (the long GPU step)"
-NL_EVAL_F8=http://localhost:5000 VARIANT="$VARIANT" PYTHON="$PY313" timeout 6h ./run.sh all \
-  || fail "run.sh all (train/merge/gguf/create) failed" 30
-log "training + model registration complete."
+# Train each variant in this one session. run.sh's dataset stage generates dataset/train.jsonl
+# on the first variant and REUSES it thereafter, so the (compile-gated) dataset generation +
+# the apiApp + the venv are shared across variants - the whole point of doing them together.
+# Each variant publishes to $PUBLISH_PREFIX/<variant> (e.g. .../phi4-f8-mini, .../phi4-f8).
+for v in $VARIANTS; do
+  log "================  variant: $v  ================"
+  # train-config.$v.json carries "VERIFY before spending GPU hours" notes (marker + LoRA
+  # targets); unattended we can't act on them, but we surface them in the watchable log.
+  log "inspecting base chat template + LoRA target modules for $v:"
+  train/.venv/bin/python train/train_lora.py --inspect --config "train/train-config.$v.json" 2>&1 | head -n 40 || true
 
-# --- publish to Ollama (unattended only if the registered key was injected) ------------------
-if [ -n "$PUBLISH_REPO" ] && [ -f /root/.ollama/id_ed25519 ]; then
-  log "publishing $VARIANT to $PUBLISH_REPO ..."
-  VARIANT="$VARIANT" PUBLISH_REPO="$PUBLISH_REPO" ./run.sh publish || fail "ollama push failed" 31
-  log "pushed $PUBLISH_REPO."
-else
-  log "skipping push (PUBLISH_REPO unset or no /root/.ollama/id_ed25519 key). Model is local only and lost on teardown."
-fi
+  log "running: VARIANT=$v PYTHON=$PY313 ./run.sh all  (dataset built once, reused across variants)"
+  NL_EVAL_F8=http://localhost:5000 VARIANT="$v" PYTHON="$PY313" timeout 6h ./run.sh all \
+    || fail "run.sh all (train/merge/gguf/create) failed for $v" 30
+  log "$v: training + model registration complete."
+
+  if [ -n "$PUBLISH_PREFIX" ] && [ -f /root/.ollama/id_ed25519 ]; then
+    log "publishing $v to $PUBLISH_PREFIX/$v ..."
+    VARIANT="$v" PUBLISH_REPO="$PUBLISH_PREFIX/$v" ./run.sh publish || fail "ollama push failed for $v" 31
+    log "pushed $PUBLISH_PREFIX/$v."
+  else
+    log "skipping push for $v (no PUBLISH_PREFIX or no /root/.ollama/id_ed25519 key)."
+  fi
+done
 
 touch "$MARKER"
-log "SUCCESS - VARIANT=$VARIANT produced${PUBLISH_REPO:+ and published to $PUBLISH_REPO}."
+log "SUCCESS - variants [$VARIANTS] produced${PUBLISH_PREFIX:+ and published under $PUBLISH_PREFIX/}."
 # teardown runs via the EXIT trap (rc = 0)

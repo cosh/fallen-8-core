@@ -144,8 +144,8 @@ box. Run the toolchain installer once first (Prerequisites above), then from
 `nl-assist-finetune/` (bash):
 
 > **No local GPU big enough?** The 14B `phi4-f8` needs ~16 GB VRAM. [`infra/`](infra/README.md)
-> provisions a throwaway Azure A10 (Spot), runs this whole pipeline, publishes the model, and
-> deletes itself — no manual steps.
+> provisions a throwaway Azure A10 (on-demand), trains **both** variants in one session,
+> publishes them, and deletes itself — no manual steps.
 
 ```bash
 # 1. Build train/.venv + install the pinned torch/deps. PYTHON="$PY313" (from install-prereqs)

@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
 # MIT License
 #
-# One-shot deploy of the phi4 fine-tune VM (Azure A10, Spot). Creates a DEDICATED resource
-# group, provisions the VM with cloud-init that installs everything, trains VARIANT (default
-# phi4-f8), publishes to Ollama, then DELETES the whole resource group itself. You just watch.
+# One-shot deploy of the phi4 fine-tune VM (Azure A10, on-demand by default). Creates a
+# DEDICATED resource group, provisions the VM with cloud-init that installs everything, trains
+# every variant in VARIANTS (default: phi4-f8-mini + phi4-f8, in ONE session sharing the
+# dataset), publishes each to Ollama, then DELETES the whole resource group itself. You watch.
 #
 # Prereqs on THIS machine: az CLI (logged in: `az login`), an SSH public key, and - for the
 # unattended Ollama push - your Ollama signing key at ~/.ollama/id_ed25519 (the one whose
 # public half is registered at https://ollama.com/settings/keys).
 #
 # Usage:
-#   PUBLISH_REPO=<your-namespace>/phi4-f8 ./deploy.sh
+#   PUBLISH_PREFIX=<your-namespace> ./deploy.sh    # publishes <ns>/phi4-f8-mini and <ns>/phi4-f8
 # Common overrides (env vars):
-#   LOCATION           Azure region (default westeurope). Needs NVadsA10v5 Spot capacity.
+#   LOCATION           Azure region (default westeurope). Needs NVadsA10v5 capacity + quota.
 #   VM_SIZE            default Standard_NV36ads_A10_v5 (full A10, 24GB)
+#   VARIANTS           space-separated (default "phi4-f8-mini phi4-f8"); trained in one session
+#   F8_SPOT            0 on-demand (default) | 1 Spot (needs Total Regional Spot vCPU quota)
 #   REPO_URL/REPO_REF  git repo + branch to train from (default: this repo's origin + branch)
 #   GIT_TOKEN          GitHub token if REPO_URL is private
-#   VARIANT            phi4-f8 (default) | phi4-f8-mini
 #   OLLAMA_KEY_FILE    default ~/.ollama/id_ed25519 (omit/absent -> push is skipped)
 #   ALLOWED_SSH_CIDR   who may SSH in to watch (default: this machine's public IP /32)
 #   DESTROY_ON_FINISH  1 (default) self-destruct after the run; 0 keeps the VM for debugging
@@ -30,8 +32,9 @@ b64(){ base64 -w0 2>/dev/null || base64 | tr -d '\n'; }
 
 LOCATION="${LOCATION:-westeurope}"
 VM_SIZE="${VM_SIZE:-Standard_NV36ads_A10_v5}"
-VARIANT="${VARIANT:-phi4-f8}"
-PUBLISH_REPO="${PUBLISH_REPO:-}"
+VARIANTS="${VARIANTS:-phi4-f8-mini phi4-f8}"   # space-separated; trained together in one session
+PUBLISH_PREFIX="${PUBLISH_PREFIX:-}"           # each variant publishes to $PUBLISH_PREFIX/<variant>
+USE_SPOT="${F8_SPOT:-0}"                        # 0 = on-demand (default), 1 = Spot
 GIT_TOKEN="${GIT_TOKEN:-}"
 DESTROY_ON_FINISH="${DESTROY_ON_FINISH:-1}"
 ADMIN_USER="${ADMIN_USER:-azureuser}"
@@ -61,35 +64,49 @@ ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-*}"
 SUB="$(az account show --query id -o tsv)"
 if [ "${KEEP_RG:-0}" = "1" ]; then RG="${F8_RG:-rg-f8-finetune}"; else RG="${F8_RG:-rg-f8-finetune-$(openssl rand -hex 3)}"; fi
 
+PRICING="$([ "$USE_SPOT" = "1" ] && echo Spot || echo on-demand)"
 echo "== plan =="
 echo "  resource group : $RG   (self-destructs after the run: DESTROY_ON_FINISH=$DESTROY_ON_FINISH)"
-echo "  location/size  : $LOCATION / $VM_SIZE (Spot)"
+echo "  location/size  : $LOCATION / $VM_SIZE  ($PRICING)"
 echo "  repo           : $REPO_URL @ $REPO_REF"
-echo "  variant        : $VARIANT"
-echo "  publish        : ${PUBLISH_REPO:-<none - push skipped>}"
-echo "  ssh from        : $ALLOWED_SSH_CIDR"
+echo "  variants       : $VARIANTS"
+echo "  publish prefix : ${PUBLISH_PREFIX:-<none - push skipped>}"
+echo "  ssh from       : $ALLOWED_SSH_CIDR"
 echo ""
 
-# ---- preflight: Spot (low-priority) vCPU quota ------------------------------------------
-# Turns Azure's cryptic ARM "QuotaExceeded / LowPriorityCores" preflight error into a clear,
-# early message with the fix - and avoids leaving an empty RG behind. Best-effort: only blocks
-# if it can PROVE a shortfall (skips silently if the az/jq queries don't return numbers).
+# ---- preflight: vCPU quota --------------------------------------------------------------
+# Turns Azure's cryptic ARM "QuotaExceeded" preflight error into a clear, early message with
+# the fix - and avoids leaving an empty RG behind. Best-effort: only blocks if it can PROVE a
+# shortfall (skips silently if az/jq don't return numbers). On-demand needs BOTH "Total Regional
+# vCPUs" and the NVadsA10v5 family quota; Spot needs "Total Regional Spot vCPUs".
 CORES="$(az vm list-skus -l "$LOCATION" --resource-type virtualMachines -o json 2>/dev/null \
   | jq -r --arg s "$VM_SIZE" '.[]|select(.name==$s)|.capabilities[]|select(.name=="vCPUs")|.value' 2>/dev/null | head -1)"
 if [ -n "${CORES:-}" ]; then
   usage="$(az vm list-usage -l "$LOCATION" -o json 2>/dev/null || echo '[]')"
-  lim="$(echo "$usage"  | jq -r '(.[]|select((.name.value|ascii_downcase)=="lowprioritycores")|.limit)        // empty')"
-  used="$(echo "$usage" | jq -r '(.[]|select((.name.value|ascii_downcase)=="lowprioritycores")|.currentValue) // empty')"
-  if [ -n "$lim" ] && [ -n "$used" ] && [ "$((lim - used))" -lt "$CORES" ]; then
+  short=""
+  q_check(){ # $1 = jq object-selector  $2 = human label
+    local u l
+    l="$(echo "$usage" | jq -r "($1 | .limit)        // empty" 2>/dev/null | head -1)"
+    u="$(echo "$usage" | jq -r "($1 | .currentValue) // empty" 2>/dev/null | head -1)"
+    if [ -n "$l" ] && [ -n "$u" ] && [ "$((l - u))" -lt "$CORES" ]; then
+      short="${short}
+  - $2: $u/$l used/limit ($((l - u)) free, need $CORES)"
+    fi
+  }
+  if [ "$USE_SPOT" = "1" ]; then
+    q_check '.[]|select((.name.value|ascii_downcase)=="lowprioritycores")' 'Total Regional Spot vCPUs'
+  else
+    q_check '.[]|select(.name.value=="cores")' 'Total Regional vCPUs'
+    q_check '.[]|select(.name.localizedValue|test("NVadsA10v5";"i"))' 'Standard NVadsA10v5 Family vCPUs'
+  fi
+  if [ -n "$short" ]; then
     cat >&2 <<MSG
-ERROR: not enough Spot (low-priority) vCPU quota in $LOCATION for $VM_SIZE.
-  Need $CORES cores; your low-priority quota is $used/$lim (used/limit). 14B QLoRA needs the
-  FULL A10 (24GB) = $VM_SIZE = $CORES cores, so a smaller SKU won't fit.
-  Fix (then re-run this script):
-    Portal -> Quotas -> Compute -> region "$LOCATION" -> "Total Regional Low-priority vCPUs"
-    -> request a limit >= $CORES.  https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas
-  Or: run on-demand instead of Spot (edit main.bicep: priority=Regular + drop billingProfile;
-  needs the dedicated "Standard NVadsA10v5 Family vCPUs" quota), or set LOCATION=<region with quota>.
+ERROR: not enough vCPU quota in $LOCATION for $VM_SIZE ($CORES cores; 14B QLoRA needs the full A10).
+  Short:$short
+  Request an increase, then re-run this script -
+  https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas
+    - on-demand (default): raise BOTH "Total Regional vCPUs" and "Standard NVadsA10v5 Family vCPUs" to >= $CORES
+    - Spot (F8_SPOT=1):     raise "Total Regional Spot vCPUs" to >= $CORES
 MSG
     exit 1
   fi
@@ -100,7 +117,7 @@ BOOTSTRAP_B64="$(b64 < "$HERE/bootstrap.sh")"
 TEARDOWN_B64="$(b64 < "$HERE/teardown.sh")"
 
 ollama_files=""
-if [ -n "$PUBLISH_REPO" ] && [ -f "$OLLAMA_KEY_FILE" ]; then
+if [ -n "$PUBLISH_PREFIX" ] && [ -f "$OLLAMA_KEY_FILE" ]; then
   KEY_B64="$(b64 < "$OLLAMA_KEY_FILE")"
   PUB_B64="$( [ -f "${OLLAMA_KEY_FILE}.pub" ] && b64 < "${OLLAMA_KEY_FILE}.pub" || echo '')"
   ollama_files="  - path: /root/.ollama/id_ed25519
@@ -113,8 +130,8 @@ if [ -n "$PUBLISH_REPO" ] && [ -f "$OLLAMA_KEY_FILE" ]; then
     encoding: b64
     content: ${PUB_B64}
 "
-elif [ -n "$PUBLISH_REPO" ]; then
-  echo "WARNING: PUBLISH_REPO set but no key at $OLLAMA_KEY_FILE - the push will be skipped on the VM." >&2
+elif [ -n "$PUBLISH_PREFIX" ]; then
+  echo "WARNING: PUBLISH_PREFIX set but no key at $OLLAMA_KEY_FILE - the push will be skipped on the VM." >&2
 fi
 
 CLOUD_INIT="$(cat <<EOF
@@ -123,14 +140,14 @@ write_files:
   - path: /etc/f8-finetune.env
     permissions: '0600'
     content: |
-      REPO_URL=${REPO_URL}
-      REPO_REF=${REPO_REF}
-      VARIANT=${VARIANT}
-      PUBLISH_REPO=${PUBLISH_REPO}
-      GIT_TOKEN=${GIT_TOKEN}
-      AZ_RESOURCE_GROUP=${RG}
-      AZ_SUBSCRIPTION=${SUB}
-      DESTROY_ON_FINISH=${DESTROY_ON_FINISH}
+      REPO_URL="${REPO_URL}"
+      REPO_REF="${REPO_REF}"
+      VARIANTS="${VARIANTS}"
+      PUBLISH_PREFIX="${PUBLISH_PREFIX}"
+      GIT_TOKEN="${GIT_TOKEN}"
+      AZ_RESOURCE_GROUP="${RG}"
+      AZ_SUBSCRIPTION="${SUB}"
+      DESTROY_ON_FINISH="${DESTROY_ON_FINISH}"
   - path: /opt/f8/bootstrap.sh
     permissions: '0755'
     encoding: b64
@@ -198,6 +215,7 @@ if ! az deployment group create \
       adminSshPublicKey="$SSH_PUBKEY" \
       customData="$CUSTOM_DATA" \
       allowedSshCidr="$ALLOWED_SSH_CIDR" \
+      useSpot=$([ "$USE_SPOT" = "1" ] && echo true || echo false) \
   -o none; then
   echo "" >&2
   echo "deployment failed - deleting the empty resource group '$RG' so nothing lingers." >&2
@@ -207,7 +225,7 @@ fi
 
 IP="$(az network public-ip show -g "$RG" -n f8-finetune-pip --query ipAddress -o tsv)"
 echo ""
-echo "== deployed. the VM is now installing + training + publishing, then it deletes RG '$RG'. =="
+echo "== deployed. the VM installs, trains [$VARIANTS], publishes, then deletes RG '$RG'. =="
 echo "watch progress (wait ~1-2 min for cloud-init to start the log):"
 echo "  ssh ${ADMIN_USER}@${IP} 'tail -f /var/log/f8-finetune.log'"
 echo "if you need to stop early / clean up yourself:"
