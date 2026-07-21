@@ -30,6 +30,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # base64 with no line wrapping, portable across GNU (-w0) and BSD/macOS base64.
 b64(){ base64 -w0 2>/dev/null || base64 | tr -d '\n'; }
 
+# `az deployment ... --template-file *.bicep` runs the Bicep CLI, a .NET single-file binary that
+# extracts bundled files to DOTNET_BUNDLE_EXTRACT_BASE_DIR. Pin it to a writable dir under THIS
+# user's HOME so a stale/global value (e.g. pointing at another user's home) can't break the
+# deploy with "Failure processing application bundle ... Error code: 13".
+export DOTNET_BUNDLE_EXTRACT_BASE_DIR="$HOME/.cache/f8-dotnet-bundle"
+mkdir -p "$DOTNET_BUNDLE_EXTRACT_BASE_DIR" 2>/dev/null || true
+
 LOCATION="${LOCATION:-westeurope}"
 VM_SIZE="${VM_SIZE:-Standard_NV36ads_A10_v5}"
 VARIANTS="${VARIANTS:-phi4-f8-mini phi4-f8}"   # space-separated; trained together in one session
