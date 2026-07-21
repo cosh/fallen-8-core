@@ -37,6 +37,11 @@ b64(){ base64 -w0 2>/dev/null || base64 | tr -d '\n'; }
 export DOTNET_BUNDLE_EXTRACT_BASE_DIR="$HOME/.cache/f8-dotnet-bundle"
 mkdir -p "$DOTNET_BUNDLE_EXTRACT_BASE_DIR" 2>/dev/null || true
 
+# Loud, debuggable failures - never exit silently. ERR fires on any set -e abort; F8_DEBUG=1 traces.
+step(){ echo "[deploy] $*"; }
+trap 'echo "[deploy] ERROR: a command failed (exit $?) around line $LINENO - see above. Re-run with F8_DEBUG=1 for a full trace." >&2' ERR
+[ "${F8_DEBUG:-0}" = "1" ] && set -x
+
 LOCATION="${LOCATION:-westeurope}"
 VM_SIZE="${VM_SIZE:-Standard_NV36ads_A10_v5}"
 VARIANTS="${VARIANTS:-phi4-f8-mini phi4-f8}"   # space-separated; trained together in one session
@@ -86,9 +91,11 @@ echo ""
 # the fix - and avoids leaving an empty RG behind. Best-effort: only blocks if it can PROVE a
 # shortfall (skips silently if az/jq don't return numbers). On-demand needs BOTH "Total Regional
 # vCPUs" and the NVadsA10v5 family quota; Spot needs "Total Regional Spot vCPUs".
+set +e   # best-effort: a transient az / jq-SIGPIPE failure here must NEVER abort the deploy (set -e)
 CORES="$(az vm list-skus -l "$LOCATION" --resource-type virtualMachines -o json 2>/dev/null \
   | jq -r --arg s "$VM_SIZE" '.[]|select(.name==$s)|.capabilities[]|select(.name=="vCPUs")|.value' 2>/dev/null | head -1)"
 if [ -n "${CORES:-}" ]; then
+  step "preflight: $VM_SIZE = $CORES vCPUs; checking $LOCATION quota (spot=$USE_SPOT)..."
   usage="$(az vm list-usage -l "$LOCATION" -o json 2>/dev/null || echo '[]')"
   short=""
   q_check(){ # $1 = jq object-selector  $2 = human label
@@ -117,7 +124,11 @@ ERROR: not enough vCPU quota in $LOCATION for $VM_SIZE ($CORES cores; 14B QLoRA 
 MSG
     exit 1
   fi
+  step "preflight: quota sufficient ($CORES vCPUs needed)."
+else
+  step "preflight: skipped (couldn't read the SKU's vCPU count from az - deploy proceeds anyway)."
 fi
+set -e   # re-enable errexit after the best-effort preflight
 
 # ---- assemble cloud-init ----------------------------------------------------------------
 BOOTSTRAP_B64="$(b64 < "$HERE/bootstrap.sh")"
@@ -210,10 +221,12 @@ EOF
 CUSTOM_DATA="$(printf '%s' "$CLOUD_INIT" | b64)"
 
 # ---- deploy -----------------------------------------------------------------------------
+step "creating resource group $RG in $LOCATION..."
 az group create --name "$RG" --location "$LOCATION" -o none
-echo "deploying VM (this returns once the VM is created; the run then proceeds on the VM)..."
+step "submitting deployment 'main' (VM + GPU driver extension); this can take a few minutes..."
 if ! az deployment group create \
   --resource-group "$RG" \
+  --name main \
   --template-file "$HERE/main.bicep" \
   --parameters \
       location="$LOCATION" \
@@ -225,10 +238,15 @@ if ! az deployment group create \
       useSpot=$([ "$USE_SPOT" = "1" ] && echo true || echo false) \
   -o none; then
   echo "" >&2
-  echo "deployment failed - deleting the empty resource group '$RG' so nothing lingers." >&2
+  step "deployment FAILED. ARM provisioning errors:"
+  az deployment operation group list -g "$RG" --name main \
+    --query "[?properties.provisioningState=='Failed'].{resource:properties.targetResource.resourceType, code:properties.statusCode, message:properties.statusMessage}" \
+    -o jsonc 2>/dev/null || step "(could not fetch operation details)"
+  step "deleting the empty resource group '$RG' so nothing lingers."
   az group delete --name "$RG" --yes --no-wait 2>/dev/null || true
   exit 1
 fi
+step "deployment succeeded - VM created."
 
 IP="$(az network public-ip show -g "$RG" -n f8-finetune-pip --query ipAddress -o tsv)"
 echo ""
