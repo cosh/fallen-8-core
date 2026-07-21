@@ -57,7 +57,12 @@ PY313="$(uv python find 3.13)"
 
 if ! command -v ollama >/dev/null 2>&1; then
   log "Ollama..."
-  $CURL https://ollama.com/install.sh | sh
+  # The installer runs `modprobe nvidia`; before the GPU driver extension has loaded the module
+  # that prints "could not insert 'nvidia': No such device" and can make the script exit non-zero.
+  # Harmless here - Ollama only needs CPU to create/push, and bootstrap waits for the GPU later -
+  # so tolerate a non-zero exit, then verify the binary actually installed.
+  $CURL https://ollama.com/install.sh | sh || log "WARN: ollama install exited non-zero (likely the GPU modprobe warning) - verifying the binary..."
+  command -v ollama >/dev/null 2>&1 || { echo "[install-prereqs] ERROR: ollama not on PATH after the install script." >&2; exit 1; }
 fi
 
 cat > "$ENVFILE" <<EOF
