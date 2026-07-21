@@ -167,8 +167,11 @@ resource gpuDriver 'Microsoft.Compute/virtualMachines/extensions@2023-09-01' = {
   properties: {
     publisher: 'Microsoft.HpcCompute'
     type: 'NvidiaGpuDriverLinux'
-    typeHandlerVersion: '1.11'
-    autoUpgradeMinorVersion: false
+    // 1.6 is a real handler version (the MS docs' az example uses it); autoUpgradeMinorVersion
+    // lets ARM install the latest 1.x minor. The GRID driver itself stays pinned via
+    // settings.driverVersion, so the handler minor doesn't change which driver lands.
+    typeHandlerVersion: '1.6'
+    autoUpgradeMinorVersion: true
     settings: {
       driverVersion: driverVersion
     }
