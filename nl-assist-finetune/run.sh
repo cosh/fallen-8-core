@@ -167,7 +167,45 @@ publish() {
     return 1
   fi
   ollama cp "$OLLAMA_MODEL" "$PUBLISH_REPO"
-  ollama push "$PUBLISH_REPO"
+
+  # 'ollama push' returns 0 even when it uploaded NOTHING: if the daemon's signing key is not
+  # registered to the namespace owner it prints "You need to be signed in to push models to
+  # ollama.com." + an "ollama.com/connect?...&key=<pubkey>" URL and still exits 0. That phantom
+  # success once self-destructed the VM with the trained model still on it. So do NOT trust the
+  # exit code - capture the output, reject the auth markers, then positively confirm the registry.
+  local push_out
+  if ! push_out="$(ollama push "$PUBLISH_REPO" 2>&1)"; then
+    printf '%s\n' "$push_out" >&2
+    echo "ERROR: 'ollama push $PUBLISH_REPO' exited non-zero (see above)." >&2
+    return 1
+  fi
+  printf '%s\n' "$push_out"
+  # here-string, NOT a pipe: 'printf | grep -q' under pipefail can drop the match to SIGPIPE and
+  # silently pass this guard. This is the load-bearing check - it fires on an auth failure whether
+  # the tag is new or a re-push over an existing one.
+  if grep -qiE 'signed in|/connect\?|not authorized|unauthorized' <<<"$push_out"; then
+    echo "ERROR: push was NOT authenticated - the ollama daemon's signing key is not registered to" >&2
+    echo "the '$PUBLISH_REPO' namespace owner, so nothing was uploaded. Register its public half at" >&2
+    echo "https://ollama.com/settings/keys (or 'ollama login') and re-run. Nothing was published." >&2
+    return 1
+  fi
+  # Positive, auth-free confirmation the upload landed: a public model's v2 manifest GETs 200 (it
+  # 404s before a real push). Timeouts so a black-holed network can't hang teardown; a short retry
+  # absorbs propagation. (On a re-push over an already-published tag a stale manifest also 200s -
+  # the auth-marker guard above is what catches a failed re-push; this confirms a fresh publish.)
+  local repo tag manifest_url http_code
+  repo="${PUBLISH_REPO%%:*}"
+  case "$PUBLISH_REPO" in *:*) tag="${PUBLISH_REPO##*:}" ;; *) tag="latest" ;; esac
+  manifest_url="https://registry.ollama.ai/v2/${repo}/manifests/${tag}"
+  http_code="$(curl -sSL --connect-timeout 15 --max-time 120 --retry 3 --retry-delay 5 \
+                    -o /dev/null -w '%{http_code}' "$manifest_url" 2>/dev/null || echo 000)"
+  if [ "$http_code" != "200" ]; then
+    echo "ERROR: post-push verification FAILED - GET $manifest_url returned HTTP $http_code (want 200)." >&2
+    echo "The model is not in the registry ('ollama pull $PUBLISH_REPO' would 404); failing so no false" >&2
+    echo "'done' marker is written and the box is kept for debugging." >&2
+    return 1
+  fi
+  echo "verified '$PUBLISH_REPO' in the registry (HTTP 200 at $manifest_url)."
   echo "pushed '$PUBLISH_REPO'. On another instance: 'ollama pull $PUBLISH_REPO', then set the"
   echo "NL-assist model to it (or 'ollama cp $PUBLISH_REPO $OLLAMA_MODEL' to adopt the local name)."
   echo "Ship $HERE/PROVENANCE.$OLLAMA_MODEL.md alongside so the licence position travels (FT-7)."

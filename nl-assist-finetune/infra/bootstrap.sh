@@ -76,8 +76,9 @@ _home="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6)"
 export HOME="${_home:-$HOME}"
 export OLLAMA_KEY="$HOME/.ollama/id_ed25519"
 
-# Install the injected Ollama signing key (if any) into the running user's ~/.ollama - cloud-init
-# drops it at a neutral path so this script, not the YAML, decides where it lives.
+# Install the injected Ollama signing key (if any) into the running user's ~/.ollama. NOTE: this
+# root-side copy is only for any root ollama CLI use - 'ollama push' is done by the DAEMON, which
+# signs with the DAEMON user's key, installed separately just before the daemon starts (below).
 if [ -f "$WORK/ollama_id_ed25519" ]; then
   mkdir -p "$HOME/.ollama" && chmod 700 "$HOME/.ollama"
   install -m 600 "$WORK/ollama_id_ed25519" "$OLLAMA_KEY"
@@ -109,9 +110,38 @@ bash ./install-prereqs.sh || fail "install-prereqs.sh failed" 40
 . ./.prereqs-env.sh     # DOTNET_ROOT, PATH (dotnet + uv), PY313
 [ -n "${PY313:-}" ] || fail "install-prereqs.sh did not report a Python 3.13 (PY313 unset)" 40
 
-# --- Ollama running (installed by install-prereqs; start + wait) -----------------------------
+# --- Ollama: put the signing key where the DAEMON reads it, then (re)start -------------------
+# 'ollama push' is performed by the ollama DAEMON, which signs with the key in the DAEMON user's
+# home (the installer runs it as user 'ollama', home /usr/share/ollama) - NOT root's. Installing
+# the key only into /root/.ollama once meant the daemon generated + used its OWN unregistered key
+# and the push auth-failed silently (uploading nothing, exit 0). So drop the registered key into
+# the daemon user's ~/.ollama too and restart so it signs as the operator.
+OLLAMA_HOME="$(getent passwd ollama 2>/dev/null | cut -d: -f6)"
+if [ -f "$WORK/ollama_id_ed25519" ] && [ -n "${OLLAMA_HOME:-}" ]; then
+  mkdir -p "$OLLAMA_HOME/.ollama"
+  install -m 600 "$WORK/ollama_id_ed25519" "$OLLAMA_HOME/.ollama/id_ed25519"
+  [ -f "$WORK/ollama_id_ed25519.pub" ] && install -m 644 "$WORK/ollama_id_ed25519.pub" "$OLLAMA_HOME/.ollama/id_ed25519.pub"
+  chown -R ollama:ollama "$OLLAMA_HOME/.ollama" 2>/dev/null || true
+  log "installed the Ollama signing key into the daemon user's home ($OLLAMA_HOME/.ollama)."
+fi
 systemctl enable --now ollama
+systemctl restart ollama   # pick up the just-installed key (the daemon may have started at install time with its own)
 for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
+
+# --- PREFLIGHT (pollution-free): the daemon must sign with the injected (registered) key -------
+# Guards the exact incident that lost a trained model: an unregistered daemon key makes the push
+# auth-fail silently. If we intend to publish, verify the daemon's active public key matches what
+# we injected and fail FAST (VM kept, no .done) BEFORE the ~30-min driver install and ~40-min
+# train - not after. (This checks the daemon uses OUR key; run.sh's post-push manifest check is
+# the final authority that the upload actually landed.)
+if [ -n "${PUBLISH_PREFIX:-}" ]; then
+  [ -s "$WORK/ollama_id_ed25519" ] || fail "PUBLISH_PREFIX=$PUBLISH_PREFIX is set but no Ollama signing key was injected (deploy.sh OLLAMA_KEY_FILE). Refusing a ~40-min train that cannot publish." 32
+  if [ -f "$WORK/ollama_id_ed25519.pub" ] && [ -n "${OLLAMA_HOME:-}" ] \
+     && ! diff -q "$WORK/ollama_id_ed25519.pub" "$OLLAMA_HOME/.ollama/id_ed25519.pub" >/dev/null 2>&1; then
+    fail "the ollama daemon's key ($OLLAMA_HOME/.ollama/id_ed25519.pub) does not match the injected registered key - a push would authenticate as the wrong identity and upload nothing. Aborting before training." 32
+  fi
+  log "preflight: the ollama daemon will sign pushes with the injected (registered) key."
+fi
 
 # --- capture the PRISTINE GPU state BEFORE touching any driver (the discriminator) -----------
 # If no 10de function shows here, the A10 SR-IOV VF never reached the guest -> a provisioning/

@@ -140,7 +140,17 @@ BOOTSTRAP_B64="$(b64 < "$HERE/bootstrap.sh")"
 TEARDOWN_B64="$(b64 < "$HERE/teardown.sh")"
 
 ollama_files=""
-if [ -n "$PUBLISH_PREFIX" ] && [ -f "$OLLAMA_KEY_FILE" ]; then
+if [ -n "$PUBLISH_PREFIX" ]; then
+  # Publishing is intended (PUBLISH_PREFIX set) -> a missing/empty key is a HARD error here, before
+  # we spend on a VM: without an injected key the VM's ollama would sign a push with a fresh,
+  # UNREGISTERED key and upload nothing (the incident that lost a trained model). Unset
+  # PUBLISH_PREFIX to run train-only.
+  if [ ! -s "$OLLAMA_KEY_FILE" ]; then
+    echo "ERROR: PUBLISH_PREFIX='$PUBLISH_PREFIX' is set but there is no non-empty Ollama signing key at" >&2
+    echo "OLLAMA_KEY_FILE=$OLLAMA_KEY_FILE. Point it at your registered key (public half at" >&2
+    echo "https://ollama.com/settings/keys), or unset PUBLISH_PREFIX to run train-only." >&2
+    exit 1
+  fi
   KEY_B64="$(b64 < "$OLLAMA_KEY_FILE")"
   PUB_B64="$( [ -f "${OLLAMA_KEY_FILE}.pub" ] && b64 < "${OLLAMA_KEY_FILE}.pub" || echo '')"
   ollama_files="  - path: /opt/f8/ollama_id_ed25519
@@ -153,8 +163,9 @@ if [ -n "$PUBLISH_PREFIX" ] && [ -f "$OLLAMA_KEY_FILE" ]; then
     encoding: b64
     content: ${PUB_B64}
 "
-elif [ -n "$PUBLISH_PREFIX" ]; then
-  echo "WARNING: PUBLISH_PREFIX set but no key at $OLLAMA_KEY_FILE - the push will be skipped on the VM." >&2
+  [ -n "$PUB_B64" ] || step "NOTE: no ${OLLAMA_KEY_FILE}.pub found; the VM's key-identity preflight will be skipped (push still verified post-hoc)."
+  step "using Ollama key $OLLAMA_KEY_FILE for the unattended push to '$PUBLISH_PREFIX/*' - its public"
+  step "half MUST be registered at https://ollama.com/settings/keys (the VM preflight enforces this)."
 fi
 
 CLOUD_INIT="$(cat <<EOF
