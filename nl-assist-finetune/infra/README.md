@@ -67,17 +67,20 @@ Boot diagnostics are on, so you can also watch the serial console in the portal 
 | `GIT_TOKEN` | – | GitHub token if the repo is private |
 | `OLLAMA_KEY_FILE` | `~/.ollama/id_ed25519` | the registered signing key for the push |
 | `ALLOWED_SSH_CIDR` | your public IP `/32` | who may SSH in |
-| `DESTROY_ON_FINISH` | `1` | set `0` to keep the VM after the run (to debug a failure) |
+| `DESTROY_ON_FINISH` | `1` | `0` keeps the VM after the run AND disables the 8h backstop (full manual control) |
+| `DESTROY_ON_FAILURE` | `0` | `0` keeps the VM on failure to debug (8h backstop still deletes it); `1` self-destructs on failure too |
+| `F8_DEBUG` | `0` | `1` = `set -x` trace in deploy.sh and in the VM's `/var/log/f8-finetune.log` |
 
 ## Cost, teardown, and caveats
 
-- **Teardown is automatic and defended three ways**: (1) the bootstrap's EXIT trap runs on
-  success *or* failure; (2) a 6 h `timeout` caps *each variant's* training; (3) a
-  `f8-teardown.timer` systemd backstop fires 8 h after boot and deletes the RG even if bootstrap
-  hangs or is SIGKILLed (where the bash trap wouldn't run) — realistic both-variant runs finish
-  well under that. Teardown uses the VM's managed identity via the
-  ARM REST API (no dependency on the `az` CLI the run installs). If all of that somehow fails,
-  delete it yourself: `az group delete -n <rg> --yes`.
+- **Teardown is automatic and defended three ways**: (1) on **success** the bootstrap's EXIT
+  trap self-destructs the RG; on **failure** it **keeps** the VM so the log is readable (set
+  `DESTROY_ON_FAILURE=1` to destroy on failure too); (2) a 6 h `timeout` caps each variant's
+  training; (3) a `f8-teardown.timer` backstop deletes everything ~8 h after boot even if
+  bootstrap hangs or is SIGKILLed — so a kept-on-failure VM still can't run up cost. Teardown
+  uses the VM's managed identity via the ARM REST API (no `az` dependency). **`DESTROY_ON_FINISH=0`
+  disables ALL auto-deletion (backstop included)** — then you must `az group delete -n <rg> --yes`
+  yourself when done.
 - **Honest status**: a failed train/publish aborts with a non-zero code (no false "done"
   marker) and still tears down — you won't silently pay for a broken run reported as success.
 - **On-demand vs Spot**: default is **on-demand** (no eviction). With `F8_SPOT=1` Azure may

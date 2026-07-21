@@ -23,12 +23,15 @@ set -a; . /etc/f8-finetune.env; set +a
 : "${REPO_URL:?REPO_URL missing}"; : "${REPO_REF:=main}"
 : "${AZ_RESOURCE_GROUP:?}"; : "${AZ_SUBSCRIPTION:?}"
 : "${DESTROY_ON_FINISH:=1}"
+: "${DESTROY_ON_FAILURE:=0}"              # 0 = keep the VM on FAILURE (so the log is readable); the 8h backstop still caps cost
 : "${PUBLISH_PREFIX:=}"                   # each variant publishes to $PUBLISH_PREFIX/<variant>
 : "${GIT_TOKEN:=}"
+: "${F8_DEBUG:=0}"                        # 1 = set -x full command trace into the log
 WORK=/opt/f8
 MARKER="$WORK/.done"
 mkdir -p "$WORK"
 export npm_config_yes=true   # so run.sh's `npx tsx` never prompts in this non-TTY context
+[ "$F8_DEBUG" = "1" ] && set -x   # full command trace into /var/log/f8-finetune.log
 
 log(){ echo "[f8 $(date -u +%H:%M:%S)] $*"; }
 fail(){ log "FATAL: $1"; exit "${2:-40}"; }
@@ -38,15 +41,23 @@ teardown(){
   local rc=$1; set +e
   echo ""
   if [ "$rc" -eq 0 ]; then log "=== DONE: pipeline succeeded. ==="; else log "=== FAILED (exit $rc) - see the log above. ==="; fi
-  if [ "$DESTROY_ON_FINISH" != "1" ]; then
-    log "DESTROY_ON_FINISH != 1 -> leaving the VM up for debugging. Delete it yourself:"
+  # Success -> self-destruct (per DESTROY_ON_FINISH). FAILURE -> KEEP the VM so
+  # /var/log/f8-finetune.log stays readable for debugging; the f8-teardown.timer backstop (8h
+  # after boot) still deletes everything, so a failed run can't run up cost. DESTROY_ON_FAILURE=1
+  # forces self-destruct on failure too.
+  if [ "$DESTROY_ON_FINISH" = "1" ] && { [ "$rc" -eq 0 ] || [ "$DESTROY_ON_FAILURE" = "1" ]; }; then
+    log "Destroying resource group '$AZ_RESOURCE_GROUP' and ALL its resources in 60s..."
+    log "(watchers: last chance to read this log.)"
+    sleep 60
+    bash "$WORK/teardown.sh" || log "teardown.sh failed; the f8-teardown.timer backstop will retry (or delete manually)."
+  elif [ "$rc" -ne 0 ]; then
+    log "FAILED -> leaving the VM UP so you can read the error. SSH in and check:"
+    log "  /var/log/f8-finetune.log   and   /var/log/f8-apiapp.log"
+    log "The f8-teardown.timer backstop deletes everything ~8h after boot; delete sooner with:"
     log "  az group delete --name $AZ_RESOURCE_GROUP --yes"
-    exit "$rc"
+  else
+    log "DESTROY_ON_FINISH != 1 -> leaving the VM up. Delete it yourself: az group delete --name $AZ_RESOURCE_GROUP --yes"
   fi
-  log "Destroying resource group '$AZ_RESOURCE_GROUP' and ALL its resources in 60s..."
-  log "(watchers: last chance to read this log; re-run with DESTROY_ON_FINISH=0 to keep the VM)"
-  sleep 60
-  bash "$WORK/teardown.sh" || log "teardown.sh failed; the f8-teardown.timer backstop will retry (or delete manually)."
   exit "$rc"
 }
 trap 'teardown $?' EXIT

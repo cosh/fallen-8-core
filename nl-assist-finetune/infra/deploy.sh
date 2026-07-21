@@ -171,6 +171,8 @@ write_files:
       AZ_RESOURCE_GROUP="${RG}"
       AZ_SUBSCRIPTION="${SUB}"
       DESTROY_ON_FINISH="${DESTROY_ON_FINISH}"
+      DESTROY_ON_FAILURE="${DESTROY_ON_FAILURE:-0}"
+      F8_DEBUG="${F8_DEBUG:-0}"
   - path: /opt/f8/bootstrap.sh
     permissions: '0755'
     encoding: b64
