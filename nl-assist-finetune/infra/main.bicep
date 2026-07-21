@@ -32,8 +32,8 @@ param spotMaxPrice string = '-1'
 @description('CIDR allowed to SSH in (to watch progress). Default your deploy IP; * is open.')
 param allowedSshCidr string = '*'
 
-@description('Pinned GRID driver. 535.161 (GRID 16.5) works with CUDA on A10; the default 17.5 does not.')
-param driverVersion string = '535.161'
+@description('Optional GRID driver pin (e.g. "535.161" = GRID 16.5). Empty = the extensions current default (18.x); only pin an older driver if the default misbehaves with CUDA on A10.')
+param driverVersion string = ''
 
 @description('OS disk size (GB). Both variants + the 14B fp16 merge + f16/Q4 GGUFs + HF base caches need lots of scratch.')
 param osDiskSizeGb int = 512
@@ -167,12 +167,13 @@ resource gpuDriver 'Microsoft.Compute/virtualMachines/extensions@2023-09-01' = {
   properties: {
     publisher: 'Microsoft.HpcCompute'
     type: 'NvidiaGpuDriverLinux'
-    // 1.6 is a real handler version (the MS docs' az example uses it); autoUpgradeMinorVersion
-    // lets ARM install the latest 1.x minor. The GRID driver itself stays pinned via
-    // settings.driverVersion, so the handler minor doesn't change which driver lands.
-    typeHandlerVersion: '1.6'
+    // 1.13 is the latest real handler (1.11 does NOT exist - that was the deploy failure).
+    // autoUpgradeMinorVersion keeps it on the latest 1.x patch. Its default GRID driver is 18.x
+    // (the old 17.5 A10-CUDA bug is no longer the default). Only send driverVersion when the
+    // param is set, so a fresh deploy can't request a driver the handler doesn't ship.
+    typeHandlerVersion: '1.13'
     autoUpgradeMinorVersion: true
-    settings: {
+    settings: empty(driverVersion) ? {} : {
       driverVersion: driverVersion
     }
   }
