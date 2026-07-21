@@ -42,6 +42,14 @@ step) → publish → **"Destroying resource group … in 60s"**. After that the
 around it are gone. Boot diagnostics are on, so you can also watch the serial console in the
 portal if SSH isn't up yet.
 
+> **GPU quota (common first hurdle):** a full A10 is **36 vCPUs**, but a fresh subscription's
+> Spot ("low-priority") quota is often just 3 — the deploy then fails ARM preflight with
+> `QuotaExceeded / LowPriorityCores`. `deploy.sh` now catches this *before* creating anything and
+> prints the fix: **Portal → Quotas → Compute → your region → "Total Regional Low-priority
+> vCPUs" → request ≥ 36** ([myQuotas](https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas)).
+> Low-priority increases are usually approved in minutes; then re-run. (14B QLoRA needs the full
+> 24 GB A10, so you can't drop below 36 cores.)
+
 ## Useful overrides (env vars)
 
 | Var | Default | Notes |

@@ -70,6 +70,31 @@ echo "  publish        : ${PUBLISH_REPO:-<none - push skipped>}"
 echo "  ssh from        : $ALLOWED_SSH_CIDR"
 echo ""
 
+# ---- preflight: Spot (low-priority) vCPU quota ------------------------------------------
+# Turns Azure's cryptic ARM "QuotaExceeded / LowPriorityCores" preflight error into a clear,
+# early message with the fix - and avoids leaving an empty RG behind. Best-effort: only blocks
+# if it can PROVE a shortfall (skips silently if the az/jq queries don't return numbers).
+CORES="$(az vm list-skus -l "$LOCATION" --resource-type virtualMachines -o json 2>/dev/null \
+  | jq -r --arg s "$VM_SIZE" '.[]|select(.name==$s)|.capabilities[]|select(.name=="vCPUs")|.value' 2>/dev/null | head -1)"
+if [ -n "${CORES:-}" ]; then
+  usage="$(az vm list-usage -l "$LOCATION" -o json 2>/dev/null || echo '[]')"
+  lim="$(echo "$usage"  | jq -r '(.[]|select((.name.value|ascii_downcase)=="lowprioritycores")|.limit)        // empty')"
+  used="$(echo "$usage" | jq -r '(.[]|select((.name.value|ascii_downcase)=="lowprioritycores")|.currentValue) // empty')"
+  if [ -n "$lim" ] && [ -n "$used" ] && [ "$((lim - used))" -lt "$CORES" ]; then
+    cat >&2 <<MSG
+ERROR: not enough Spot (low-priority) vCPU quota in $LOCATION for $VM_SIZE.
+  Need $CORES cores; your low-priority quota is $used/$lim (used/limit). 14B QLoRA needs the
+  FULL A10 (24GB) = $VM_SIZE = $CORES cores, so a smaller SKU won't fit.
+  Fix (then re-run this script):
+    Portal -> Quotas -> Compute -> region "$LOCATION" -> "Total Regional Low-priority vCPUs"
+    -> request a limit >= $CORES.  https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas
+  Or: run on-demand instead of Spot (edit main.bicep: priority=Regular + drop billingProfile;
+  needs the dedicated "Standard NVadsA10v5 Family vCPUs" quota), or set LOCATION=<region with quota>.
+MSG
+    exit 1
+  fi
+fi
+
 # ---- assemble cloud-init ----------------------------------------------------------------
 BOOTSTRAP_B64="$(b64 < "$HERE/bootstrap.sh")"
 TEARDOWN_B64="$(b64 < "$HERE/teardown.sh")"
@@ -163,7 +188,7 @@ CUSTOM_DATA="$(printf '%s' "$CLOUD_INIT" | b64)"
 # ---- deploy -----------------------------------------------------------------------------
 az group create --name "$RG" --location "$LOCATION" -o none
 echo "deploying VM (this returns once the VM is created; the run then proceeds on the VM)..."
-az deployment group create \
+if ! az deployment group create \
   --resource-group "$RG" \
   --template-file "$HERE/main.bicep" \
   --parameters \
@@ -173,7 +198,12 @@ az deployment group create \
       adminSshPublicKey="$SSH_PUBKEY" \
       customData="$CUSTOM_DATA" \
       allowedSshCidr="$ALLOWED_SSH_CIDR" \
-  -o none
+  -o none; then
+  echo "" >&2
+  echo "deployment failed - deleting the empty resource group '$RG' so nothing lingers." >&2
+  az group delete --name "$RG" --yes --no-wait 2>/dev/null || true
+  exit 1
+fi
 
 IP="$(az network public-ip show -g "$RG" -n f8-finetune-pip --query ipAddress -o tsv)"
 echo ""
