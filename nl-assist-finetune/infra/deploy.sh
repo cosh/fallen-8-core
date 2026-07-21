@@ -39,7 +39,8 @@ mkdir -p "$DOTNET_BUNDLE_EXTRACT_BASE_DIR" 2>/dev/null || true
 
 # Loud, debuggable failures - never exit silently. ERR fires on any set -e abort; F8_DEBUG=1 traces.
 step(){ echo "[deploy] $*"; }
-trap 'echo "[deploy] ERROR: a command failed (exit $?) around line $LINENO - see above. Re-run with F8_DEBUG=1 for a full trace." >&2' ERR
+_on_err(){ echo "[deploy] ERROR: a command failed (exit $?) around line $LINENO - see above. Re-run with F8_DEBUG=1 for a full trace." >&2; }
+trap _on_err ERR
 [ "${F8_DEBUG:-0}" = "1" ] && set -x
 
 LOCATION="${LOCATION:-westeurope}"
@@ -91,7 +92,8 @@ echo ""
 # the fix - and avoids leaving an empty RG behind. Best-effort: only blocks if it can PROVE a
 # shortfall (skips silently if az/jq don't return numbers). On-demand needs BOTH "Total Regional
 # vCPUs" and the NVadsA10v5 family quota; Spot needs "Total Regional Spot vCPUs".
-set +e   # best-effort: a transient az / jq-SIGPIPE failure here must NEVER abort the deploy (set -e)
+if command -v jq >/dev/null 2>&1 && command -v az >/dev/null 2>&1; then
+trap - ERR; set +e   # best-effort: transient az/jq failures here must NEVER abort or noise-up the deploy
 CORES="$(az vm list-skus -l "$LOCATION" --resource-type virtualMachines -o json 2>/dev/null \
   | jq -r --arg s "$VM_SIZE" '.[]|select(.name==$s)|.capabilities[]|select(.name=="vCPUs")|.value' 2>/dev/null | head -1)"
 if [ -n "${CORES:-}" ]; then
@@ -128,7 +130,10 @@ MSG
 else
   step "preflight: skipped (couldn't read the SKU's vCPU count from az - deploy proceeds anyway)."
 fi
-set -e   # re-enable errexit after the best-effort preflight
+set -e; trap _on_err ERR   # re-enable errexit + error trap after the best-effort preflight
+else
+  step "preflight: skipped (jq or the az CLI not found on this box - quota not checked; deploy proceeds)."
+fi
 
 # ---- assemble cloud-init ----------------------------------------------------------------
 BOOTSTRAP_B64="$(b64 < "$HERE/bootstrap.sh")"
