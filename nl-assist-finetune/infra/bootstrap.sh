@@ -53,6 +53,22 @@ trap 'teardown $?' EXIT
 
 if [ -f "$MARKER" ]; then log "marker present -> already completed on a previous boot; tearing down."; exit 0; fi
 
+# Never depend on a specific Linux user: derive HOME from the RUNNING user's passwd entry
+# (immune to a leaked/incorrect HOME in the environment). systemd runs this as root -> /root,
+# but nothing here assumes that. install-prereqs.sh (a child process) inherits this HOME.
+_home="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6)"
+export HOME="${_home:-$HOME}"
+export OLLAMA_KEY="$HOME/.ollama/id_ed25519"
+
+# Install the injected Ollama signing key (if any) into the running user's ~/.ollama - cloud-init
+# drops it at a neutral path so this script, not the YAML, decides where it lives.
+if [ -f "$WORK/ollama_id_ed25519" ]; then
+  mkdir -p "$HOME/.ollama" && chmod 700 "$HOME/.ollama"
+  install -m 600 "$WORK/ollama_id_ed25519" "$OLLAMA_KEY"
+  [ -f "$WORK/ollama_id_ed25519.pub" ] && install -m 644 "$WORK/ollama_id_ed25519.pub" "$OLLAMA_KEY.pub"
+  log "installed the Ollama signing key into $HOME/.ollama/"
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 
 # --- minimal deps to clone the repo (curl/jq for teardown are installed by cloud-init) ------
@@ -123,12 +139,12 @@ for v in $VARIANTS; do
     || fail "run.sh all (train/merge/gguf/create) failed for $v" 30
   log "$v: training + model registration complete."
 
-  if [ -n "$PUBLISH_PREFIX" ] && [ -f /root/.ollama/id_ed25519 ]; then
+  if [ -n "$PUBLISH_PREFIX" ] && [ -f "$OLLAMA_KEY" ]; then
     log "publishing $v to $PUBLISH_PREFIX/$v ..."
     VARIANT="$v" PUBLISH_REPO="$PUBLISH_PREFIX/$v" ./run.sh publish || fail "ollama push failed for $v" 31
     log "pushed $PUBLISH_PREFIX/$v."
   else
-    log "skipping push for $v (no PUBLISH_PREFIX or no /root/.ollama/id_ed25519 key)."
+    log "skipping push for $v (no PUBLISH_PREFIX or no signing key at $OLLAMA_KEY)."
   fi
 done
 

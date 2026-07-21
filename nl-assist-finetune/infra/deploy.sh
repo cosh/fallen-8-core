@@ -120,12 +120,12 @@ ollama_files=""
 if [ -n "$PUBLISH_PREFIX" ] && [ -f "$OLLAMA_KEY_FILE" ]; then
   KEY_B64="$(b64 < "$OLLAMA_KEY_FILE")"
   PUB_B64="$( [ -f "${OLLAMA_KEY_FILE}.pub" ] && b64 < "${OLLAMA_KEY_FILE}.pub" || echo '')"
-  ollama_files="  - path: /root/.ollama/id_ed25519
+  ollama_files="  - path: /opt/f8/ollama_id_ed25519
     permissions: '0600'
     encoding: b64
     content: ${KEY_B64}
 "
-  [ -n "$PUB_B64" ] && ollama_files="${ollama_files}  - path: /root/.ollama/id_ed25519.pub
+  [ -n "$PUB_B64" ] && ollama_files="${ollama_files}  - path: /opt/f8/ollama_id_ed25519.pub
     permissions: '0644'
     encoding: b64
     content: ${PUB_B64}
@@ -191,7 +191,7 @@ ${ollama_files}  - path: /etc/systemd/system/f8-finetune.service
       [Install]
       WantedBy=timers.target
 runcmd:
-  - mkdir -p /opt/f8 /root/.ollama
+  - mkdir -p /opt/f8
   - apt-get -o DPkg::Lock::Timeout=600 update -y
   - DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y curl jq
   - systemctl daemon-reload
