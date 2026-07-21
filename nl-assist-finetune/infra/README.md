@@ -10,10 +10,17 @@ quota is usually unavailable); set `F8_SPOT=1` to try Spot.
 ## What gets created
 
 A dedicated resource group `rg-f8-finetune-<rand>` containing: a `Standard_NV36ads_A10_v5`
-VM (full A10, 24 GB; on-demand), a vnet/subnet/NSG (SSH from your IP only), a public IP, the
-**NVIDIA GPU driver extension** (pinned to GRID `535.161` — the extension's default 17.5
-breaks CUDA on A10), and a system-assigned managed identity with **Contributor** on that RG
-so the VM can delete it at the end.
+VM (full A10, 24 GB; on-demand), a vnet/subnet/NSG (SSH from your IP only), a public IP, and a
+system-assigned managed identity with **Contributor** on that RG so the VM can delete it at the
+end.
+
+> **No GPU-driver extension** — deliberately. NVadsA10v5 presents the A10 as a licensed **vGPU
+> (SR-IOV)**, which needs NVIDIA's **Azure GRID** driver; the HpcCompute extension's default
+> installs the datacenter/CUDA flavor, which loads but binds no device (`modprobe nvidia: No
+> such device`). Instead `bootstrap.sh` installs the exact Microsoft-redistributed GRID build
+> for this SKU (`570.211.01-grid-azure`, per Microsoft's
+> [N-series Linux driver setup](https://learn.microsoft.com/azure/virtual-machines/linux/n-series-driver-setup))
+> and gates the run on `nvidia-smi`.
 
 ## Prerequisites (on your machine)
 

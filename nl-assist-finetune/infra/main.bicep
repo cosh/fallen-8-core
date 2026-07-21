@@ -32,9 +32,6 @@ param spotMaxPrice string = '-1'
 @description('CIDR allowed to SSH in (to watch progress). Default your deploy IP; * is open.')
 param allowedSshCidr string = '*'
 
-@description('Optional GRID driver pin (e.g. "535.161" = GRID 16.5). Empty = the extensions current default (18.x); only pin an older driver if the default misbehaves with CUDA on A10.')
-param driverVersion string = ''
-
 @description('OS disk size (GB). Both variants + the 14B fp16 merge + f16/Q4 GGUFs + HF base caches need lots of scratch.')
 param osDiskSizeGb int = 512
 
@@ -158,26 +155,13 @@ resource selfDestructRole 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-// Installs the NVIDIA GRID driver. 535.161 is pinned because the extension's default (17.5)
-// breaks CUDA on A10 (documented Azure known issue).
-resource gpuDriver 'Microsoft.Compute/virtualMachines/extensions@2023-09-01' = {
-  parent: vm
-  name: 'NvidiaGpuDriverLinux'
-  location: location
-  properties: {
-    publisher: 'Microsoft.HpcCompute'
-    type: 'NvidiaGpuDriverLinux'
-    // 1.13 is the latest real handler (1.11 does NOT exist - that was the deploy failure).
-    // autoUpgradeMinorVersion keeps it on the latest 1.x patch. Its default GRID driver is 18.x
-    // (the old 17.5 A10-CUDA bug is no longer the default). Only send driverVersion when the
-    // param is set, so a fresh deploy can't request a driver the handler doesn't ship.
-    typeHandlerVersion: '1.13'
-    autoUpgradeMinorVersion: true
-    settings: empty(driverVersion) ? {} : {
-      driverVersion: driverVersion
-    }
-  }
-}
+// No NVIDIA GPU driver extension here, on purpose. NVadsA10v5 exposes the A10 as a LICENSED
+// vGPU (SR-IOV), which needs NVIDIA's *Azure GRID* guest driver. The HpcCompute extension's
+// default installs the datacenter/CUDA flavor instead, which loads but binds no device
+// ("modprobe nvidia: No such device") - the failure that cost us a run. bootstrap.sh installs
+// the exact Microsoft-redistributed GRID build for this SKU (570.211.01-grid-azure, per
+// learn.microsoft.com/.../linux/n-series-driver-setup) deterministically, then gates the run on
+// nvidia-smi. See nl-assist-finetune/infra/bootstrap.sh for the one home of that explanation.
 
 output publicIp string = publicIp.properties.ipAddress
 output sshCommand string = 'ssh ${adminUsername}@${publicIp.properties.ipAddress}'

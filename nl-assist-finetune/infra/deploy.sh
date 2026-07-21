@@ -230,7 +230,7 @@ CUSTOM_DATA="$(printf '%s' "$CLOUD_INIT" | b64)"
 # ---- deploy -----------------------------------------------------------------------------
 step "creating resource group $RG in $LOCATION..."
 az group create --name "$RG" --location "$LOCATION" -o none
-step "submitting deployment 'main' (VM + GPU driver extension); this can take a few minutes..."
+step "submitting deployment 'main' (VM + network; the A10 GRID driver installs on the VM in bootstrap); this can take a few minutes..."
 if ! az deployment group create \
   --resource-group "$RG" \
   --name main \

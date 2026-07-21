@@ -19,8 +19,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVFILE="$HERE/.prereqs-env.sh"
 DOTNET_DIR=/usr/local/dotnet
 SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
-# Wait up to 10 min for the apt/dpkg lock - on an Azure GPU VM the NVIDIA driver extension
-# installs concurrently and holds it; without this apt fails with "Could not get lock".
+# Wait up to 10 min for the apt/dpkg lock - on a fresh Ubuntu/Azure VM cloud-init and
+# unattended-upgrades run apt concurrently and hold it; without this apt fails "Could not get lock".
 APT="$SUDO apt-get -o DPkg::Lock::Timeout=600"
 export DEBIAN_FRONTEND=noninteractive
 CURL="curl -fsSL --connect-timeout 30 --max-time 900 --retry 3"
@@ -57,10 +57,10 @@ PY313="$(uv python find 3.13)"
 
 if ! command -v ollama >/dev/null 2>&1; then
   log "Ollama..."
-  # The installer runs `modprobe nvidia`; before the GPU driver extension has loaded the module
-  # that prints "could not insert 'nvidia': No such device" and can make the script exit non-zero.
-  # Harmless here - Ollama only needs CPU to create/push, and bootstrap waits for the GPU later -
-  # so tolerate a non-zero exit, then verify the binary actually installed.
+  # The installer runs `modprobe nvidia`; when no NVIDIA driver is installed yet (this script runs
+  # before the GPU driver is set up) that prints "could not insert 'nvidia': No such device" and can
+  # make the install script exit non-zero. Harmless - Ollama only needs CPU to create/push - so
+  # tolerate a non-zero exit, then verify the binary actually installed.
   $CURL https://ollama.com/install.sh | sh || log "WARN: ollama install exited non-zero (likely the GPU modprobe warning) - verifying the binary..."
   command -v ollama >/dev/null 2>&1 || { echo "[install-prereqs] ERROR: ollama not on PATH after the install script." >&2; exit 1; }
 fi

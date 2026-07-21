@@ -89,7 +89,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # --- minimal deps to clone the repo (curl/jq for teardown are installed by cloud-init) ------
 log "installing git to clone the repo..."
-# Lock timeout: the NVIDIA driver extension installs concurrently and holds the apt/dpkg lock.
+# Lock timeout: cloud-init / unattended-upgrades may run apt concurrently and hold the lock.
 apt-get -o DPkg::Lock::Timeout=600 update -y || fail "apt update failed" 40
 apt-get -o DPkg::Lock::Timeout=600 install -y git ca-certificates || fail "git install failed" 40
 
@@ -113,14 +113,43 @@ bash ./install-prereqs.sh || fail "install-prereqs.sh failed" 40
 systemctl enable --now ollama
 for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
 
-# --- wait for the GPU (Azure NVIDIA driver extension installs GRID 535.161; may reboot once) --
-log "waiting for the NVIDIA GPU driver (Azure extension)..."
+# --- install the Azure GRID (vGPU) driver for the A10 ----------------------------------------
+# THE one home for this explanation. NVadsA10v5 exposes the A10 as a LICENSED vGPU (SR-IOV), so
+# it needs NVIDIA's *Azure GRID* guest driver - NOT the datacenter/CUDA driver. The datacenter
+# driver loads but binds no device ("modprobe nvidia: No such device"), which is exactly what the
+# HpcCompute GPU-driver extension's default (610.43.02) did and why we dropped the extension from
+# the Bicep. Microsoft's N-series Linux driver-setup doc lists NVadsA10_v5 = vGPU18 =
+# 570.211.01-grid-azure, redistributed at the URL below (GRID licensing bundled - no license
+# server). Guarded by nvidia-smi so a boot that re-enters this script is a no-op.
+if ! nvidia-smi -L >/dev/null 2>&1; then
+  log "installing the Azure GRID (vGPU) driver 570.211.01 for the A10..."
+  apt-get -o DPkg::Lock::Timeout=600 install -y build-essential dkms "linux-headers-$(uname -r)" \
+    || fail "build-essential / kernel headers install failed" 40
+  # A datacenter/CUDA driver (base image or a prior attempt) would shadow GRID - remove it first.
+  apt-get -o DPkg::Lock::Timeout=600 purge -y 'cuda-drivers*' 'nvidia-driver-*' 'libnvidia-*' >/dev/null 2>&1 || true
+  apt-get -o DPkg::Lock::Timeout=600 autoremove -y >/dev/null 2>&1 || true
+  # nouveau would claim the device and block the NVIDIA module; unload + blacklist it (best effort).
+  printf 'blacklist nouveau\noptions nouveau modeset=0\n' > /etc/modprobe.d/blacklist-nouveau.conf
+  update-initramfs -u >/dev/null 2>&1 || true
+  modprobe -r nouveau 2>/dev/null || true
+  GRID_RUN=NVIDIA-Linux-x86_64-570.211.01-grid-azure.run
+  GRID_URL="https://download.microsoft.com/download/2a04ca6a-9eec-40d9-9564-9cdea1ab795f/$GRID_RUN"
+  curl -fSL --connect-timeout 30 --max-time 900 --retry 3 -o "/tmp/$GRID_RUN" "$GRID_URL" \
+    || fail "GRID driver download failed ($GRID_URL)" 20
+  chmod +x "/tmp/$GRID_RUN"
+  "/tmp/$GRID_RUN" --silent --dkms || fail "GRID driver install failed (see /var/log/nvidia-installer.log)" 20
+  modprobe nvidia 2>/dev/null || true
+  log "GRID driver installed."
+fi
+
+# --- confirm the GPU is live (the driver just loaded; the loop also rides out a rare reboot) --
+log "confirming the NVIDIA GPU is visible..."
 gpu_ready=0
 for _ in $(seq 1 120); do            # up to ~30 min
   if nvidia-smi >/dev/null 2>&1; then gpu_ready=1; break; fi
   sleep 15
 done
-[ "$gpu_ready" = 1 ] || fail "GPU not visible after ~30 min (driver extension not done / failed)" 20
+[ "$gpu_ready" = 1 ] || fail "GPU not visible after ~30 min (GRID driver did not bind - see /var/log/nvidia-installer.log)" 20
 log "GPU ready:"; nvidia-smi -L
 
 # --- start the apiApp (compile authority) on :5000 -------------------------------------------
