@@ -141,13 +141,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// <summary>
         /// Phase 1: Copy all vertices matching the vertex filter to the new subgraph
         /// </summary>
-        private Dictionary<int, int> CopyVerticesWithFilter(Fallen8 subgraph, GraphElementPattern vertexFilter)
+        private Dictionary<int, int> CopyVerticesWithFilter(Fallen8 subgraph, Delegates.VertexFilter vertexFilter)
         {
             var vertexIdMapping = new Dictionary<int, int>();
 
             // Use LINQ to filter vertices directly
             var validVertices = _fallen8.GetAllVertices()
-                .Where(v => vertexFilter == null || MatchesAGraphElementPattern(v, vertexFilter))
+                .Where(v => vertexFilter == null || vertexFilter(v))
                 .ToList();
 
             if (validVertices.Count == 0)
@@ -200,7 +200,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// </summary>
         private int CopyEdgesWithFilter(
             Fallen8 subgraph,
-            GraphElementPattern edgeFilter,
+            Delegates.EdgeFilter edgeFilter,
             Dictionary<int, int> vertexIdMapping)
         {
 
@@ -209,7 +209,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             var allEdges = _fallen8.GetAllEdges().Where(_ =>
                 vertexIdMapping.ContainsKey(_.SourceVertex.Id)
                 && vertexIdMapping.ContainsKey(_.TargetVertex.Id)
-                && MatchesAGraphElementPattern(_, edgeFilter));
+                && (edgeFilter == null || edgeFilter(_)));
 
             // Build a list of edge definitions that pass all filters
             var createEdgesTransaction = new CreateEdgesTransaction();
@@ -707,39 +707,12 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             txInfo.WaitUntilFinished();
         }
 
-        /// <summary>
-        /// Check if a vertex matches a vertex pattern
-        /// </summary>
-        private bool MatchesAGraphElementPattern(AGraphElementModel vertex, GraphElementPattern pattern)
-        {
-            // If pattern is null, match everything
-            if (pattern == null)
-            {
-                return true;
-            }
-
-            // Check GraphElement filter (general graph element filter)
-            if (pattern.GraphElement != null)
-            {
-                return pattern.GraphElement(vertex);
-            }
-
-            // Both filters must pass (if they exist)
-            return true;
-        }
-
         private bool MatchesVertexPattern(VertexModel vertex, VertexPattern pattern)
         {
             // If pattern is null, match everything
             if (pattern == null)
             {
                 return true;
-            }
-
-            // Check GraphElement filter (general graph element filter)
-            if (pattern.GraphElement != null && !pattern.GraphElement(vertex))
-            {
-                return false;
             }
 
             // Check Vertex-specific filter
@@ -763,12 +736,6 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             }
 
             if (!pattern.Direction.Equals(direction))
-            {
-                return false;
-            }
-
-            // Check graph filter
-            if (pattern.GraphElement != null && !pattern.GraphElement(edge))
             {
                 return false;
             }

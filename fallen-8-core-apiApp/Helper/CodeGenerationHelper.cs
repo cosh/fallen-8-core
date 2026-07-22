@@ -468,7 +468,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 return semanticError;
             }
 
-            if (semantic.GraphElementFilter != null && !String.IsNullOrWhiteSpace(specification.VertexFilter))
+            if (semantic.VertexFilter != null && !String.IsNullOrWhiteSpace(specification.VertexFilter))
             {
                 return "semantic.minScore and a vertexFilter fragment own the same pre-filter slot; use one.";
             }
@@ -481,23 +481,13 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 AdditionalInformation = specification.AdditionalInformation
             };
 
-            // Optional vertex pre-filter (only the GraphElement delegate is read for a filter).
-            if (!String.IsNullOrWhiteSpace(specification.VertexFilter))
-            {
-                var vertexPreFilter = new VertexPattern();
-                def.VertexFilter = vertexPreFilter;
-                RegisterSlot(slots, "Delegates.GraphElementFilter", specification.VertexFilter,
-                    d => vertexPreFilter.GraphElement = (Delegates.GraphElementFilter)d);
-            }
+            // Optional vertex pre-filter.
+            RegisterSlot(slots, "Delegates.VertexFilter", specification.VertexFilter,
+                d => def.VertexFilter = (Delegates.VertexFilter)d);
 
             // Optional edge pre-filter.
-            if (!String.IsNullOrWhiteSpace(specification.EdgeFilter))
-            {
-                var edgePreFilter = new EdgePattern();
-                def.EdgeFilter = edgePreFilter;
-                RegisterSlot(slots, "Delegates.GraphElementFilter", specification.EdgeFilter,
-                    d => edgePreFilter.GraphElement = (Delegates.GraphElementFilter)d);
-            }
+            RegisterSlot(slots, "Delegates.EdgeFilter", specification.EdgeFilter,
+                d => def.EdgeFilter = (Delegates.EdgeFilter)d);
 
             // Pattern sequence.
             if (specification.Patterns != null && specification.Patterns.Count > 0)
@@ -521,9 +511,9 @@ namespace NoSQL.GraphDB.Core.App.Helper
             }
 
             // The declarative pre-filter fills the (verified-empty) vertex pre-filter slot.
-            if (semantic.GraphElementFilter != null)
+            if (semantic.VertexFilter != null)
             {
-                def.VertexFilter = new VertexPattern { GraphElement = semantic.GraphElementFilter };
+                def.VertexFilter = semantic.VertexFilter;
             }
 
             definition = def;
@@ -544,8 +534,6 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 case "vertex":
                     {
                         var vertexPattern = new VertexPattern { PatternName = patternSpec.PatternName };
-                        RegisterSlot(slots, "Delegates.GraphElementFilter", patternSpec.GraphElementFilter,
-                            d => vertexPattern.GraphElement = (Delegates.GraphElementFilter)d);
                         RegisterSlot(slots, "Delegates.VertexFilter", patternSpec.VertexFilter,
                             d => vertexPattern.Vertex = (Delegates.VertexFilter)d);
                         patterns.Add(vertexPattern);
@@ -611,8 +599,6 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
         private static void RegisterEdgeSlots(EdgePattern edgePattern, PatternSpecification patternSpec, List<GeneratedDelegateSlot> slots)
         {
-            RegisterSlot(slots, "Delegates.GraphElementFilter", patternSpec.GraphElementFilter,
-                d => edgePattern.GraphElement = (Delegates.GraphElementFilter)d);
             RegisterSlot(slots, "Delegates.EdgePropertyFilter", patternSpec.EdgePropertyFilter,
                 d => edgePattern.EdgeProperty = (Delegates.EdgePropertyFilter)d);
             RegisterSlot(slots, "Delegates.EdgeFilter", patternSpec.EdgeFilter,

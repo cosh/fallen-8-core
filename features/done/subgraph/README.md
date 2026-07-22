@@ -60,11 +60,11 @@ path-finding API. A null/empty fragment matches everything.
 PUT /subgraph
 {
   "name": "friends-of-alice",
-  "vertexFilter": "return (ge) => ge.Label == \"person\";",
+  "vertexFilter": "return (v) => v.Label == \"person\";",
   "patterns": [
-    { "type": "Vertex", "patternName": "start", "graphElementFilter": "return (ge) => ge.Label == \"person\";" },
+    { "type": "Vertex", "patternName": "start", "vertexFilter": "return (v) => v.Label == \"person\";" },
     { "type": "Edge",   "patternName": "rel", "direction": "OutgoingEdge", "edgePropertyFilter": "return (p) => p == \"knows\";" },
-    { "type": "Vertex", "patternName": "end", "graphElementFilter": "return (ge) => ge.Label == \"person\";" }
+    { "type": "Vertex", "patternName": "end", "vertexFilter": "return (v) => v.Label == \"person\";" }
   ]
 }
 ```

@@ -54,7 +54,9 @@ namespace NoSQL.GraphDB.Core.App.Helper
         /// <summary>
         ///   delegateKind -> (delegate return type, compiled-in-subgraph-context). The five path
         ///   kinds validate in the path wrapper's environment, GraphElementFilter in the subgraph
-        ///   wrapper's (see CodeGenerationHelper.CreateSource / BuildProviderSource).
+        ///   wrapper's (see CodeGenerationHelper.CreateSource / BuildProviderSource). No REST slot
+        ///   produces a GraphElementFilter anymore (feature subgraph-typed-filters); the kind stays
+        ///   validatable for the NL-assist eval pipeline - removal trigger in that feature's spec.
         /// </summary>
         private static readonly Dictionary<String, (String ReturnType, Boolean SubGraph)> _kinds =
             new Dictionary<String, (String, Boolean)>(StringComparer.OrdinalIgnoreCase)

@@ -38,7 +38,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// representing a single hop connection from one vertex to another.
     /// </para>
     /// </remarks>
-    public class EdgePattern : GraphElementPattern
+    public class EdgePattern : APattern
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="EdgePattern"/> class.

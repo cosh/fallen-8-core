@@ -98,7 +98,7 @@ namespace NoSQL.GraphDB.Tests
                 Description = "test subgraph template",
                 SubGraph = new StoredSubGraphQueryBlock
                 {
-                    VertexFilter = "return (ge) => ge.Label == \"person\";"
+                    VertexFilter = "return (v) => v.Label == \"person\";"
                 }
             };
         }
@@ -184,7 +184,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 Name = "mismatched",
                 Kind = "Path",
-                SubGraph = new StoredSubGraphQueryBlock { VertexFilter = "return (ge) => true;" }
+                SubGraph = new StoredSubGraphQueryBlock { VertexFilter = "return (v) => true;" }
             };
 
             Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)));
@@ -278,7 +278,7 @@ namespace NoSQL.GraphDB.Tests
         public void Register_SubGraphQueryWithSyntaxError_Returns400WithDiagnostics()
         {
             var spec = ValidSubGraphSpecification("broken-subgraph");
-            spec.SubGraph.VertexFilter = "return (ge) => ge.;";
+            spec.SubGraph.VertexFilter = "return (v) => v.;";
 
             var result = _controller.RegisterStoredQuery(spec);
 

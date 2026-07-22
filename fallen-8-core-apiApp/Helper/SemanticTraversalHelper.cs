@@ -49,11 +49,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
     {
         internal TraversalContext Context = TraversalContext.Empty;
 
-        /// <summary>The declarative vertex filter (path slot), or null.</summary>
+        /// <summary>The declarative vertex filter (path filter slot / subgraph pre-filter slot), or null.</summary>
         internal Delegates.VertexFilter VertexFilter;
-
-        /// <summary>The declarative pre-filter (subgraph slot), or null.</summary>
-        internal Delegates.GraphElementFilter GraphElementFilter;
 
         /// <summary>The declarative vertex cost (path slot), or null.</summary>
         internal Delegates.VertexCost VertexCost;
@@ -202,7 +199,6 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 }
 
                 result.VertexFilter = vertex => Passes(vertex);
-                result.GraphElementFilter = element => Passes(element);
             }
             else if (specification.CostBySimilarity)
             {
@@ -211,7 +207,6 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 Boolean HasEmbedding(AGraphElementModel element) => context.TrySimilarity(element, out _);
 
                 result.VertexFilter = vertex => HasEmbedding(vertex);
-                result.GraphElementFilter = element => HasEmbedding(element);
             }
 
             if (specification.CostBySimilarity)

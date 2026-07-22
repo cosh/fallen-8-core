@@ -656,8 +656,8 @@ namespace NoSQL.GraphDB.Tests
                 }, "StoredPathQueryBlock"),
                 (new StoredSubGraphQueryBlock
                 {
-                    VertexFilter = "return (ge) => ge.Label == \"person\";",
-                    EdgeFilter = "return (ge) => ge.Label == \"knows\";",
+                    VertexFilter = "return (v) => v.Label == \"person\";",
+                    EdgeFilter = "return (e) => e.Label == \"knows\";",
                     Patterns = new List<PatternSpecification>
                     {
                         new PatternSpecification { Type = "Vertex", PatternName = "start" }
@@ -924,11 +924,11 @@ namespace NoSQL.GraphDB.Tests
             {
                 Name = "friends-of-alice",
                 AdditionalInformation = new Dictionary<string, string> { { "owner", "alice" } },
-                VertexFilter = "return (ge) => ge.Label == \"person\";",
+                VertexFilter = "return (v) => v.Label == \"person\";",
                 EdgeFilter = null, // exercises default null-writing
                 Patterns = new List<PatternSpecification>
                 {
-                    new PatternSpecification { Type = "Vertex", PatternName = "start", GraphElementFilter = "return (ge) => true;" },
+                    new PatternSpecification { Type = "Vertex", PatternName = "start", VertexFilter = "return (v) => true;" },
                     new PatternSpecification { Type = "Edge", PatternName = "rel", Direction = "OutgoingEdge", EdgePropertyFilter = "return (p) => p == \"knows\";" }
                 }
             };

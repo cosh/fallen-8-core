@@ -58,7 +58,7 @@ namespace NoSQL.GraphDB.Tests
                         PatternName = "p",
                         // The unique label makes the generated source (and thus the compiled
                         // assembly) distinct from any other test's.
-                        GraphElementFilter = "return (ge) => ge.Label == \"" + uniqueLabel + "\";"
+                        VertexFilter = "return (v) => v.Label == \"" + uniqueLabel + "\";"
                     }
                 }
             };
@@ -67,8 +67,8 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNull(error, "the probe filter should compile: " + error);
 
             var vertexPattern = (VertexPattern)definition.Pattern[0];
-            Delegate compiledFilter = vertexPattern.GraphElement;
-            Assert.IsNotNull(compiledFilter, "the graph-element filter should have been compiled");
+            Delegate compiledFilter = vertexPattern.Vertex;
+            Assert.IsNotNull(compiledFilter, "the vertex filter should have been compiled");
 
             // The delegate's method lives in the generated, collectible assembly.
             var generatedType = compiledFilter.Method.DeclaringType;

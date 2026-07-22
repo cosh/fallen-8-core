@@ -59,7 +59,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { PatternName = "p", GraphElement = ge => ge.Label == "person" }
+                    new VertexPattern { PatternName = "p", Vertex = v => v.Label == "person" }
                 }
             };
         }

@@ -62,7 +62,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { PatternName = "p", GraphElement = ge => ge.Label == "person" }
+                    new VertexPattern { PatternName = "p", Vertex = v => v.Label == "person" }
                 }
             };
         }
@@ -175,7 +175,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "one",
                 Patterns = new List<PatternSpecification>
                 {
-                    new PatternSpecification { Type = "Vertex", PatternName = "p", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                    new PatternSpecification { Type = "Vertex", PatternName = "p", VertexFilter = "return (v) => v.Label == \"person\";" }
                 }
             };
             var spec2 = new SubGraphSpecification
@@ -183,7 +183,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "two",
                 Patterns = new List<PatternSpecification>
                 {
-                    new PatternSpecification { Type = "Vertex", PatternName = "p", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                    new PatternSpecification { Type = "Vertex", PatternName = "p", VertexFilter = "return (v) => v.Label == \"person\";" }
                 }
             };
 

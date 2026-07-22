@@ -56,9 +56,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     ///     Name = "FindFriendsOfFriends",
     ///     Pattern = new List&lt;APattern&gt;
     ///     {
-    ///         new VertexPattern { PatternName = "person", Label = label => label == "Person" },
-    ///         new EdgePattern { PatternName = "knows", Label = label => label == "KNOWS", MinLength = 2, MaxLength = 2 },
-    ///         new VertexPattern { PatternName = "friendOfFriend", Label = label => label == "Person" }
+    ///         new VertexPattern { PatternName = "person", Vertex = v => v.Label == "Person" },
+    ///         new VariableLengthEdgePattern { PatternName = "knows", Edge = e => e.Label == "KNOWS", MinLength = 2, MaxLength = 2 },
+    ///         new VertexPattern { PatternName = "friendOfFriend", Vertex = v => v.Label == "Person" }
     ///     },
     ///     AdditionalInformation = new Dictionary&lt;string, string&gt;
     ///     {
@@ -109,8 +109,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// Gets or sets the vertex filter for initial subgraph population.
         /// </summary>
         /// <value>
-        /// A <see cref="GraphElementPattern"/> that specifies which vertices should be copied from the source graph
-        /// to the subgraph before pattern evaluation. If null, all vertices will be copied.
+        /// A <see cref="Delegates.VertexFilter"/> that specifies which vertices should be copied from the
+        /// source graph to the subgraph before pattern evaluation. If null, all vertices will be copied.
         /// </value>
         /// <remarks>
         /// <para>
@@ -123,7 +123,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// working set before pattern matching begins.
         /// </para>
         /// </remarks>
-        public GraphElementPattern VertexFilter
+        public Delegates.VertexFilter VertexFilter
         {
             get; set;
         }
@@ -132,8 +132,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// Gets or sets the edge filter for initial subgraph population.
         /// </summary>
         /// <value>
-        /// A <see cref="GraphElementPattern"/> that specifies which edges should be copied from the source graph
-        /// to the subgraph before pattern evaluation. If null, all edges will be copied (as long as both
+        /// A <see cref="Delegates.EdgeFilter"/> that specifies which edges should be copied from the source
+        /// graph to the subgraph before pattern evaluation. If null, all edges will be copied (as long as both
         /// source and target vertices are in the subgraph).
         /// </value>
         /// <remarks>
@@ -147,7 +147,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// improving both performance and memory usage.
         /// </para>
         /// </remarks>
-        public GraphElementPattern EdgeFilter
+        public Delegates.EdgeFilter EdgeFilter
         {
             get; set;
         }

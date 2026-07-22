@@ -5208,7 +5208,7 @@
           "SubGraph"
         ],
         "summary": "Creates and registers a new subgraph from a specification.",
-        "description": "Filter and pattern predicates are C# code fragments prefixed with \"return\", compiled\r\nat runtime. A null/empty fragment matches everything.\r\n\r\nSample request:\r\n\r\n    PUT /subgraph\r\n    {\r\n       \"name\": \"friends-of-alice\",\r\n       \"vertexFilter\": \"return (ge) =&gt; ge.Label == \\\"person\\\";\",\r\n       \"patterns\": [\r\n         { \"type\": \"Vertex\", \"patternName\": \"start\", \"graphElementFilter\": \"return (ge) =&gt; ge.Label == \\\"person\\\";\" },\r\n         { \"type\": \"Edge\", \"patternName\": \"rel\", \"direction\": \"OutgoingEdge\", \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\" },\r\n         { \"type\": \"Vertex\", \"patternName\": \"end\", \"graphElementFilter\": \"return (ge) =&gt; ge.Label == \\\"person\\\";\" }\r\n       ]\r\n    }",
+        "description": "Filter and pattern predicates are C# code fragments prefixed with \"return\", compiled\r\nat runtime. A null/empty fragment matches everything.\r\n\r\nSample request:\r\n\r\n    PUT /subgraph\r\n    {\r\n       \"name\": \"friends-of-alice\",\r\n       \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\",\r\n       \"patterns\": [\r\n         { \"type\": \"Vertex\", \"patternName\": \"start\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" },\r\n         { \"type\": \"Edge\", \"patternName\": \"rel\", \"direction\": \"OutgoingEdge\", \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\" },\r\n         { \"type\": \"Vertex\", \"patternName\": \"end\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" }\r\n       ]\r\n    }",
         "parameters": [
           {
             "name": "fromSubGraph",
@@ -7655,14 +7655,6 @@
             "description": "Optional name used to identify this pattern element in the definition.",
             "example": "start"
           },
-          "graphElementFilter": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "description": "Filter applied to any graph element (vertex or edge). The lambda receives an\r\n`AGraphElementModel`.",
-            "example": "return (ge) =&gt; ge.Label == \"person\";"
-          },
           "vertexFilter": {
             "type": [
               "null",
@@ -8676,16 +8668,16 @@
               "null",
               "string"
             ],
-            "description": "Optional pre-filter selecting which vertices are copied into the subgraph.\r\nNull or empty copies all vertices. The lambda receives an\r\n`AGraphElementModel`.",
-            "example": "return (ge) =&gt; ge.Label == \"person\";"
+            "description": "Optional pre-filter selecting which vertices are copied into the subgraph.\r\nNull or empty copies all vertices. The lambda receives a `VertexModel`.",
+            "example": "return (v) =&gt; v.Label == \"person\";"
           },
           "edgeFilter": {
             "type": [
               "null",
               "string"
             ],
-            "description": "Optional pre-filter selecting which edges are copied into the subgraph. Null\r\nor empty copies all edges whose endpoints were copied. The lambda receives an\r\n`AGraphElementModel`.",
-            "example": "return (ge) =&gt; ge.Label == \"knows\";"
+            "description": "Optional pre-filter selecting which edges are copied into the subgraph. Null\r\nor empty copies all edges whose endpoints were copied. The lambda receives an\r\n`EdgeModel`.",
+            "example": "return (e) =&gt; e.Label == \"knows\";"
           },
           "patterns": {
             "type": [
@@ -8713,13 +8705,13 @@
         "description": "Specification for creating a subgraph by pattern matching against the graph.",
         "example": {
           "name": "friends-of-alice",
-          "vertexFilter": "return (ge) =&gt; ge.Label == \"person\";",
-          "edgeFilter": "return (ge) =&gt; ge.Label == \"knows\";",
+          "vertexFilter": "return (v) =&gt; v.Label == \"person\";",
+          "edgeFilter": "return (e) =&gt; e.Label == \"knows\";",
           "patterns": [
             {
               "type": "Vertex",
               "patternName": "start",
-              "graphElementFilter": "return (ge) =&gt; ge.Label == \"person\";"
+              "vertexFilter": "return (v) =&gt; v.Label == \"person\";"
             },
             {
               "type": "Edge",
@@ -8730,7 +8722,7 @@
             {
               "type": "Vertex",
               "patternName": "end",
-              "graphElementFilter": "return (ge) =&gt; ge.Label == \"person\";"
+              "vertexFilter": "return (v) =&gt; v.Label == \"person\";"
             }
           ]
         }

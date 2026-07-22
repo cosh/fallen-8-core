@@ -175,7 +175,6 @@ export function describeStoredSpecification(
         ? ` '${pattern.patternName}'`
         : "";
     const fragments = [
-      pattern.graphElementFilter,
       pattern.vertexFilter,
       pattern.edgeFilter,
       pattern.edgePropertyFilter,

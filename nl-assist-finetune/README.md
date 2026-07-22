@@ -105,6 +105,10 @@ Either way, `ollama list` should succeed and the server answers on `http://local
 
 ## Phase 2 — generate the dataset
 
+**First, drain [RETRAIN-LOG.md](RETRAIN-LOG.md):** apply every PENDING entry's dataset and
+prompt changes before generating, and close the entries with the resulting model version —
+that log is where features record what this model has not been trained for yet.
+
 Templated intents grounded in the delegate contract (`type-model.json`, `snippets.ts`,
 `kinds.ts`), covering all six kinds, with the built-in-vs-user-property contrast pairs,
 noisy (typo'd) intents, and the same fragment spelled per parameter name (shape invariance)

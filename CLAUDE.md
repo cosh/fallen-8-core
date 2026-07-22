@@ -110,6 +110,15 @@ Every non-trivial feature follows the same lifecycle so work is visible and revi
 4. **Pull request** — open a PR from the feature branch to `main` that references the issue
    (`Closes #<n>`). Keep it a draft while implementing; mark ready for review when the
    plan's phases are done, the build is clean, and tests pass.
+5. **Cross-feature impact check (mandatory)** — every feature sweeps the other layers and
+   features it may affect (engine ↔ REST contract ↔ OpenAPI snapshot ↔ Studio UI ↔
+   NL-assist dataset/eval ↔ feature READMEs ↔ persisted recipes/stored queries) and records
+   the findings in its spec under "Impact on existing features". When another feature's
+   assets are affected — e.g. an engine contract change that stales the Studio UI or the
+   fine-tune dataset — do not silently adapt or ignore them: surface the impact and ask
+   about next steps with honest options. Impacts that need an NL-assist retrain are not
+   re-litigated per feature: append an entry to `nl-assist-finetune/RETRAIN-LOG.md` (the
+   next fine-tune run drains all pending entries).
 
 Commit messages and PR descriptions are honest and concise, and do not reference the
 assistant or add AI-generated trailers.

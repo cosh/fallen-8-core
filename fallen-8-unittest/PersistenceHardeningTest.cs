@@ -509,7 +509,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Patterns = new List<PatternSpecification>
                 {
-                    new PatternSpecification { Type = "Vertex", PatternName = "p", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                    new PatternSpecification { Type = "Vertex", PatternName = "p", VertexFilter = "return (v) => v.Label == \"person\";" }
                 }
             };
         }

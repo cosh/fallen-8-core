@@ -86,9 +86,9 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Patterns = new List<PatternSpecification>
                 {
-                    new PatternSpecification { Type = "Vertex", PatternName = "p1", GraphElementFilter = "return (ge) => ge.Label == \"person\";" },
+                    new PatternSpecification { Type = "Vertex", PatternName = "p1", VertexFilter = "return (v) => v.Label == \"person\";" },
                     new PatternSpecification { Type = "Edge", PatternName = "knows", Direction = "OutgoingEdge", EdgePropertyFilter = "return (p) => p == \"knows\";" },
-                    new PatternSpecification { Type = "Vertex", PatternName = "p2", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                    new PatternSpecification { Type = "Vertex", PatternName = "p2", VertexFilter = "return (v) => v.Label == \"person\";" }
                 }
             };
         }
@@ -100,7 +100,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Patterns = new List<PatternSpecification>
                 {
-                    new PatternSpecification { Type = "Vertex", PatternName = "p", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                    new PatternSpecification { Type = "Vertex", PatternName = "p", VertexFilter = "return (v) => v.Label == \"person\";" }
                 }
             };
         }
@@ -118,8 +118,8 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Patterns = new List<PatternSpecification>
                 {
-                    new PatternSpecification { Type = "Vertex", PatternName = "a", GraphElementFilter = "return (ge) => ge.Label == \"person\";" },
-                    new PatternSpecification { Type = "Vertex", PatternName = "b", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                    new PatternSpecification { Type = "Vertex", PatternName = "a", VertexFilter = "return (v) => v.Label == \"person\";" },
+                    new PatternSpecification { Type = "Vertex", PatternName = "b", VertexFilter = "return (v) => v.Label == \"person\";" }
                 }
             };
         }
@@ -169,7 +169,7 @@ namespace NoSQL.GraphDB.Tests
         public void Create_InvalidFilterCode_Returns400WithDiagnostics()
         {
             var spec = AllPersons("bad");
-            spec.Patterns[0].GraphElementFilter = "return (ge) => ge.Nope == 1;"; // will not compile
+            spec.Patterns[0].VertexFilter = "return (v) => v.Nope == 1;"; // will not compile
 
             var result = _controller.CreateSubGraph(spec).Result;
 
@@ -302,7 +302,7 @@ namespace NoSQL.GraphDB.Tests
             // a syntactically-valid pattern that matches nothing is always a valid empty result (201),
             // never a 400. 400 is reserved for a structurally-invalid pattern; 409 for a quota breach.
             var spec = AllPersons("empty-match");
-            spec.Patterns[0].GraphElementFilter = "return (ge) => ge.Label == \"nonexistent\";";
+            spec.Patterns[0].VertexFilter = "return (v) => v.Label == \"nonexistent\";";
 
             var result = _controller.CreateSubGraph(spec).Result;
 
