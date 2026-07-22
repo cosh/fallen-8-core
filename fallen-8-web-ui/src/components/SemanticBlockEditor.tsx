@@ -184,7 +184,7 @@ export function SemanticBlockEditor({
                   data-testid={`${idPrefix}-sem-text-unavailable`}
                 >
                   {providerEnabled === null
-                    ? "provider status unknown — Compute the Graph shape (Analytics), or paste a vector."
+                    ? "provider status not reported by this server — paste a vector instead."
                     : "the embedding provider is off on this instance — paste a vector instead."}
                 </div>
               )}

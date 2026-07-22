@@ -217,6 +217,35 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue((await ReadJson(after)).GetProperty("embedding").GetProperty("loaded").GetBoolean());
         }
 
+        [TestMethod]
+        public async Task Status_SurfacesProviderState_OnTheCheapDiscoverySurface()
+        {
+            // /status (anonymous, polled by clients) carries the same block as /statistics,
+            // so learning the provider state never requires the budgeted graph-shape pass.
+            using (var factory = new ProviderFactory(enabled: false))
+            using (var client = factory.CreateClient())
+            {
+                using var response = await client.GetAsync("/status");
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+                var embedding = (await ReadJson(response)).GetProperty("embedding");
+                Assert.IsFalse(embedding.GetProperty("enabled").GetBoolean());
+                Assert.IsFalse(embedding.GetProperty("loaded").GetBoolean());
+            }
+
+            using (var factory = new ProviderFactory(enabled: true))
+            using (var client = factory.CreateClient())
+            {
+                using var response = await client.GetAsync("/status");
+                var embedding = (await ReadJson(response)).GetProperty("embedding");
+                Assert.IsTrue(embedding.GetProperty("enabled").GetBoolean());
+                Assert.AreEqual("fake-model", embedding.GetProperty("modelName").GetString());
+                Assert.AreEqual(Dim, embedding.GetProperty("dimension").GetInt32());
+                Assert.AreEqual("Cosine", embedding.GetProperty("intendedMetric").GetString());
+                Assert.IsFalse(embedding.GetProperty("loaded").GetBoolean(),
+                    "/status must never trigger the lazy load");
+            }
+        }
+
         #endregion
 
         #region endpoints

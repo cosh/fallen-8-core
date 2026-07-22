@@ -6426,7 +6426,7 @@
             "example": false
           }
         },
-        "description": "The active embedding provider and its declared model identity (feature\r\n    embedding-provider). Cheap config/state reads only - statistics never loads a model."
+        "description": "The active embedding provider and its declared model identity (feature\r\n    embedding-provider). Cheap config/state reads only - surfacing it never loads a model.\r\n    Carried by both GET /status (the cheap discovery surface) and GET /statistics (the\r\n    full snapshot)."
       },
       "EmbeddingSearchSpecification": {
         "required": [
@@ -8403,6 +8403,10 @@
             "type": "boolean",
             "description": "True when the request that produced this status carried a valid credential\r\n(see bool StatusREST.ApiKeyRequired for how clients combine the two).",
             "example": false
+          },
+          "embedding": {
+            "description": "The embedding provider state (feature embedding-provider) — here on the cheap\r\ndiscovery surface because it is a config read, not a graph pass; null only when\r\nthe host wired no provider. See EmbeddingProviderStatsREST.",
+            "$ref": "#/components/schemas/EmbeddingProviderStatsREST"
           }
         },
         "description": "Represents the current status of the Fallen-8 database",

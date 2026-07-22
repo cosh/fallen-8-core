@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { InstanceConfig } from "../src/instances/types";
 import type {
   EmbeddingSearchSpecification,
-  GraphStatisticsREST,
   PluginSpecification,
   StatusREST,
   VectorSearchResultREST,
@@ -48,21 +47,10 @@ const STATUS: StatusREST = {
   availableServicePlugins: [],
 };
 
-function statsWithProvider(enabled: boolean): GraphStatisticsREST {
+// Provider state rides /status (feature embedding-out-of-box), same mock as the inventory.
+function statusWithProvider(enabled: boolean): StatusREST {
   return {
-    vertexCount: 0,
-    edgeCount: 0,
-    vertexLabels: { top: [], distinctTotal: 0 },
-    edgeLabels: { top: [], distinctTotal: 0 },
-    inDegree: { min: 0, max: 0, mean: 0, p50: 0, p90: 0, p99: 0 },
-    outDegree: { min: 0, max: 0, mean: 0, p50: 0, p90: 0, p99: 0 },
-    totalDegree: { min: 0, max: 0, mean: 0, p50: 0, p90: 0, p99: 0 },
-    propertyKeys: { top: [], distinctTotal: 0 },
-    indices: [],
-    memory: { processWorkingSetBytes: 0, gcHeapBytes: 0, gcLastHeapSizeBytes: 0, gcFragmentedBytes: 0 },
-    computedInMs: 1,
-    sampled: false,
-    sampleStride: 1,
+    ...STATUS,
     embedding: {
       enabled,
       backend: "Onnx",
@@ -78,7 +66,7 @@ function statsWithProvider(enabled: boolean): GraphStatisticsREST {
 function renderScreen(providerEnabled?: boolean) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (providerEnabled !== undefined) {
-    client.setQueryData(["local", "statistics"], statsWithProvider(providerEnabled));
+    getStatusMock.mockResolvedValue(statusWithProvider(providerEnabled));
   }
   return render(
     <QueryClientProvider client={client}>

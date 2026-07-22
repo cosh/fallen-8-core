@@ -3,7 +3,17 @@
 Text-in workflows for Fallen-8: a capability-gated, lazily-loaded embedding provider in the
 apiApp behind `Microsoft.Extensions.AI.IEmbeddingGenerator<string, Embedding<float>>`, with
 three interchangeable MIT backends. The engine (`fallen-8-core`) gains no model runtime —
-off by default, the deployment stays model-free and `docker compose up` is unchanged.
+a bare `dotnet run` stays model-free with the provider off.
+
+## Out of the box (docker compose)
+
+The compose environment enables the provider by default (feature embedding-out-of-box):
+the Ollama sidecar it already ships pulls **bge-m3** (MIT, 1024-dim, Cosine) and the
+`fallen8` service is wired to it, so `npm run env:up` gives working `/embedding/*`
+endpoints, semantic search and `queryText` traversal with zero configuration. Opt out
+with `F8_EMBEDDINGS=false` (skips the model pull, provider answers 403 again). The env
+block in `docker-compose.yml` is the reference for swapping the model — ModelName and
+Dimension must match what the sidecar serves.
 
 ## Configuration (`Fallen8:Embedding`)
 
@@ -92,8 +102,11 @@ curl -sf -X POST http://localhost:5000/path/1/to/9 \
 
 ## Ops
 
-- `GET /statistics` → `embedding: { enabled, backend, modelName, modelVersion, dimension,
-  intendedMetric, loaded }` — reading it never triggers the lazy load.
+- `GET /status` AND `GET /statistics` → `embedding: { enabled, backend, modelName,
+  modelVersion, dimension, intendedMetric, loaded }` — reading it never triggers the lazy
+  load. `/status` is the cheap discovery surface (feature embedding-out-of-box): clients
+  learn the provider state without the budgeted graph-shape pass, and F8 Studio gates its
+  text-in controls on it.
 - Live smokes per backend: `fallen-8-unittest/EmbeddingBackendSmokeTest.cs` (opt-in, repo
   gated-test pattern; set `F8_TEST_ONNX_*` / `F8_TEST_GGUF_*` / `F8_TEST_OLLAMA_*`).
 - Publish-size note: `Microsoft.ML.OnnxRuntime` and `LLamaSharp.Backend.Cpu` ship native

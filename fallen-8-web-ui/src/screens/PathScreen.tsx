@@ -16,7 +16,7 @@ import {
   semanticOwnsVertexFilter,
   type SemanticDraft,
 } from "../lib/semantic";
-import { embeddingProvider, shapeSuggestions, useGraphShape } from "../state/graphShape";
+import { shapeSuggestions, useEmbeddingProvider, useGraphShape } from "../state/graphShape";
 import { SemanticBlockEditor } from "../components/SemanticBlockEditor";
 import { DelegateSlot } from "../delegate/DelegateSlot";
 import {
@@ -44,7 +44,7 @@ export function PathScreen() {
   const navigate = useNavigate();
   const shape = useGraphShape(instance).data;
   const suggestions = shapeSuggestions(shape);
-  const provider = embeddingProvider(shape);
+  const provider = useEmbeddingProvider(instance);
   const providerEnabled = provider ? provider.enabled : null;
   const [showAdvanced, setShowAdvanced] = useState(
     Boolean(

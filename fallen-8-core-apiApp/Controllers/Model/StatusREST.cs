@@ -144,5 +144,15 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   The embedding provider state (feature embedding-provider) — here on the cheap
+        ///   discovery surface because it is a config read, not a graph pass; null only when
+        ///   the host wired no provider. See <see cref="EmbeddingProviderStatsREST"/>.
+        /// </summary>
+        public EmbeddingProviderStatsREST Embedding
+        {
+            get; set;
+        }
     }
 }

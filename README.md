@@ -78,8 +78,10 @@ npm run env:status  # Health of the whole environment
 > `Remove-Item Env:NAME` clears it) — and chain commands with `;`, not `&&`. A few `.sh`
 > helpers are bash; run them with `bash script.sh` (Git for Windows ships `bash`).
 
-**On first start** the Ollama container pulls its two models — `phi4-mini` (base) and
-`phi4-f8-mini` (the fine-tune, the UI default) — straight into the `f8-ollama-models` volume.
+**On first start** the Ollama container pulls its models — `phi4-mini` (base),
+`phi4-f8-mini` (the fine-tune, the UI default) and `bge-m3` (the embedding model: text-in
+embeddings, semantic search and GraphRAG work out of the box; opt out with
+`F8_EMBEDDINGS=false`) — straight into the `f8-ollama-models` volume.
 That is a few GB, so it takes a few minutes on the first `env:up`; watch it with `npm run
 env:logs`. The F8 API and Studio are up immediately; NL assist starts answering once the
 pull finishes. Later starts reuse the cached models, so they are instant and need no network.

@@ -6,7 +6,7 @@ import type { InstanceConfig } from "../src/instances/types";
 import type {
   EmbeddingWriteSpecification,
   EmbedElementSpecification,
-  GraphStatisticsREST,
+  StatusREST,
   VertexREST,
 } from "../src/api/types";
 
@@ -72,26 +72,17 @@ const ELEMENT: VertexREST = {
   ],
 };
 
-function statsWithProvider(enabled: boolean): GraphStatisticsREST {
+// Provider state rides the cheap /status surface (feature embedding-out-of-box).
+function statusWithProvider(enabled: boolean): StatusREST {
   return {
     vertexCount: 1,
     edgeCount: 0,
-    vertexLabels: { top: [], distinctTotal: 0 },
-    edgeLabels: { top: [], distinctTotal: 0 },
-    inDegree: { min: 0, max: 0, mean: 0, p50: 0, p90: 0, p99: 0 },
-    outDegree: { min: 0, max: 0, mean: 0, p50: 0, p90: 0, p99: 0 },
-    totalDegree: { min: 0, max: 0, mean: 0, p50: 0, p90: 0, p99: 0 },
-    propertyKeys: { top: [], distinctTotal: 0 },
+    usedMemory: 0,
     indices: [],
-    memory: {
-      processWorkingSetBytes: 0,
-      gcHeapBytes: 0,
-      gcLastHeapSizeBytes: 0,
-      gcFragmentedBytes: 0,
-    },
-    computedInMs: 1,
-    sampled: false,
-    sampleStride: 1,
+    availableIndexPlugins: [],
+    availablePathPlugins: [],
+    availableAnalyticsPlugins: [],
+    availableServicePlugins: [],
     embedding: {
       enabled,
       backend: "Onnx",
@@ -107,7 +98,7 @@ function statsWithProvider(enabled: boolean): GraphStatisticsREST {
 function renderScreen(providerEnabled: boolean | null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (providerEnabled !== null) {
-    client.setQueryData(["local", "statistics"], statsWithProvider(providerEnabled));
+    client.setQueryData(["local", "status"], statusWithProvider(providerEnabled));
   }
   return render(
     <QueryClientProvider client={client}>

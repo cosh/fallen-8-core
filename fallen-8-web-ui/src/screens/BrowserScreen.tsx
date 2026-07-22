@@ -28,8 +28,7 @@ import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 import { MutationsPanel } from "../components/MutationsPanel";
 import {
-  embeddingProvider,
-  useGraphShape,
+  useEmbeddingProvider,
   EMBEDDING_PROPERTY_PREFIX as EMBEDDING_PREFIX,
   EMBEDDING_MODEL_PROPERTY_PREFIX as EMBEDDING_MODEL_PREFIX,
 } from "../state/graphShape";
@@ -321,7 +320,7 @@ function EmbeddingsTab({
             {textUnavailable && (
               <div className="text-warn text-[11px]" data-testid="emb-text-unavailable">
                 {providerEnabled === null
-                  ? "provider status unknown — Compute the Graph shape (Analytics), or paste a vector."
+                  ? "provider status not reported by this server — paste a vector instead."
                   : "the embedding provider is off on this instance — paste a vector instead."}
               </div>
             )}
@@ -498,7 +497,7 @@ export function BrowserScreen() {
     enabled: false,
   });
 
-  const provider = embeddingProvider(useGraphShape(instance).data);
+  const provider = useEmbeddingProvider(instance);
   const providerEnabled = provider ? provider.enabled : null;
 
   const element = lookup.data ?? null;

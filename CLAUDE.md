@@ -59,8 +59,10 @@ dotnet run --project fallen-8-core-apiApp
   `VectorIndex` created with `embeddingName` is a derived projection maintained by the
   writer thread; the `semantic` block on `/path` and `/subgraph` supplies a query vector
   (embedded once, up front) to declarative filters/costs and to compiled fragments via the
-  `context` parameter. The optional text-in provider (`Fallen8:Embedding`, off by default)
-  lives in the apiApp only — never in the engine. The living docs are
+  `context` parameter. The optional text-in provider (`Fallen8:Embedding`) lives in the
+  apiApp only — never in the engine; a bare `dotnet run` has it off, the compose
+  environment wires it to the Ollama sidecar by default (`F8_EMBEDDINGS`), and clients
+  read its state from `GET /status`. The living docs are
   [features/done/element-embeddings/](features/done/element-embeddings/) and
   [features/done/embedding-provider/](features/done/embedding-provider/).
 

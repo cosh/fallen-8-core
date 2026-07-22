@@ -180,18 +180,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 ComputedInMs = stopwatch.Elapsed.TotalMilliseconds,
                 Sampled = stride > 1,
                 SampleStride = stride,
-                // Config/state reads only - surfacing the identity must never trigger the
-                // provider's lazy model load (feature embedding-provider FR-9).
-                Embedding = _embeddingProvider == null ? null : new EmbeddingProviderStatsREST
-                {
-                    Enabled = _embeddingProvider.IsEnabled,
-                    Backend = _embeddingProvider.Backend,
-                    ModelName = _embeddingProvider.Identity.Name,
-                    ModelVersion = _embeddingProvider.Identity.Version,
-                    Dimension = _embeddingProvider.Identity.Dimension,
-                    IntendedMetric = _embeddingProvider.Identity.IntendedMetric.ToString(),
-                    Loaded = _embeddingProvider.IsLoaded
-                }
+                Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider)
             };
         }
 

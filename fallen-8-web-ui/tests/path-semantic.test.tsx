@@ -4,9 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { InstanceConfig } from "../src/instances/types";
 import type {
-  GraphStatisticsREST,
   PathREST,
   PathSpecification,
+  StatusREST,
 } from "../src/api/types";
 import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 
@@ -35,21 +35,17 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
 
 import { PathScreen } from "../src/screens/PathScreen";
 
-function stats(enabled: boolean): GraphStatisticsREST {
+// Provider state rides /status (feature embedding-out-of-box).
+function status(enabled: boolean): StatusREST {
   return {
     vertexCount: 0,
     edgeCount: 0,
-    vertexLabels: { top: [], distinctTotal: 0 },
-    edgeLabels: { top: [], distinctTotal: 0 },
-    inDegree: { min: 0, max: 0, mean: 0, p50: 0, p90: 0, p99: 0 },
-    outDegree: { min: 0, max: 0, mean: 0, p50: 0, p90: 0, p99: 0 },
-    totalDegree: { min: 0, max: 0, mean: 0, p50: 0, p90: 0, p99: 0 },
-    propertyKeys: { top: [], distinctTotal: 0 },
+    usedMemory: 0,
     indices: [],
-    memory: { processWorkingSetBytes: 0, gcHeapBytes: 0, gcLastHeapSizeBytes: 0, gcFragmentedBytes: 0 },
-    computedInMs: 1,
-    sampled: false,
-    sampleStride: 1,
+    availableIndexPlugins: [],
+    availablePathPlugins: [],
+    availableAnalyticsPlugins: [],
+    availableServicePlugins: [],
     embedding: {
       enabled,
       backend: "Onnx",
@@ -64,7 +60,7 @@ function stats(enabled: boolean): GraphStatisticsREST {
 
 function renderScreen(providerEnabled = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["local", "statistics"], stats(providerEnabled));
+  client.setQueryData(["local", "status"], status(providerEnabled));
   return render(
     <QueryClientProvider client={client}>
       <PathScreen />
