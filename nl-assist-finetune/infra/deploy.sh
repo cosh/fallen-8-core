@@ -39,7 +39,7 @@ mkdir -p "$DOTNET_BUNDLE_EXTRACT_BASE_DIR" 2>/dev/null || true
 
 # Loud, debuggable failures - never exit silently. ERR fires on any set -e abort; F8_DEBUG=1 traces.
 step(){ echo "[deploy] $*"; }
-_on_err(){ echo "[deploy] ERROR: a command failed (exit $?) around line $LINENO - see above. Re-run with F8_DEBUG=1 for a full trace." >&2; }
+_on_err(){ echo "[deploy] ERROR: a command failed (exit $?) around line ${BASH_LINENO[0]} - see above. Re-run with F8_DEBUG=1 for a full trace." >&2; }
 trap _on_err ERR
 [ "${F8_DEBUG:-0}" = "1" ] && set -x
 
@@ -69,8 +69,12 @@ SSH_PUBKEY="$(cat "$SSH_PUBKEY_FILE")"
 # Ollama signing key (optional; enables the unattended push).
 OLLAMA_KEY_FILE="${OLLAMA_KEY_FILE:-$HOME/.ollama/id_ed25519}"
 
-# Restrict SSH to this machine's public IP unless overridden.
-ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-$(curl -fsS https://api.ipify.org 2>/dev/null | sed 's#$#/32#')}"
+# Restrict SSH to this machine's public IP unless overridden. Detect it in a way that CANNOT trip
+# 'set -euo pipefail': a bare `$(curl ... | sed)` aborts the whole deploy when curl fails (pipefail),
+# making the open-SSH fallback below unreachable. Capture with `|| true`, then fall back to open
+# (key-only) SSH if detection produced nothing.
+detected_ip="$(curl -fsS https://api.ipify.org 2>/dev/null || true)"
+ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-${detected_ip:+$detected_ip/32}}"
 ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-*}"
 [ "$ALLOWED_SSH_CIDR" = "*" ] && echo "WARNING: could not detect your public IP; opening SSH to 0.0.0.0/0 (key-only auth). Set ALLOWED_SSH_CIDR to restrict." >&2
 
@@ -220,9 +224,9 @@ ${ollama_files}  - path: /etc/systemd/system/f8-finetune.service
     permissions: '0644'
     content: |
       [Unit]
-      Description=Fire the F8 teardown backstop 6h after boot (survives a hung/SIGKILLed bootstrap)
+      Description=Fire the F8 teardown backstop 8h after boot (survives a hung/SIGKILLed bootstrap)
       [Timer]
-      OnBootSec=6h
+      OnBootSec=8h
       Unit=f8-teardown.service
       [Install]
       WantedBy=timers.target

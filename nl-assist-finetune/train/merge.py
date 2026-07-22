@@ -5,7 +5,9 @@ Loads the base model in fp16 (NOT 4-bit - merging into a quantized base is lossy
 the adapter on, folds it in with merge_and_unload(), and writes a standalone fp16 model +
 tokenizer. That directory is what llama.cpp converts to GGUF next (spec Stage 4).
 
-Usage:  python merge.py --adapter ../adapter --out ../merged
+Usage:  python merge.py --config train-config.phi4-f8.json --adapter ../adapter --out ../merged
+        (--config defaults to the mini; pass the phi4-f8 config to merge the 14B adapter or the
+         base won't match. run.sh passes --config for you - this matters only for manual runs.)
 """
 
 import argparse

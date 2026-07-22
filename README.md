@@ -102,7 +102,7 @@ F8_PULL_PHI4F8=1 npm run env:up
 $env:F8_PULL_PHI4F8 = "1"; npm run env:up
 ```
 
-See [features/delegate-model-variants](features/open/delegate-model-variants/README.md).
+See [features/delegate-model-variants](features/done/delegate-model-variants/README.md).
 
 The delegate editor's compile validation and NL assist run C# fragments through the
 server. That surface is gated by a single capability flag that is **off by default**;

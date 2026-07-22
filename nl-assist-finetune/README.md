@@ -180,7 +180,7 @@ hyperparameters live in the per-variant `train/train-config.<variant>.json`; the
 
 Point the NL assist at it by setting its `model` field to `phi4-f8-mini` (or `phi4-f8`) — no
 Fallen-8 code changes (spec FT-6). The two variants and the UI selection are documented in
-[features/delegate-model-variants](../features/open/delegate-model-variants/README.md).
+[features/delegate-model-variants](../features/done/delegate-model-variants/README.md).
 
 ## Distribution — share your model (feedback-loop FL-4)
 

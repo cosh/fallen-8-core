@@ -17,6 +17,11 @@ describe("NL assist enablement (FR-26.8 / nl-assist-ux FR-1)", () => {
   it("builtin mode is always configured — zero-config default", () => {
     expect(DEFAULT_NL_CONFIG.mode).toBe("builtin");
     expect(isNlConfigured(DEFAULT_NL_CONFIG)).toBe(true);
+    // Pin the shipped default fine-tune (delegate-model-variants clean rename): the builtin/default
+    // model is 'phi4-f8-mini', NOT the retired 'f8-delegate'. A literal check (not vs a constant) so
+    // a regression fails CI instead of silently 404ing every builtin NL-assist call.
+    expect(BUILTIN_NL_BACKEND.model).toBe("phi4-f8-mini");
+    expect(DEFAULT_NL_CONFIG.model).toBe("phi4-f8-mini");
   });
 
   it("custom mode needs an endpoint and model", () => {

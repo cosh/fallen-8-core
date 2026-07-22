@@ -83,8 +83,9 @@ Boot diagnostics are on, so you can also watch the serial console in the portal 
 - **Teardown is automatic and defended three ways**: (1) on **success** the bootstrap's EXIT
   trap self-destructs the RG immediately; on **failure** it keeps the VM for **1 h** (so the log
   is readable), then auto-deletes — set `DESTROY_ON_FAILURE=1` to delete immediately on failure;
-  (2) a 6 h `timeout` caps each variant's training; (3) a `f8-teardown.timer` backstop deletes
-  everything ~6 h after boot even if bootstrap hangs or is SIGKILLed (a true hang that never
+  (2) a 3 h `timeout` caps each variant's training (≤ 6 h for the default two); (3) a
+  `f8-teardown.timer` backstop deletes everything ~8 h after boot — safely above that worst case —
+  even if bootstrap hangs or is SIGKILLed (a true hang that never
   reaches teardown). Teardown uses the VM's managed identity via the ARM REST API (no `az`
   dependency). **`DESTROY_ON_FINISH=0` disables ALL auto-deletion (the 1 h timer and the
   backstop)** — then you must `az group delete -n <rg> --yes` yourself when done.

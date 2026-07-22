@@ -220,7 +220,7 @@ for v in $VARIANTS; do
   train/.venv/bin/python train/train_lora.py --inspect --config "train/train-config.$v.json" 2>&1 | head -n 40 || true
 
   log "running: VARIANT=$v PYTHON=$PY313 ./run.sh all  (dataset built once, reused across variants)"
-  NL_EVAL_F8=http://localhost:5000 VARIANT="$v" PYTHON="$PY313" timeout 6h ./run.sh all \
+  NL_EVAL_F8=http://localhost:5000 VARIANT="$v" PYTHON="$PY313" timeout 3h ./run.sh all \
     || fail "run.sh all (train/merge/gguf/create) failed for $v" 30
   log "$v: training + model registration complete."
 

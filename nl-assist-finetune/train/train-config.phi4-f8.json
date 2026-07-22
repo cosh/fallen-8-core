@@ -8,7 +8,7 @@
   "seed": 20260719,
   "maxSeqLength": 2048,
 
-  "$targetModulesNote": "VERIFY against the actual module names of microsoft/phi-4 before training - the Phi-3/Phi-4 family often exposes FUSED projections ('qkv_proj', 'gate_up_proj') rather than the split names below. 'python train_lora.py --inspect --config train/train-config.phi4-f8.json' prints the model; set targetModules to the names it actually has, or LoRA attaches to nothing.",
+  "$targetModulesNote": "VERIFY against the actual module names of microsoft/phi-4 before training - the Phi-3/Phi-4 family often exposes FUSED projections ('qkv_proj', 'gate_up_proj') rather than the split names below. 'python train/train_lora.py --inspect --config train/train-config.phi4-f8.json' prints the model; set targetModules to the names it actually has, or LoRA attaches to nothing.",
   "lora": {
     "r": 16,
     "alpha": 32,
@@ -37,7 +37,7 @@
     "loggingSteps": 5
   },
 
-  "$responseTemplateNote": "MUST match how Phi-4's tokenizer opens an assistant turn - Phi-4 has used '<|im_start|>assistant<|im_sep|>', which differs from Phi-4-mini's '<|assistant|>'. VERIFY with 'python train_lora.py --inspect --config train/train-config.phi4-f8.json' before spending GPU hours; a wrong marker silently trains on the whole prompt.",
+  "$responseTemplateNote": "MUST match how Phi-4's tokenizer opens an assistant turn - Phi-4 has used '<|im_start|>assistant<|im_sep|>', which differs from Phi-4-mini's '<|assistant|>'. VERIFY with 'python train/train_lora.py --inspect --config train/train-config.phi4-f8.json' before spending GPU hours; a wrong marker silently trains on the whole prompt.",
   "responseTemplate": "<|im_start|>assistant<|im_sep|>",
 
   "output": {

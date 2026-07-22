@@ -13,9 +13,9 @@ verbose system prompt is context, not a target. The one model-revision-sensitive
 `responseTemplate` in the config - run with --inspect FIRST to see the rendered chat and
 confirm the marker before spending GPU hours.
 
-Usage (inside the WSL2 venv):
-  python train_lora.py --inspect                         # render one example, verify marker
-  python train_lora.py --dataset ../dataset/train.jsonl --out ../adapter
+Usage (inside the WSL2 venv; --config defaults to the mini - pass train-config.phi4-f8.json for the 14B):
+  python train_lora.py --inspect --config train-config.phi4-f8.json   # render one example, verify marker
+  python train_lora.py --config train-config.phi4-f8.json --dataset ../dataset/train.jsonl --out ../adapter
 """
 
 import argparse

@@ -34,7 +34,7 @@
     "loggingSteps": 5
   },
 
-  "$responseTemplateNote": "The completion-only collator masks everything up to and including this marker so loss is computed on the fragment only. It MUST match how the tokenizer's chat template opens an assistant turn - verify on your box with 'python train_lora.py --inspect --config train/train-config.phi4-f8-mini.json' and adjust if the printed marker differs (Phi model revisions have used both '<|assistant|>' and '<|im_start|>assistant').",
+  "$responseTemplateNote": "The completion-only collator masks everything up to and including this marker so loss is computed on the fragment only. It MUST match how the tokenizer's chat template opens an assistant turn - verify on your box with 'python train/train_lora.py --inspect --config train/train-config.phi4-f8-mini.json' and adjust if the printed marker differs (Phi model revisions have used both '<|assistant|>' and '<|im_start|>assistant').",
   "responseTemplate": "<|assistant|>",
 
   "output": {
