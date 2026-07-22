@@ -1,12 +1,12 @@
 # Delegate Model Variants — Specification
 
-> **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
-> repository root `CLAUDE.md`.
+> **Status:** Implemented and landed (2026-07-22) — see [README.md](./README.md) for the shipped
+> behaviour and the run-ledger eval results. This spec is the historical record, not rewritten.
 >
 > **Relationship to existing features.** This extends
-> [nl-assist-finetune](../../done/nl-assist-finetune/spec.md) (which *produces* the model) and is
-> consumed through the [nl-assist](../../done/web-ui/nl-assist/spec.md) /
-> [nl-assist-ux](../../done/nl-assist-ux/spec.md) runtime contract (which governs how the model
+> [nl-assist-finetune](../nl-assist-finetune/spec.md) (which *produces* the model) and is
+> consumed through the [nl-assist](../web-ui/nl-assist/spec.md) /
+> [nl-assist-ux](../nl-assist-ux/spec.md) runtime contract (which governs how the model
 > is *used*). Precedence is unchanged: those specs win on production and usage respectively;
 > this document owns one narrow question — **which fine-tune variant exists, what it is named,
 > and how the user chooses it.** It adds no new runtime behaviour to the browser → model →
@@ -157,8 +157,8 @@ training models. Until then, two variants + a config selector is the whole machi
 
 ## 8. Reference files
 
-- [features/done/nl-assist-finetune/spec.md](../../done/nl-assist-finetune/spec.md) +
-  [plan.md](../../done/nl-assist-finetune/plan.md) — the pipeline, eval gate, and run ledger
+- [features/done/nl-assist-finetune/spec.md](../nl-assist-finetune/spec.md) +
+  [plan.md](../nl-assist-finetune/plan.md) — the pipeline, eval gate, and run ledger
   this feature extends to a second variant.
 - `nl-assist-finetune/train/train-config.phi4-f8-mini.json` + `train-config.phi4-f8.json`,
   `run.sh` (the `VARIANT` selector), `train/Modelfile.template`, `train/train_lora.py`,

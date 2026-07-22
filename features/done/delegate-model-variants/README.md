@@ -1,7 +1,7 @@
 # Delegate model variants (`phi4-f8-mini` / `phi4-f8`)
 
 Two user-selectable NL-assist fine-tunes, produced by the **same** pipeline
-([nl-assist-finetune](../../done/nl-assist-finetune/)) from the **same** grounded dataset —
+([nl-assist-finetune](../nl-assist-finetune/)) from the **same** grounded dataset —
 they differ only in the base model and the hardware they need. See [spec.md](./spec.md) and
 [plan.md](./plan.md) for the contract and the phased plan.
 
@@ -43,7 +43,7 @@ Set `responseTemplate` (and `lora.targetModules` if Phi-4 fuses `qkv_proj`/`gate
 [../../../nl-assist-finetune/train/train-config.phi4-f8.json](../../../nl-assist-finetune/train/train-config.phi4-f8.json)
 to match what `--inspect` prints. Each variant writes its own `PROVENANCE.<model>.md` and GGUF,
 so the two never clobber each other. Evaluate + record both in the run ledger
-([nl-assist-finetune/plan.md](../../done/nl-assist-finetune/plan.md)) — the gate is a strict win
+([nl-assist-finetune/plan.md](../nl-assist-finetune/plan.md)) — the gate is a strict win
 over each variant's own stock base on compile AND semantic rates.
 
 ## Serve `phi4-f8` in Docker (opt-in)
@@ -65,6 +65,11 @@ publish one (`PUBLISH_REPO=<ns>/phi4-f8 VARIANT=phi4-f8 ./run.sh publish`, in th
 
 ## Status
 
-Spec + plan written; the config-driven pipeline, UI selection, and variant-aware compose are
-implemented. Training `phi4-f8` and the head-to-head eval run on a GPU box (this dev box has
-none) — those are the remaining steps before moving this feature to `features/done/`.
+**Done — landed 2026-07-22.** All phases complete: the config-driven pipeline, UI variant
+selection, and variant-aware compose are implemented, and **both fine-tunes are trained and
+published** — `stoic_hellman_728/phi4-f8-mini` and `stoic_hellman_728/phi4-f8`. Head-to-head eval
+([run ledger](../nl-assist-finetune/plan.md)): both score **100%** compile and **100%** FT-8
+element-set semantic; the 14B edges the mini only on the semantic-proxy (100% vs 89%) at a
+GPU-only / ~9 GB / far-slower-on-CPU cost — so `phi4-f8-mini` stays the default and `phi4-f8` is
+the opt-in bump. `phi4-f8` was trained + published unattended on an Azure A10 (NVadsA10v5) VM
+([infra runner](../../../nl-assist-finetune/infra/)).
