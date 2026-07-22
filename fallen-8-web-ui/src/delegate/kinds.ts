@@ -2,9 +2,9 @@ import type { DelegateKind } from "../api/types";
 
 /**
  * Per-kind editing contract (spec §6.1): parameter name/type, lambda shape, usings, and
- * the opening snippet. The REST field name is NOT the kind - each slot passes its real
- * kind (e.g. a subgraph pattern's vertexFilter is a VertexFilter, but the top-level
- * subgraph filters are GraphElementFilter).
+ * the opening snippet. Every subgraph/path filter slot is typed (feature
+ * subgraph-typed-filters); GraphElementFilter is no longer produced by any slot but stays
+ * validatable on /delegates/validate — removal trigger in that feature's spec.
  */
 
 export interface KindInfo {

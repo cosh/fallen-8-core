@@ -38,12 +38,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     /// to define complete graph patterns. They serve as the nodes in pattern matching queries,
     /// specifying constraints on which vertices should be included in the matched subgraph.
     /// </para>
-    /// <para>
-    /// The pattern inherits label filtering from <see cref="APattern.Label"/> and adds vertex-specific
-    /// filtering through the <see cref="Vertex"/> property, enabling multi-layered matching criteria.
-    /// </para>
     /// </remarks>
-    public class VertexPattern : GraphElementPattern
+    public class VertexPattern : APattern
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="VertexPattern"/> class.
@@ -70,11 +66,6 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
         /// <item><description>Connectivity characteristics (degree, neighbor counts, etc.)</description></item>
         /// <item><description>Custom business logic or domain-specific constraints</description></item>
         /// </list>
-        /// <para>
-        /// This filter works in conjunction with the inherited <see cref="APattern.Label"/> filter,
-        /// where the label filter is typically applied first as a coarse filter, followed by this
-        /// more detailed vertex-level filtering.
-        /// </para>
         /// </remarks>
         public Delegates.VertexFilter Vertex
         {

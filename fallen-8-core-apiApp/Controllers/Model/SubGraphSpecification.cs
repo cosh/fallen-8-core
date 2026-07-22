@@ -44,12 +44,12 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// <example>
     /// {
     ///   "name": "friends-of-alice",
-    ///   "vertexFilter": "return (ge) => ge.Label == \"person\";",
-    ///   "edgeFilter": "return (ge) => ge.Label == \"knows\";",
+    ///   "vertexFilter": "return (v) => v.Label == \"person\";",
+    ///   "edgeFilter": "return (e) => e.Label == \"knows\";",
     ///   "patterns": [
-    ///     { "type": "Vertex", "patternName": "start", "graphElementFilter": "return (ge) => ge.Label == \"person\";" },
+    ///     { "type": "Vertex", "patternName": "start", "vertexFilter": "return (v) => v.Label == \"person\";" },
     ///     { "type": "Edge", "patternName": "rel", "direction": "OutgoingEdge", "edgePropertyFilter": "return (p) => p == \"knows\";" },
-    ///     { "type": "Vertex", "patternName": "end", "graphElementFilter": "return (ge) => ge.Label == \"person\";" }
+    ///     { "type": "Vertex", "patternName": "end", "vertexFilter": "return (v) => v.Label == \"person\";" }
     ///   ]
     /// }
     /// </example>
@@ -77,10 +77,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         /// <summary>
         ///   Optional pre-filter selecting which vertices are copied into the subgraph.
-        ///   Null or empty copies all vertices. The lambda receives an
-        ///   <c>AGraphElementModel</c>.
+        ///   Null or empty copies all vertices. The lambda receives a <c>VertexModel</c>.
         /// </summary>
-        /// <example>return (ge) => ge.Label == "person";</example>
+        /// <example>return (v) => v.Label == "person";</example>
         [JsonPropertyName("vertexFilter")]
         public String VertexFilter
         {
@@ -90,9 +89,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   Optional pre-filter selecting which edges are copied into the subgraph. Null
         ///   or empty copies all edges whose endpoints were copied. The lambda receives an
-        ///   <c>AGraphElementModel</c>.
+        ///   <c>EdgeModel</c>.
         /// </summary>
-        /// <example>return (ge) => ge.Label == "knows";</example>
+        /// <example>return (e) => e.Label == "knows";</example>
         [JsonPropertyName("edgeFilter")]
         public String EdgeFilter
         {

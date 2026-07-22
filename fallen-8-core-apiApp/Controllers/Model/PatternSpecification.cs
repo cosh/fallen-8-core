@@ -38,7 +38,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   Vertex → Edge → Vertex). The filter properties are C# code fragments that are
     ///   compiled at runtime into delegates, exactly like the path-finding API. Each
     ///   fragment must start with <c>return</c> followed by a single-parameter lambda,
-    ///   for example <c>return (ge) => ge.Label == "person";</c>. A null or empty
+    ///   for example <c>return (v) => v.Label == "person";</c>. A null or empty
     ///   fragment means "match everything".
     /// </remarks>
     public sealed class PatternSpecification
@@ -60,17 +60,6 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <example>start</example>
         [JsonPropertyName("patternName")]
         public String PatternName
-        {
-            get; set;
-        }
-
-        /// <summary>
-        ///   Filter applied to any graph element (vertex or edge). The lambda receives an
-        ///   <c>AGraphElementModel</c>.
-        /// </summary>
-        /// <example>return (ge) => ge.Label == "person";</example>
-        [JsonPropertyName("graphElementFilter")]
-        public String GraphElementFilter
         {
             get; set;
         }

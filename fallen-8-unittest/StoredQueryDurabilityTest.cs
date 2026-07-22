@@ -126,7 +126,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 Name = name,
                 Kind = "SubGraph",
-                SubGraph = new StoredSubGraphQueryBlock { VertexFilter = "return (ge) => ge.Label == \"person\";" }
+                SubGraph = new StoredSubGraphQueryBlock { VertexFilter = "return (v) => v.Label == \"person\";" }
             });
             Assert.AreEqual(201, ((ObjectResult)result).StatusCode, "registration of '" + name + "' must succeed");
         }

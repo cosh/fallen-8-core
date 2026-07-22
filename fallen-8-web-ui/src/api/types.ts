@@ -396,7 +396,6 @@ export interface PatternSpecification {
   direction?: "OutgoingEdge" | "IncomingEdge" | "UndirectedEdge";
   minLength?: number;
   maxLength?: number;
-  graphElementFilter?: string;
   vertexFilter?: string;
   edgeFilter?: string;
   edgePropertyFilter?: string;

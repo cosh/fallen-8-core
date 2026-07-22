@@ -339,7 +339,7 @@ export function SubgraphScreen() {
           <div className="space-y-2">
             <DelegateSlot
               instance={instance}
-              delegateKind="GraphElementFilter"
+              delegateKind="VertexFilter"
               label="vertexFilter (top level)"
               contextLabel={`Subgraph · ${name || "unnamed"}`}
               value={vertexFilter}
@@ -349,7 +349,7 @@ export function SubgraphScreen() {
             />
             <DelegateSlot
               instance={instance}
-              delegateKind="GraphElementFilter"
+              delegateKind="EdgeFilter"
               label="edgeFilter (top level)"
               contextLabel={`Subgraph · ${name || "unnamed"}`}
               value={edgeFilter}
@@ -474,40 +474,18 @@ export function SubgraphScreen() {
 
                   <div className="space-y-1">
                     {pattern.type === "Vertex" ? (
-                      <>
-                        <DelegateSlot
-                          instance={instance}
-                          delegateKind="GraphElementFilter"
-                          label="graphElementFilter"
-                          contextLabel={`Subgraph pattern #${index + 1}`}
-                          value={pattern.graphElementFilter ?? ""}
-                          onChange={(fragment) =>
-                            updatePattern(pattern.key, { graphElementFilter: fragment })
-                          }
-                        />
-                        <DelegateSlot
-                          instance={instance}
-                          delegateKind="VertexFilter"
-                          label="vertexFilter"
-                          contextLabel={`Subgraph pattern #${index + 1}`}
-                          value={pattern.vertexFilter ?? ""}
-                          onChange={(fragment) =>
-                            updatePattern(pattern.key, { vertexFilter: fragment })
-                          }
-                        />
-                      </>
+                      <DelegateSlot
+                        instance={instance}
+                        delegateKind="VertexFilter"
+                        label="vertexFilter"
+                        contextLabel={`Subgraph pattern #${index + 1}`}
+                        value={pattern.vertexFilter ?? ""}
+                        onChange={(fragment) =>
+                          updatePattern(pattern.key, { vertexFilter: fragment })
+                        }
+                      />
                     ) : (
                       <>
-                        <DelegateSlot
-                          instance={instance}
-                          delegateKind="GraphElementFilter"
-                          label="graphElementFilter"
-                          contextLabel={`Subgraph pattern #${index + 1}`}
-                          value={pattern.graphElementFilter ?? ""}
-                          onChange={(fragment) =>
-                            updatePattern(pattern.key, { graphElementFilter: fragment })
-                          }
-                        />
                         <DelegateSlot
                           instance={instance}
                           delegateKind="EdgeFilter"

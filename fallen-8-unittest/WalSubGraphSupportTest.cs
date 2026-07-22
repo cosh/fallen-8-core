@@ -117,9 +117,9 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Patterns = new List<PatternSpecification>
                 {
-                    new PatternSpecification { Type = "Vertex", PatternName = "p1", GraphElementFilter = "return (ge) => ge.Label == \"person\";" },
+                    new PatternSpecification { Type = "Vertex", PatternName = "p1", VertexFilter = "return (v) => v.Label == \"person\";" },
                     new PatternSpecification { Type = "Edge", PatternName = "knows", Direction = "OutgoingEdge", EdgePropertyFilter = "return (p) => p == \"knows\";" },
-                    new PatternSpecification { Type = "Vertex", PatternName = "p2", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                    new PatternSpecification { Type = "Vertex", PatternName = "p2", VertexFilter = "return (v) => v.Label == \"person\";" }
                 }
             };
         }
@@ -131,7 +131,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Patterns = new List<PatternSpecification>
                 {
-                    new PatternSpecification { Type = "Vertex", PatternName = "p", GraphElementFilter = "return (ge) => ge.Label == \"person\";" }
+                    new PatternSpecification { Type = "Vertex", PatternName = "p", VertexFilter = "return (v) => v.Label == \"person\";" }
                 }
             };
         }
@@ -372,7 +372,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "delegate-only",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { PatternName = "p", GraphElement = ge => ge.Label == "person" }
+                    new VertexPattern { PatternName = "p", Vertex = v => v.Label == "person" }
                 }
             };
             var tx = new CreateSubGraphTransaction { Definition = definition }; // no SpecificationJson

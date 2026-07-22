@@ -116,7 +116,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 specificationJson = JsonSerializer.Serialize(new StoredSubGraphQueryBlock
                 {
-                    VertexFilter = "return (ge) => true;"
+                    VertexFilter = "return (v) => true;"
                 }, AppJsonContext.Default.StoredSubGraphQueryBlock);
             }
 

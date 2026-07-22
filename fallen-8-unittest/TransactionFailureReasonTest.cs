@@ -237,7 +237,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { PatternName = "p", GraphElement = ge => ge.Label == "person" }
+                    new VertexPattern { PatternName = "p", Vertex = v => v.Label == "person" }
                 }
             };
         }
@@ -311,7 +311,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "invalid",
                 Pattern = new List<APattern>
                 {
-                    new VertexPattern { PatternName = "v", GraphElement = ge => ge.Label == "person" },
+                    new VertexPattern { PatternName = "v", Vertex = v => v.Label == "person" },
                     new EdgePattern { PatternName = "dangling", Direction = Direction.OutgoingEdge }
                 }
             };

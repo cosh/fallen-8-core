@@ -105,7 +105,6 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNull(definition.VertexFilter, "No pre-filter was supplied");
             Assert.AreEqual(1, definition.Pattern.Count);
             var vp = (VertexPattern)definition.Pattern[0];
-            Assert.IsNull(vp.GraphElement, "Empty graphElementFilter must leave the delegate null");
             Assert.IsNull(vp.Vertex, "Empty vertexFilter must leave the delegate null");
         }
 
@@ -117,15 +116,14 @@ namespace NoSQL.GraphDB.Tests
             var spec = new SubGraphSpecification
             {
                 Name = "people-who-know",
-                VertexFilter = "return (ge) => ge.Label == \"person\";",
-                EdgeFilter = "return (ge) => ge.Label == \"knows\";",
+                VertexFilter = "return (v) => v.Label == \"person\";",
+                EdgeFilter = "return (e) => e.Label == \"knows\";",
                 Patterns = new List<PatternSpecification>
                 {
                     new PatternSpecification
                     {
                         Type = "Vertex",
                         PatternName = "p",
-                        GraphElementFilter = "return (ge) => ge.Label == \"person\";",
                         VertexFilter = "return (v) => v.Label == \"person\";"
                     },
                     new PatternSpecification
@@ -145,15 +143,14 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNull(error, "Valid fragments should compile: " + error);
             Assert.IsNotNull(definition);
 
-            // Pre-filters
-            Assert.IsNotNull(definition.VertexFilter?.GraphElement);
-            Assert.IsTrue(definition.VertexFilter.GraphElement(person), "person matches the vertex pre-filter");
-            Assert.IsFalse(definition.VertexFilter.GraphElement(company), "company does not match the vertex pre-filter");
-            Assert.IsTrue(definition.EdgeFilter.GraphElement(knows), "knows edge matches the edge pre-filter");
+            // Pre-filters (typed: the vertex slot receives a VertexModel, the edge slot an EdgeModel)
+            Assert.IsNotNull(definition.VertexFilter);
+            Assert.IsTrue(definition.VertexFilter(person), "person matches the vertex pre-filter");
+            Assert.IsFalse(definition.VertexFilter(company), "company does not match the vertex pre-filter");
+            Assert.IsTrue(definition.EdgeFilter(knows), "knows edge matches the edge pre-filter");
 
             // Pattern 0 (vertex)
             var vp = (VertexPattern)definition.Pattern[0];
-            Assert.IsTrue(vp.GraphElement(person));
             Assert.IsTrue(vp.Vertex(person));
 
             // Pattern 1 (edge)
@@ -162,6 +159,48 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(ep.EdgeProperty("knows"), "edge property filter accepts 'knows'");
             Assert.IsFalse(ep.EdgeProperty("works_at"), "edge property filter rejects 'works_at'");
             Assert.IsTrue(ep.Edge(knows));
+        }
+
+        [TestMethod]
+        public void TryGenerate_TopLevelFilters_AreVertexAndEdgeTyped()
+        {
+            // The typed slots expose the full VertexModel/EdgeModel surface (feature
+            // subgraph-typed-filters) - fragments using type-specific members must compile.
+            var (graph, person, company, knows) = BuildGraph();
+
+            var spec = new SubGraphSpecification
+            {
+                Name = "typed-slots",
+                VertexFilter = "return (v) => v.GetOutDegree() >= 1;",
+                EdgeFilter = "return (e) => e.SourceVertex.Label == \"person\";"
+            };
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(spec, out var definition);
+
+            Assert.IsNull(error, "Typed fragments should compile: " + error);
+            Assert.IsTrue(definition.VertexFilter(person), "person has an outgoing edge");
+            Assert.IsFalse(definition.VertexFilter(company), "company has no outgoing edge");
+            Assert.IsTrue(definition.EdgeFilter(knows), "the knows edge starts at a person");
+        }
+
+        [TestMethod]
+        public void TryGenerate_LegacyGraphElementNamedFragment_StillCompilesInTypedSlot()
+        {
+            // Pre-typed-filters recipes wrote "(ge) => ge.Label == ..." - the parameter type
+            // is inferred from the target delegate, so such persisted fragments keep compiling.
+            var (graph, person, company, knows) = BuildGraph();
+
+            var spec = new SubGraphSpecification
+            {
+                Name = "legacy-fragment",
+                VertexFilter = "return (ge) => ge.Label == \"person\";"
+            };
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(spec, out var definition);
+
+            Assert.IsNull(error, "A legacy (ge)-named fragment should still compile: " + error);
+            Assert.IsTrue(definition.VertexFilter(person));
+            Assert.IsFalse(definition.VertexFilter(company));
         }
 
         [TestMethod]
@@ -326,7 +365,7 @@ namespace NoSQL.GraphDB.Tests
                     {
                         Type = "Vertex",
                         // Not valid C#: references an unknown symbol.
-                        GraphElementFilter = "return (ge) => ge.ThisPropertyDoesNotExist == 42;"
+                        VertexFilter = "return (v) => v.ThisPropertyDoesNotExist == 42;"
                     }
                 }
             };

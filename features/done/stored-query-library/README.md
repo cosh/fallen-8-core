@@ -45,11 +45,11 @@ POST /storedquery
   "name": "person-network",
   "kind": "SubGraph",
   "subGraph": {
-    "vertexFilter": "return (ge) => ge.Label == \"person\";",
+    "vertexFilter": "return (v) => v.Label == \"person\";",
     "patterns": [
-      { "type": "Vertex", "patternName": "p1", "graphElementFilter": "return (ge) => ge.Label == \"person\";" },
+      { "type": "Vertex", "patternName": "p1", "vertexFilter": "return (v) => v.Label == \"person\";" },
       { "type": "Edge",   "patternName": "knows", "direction": "OutgoingEdge", "edgePropertyFilter": "return (p) => p == \"knows\";" },
-      { "type": "Vertex", "patternName": "p2", "graphElementFilter": "return (ge) => ge.Label == \"person\";" }
+      { "type": "Vertex", "patternName": "p2", "vertexFilter": "return (v) => v.Label == \"person\";" }
     ]
   }
 }
