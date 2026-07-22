@@ -26,6 +26,9 @@
 #               fine-tuned "phi4-f8-mini" model (nl-assist-finetune). Override its pull source
 #               via F8_DELEGATE_REPO. To also serve the larger GPU-only "phi4-f8", set
 #               F8_PULL_PHI4F8=1 (source F8_PHI4F8_REPO); ~9GB, so it is off by default.
+#   Embeddings: text-in embedding, semantic search and queryText traversal work out of the
+#               box - the same Ollama sidecar serves bge-m3 (MIT). Opt out with
+#               F8_EMBEDDINGS=false. Docs: features/done/embedding-provider/README.md.
 
 services:
   fallen8:
@@ -47,6 +50,18 @@ services:
       # Opt-in security posture; set a real key before exposing beyond localhost.
       - Fallen8__Security__ApiKey=${F8_API_KEY:-}
       - Fallen8__Security__EnableDynamicCodeExecution=${F8_ENABLE_DYNAMIC_CODE:-false}
+      # Text-in embeddings out of the box (feature embedding-out-of-box): the Ollama
+      # sidecar serves bge-m3 (MIT, 1024-dim, Cosine). F8_EMBEDDINGS=false opts out
+      # (embedding endpoints answer 403; bring-your-own-vector keeps working). Swapping
+      # the model means editing this block as one unit - the declared ModelName/Dimension
+      # must match what the sidecar serves.
+      - Fallen8__Embedding__Enabled=${F8_EMBEDDINGS:-true}
+      - Fallen8__Embedding__Backend=Ollama
+      - Fallen8__Embedding__ModelName=bge-m3
+      - Fallen8__Embedding__Dimension=1024
+      - Fallen8__Embedding__IntendedMetric=Cosine
+      - Fallen8__Embedding__Ollama__Endpoint=http://ollama:11434
+      - Fallen8__Embedding__Ollama__Model=bge-m3
     volumes:
       - f8-data:/data
     healthcheck:
@@ -75,6 +90,9 @@ services:
       - F8_DELEGATE_REPO=${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}
       - F8_PHI4F8_REPO=${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}
       - F8_PULL_PHI4F8=${F8_PULL_PHI4F8:-0}
+      # Keep in sync with the fallen8 service's embedding block: when embeddings are on
+      # (the default), the sidecar also pulls the bge-m3 embedding model (~1.2 GB once).
+      - F8_EMBEDDINGS=${F8_EMBEDDINGS:-true}
     volumes:
       - ollama-models:/root/.ollama
     healthcheck:

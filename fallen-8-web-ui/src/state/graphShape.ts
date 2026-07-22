@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getStatistics } from "../api/endpoints";
 import type { EmbeddingProviderStatsREST, GraphStatisticsREST } from "../api/types";
 import type { InstanceConfig } from "../instances/types";
+import { useStatus } from "./status";
 
 /** The reserved property-key prefix element embeddings are stored under (server contract). */
 export const EMBEDDING_PROPERTY_PREFIX = "$embedding:";
@@ -65,13 +66,16 @@ export function shapeSuggestions(
 }
 
 /**
- * The embedding-provider snapshot from a computed graph shape (feature embedding-provider).
- * null when no shape has been computed OR the server predates the provider feature — the
- * UI treats "unknown" like "not confirmed enabled": text-in controls stay disabled with a
- * hint to Compute the Graph shape, while bring-your-own-vector paths always work.
+ * The live embedding-provider state (feature embedding-out-of-box): read from the cheap,
+ * periodically-refreshed /status surface, with the graph-shape snapshot as fallback for
+ * servers predating the /status field. null = genuinely unknown (no answer yet, or an old
+ * server without a computed shape) — the UI treats that like "not confirmed enabled":
+ * text-in controls stay disabled while bring-your-own-vector paths always work.
  */
-export function embeddingProvider(
-  shape: GraphStatisticsREST | null | undefined,
+export function useEmbeddingProvider(
+  instance: InstanceConfig,
 ): EmbeddingProviderStatsREST | null {
-  return shape?.embedding ?? null;
+  const status = useStatus(instance).data;
+  const shape = useGraphShape(instance).data;
+  return status?.embedding ?? shape?.embedding ?? null;
 }

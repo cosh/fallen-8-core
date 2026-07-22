@@ -75,6 +75,9 @@ export interface StatusREST {
   // predating the fields keep reading as authorized.
   apiKeyRequired?: boolean;
   authenticated?: boolean;
+  // Embedding provider state on the cheap surface (feature embedding-out-of-box).
+  // Optional so instances predating the field still parse.
+  embedding?: EmbeddingProviderStatsREST | null;
 }
 
 export interface PropertyREST {

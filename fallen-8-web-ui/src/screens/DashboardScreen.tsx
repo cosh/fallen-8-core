@@ -13,7 +13,7 @@ import {
   trimGraph,
 } from "../api/endpoints";
 import { ApiError } from "../api/client";
-import { embeddingProvider, shapeSuggestions, useGraphShape } from "../state/graphShape";
+import { shapeSuggestions, useEmbeddingProvider, useGraphShape } from "../state/graphShape";
 import { useStatus } from "../state/status";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
@@ -57,7 +57,7 @@ export function DashboardScreen() {
   const importFileRef = useRef<HTMLInputElement>(null);
   const shape = useGraphShape(instance).data;
   const suggestions = shapeSuggestions(shape);
-  const provider = embeddingProvider(shape);
+  const provider = useEmbeddingProvider(instance);
 
   const status = useStatus(instance);
 
@@ -181,18 +181,19 @@ export function DashboardScreen() {
       <section className="panel" data-testid="embedding-provider-card">
         <div className="panel-title">
           Embedding provider
-          <span className="text-fg-faint normal-case">feature element-embeddings</span>
+          <span className="text-fg-faint normal-case">feature embedding-provider</span>
         </div>
         {provider === null ? (
           <p className="text-fg-faint p-3 text-[12px]" data-testid="provider-unknown">
-            Provider status is part of the Graph shape snapshot — Compute it on the
-            Analytics screen to see the active backend and model. (Pasting vectors and
-            bound indices work regardless.)
+            This server has not reported its provider state yet (it may predate the
+            /status embedding field). Pasting vectors and bound indices work regardless.
           </p>
         ) : !provider.enabled ? (
           <p className="text-fg-dim p-3 text-[12px]" data-testid="provider-disabled">
-            Off on this instance (Fallen8:Embedding:Enabled). Text-in embedding and semantic
-            search are disabled; bring-your-own-vector paths work as normal.
+            Off on this instance — text-in embedding and semantic search answer 403;
+            bring-your-own-vector paths work as normal. Enable it via the docker
+            environment (F8_EMBEDDINGS, on by default) or the Fallen8:Embedding config
+            section (see features/done/embedding-provider).
           </p>
         ) : (
           <div

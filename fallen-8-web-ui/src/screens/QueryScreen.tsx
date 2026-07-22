@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance, useInstanceStore } from "../instances/registry";
-import { embeddingProvider, shapeSuggestions, useGraphShape } from "../state/graphShape";
+import { shapeSuggestions, useEmbeddingProvider, useGraphShape } from "../state/graphShape";
 import { useStatus } from "../state/status";
 import {
   addVectorToIndex,
@@ -86,7 +86,7 @@ export function QueryScreen() {
 
   const shape = useGraphShape(instance).data;
   const suggestions = shapeSuggestions(shape);
-  const provider = embeddingProvider(shape);
+  const provider = useEmbeddingProvider(instance);
   const providerEnabled = provider ? provider.enabled : null;
 
   // Index-id suggestions: the live /status inventory first, shape-snapshot ids as backup
@@ -389,7 +389,7 @@ export function QueryScreen() {
                         title={
                           mode === "text" && providerEnabled !== true
                             ? providerEnabled === null
-                              ? "provider status unknown — Compute the Graph shape (Analytics)"
+                              ? "provider status not reported by this server"
                               : "the embedding provider is off on this instance"
                             : undefined
                         }

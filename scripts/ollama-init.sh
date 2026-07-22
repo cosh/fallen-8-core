@@ -16,6 +16,9 @@
 F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}"  # -> phi4-f8-mini
 F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}"           # -> phi4-f8 (opt-in)
 F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-0}"
+# The embedding model the F8 API's provider is wired to in docker-compose.yml (feature
+# embedding-out-of-box); on by default, opted out together with the provider.
+F8_EMBEDDINGS="${F8_EMBEDDINGS:-true}"
 HEALTH_CHECK_RETRIES=30
 HEALTH_CHECK_INTERVAL=1
 PULL_RETRIES=3
@@ -106,6 +109,16 @@ MISSING=""
 # Default set: the base + the CPU-OK mini fine-tune (the UI default).
 ensure_base "phi4-mini" || MISSING="$MISSING phi4-mini"
 ensure_finetune "$F8_DELEGATE_REPO" "phi4-f8-mini" || MISSING="$MISSING phi4-f8-mini"
+
+# The embedding model (bge-m3, MIT) - unless embeddings are opted out (F8_EMBEDDINGS=false).
+case "$F8_EMBEDDINGS" in
+  0|false|FALSE|no|off)
+    log_info "F8_EMBEDDINGS is off - skipping the embedding model pull"
+    ;;
+  *)
+    ensure_base "bge-m3" || MISSING="$MISSING bge-m3"
+    ;;
+esac
 
 # Opt-in: the full-Phi-4 fine-tune. ~9GB and GPU-bound, so never pulled by default.
 case "$F8_PULL_PHI4F8" in

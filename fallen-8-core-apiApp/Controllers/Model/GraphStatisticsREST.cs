@@ -304,9 +304,27 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     }
 
     /// <summary>The active embedding provider and its declared model identity (feature
-    /// embedding-provider). Cheap config/state reads only - statistics never loads a model.</summary>
+    /// embedding-provider). Cheap config/state reads only - surfacing it never loads a model.
+    /// Carried by both GET /status (the cheap discovery surface) and GET /statistics (the
+    /// full snapshot).</summary>
     public sealed class EmbeddingProviderStatsREST
     {
+        /// <summary>Maps the provider's config/state reads into the DTO; null in, null out
+        /// (direct unit construction without a provider).</summary>
+        public static EmbeddingProviderStatsREST From(Embedding.Fallen8EmbeddingProvider provider)
+        {
+            return provider == null ? null : new EmbeddingProviderStatsREST
+            {
+                Enabled = provider.IsEnabled,
+                Backend = provider.Backend,
+                ModelName = provider.Identity.Name,
+                ModelVersion = provider.Identity.Version,
+                Dimension = provider.Identity.Dimension,
+                IntendedMetric = provider.Identity.IntendedMetric.ToString(),
+                Loaded = provider.IsLoaded
+            };
+        }
+
         /// <summary>Whether the capability flag (Fallen8:Embedding:Enabled) is on.</summary>
         /// <example>false</example>
         [JsonPropertyName("enabled")]

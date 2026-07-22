@@ -70,9 +70,9 @@ describe("SemanticBlockEditor", () => {
     expect(screen.queryByTestId("t-sem-error")).not.toBeInTheDocument();
   });
 
-  it("query-text unknown-provider hint points at Compute", () => {
+  it("query-text unknown-provider hint suggests pasting a vector", () => {
     render(<Harness providerEnabled={null} initial={{ enabled: true, source: "text" }} />);
-    expect(screen.getByTestId("t-sem-text-unavailable")).toHaveTextContent(/Compute the Graph shape/i);
+    expect(screen.getByTestId("t-sem-text-unavailable")).toHaveTextContent(/not reported by this server/i);
   });
 
   it("costBySimilarity is inert under DotProduct and absent when cost is not allowed", async () => {

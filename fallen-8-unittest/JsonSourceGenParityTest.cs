@@ -155,7 +155,17 @@ namespace NoSQL.GraphDB.Tests
                 AvailableIndexPlugins = new List<string> { "DictionaryIndex", "SpatialIndex" },
                 AvailablePathPlugins = new List<string> { "Dijkstra" },
                 AvailableAnalyticsPlugins = new List<string> { "PAGERANK", "WCC" },
-                AvailableServicePlugins = new List<string>()
+                AvailableServicePlugins = new List<string>(),
+                Embedding = new EmbeddingProviderStatsREST
+                {
+                    Enabled = true,
+                    Backend = "Ollama",
+                    ModelName = "bge-m3",
+                    ModelVersion = "",
+                    Dimension = 1024,
+                    IntendedMetric = "Cosine",
+                    Loaded = false
+                }
             };
             AssertSameJson(status, "StatusREST (no [JsonPropertyName] -> camelCase policy)");
 

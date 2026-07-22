@@ -98,11 +98,19 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly Boolean _apiKeyConfigured;
 
+        /// <summary>
+        /// The embedding provider whose identity /status reports (see StatusREST.Embedding);
+        /// null under direct unit construction.
+        /// </summary>
+        private readonly Embedding.Fallen8EmbeddingProvider _embeddingProvider;
+
         #endregion
 
         public AdminController(ILogger<AdminController> logger, IFallen8 fallen8, IOptions<Fallen8SecurityOptions> security,
-            Services.SaveGameRegistry saveGames)
+            Services.SaveGameRegistry saveGames, Embedding.Fallen8EmbeddingProvider embeddingProvider = null)
         {
+            _embeddingProvider = embeddingProvider;
+
             _logger = logger;
 
             _fallen8 = fallen8;
@@ -189,6 +197,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 UsedMemory = totalBytesOfMemoryUsed,
                 ApiKeyRequired = _apiKeyConfigured,
                 Authenticated = HttpContext?.User?.Identity?.IsAuthenticated == true,
+                Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider),
             };
         }
 
