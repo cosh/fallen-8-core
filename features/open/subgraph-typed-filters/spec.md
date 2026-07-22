@@ -57,7 +57,7 @@ Wire compatibility:
 | stored-query-library | SubGraph template blocks flow through `PatternSpecification`; legacy blocks with `graphElementFilter` lose that filter on recompile | Documented above; no shim |
 | element-embeddings / embedding-provider | `semantic.minScore` pre-filter was materialized twice (VertexFilter + GraphElementFilter) | Unified on `VertexFilter`; wire contract unchanged |
 | wal-subgraph-support / save-games | Persisted recipes recompile through the same codegen path; `(ge)`-named top-level fragments still compile | Legacy-fragment compile pinned by test |
-| nl-assist-finetune / delegate-model-variants | Eval fixture + dataset generation still target the GraphElementFilter kind; the fixture's comment that "/subgraph's vertexFilter/edgeFilter take a GraphElementFilter" is now stale | NOT changed here (active work); validate endpoint keeps the kind so eval runs stay green — next steps are the owner's call |
+| nl-assist-finetune / delegate-model-variants | Eval fixture + dataset generation still target the GraphElementFilter kind; the fixture's comment that "/subgraph's vertexFilter/edgeFilter take a GraphElementFilter" is now stale | NOT changed here (active work); validate endpoint keeps the kind so eval runs stay green — retrain work logged as a PENDING entry in `nl-assist-finetune/RETRAIN-LOG.md` |
 | openapi-10 | Snapshot loses `graphElementFilter` and changes doc text | Regenerated; removals deliberate |
 
 ## Non-goals (with revisit triggers)

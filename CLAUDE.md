@@ -116,7 +116,9 @@ Every non-trivial feature follows the same lifecycle so work is visible and revi
    the findings in its spec under "Impact on existing features". When another feature's
    assets are affected — e.g. an engine contract change that stales the Studio UI or the
    fine-tune dataset — do not silently adapt or ignore them: surface the impact and ask
-   about next steps with honest options.
+   about next steps with honest options. Impacts that need an NL-assist retrain are not
+   re-litigated per feature: append an entry to `nl-assist-finetune/RETRAIN-LOG.md` (the
+   next fine-tune run drains all pending entries).
 
 Commit messages and PR descriptions are honest and concise, and do not reference the
 assistant or add AI-generated trailers.
