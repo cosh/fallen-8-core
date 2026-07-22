@@ -34,14 +34,16 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App;
+using NoSQL.GraphDB.App.Helper;
+using NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree;
 
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Pins the index-discovery contract on GET /status (feature studio-index-discovery):
-    /// the live index inventory (id + plugin type), the available-plugin list the create
-    /// dropdown feeds on, and the "SpatialIndex is not creatable over REST" reality the
-    /// Studio's create gating relies on.
+    /// Pins the index-discovery contract on GET /status (features studio-index-discovery,
+    /// index-workspace): the live index inventory (id, plugin type, capabilities, counts),
+    /// the available-plugin list the create dropdown feeds on, and the "SpatialIndex is not
+    /// creatable over REST" reality the Studio's create gating relies on.
     /// </summary>
     [TestClass]
     public class StatusIndexInventoryTest
@@ -128,6 +130,87 @@ namespace NoSQL.GraphDB.Tests
             {
                 Assert.IsTrue(plugins.Contains(name), name + " must be discoverable");
             }
+        }
+
+        private static JsonElement InventoryEntry(JsonElement status, string indexId)
+        {
+            return status.GetProperty("indices").EnumerateArray()
+                .Single(e => e.GetProperty("indexId").GetString() == indexId);
+        }
+
+        private static List<string> Capabilities(JsonElement entry)
+        {
+            return entry.GetProperty("capabilities").EnumerateArray()
+                .Select(e => e.GetString()).ToList();
+        }
+
+        [TestMethod]
+        public async Task Status_ReportsCapabilities_PerIndexFamily()
+        {
+            using var factory = new TestFactory();
+            using var client = factory.CreateClient();
+
+            foreach (var (id, type) in new[]
+            {
+                ("names", "DictionaryIndex"), ("ages", "RangeIndex"), ("docs", "RegExIndex")
+            })
+            {
+                using var create = await client.PostAsync("/index",
+                    Json($"{{\"uniqueId\":\"{id}\",\"pluginType\":\"{type}\"}}"));
+                Assert.AreEqual("true", await create.Content.ReadAsStringAsync(), type + " must be created");
+            }
+            using (var create = await client.PostAsync("/index", Json(
+                "{\"uniqueId\":\"embeddings\",\"pluginType\":\"VectorIndex\",\"pluginOptions\":{" +
+                "\"dimension\":{\"propertyId\":\"dimension\",\"propertyValue\":\"3\",\"fullQualifiedTypeName\":\"System.Int32\"}}}")))
+            {
+                Assert.AreEqual("true", await create.Content.ReadAsStringAsync());
+            }
+
+            var status = await Status(client);
+            CollectionAssert.AreEqual(new[] { "equality" }, Capabilities(InventoryEntry(status, "names")));
+            CollectionAssert.AreEqual(new[] { "equality", "range" }, Capabilities(InventoryEntry(status, "ages")));
+            CollectionAssert.AreEqual(new[] { "equality", "fulltext" }, Capabilities(InventoryEntry(status, "docs")));
+            CollectionAssert.AreEqual(new[] { "vector" }, Capabilities(InventoryEntry(status, "embeddings")));
+        }
+
+        [TestMethod]
+        public void SpatialIndex_Capabilities_AreSpatialOnly()
+        {
+            // SpatialIndex cannot be created over REST (pinned below), so the derivation is
+            // pinned directly: geometry keys cannot travel as the wire literal -> no equality.
+            CollectionAssert.AreEqual(new[] { "spatial" }, IndexCapabilities.Describe(new RTree()));
+        }
+
+        [TestMethod]
+        public async Task Status_ReportsCounts_ThatTrackIndexContent()
+        {
+            using var factory = new TestFactory();
+            using var client = factory.CreateClient();
+
+            using (var create = await client.PostAsync("/index",
+                Json("{\"uniqueId\":\"names\",\"pluginType\":\"DictionaryIndex\"}")))
+            {
+                Assert.AreEqual("true", await create.Content.ReadAsStringAsync());
+            }
+
+            var fresh = InventoryEntry(await Status(client), "names");
+            Assert.AreEqual(0, fresh.GetProperty("keys").GetInt32(), "a fresh index has no keys");
+            Assert.AreEqual(0, fresh.GetProperty("values").GetInt32(), "a fresh index has no values");
+
+            using (var vertex = await client.PutAsync("/vertex?waitForCompletion=true",
+                Json("{\"label\":\"person\",\"creationDate\":0}")))
+            {
+                Assert.AreEqual(HttpStatusCode.Accepted, vertex.StatusCode);
+            }
+            using (var add = await client.PutAsync("/index/names", Json(
+                "{\"graphElementId\":0,\"key\":{\"propertyValue\":\"John\",\"fullQualifiedTypeName\":\"System.String\"}}")))
+            {
+                Assert.AreEqual("true", await add.Content.ReadAsStringAsync());
+            }
+
+            var populated = InventoryEntry(await Status(client), "names");
+            Assert.AreEqual(1, populated.GetProperty("keys").GetInt32());
+            Assert.AreEqual(1, populated.GetProperty("values").GetInt32());
         }
 
         [TestMethod]

@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
@@ -71,6 +72,47 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <example>bge-micro-v2#384#Cosine</example>
         [JsonPropertyName("model")]
         public String Model
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The query families this index answers (feature index-workspace), derived from the
+        ///   interfaces the index implements so third-party plugins report honestly:
+        ///   <c>IVectorIndex</c> → <c>vector</c>; <c>ISpatialIndex</c> → <c>spatial</c>;
+        ///   <c>IFulltextIndex</c> → <c>equality</c> + <c>fulltext</c>; <c>IRangeIndex</c> →
+        ///   <c>equality</c> + <c>range</c>; any other index → <c>equality</c>. Vector and
+        ///   spatial indexes do NOT report <c>equality</c> because their keys (float[],
+        ///   geometry) cannot travel as the scan endpoints' typed literal. Like
+        ///   <see cref="EmbeddingName"/>, only the live <c>/status</c> inventory populates it;
+        ///   save-game KPIs leave it <c>null</c>.
+        /// </summary>
+        /// <example>["equality","range"]</example>
+        [JsonPropertyName("capabilities")]
+        public List<String> Capabilities
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   <c>CountOfKeys()</c> at snapshot time — live <c>/status</c> inventory only,
+        ///   <c>null</c> in save-game KPIs.
+        /// </summary>
+        /// <example>1000</example>
+        [JsonPropertyName("keys")]
+        public Int32? Keys
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   <c>CountOfValues()</c> at snapshot time (O(entries) on bucket indexes — fine for
+        ///   the status poll at self-hosted scale) — live <c>/status</c> inventory only,
+        ///   <c>null</c> in save-game KPIs.
+        /// </summary>
+        /// <example>1200</example>
+        [JsonPropertyName("values")]
+        public Int32? Values
         {
             get; set;
         }

@@ -7032,6 +7032,42 @@
             ],
             "description": "For a vector index, the declared model-identity string it expects its vectors to\r\ncome from (feature embedding-provider), or `null`. Diagnostic only.",
             "example": "bge-micro-v2#384#Cosine"
+          },
+          "capabilities": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The query families this index answers (feature index-workspace), derived from the\r\ninterfaces the index implements so third-party plugins report honestly:\r\n`IVectorIndex` → `vector`; `ISpatialIndex` → `spatial`;\r\n`IFulltextIndex` → `equality` + `fulltext`; `IRangeIndex` →\r\n`equality` + `range`; any other index → `equality`. Vector and\r\nspatial indexes do NOT report `equality` because their keys (float[],\r\ngeometry) cannot travel as the scan endpoints' typed literal. Like\r\nstring IndexDescriptionREST.EmbeddingName, only the live `/status` inventory populates it;\r\nsave-game KPIs leave it `null`.",
+            "example": [
+              "equality",
+              "range"
+            ]
+          },
+          "keys": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "`CountOfKeys()` at snapshot time — live `/status` inventory only,\r\n`null` in save-game KPIs.",
+            "format": "int32",
+            "example": 1000
+          },
+          "values": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "`CountOfValues()` at snapshot time (O(entries) on bucket indexes — fine for\r\nthe status poll at self-hosted scale) — live `/status` inventory only,\r\n`null` in save-game KPIs.",
+            "format": "int32",
+            "example": 1200
           }
         },
         "description": "A registered index: its id and the index plugin type. Appears on\r\nStatusREST (live inventory) and in save-game KPIs (inventory at save time)."
