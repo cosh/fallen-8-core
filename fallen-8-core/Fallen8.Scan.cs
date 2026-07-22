@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // Fallen8.Scan.cs
 //
@@ -25,7 +25,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Linq;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Helper;
@@ -129,27 +128,27 @@ namespace NoSQL.GraphDB.Core
             switch (binOp)
             {
                 case BinaryOperator.Equals:
-                    result = FindElements(BinaryEqualsMethod, literal, propertyId, interestingLabel);
+                    result = FindElements(ScanHelpers.BinaryEqualsMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.Greater:
-                    result = FindElements(BinaryGreaterMethod, literal, propertyId, interestingLabel);
+                    result = FindElements(ScanHelpers.BinaryGreaterMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.GreaterOrEquals:
-                    result = FindElements(BinaryGreaterOrEqualMethod, literal, propertyId, interestingLabel);
+                    result = FindElements(ScanHelpers.BinaryGreaterOrEqualMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.LowerOrEquals:
-                    result = FindElements(BinaryLowerOrEqualMethod, literal, propertyId, interestingLabel);
+                    result = FindElements(ScanHelpers.BinaryLowerOrEqualMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.Lower:
-                    result = FindElements(BinaryLowerMethod, literal, propertyId, interestingLabel);
+                    result = FindElements(ScanHelpers.BinaryLowerMethod, literal, propertyId, interestingLabel);
                     break;
 
                 case BinaryOperator.NotEquals:
-                    result = FindElements(BinaryNotEqualsMethod, literal, propertyId, interestingLabel);
+                    result = FindElements(ScanHelpers.BinaryNotEqualsMethod, literal, propertyId, interestingLabel);
                     break;
 
                 default:
@@ -187,7 +186,7 @@ namespace NoSQL.GraphDB.Core
             // like FindElementsIndex's cross-bucket .Distinct(), so the result is identical. Equals /
             // NotEquals and every non-range index keep the generic path below.
             var orderedRangeIndex = index as IRangeIndex;
-            if (orderedRangeIndex != null && TryOrderedRangeIndexScan(out result, orderedRangeIndex, literal, binOp))
+            if (orderedRangeIndex != null && ScanHelpers.TryOrderedRangeIndexScan(out result, orderedRangeIndex, literal, binOp))
             {
                 return result.Count > 0;
             }
@@ -207,27 +206,27 @@ namespace NoSQL.GraphDB.Core
                         result = null;
                         return false;
                     }
-                    result = FilterLive(equalsBucket);
+                    result = ScanHelpers.FilterLive(equalsBucket);
                     break;
 
                 case BinaryOperator.Greater:
-                    result = FindElementsIndex(BinaryGreaterMethod, literal, index);
+                    result = ScanHelpers.FindElementsIndex(ScanHelpers.BinaryGreaterMethod, literal, index);
                     break;
 
                 case BinaryOperator.GreaterOrEquals:
-                    result = FindElementsIndex(BinaryGreaterOrEqualMethod, literal, index);
+                    result = ScanHelpers.FindElementsIndex(ScanHelpers.BinaryGreaterOrEqualMethod, literal, index);
                     break;
 
                 case BinaryOperator.LowerOrEquals:
-                    result = FindElementsIndex(BinaryLowerOrEqualMethod, literal, index);
+                    result = ScanHelpers.FindElementsIndex(ScanHelpers.BinaryLowerOrEqualMethod, literal, index);
                     break;
 
                 case BinaryOperator.Lower:
-                    result = FindElementsIndex(BinaryLowerMethod, literal, index);
+                    result = ScanHelpers.FindElementsIndex(ScanHelpers.BinaryLowerMethod, literal, index);
                     break;
 
                 case BinaryOperator.NotEquals:
-                    result = FindElementsIndex(BinaryNotEqualsMethod, literal, index);
+                    result = ScanHelpers.FindElementsIndex(ScanHelpers.BinaryNotEqualsMethod, literal, index);
                     break;
 
                 default:
@@ -272,7 +271,7 @@ namespace NoSQL.GraphDB.Core
                 // filter to the LIVE elements (feature index-lifecycle 3.2) so a removed element does not
                 // surface through the range path either.
                 var found = rangeIndex.Between(out var between, leftLimit, rightLimit, includeLeft, includeRight);
-                result = FilterLive(between);
+                result = ScanHelpers.FilterLive(between);
                 return found;
             }
 
@@ -372,222 +371,10 @@ namespace NoSQL.GraphDB.Core
             // identical short-circuit order (null/removed first, then label, then seeker), so removed
             // or null elements never reach the seeker and the result multiset is unchanged - but only
             // one PLINQ operator (and no per-query intermediate closures) instead of three.
-            var labelMatches = CheckLabel(interestingLabel);
+            var labelMatches = ScanHelpers.CheckLabel(interestingLabel);
             return LiveElements(_snapshot)
                 .Where(_ => _ != null && !_._removed && labelMatches(_) && seeker(_))
                 .ToList();
-        }
-
-        private static Func<AGraphElementModel, Boolean> CheckLabel(String interestingLabel = null)
-        {
-            return _ => interestingLabel == null || interestingLabel != null && _.Label != null && _.Label.Equals(interestingLabel);
-        }
-
-        /// <summary>
-        ///   Finds elements via an index.
-        /// </summary>
-        /// <returns> The elements. </returns>
-        /// <param name='finder'> Finder delegate. </param>
-        /// <param name='literal'> Literal. </param>
-        /// <param name='index'> Index. </param>
-        /// <summary>
-        ///   Filters an index bucket down to its LIVE elements (feature index-lifecycle 3.2): drops any
-        ///   <c>null</c> or <c>_removed</c> element so an index-serving scan returns exactly the live set
-        ///   <see cref="FindElements(ElementSeeker)" /> / GraphScan would for the same logical query -
-        ///   index membership is only valid while its element is live, and this is the read-end floor
-        ///   that holds that contract even before the write-end purge runs. Returns the SAME reference
-        ///   when nothing is dead (the common case), so the Equals fast path keeps handing back the
-        ///   index's shared bucket with no allocation.
-        /// </summary>
-        private static IReadOnlyList<AGraphElementModel> FilterLive(IReadOnlyList<AGraphElementModel> bucket)
-        {
-            if (bucket == null)
-            {
-                return null;
-            }
-
-            var dead = 0;
-            for (var i = 0; i < bucket.Count; i++)
-            {
-                var element = bucket[i];
-                if (element == null || element._removed)
-                {
-                    dead++;
-                }
-            }
-
-            if (dead == 0)
-            {
-                return bucket;
-            }
-
-            var live = new List<AGraphElementModel>(bucket.Count - dead);
-            for (var i = 0; i < bucket.Count; i++)
-            {
-                var element = bucket[i];
-                if (element != null && !element._removed)
-                {
-                    live.Add(element);
-                }
-            }
-            return live;
-        }
-
-        private static List<AGraphElementModel> FindElementsIndex(BinaryOperatorDelegate finder,
-                                                                  IComparable literal, IIndex index)
-        {
-            // Sequential (feature scan-result-representation): the finder is a light IComparable.CompareTo,
-            // so the former .AsParallel() paid PLINQ partition/merge overhead over a cheap predicate; and
-            // the result is a per-call throwaway, so a right-sized de-duplicating List replaces the AVL
-            // tree. A reference-identity HashSet reproduces the former cross-bucket .Distinct() (an element
-            // indexed under several matching keys appears once) in a single pass, no re-treeing.
-            var result = new List<AGraphElementModel>();
-            var seen = new HashSet<AGraphElementModel>();
-            foreach (var indexElement in index.GetKeyValues())
-            {
-                if (!finder((IComparable)indexElement.Key, literal))
-                {
-                    continue;
-                }
-
-                foreach (var graphElement in indexElement.Value)
-                {
-                    // Skip null / _removed so a removed-but-still-indexed element never surfaces
-                    // (feature index-lifecycle 3.2), then dedup across buckets.
-                    if (graphElement != null && !graphElement._removed && seen.Add(graphElement))
-                    {
-                        result.Add(graphElement);
-                    }
-                }
-            }
-            return result;
-        }
-
-        /// <summary>
-        ///   P4 (engine-performance-followups): answers an ORDERED IndexScan operator
-        ///   (Greater / GreaterOrEquals / Lower / LowerOrEquals) on a <see cref="IRangeIndex" /> via its
-        ///   O(log n + k) sorted range methods instead of the generic O(n) <see cref="FindElementsIndex" />
-        ///   scan. Returns <c>false</c> for any non-ordered operator (Equals / NotEquals) so the caller
-        ///   falls back to the generic path.
-        ///
-        ///   Result parity with <see cref="FindElementsIndex" />: the RangeIndex's sorted methods select
-        ///   EXACTLY the keys the generic finder's per-key <c>CompareTo</c> predicate would - both order
-        ///   keys by <see cref="IComparable.CompareTo" />, so the suffix/prefix the binary search brackets
-        ///   is the same key set the linear scan keeps (GreaterOrEquals/LowerOrEquals include the boundary
-        ///   key, Greater/Lower exclude it, matching the <c>&gt;=</c>/<c>&gt;</c>/<c>&lt;=</c>/<c>&lt;</c>
-        ///   predicates). Those methods, however, concatenate the matched buckets WITHOUT deduping,
-        ///   whereas <see cref="FindElementsIndex" /> applies a cross-bucket <c>.Distinct()</c>. This
-        ///   method therefore reapplies the SAME <c>.Distinct()</c>, so a graph element indexed under
-        ///   several matching keys appears exactly once - byte-identical to the generic output set.
-        /// </summary>
-        private static bool TryOrderedRangeIndexScan(out IReadOnlyList<AGraphElementModel> result,
-                                                     IRangeIndex rangeIndex, IComparable literal, BinaryOperator binOp)
-        {
-            ImmutableList<AGraphElementModel> matched;
-            switch (binOp)
-            {
-                case BinaryOperator.Greater:
-                    rangeIndex.GreaterThan(out matched, literal, false);
-                    break;
-
-                case BinaryOperator.GreaterOrEquals:
-                    rangeIndex.GreaterThan(out matched, literal, true);
-                    break;
-
-                case BinaryOperator.Lower:
-                    rangeIndex.LowerThan(out matched, literal, false);
-                    break;
-
-                case BinaryOperator.LowerOrEquals:
-                    rangeIndex.LowerThan(out matched, literal, true);
-                    break;
-
-                default:
-                    // Equals / NotEquals are not ordered range operators - fall back to the generic path.
-                    result = null;
-                    return false;
-            }
-
-            // Reapply FindElementsIndex's cross-bucket .Distinct() so the deduped set is identical -
-            // into a right-sized List (feature scan-result-representation), no throwaway tree - and skip
-            // null / _removed so a removed element never surfaces (feature index-lifecycle 3.2).
-            var deduped = new List<AGraphElementModel>(matched.Count);
-            var seen = new HashSet<AGraphElementModel>();
-            foreach (var graphElement in matched)
-            {
-                if (graphElement != null && !graphElement._removed && seen.Add(graphElement))
-                {
-                    deduped.Add(graphElement);
-                }
-            }
-            result = deduped;
-            return true;
-        }
-
-        /// <summary>
-        ///   Method for binary comparison
-        /// </summary>
-        /// <returns> <c>true</c> for equality; otherwise, <c>false</c> . </returns>
-        /// <param name='property'> Property. </param>
-        /// <param name='literal'> Literal. </param>
-        private static Boolean BinaryEqualsMethod(IComparable property, IComparable literal)
-        {
-            return property.Equals(literal);
-        }
-
-        /// <summary>
-        ///   Method for binary comparison
-        /// </summary>
-        /// <returns> <c>true</c> for inequality; otherwise, <c>false</c> . </returns>
-        /// <param name='property'> Property. </param>
-        /// <param name='literal'> Literal. </param>
-        private static Boolean BinaryNotEqualsMethod(IComparable property, IComparable literal)
-        {
-            return !property.Equals(literal);
-        }
-
-        /// <summary>
-        ///   Method for binary comparison
-        /// </summary>
-        /// <returns> <c>true</c> for greater property; otherwise, <c>false</c> . </returns>
-        /// <param name='property'> Property. </param>
-        /// <param name='literal'> Literal. </param>
-        private static Boolean BinaryGreaterMethod(IComparable property, IComparable literal)
-        {
-            return property.CompareTo(literal) > 0;
-        }
-
-        /// <summary>
-        ///   Method for binary comparison
-        /// </summary>
-        /// <returns> <c>true</c> for lower property; otherwise, <c>false</c> . </returns>
-        /// <param name='property'> Property. </param>
-        /// <param name='literal'> Literal. </param>
-        private static Boolean BinaryLowerMethod(IComparable property, IComparable literal)
-        {
-            return property.CompareTo(literal) < 0;
-        }
-
-        /// <summary>
-        ///   Method for binary comparison
-        /// </summary>
-        /// <returns> <c>true</c> for lower or equal property; otherwise, <c>false</c> . </returns>
-        /// <param name='property'> Property. </param>
-        /// <param name='literal'> Literal. </param>
-        private static Boolean BinaryLowerOrEqualMethod(IComparable property, IComparable literal)
-        {
-            return property.CompareTo(literal) <= 0;
-        }
-
-        /// <summary>
-        ///   Method for binary comparison
-        /// </summary>
-        /// <returns> <c>true</c> for greater or equal property; otherwise, <c>false</c> . </returns>
-        /// <param name='property'> Property. </param>
-        /// <param name='literal'> Literal. </param>
-        private static Boolean BinaryGreaterOrEqualMethod(IComparable property, IComparable literal)
-        {
-            return property.CompareTo(literal) >= 0;
         }
 
         public int GetCountOf<TInteresting>()
@@ -619,7 +406,7 @@ namespace NoSQL.GraphDB.Core
             // tree. Capture the snapshot once (volatile read); VertexCount is a capacity hint only, so a
             // stale count costs at most a resize, never a wrong result (the snapshot walk is authoritative).
             var snap = _snapshot;
-            var labelMatches = CheckLabel(interestingLabel);
+            var labelMatches = ScanHelpers.CheckLabel(interestingLabel);
             var segments = snap.Segments;
             int count = snap.Count;
             var result = new List<VertexModel>(interestingLabel == null ? VertexCount : 0);
@@ -636,7 +423,7 @@ namespace NoSQL.GraphDB.Core
         public override IReadOnlyList<EdgeModel> GetAllEdges(String interestingLabel = null)
         {
             var snap = _snapshot;
-            var labelMatches = CheckLabel(interestingLabel);
+            var labelMatches = ScanHelpers.CheckLabel(interestingLabel);
             var segments = snap.Segments;
             int count = snap.Count;
             var result = new List<EdgeModel>(interestingLabel == null ? EdgeCount : 0);
@@ -653,7 +440,7 @@ namespace NoSQL.GraphDB.Core
         public override IReadOnlyList<AGraphElementModel> GetAllGraphElements(String interestingLabel = null)
         {
             var snap = _snapshot;
-            var labelMatches = CheckLabel(interestingLabel);
+            var labelMatches = ScanHelpers.CheckLabel(interestingLabel);
             var segments = snap.Segments;
             int count = snap.Count;
             var result = new List<AGraphElementModel>(interestingLabel == null ? VertexCount + EdgeCount : 0);

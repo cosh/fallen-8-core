@@ -208,11 +208,6 @@ namespace NoSQL.GraphDB.Core
         internal int _internTableCap = 1_000_000;
 
         /// <summary>
-        ///   Binary operator delegate.
-        /// </summary>
-        private delegate Boolean BinaryOperatorDelegate(IComparable property, IComparable literal);
-
-        /// <summary>
         /// Cache for all kinds of plugins
         /// </summary>
         private readonly PluginCache _pluginCache = new PluginCache();
