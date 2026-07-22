@@ -103,13 +103,16 @@ instance members, OpenAPI tags derive from the controller name, and the proposed
 
 ### 3. Web god-screens — mechanical moves first, designed decomposition last **[review — split in two]**
 
-- **Mechanical (safe file moves):** `BrowserScreen`, `AnalyticsScreen`, and `SubgraphScreen`
-  already contain cleanly delineated inner components (`AdjacencyPanel`, `EmbeddingsTab`,
-  `PropertiesTab`, `ElementDetail`; `AnalyticsRunner`, `GraphShapePanel`; the pattern-builder
-  panels) that use the `useInstanceStore()` seam — move them to `components/` + hooks.
+- **Mechanical (safe file moves):** `BrowserScreen` and `AnalyticsScreen` contain cleanly
+  delineated inner components (`AdjacencyPanel`, `EmbeddingsTab`, `PropertiesTab`,
+  `ElementDetail`; `AnalyticsRunner`, `GraphShapePanel`) that use the `useInstanceStore()`
+  seam — move them to `components/`. (`SubgraphScreen` turned out to have none during
+  implementation: its pattern-builder JSX closes over screen-local state, so it joins the
+  designed bucket below rather than being carved up.)
 - **Designed (do last):** `QueryScreen` is one ~570-line component with ~25 interdependent
   `useState` hooks spanning six scan families — decomposing it requires designing a scan-runner
-  hook contract, not a file move. It happens after the studio-embeddable shell seams land.
+  hook contract, not a file move. Same for `SubgraphScreen`'s inline pattern builder. Both
+  happen after the studio-embeddable shell seams land.
 - **Constraints stated now** so extractions don't fight [studio-embeddable](../studio-embeddable/):
   extracted units receive instance/store state via `useInstanceStore()` or props — never module
   singletons — and introduce **no new direct `localStorage` reads**.

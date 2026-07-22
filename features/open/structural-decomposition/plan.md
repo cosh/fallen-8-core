@@ -91,11 +91,12 @@ The three groups from the spec's Verification section, as MSTest/vitest addition
 ## Phase 5 — web mechanical extractions
 
 Move the delineated inner components out of `BrowserScreen` (`AdjacencyPanel`,
-`EmbeddingsTab`, `PropertiesTab`, `ElementDetail`), `AnalyticsScreen` (`AnalyticsRunner`,
-`GraphShapePanel`), and `SubgraphScreen` (pattern-builder panels) into `components/` +
-hooks, honoring the two constraints (store via `useInstanceStore()`/props; no new direct
-`localStorage` reads). Screen tests from Phase 3 are the guard; screens keep composing the
-extracted units so coverage transfers.
+`EmbeddingsTab`, `PropertiesTab`, `ElementDetail`) and `AnalyticsScreen` (`AnalyticsRunner`,
+`GraphShapePanel`) into `components/`, honoring the two constraints (store via
+`useInstanceStore()`/props; no new direct `localStorage` reads). `SubgraphScreen` proved to
+have no self-contained inner components — its pattern builder is inline JSX over screen
+state, deferred with QueryScreen (see spec target 3). Screen tests from Phase 3 are the
+guard; screens keep composing the extracted units so coverage transfers.
 
 ## Deferred (triggers in spec)
 
