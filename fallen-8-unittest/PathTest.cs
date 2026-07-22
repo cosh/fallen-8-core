@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // PathTest.cs
 //
@@ -159,7 +159,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
             var trent = controller.GraphScan(NAME, TRENTSPEC).Value.First();
@@ -182,7 +182,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
             var bob = controller.GraphScan(NAME, BOBSPEC).Value.First();
@@ -206,7 +206,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateAbcGraph(fallen8);
+            TestGraphGenerator.GenerateAbcGraphAsync(fallen8).Wait();
 
             // Act
             List<Path> paths;
@@ -229,7 +229,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateAbcGraph(fallen8);
+            TestGraphGenerator.GenerateAbcGraphAsync(fallen8).Wait();
 
             // Act
             List<Path> paths;
@@ -256,7 +256,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
             var alice = controller.GraphScan(NAME, ALICESPEC).Value.First();
@@ -278,7 +278,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
             var alice = controller.GraphScan(NAME, ALICESPEC).Value.First();
@@ -301,7 +301,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
             var alice = controller.GraphScan(NAME, ALICESPEC).Value.First();
@@ -331,7 +331,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateAbcGraph(fallen8);
+            TestGraphGenerator.GenerateAbcGraphAsync(fallen8).Wait();
 
             // Instead of using code generation, create a mock path traverser
             IPathTraverser traverser = new MockPathTraverser();
@@ -362,7 +362,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateAbcGraph(fallen8);
+            TestGraphGenerator.GenerateAbcGraphAsync(fallen8).Wait();
 
             // Create two identical path specifications
             var pathSpec1 = new PathSpecification { MaxDepth = 15, MaxResults = 3 };
@@ -596,7 +596,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - Create a new isolated instance for this test
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
 
             // Find Alice and Trent vertices
             List<AGraphElementModel> aliceResults;

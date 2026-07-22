@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // PathTestEdgeCases.cs
 //
@@ -44,7 +44,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
             // Use Alice and Bob from the sample graph
@@ -73,7 +73,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
             var alice = controller.GraphScan("name", new ScanSpecification
@@ -100,7 +100,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
 
             // Use IDs that do not exist in the sample graph

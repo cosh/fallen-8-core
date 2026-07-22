@@ -103,6 +103,12 @@ namespace NoSQL.GraphDB.Tests
             };
         }
 
+        /// <summary>Unwraps the now-awaitable register/delete actions (feature async-completion-sweep).</summary>
+        private static int StatusCodeOf(System.Threading.Tasks.Task<IActionResult> result)
+        {
+            return StatusCodeOf(result.Result);
+        }
+
         private static int StatusCodeOf(IActionResult result)
         {
             switch (result)
@@ -148,7 +154,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var spec = ValidPathSpecification("not a valid name!");
 
-            var result = _controller.RegisterStoredQuery(spec);
+            var result = _controller.RegisterStoredQuery(spec).Result;
 
             Assert.AreEqual(400, StatusCodeOf(result));
             Assert.AreEqual(0, _fallen8.StoredQueries.Count);
@@ -233,7 +239,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void Register_ValidPathQuery_Returns201AndCompiledState()
         {
-            var result = _controller.RegisterStoredQuery(ValidPathSpecification());
+            var result = _controller.RegisterStoredQuery(ValidPathSpecification()).Result;
 
             Assert.AreEqual(201, StatusCodeOf(result));
             var summary = (StoredQuerySummaryREST)((ObjectResult)result).Value;
@@ -249,7 +255,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void Register_ValidSubGraphQuery_Returns201AndCompiledState()
         {
-            var result = _controller.RegisterStoredQuery(ValidSubGraphSpecification());
+            var result = _controller.RegisterStoredQuery(ValidSubGraphSpecification()).Result;
 
             Assert.AreEqual(201, StatusCodeOf(result));
 
@@ -264,7 +270,7 @@ namespace NoSQL.GraphDB.Tests
             var spec = ValidPathSpecification("broken");
             spec.Path.Filter.Vertex = "return (v) => v.NoSuchMember == 42;";
 
-            var result = _controller.RegisterStoredQuery(spec);
+            var result = _controller.RegisterStoredQuery(spec).Result;
 
             Assert.AreEqual(400, StatusCodeOf(result));
             var body = ((ObjectResult)result).Value as string;
@@ -280,7 +286,7 @@ namespace NoSQL.GraphDB.Tests
             var spec = ValidSubGraphSpecification("broken-subgraph");
             spec.SubGraph.VertexFilter = "return (v) => v.;";
 
-            var result = _controller.RegisterStoredQuery(spec);
+            var result = _controller.RegisterStoredQuery(spec).Result;
 
             Assert.AreEqual(400, StatusCodeOf(result));
             Assert.AreEqual(0, _fallen8.StoredQueries.Count);
@@ -294,7 +300,7 @@ namespace NoSQL.GraphDB.Tests
             var spec = ValidPathSpecification("oversize");
             spec.Path.Filter.Vertex = "return (v) => true; //" + new string('x', 100_001);
 
-            var result = _controller.RegisterStoredQuery(spec);
+            var result = _controller.RegisterStoredQuery(spec).Result;
 
             Assert.AreEqual(400, StatusCodeOf(result));
             var body = ((ObjectResult)result).Value as string;
@@ -312,7 +318,7 @@ namespace NoSQL.GraphDB.Tests
         {
             Assert.AreEqual(201, StatusCodeOf(_controller.RegisterStoredQuery(ValidPathSpecification())));
 
-            var result = _controller.RegisterStoredQuery(ValidPathSpecification());
+            var result = _controller.RegisterStoredQuery(ValidPathSpecification()).Result;
 
             Assert.AreEqual(409, StatusCodeOf(result));
             Assert.AreEqual(1, _fallen8.StoredQueries.Count);
@@ -379,8 +385,8 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ListGetDelete_RoundTrip()
         {
-            _controller.RegisterStoredQuery(ValidPathSpecification("path-query"));
-            _controller.RegisterStoredQuery(ValidSubGraphSpecification("subgraph-query"));
+            _controller.RegisterStoredQuery(ValidPathSpecification("path-query")).Wait();
+            _controller.RegisterStoredQuery(ValidSubGraphSpecification("subgraph-query")).Wait();
 
             // List: both entries, ordered by name.
             var listResult = (ObjectResult)_controller.GetAllStoredQueries();

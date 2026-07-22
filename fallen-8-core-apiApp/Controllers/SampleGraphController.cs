@@ -25,6 +25,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Controllers.Benchmark;
@@ -61,11 +62,11 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpPut("/unittest")]
         [MapToApiVersion("0.1")]
-        public void CreateGraph()
+        public async Task CreateGraph()
         {
             var sw = Stopwatch.StartNew();
 
-            var stats = TestGraphGenerator.GenerateSampleGraph(_fallen8);
+            var stats = await TestGraphGenerator.GenerateSampleGraphAsync(_fallen8);
 
             sw.Stop();
 

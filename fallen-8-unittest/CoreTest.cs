@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // CoreTest.cs
 //
@@ -55,7 +55,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
 
             // Act
             List<AGraphElementModel> result;
@@ -76,7 +76,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var saveGameName = @"SaveAndLoadTest.f8";
             var saveGameDirectory = @".";
             var saveGameLocation = Path.Combine(saveGameDirectory, saveGameName);
@@ -413,7 +413,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
             var verticesBefore = fallen8.GetAllVertices().Count;
             var edgesBefore = fallen8.GetAllEdges().Count;
 

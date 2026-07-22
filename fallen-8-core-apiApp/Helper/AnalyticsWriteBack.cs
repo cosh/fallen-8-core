@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -49,15 +50,17 @@ namespace NoSQL.GraphDB.App.Helper
 
         /// <summary>
         ///   Writes <paramref name="valueByVertexId"/> as the property <paramref name="propertyKey"/>
-        ///   on each vertex, in ascending-id order, in atomic chunks. Returns false when a chunk
-        ///   was rolled back - earlier chunks stay applied (documented non-atomicity).
+        ///   on each vertex, in ascending-id order, in atomic chunks. Success is false when a chunk
+        ///   was rolled back - earlier chunks stay applied (documented non-atomicity). Chunks stay
+        ///   strictly sequential (the next is enqueued only after the previous committed), so the
+        ///   stop-on-first-rollback contract is unchanged; only the wait is awaitable now.
         /// </summary>
-        internal static Boolean TryExecute(out Int32 verticesWritten, out Int32 chunks,
+        internal static async Task<(Boolean Success, Int32 VerticesWritten, Int32 Chunks)> ExecuteAsync(
             IFallen8 fallen8, IReadOnlyList<KeyValuePair<Int32, Object>> valueByVertexId,
             String propertyKey)
         {
-            verticesWritten = 0;
-            chunks = 0;
+            var verticesWritten = 0;
+            var chunks = 0;
 
             for (var start = 0; start < valueByVertexId.Count; start += ChunkSize)
             {
@@ -73,18 +76,18 @@ namespace NoSQL.GraphDB.App.Helper
                 }, name: "analytics-writeback:" + propertyKey);
 
                 var info = fallen8.EnqueueTransaction(tx);
-                info.WaitUntilFinished();
+                await info.Completion;
 
                 if (info.TransactionState != TransactionState.Finished)
                 {
-                    return false;
+                    return (false, verticesWritten, chunks);
                 }
 
                 verticesWritten += chunkEnd - chunkStart;
                 chunks++;
             }
 
-            return true;
+            return (true, verticesWritten, chunks);
         }
     }
 }

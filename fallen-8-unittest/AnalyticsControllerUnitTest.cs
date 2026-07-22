@@ -83,7 +83,7 @@ namespace NoSQL.GraphDB.Tests
             // validated - exactly the engine's budget-died-before-one-pass signal.
             var controller = Controller(new AnalyticsStubFallen8(_fallen8) { AnalyticsFails = true });
 
-            var result = controller.RunAnalytics("DEGREE", new AnalyticsSpecification());
+            var result = controller.RunAnalytics("DEGREE", new AnalyticsSpecification()).Result;
 
             var objectResult = result as ObjectResult;
             Assert.IsNotNull(objectResult);
@@ -108,7 +108,7 @@ namespace NoSQL.GraphDB.Tests
 
             var controller = Controller(new AnalyticsStubFallen8(_fallen8) { FailWrites = true });
 
-            var result = controller.RunAnalytics("DEGREE", new AnalyticsSpecification { WriteBack = true });
+            var result = controller.RunAnalytics("DEGREE", new AnalyticsSpecification { WriteBack = true }).Result;
 
             var objectResult = result as ObjectResult;
             Assert.IsNotNull(objectResult);

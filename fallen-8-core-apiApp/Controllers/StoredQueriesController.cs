@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -130,7 +131,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult RegisterStoredQuery([FromBody] StoredQuerySpecification specification)
+        public async Task<IActionResult> RegisterStoredQuery([FromBody] StoredQuerySpecification specification)
         {
             if (specification == null)
             {
@@ -202,7 +203,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 var entry = new StoredQueryEntry(definition, StoredQueryCompileState.Compiled, artifact);
                 var tx = new RegisterStoredQueryTransaction { Entry = entry };
                 var txInfo = _fallen8.EnqueueTransaction(tx);
-                txInfo.WaitUntilFinished();
+                await txInfo.Completion;
 
                 if (txInfo.TransactionState == TransactionState.RolledBack)
                 {
@@ -286,7 +287,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult DeleteStoredQuery([FromRoute] String name)
+        public async Task<IActionResult> DeleteStoredQuery([FromRoute] String name)
         {
             if (!_fallen8.StoredQueries.TryGet(out _, name))
             {
@@ -295,7 +296,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             var tx = new RemoveStoredQueryTransaction { Name = name };
             var txInfo = _fallen8.EnqueueTransaction(tx);
-            txInfo.WaitUntilFinished();
+            await txInfo.Completion;
 
             // A rolled-back removal must not be reported as a successful 204 (the DeleteSubGraph
             // failure-reason mapping): a concurrent removal after the up-front check is a 404,
