@@ -40,5 +40,5 @@ console.log('');
 console.log('Services:');
 console.log(`  F8 Studio UI:  http://localhost:${f8Port}`);
 console.log(`  F8 REST API:   http://localhost:${f8Port}  (OpenAPI: /openapi/v0.1.json, Scalar: /scalar/v0.1)`);
-console.log('  NL assist:     http://localhost:11434  (Ollama, default model "f8-delegate", base "phi4-mini")');
+console.log('  NL assist:     http://localhost:11434  (Ollama, default model "phi4-f8-mini"; opt-in "phi4-f8")');
 console.log('');

@@ -29,7 +29,7 @@ function main() {
       : 'No NVIDIA GPU detected - starting CPU-only (F8_GPU=1 forces the GPU override).'
   );
   console.log(
-    'On first start the Ollama container pulls phi4-mini + f8-delegate (a few GB); the F8\n' +
+    'On first start the Ollama container pulls phi4-mini + phi4-f8-mini (a few GB); the F8\n' +
       'API is up immediately, and NL assist works once the pull finishes. Watch it with\n' +
       '`npm run env:logs`. To pre-seed the models (offline/faster first start): scripts/ensure-models.sh\n'
   );

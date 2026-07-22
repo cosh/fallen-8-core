@@ -22,9 +22,9 @@ on your own machine.
 shared/f8.ts         f8Fetch (429-retry) + validate() (compile authority) + streaming ollamaChat(), shared by all scripts
 dataset-gen/         phase 2 — generate.ts: contract -> validated (intent, fragment) pairs
 eval/                phases 1+4 — baseline.ts (+ --semantic), fixture.ts (FT-8 gate), eval-set.json (held-out)
-train/               phase 3 — requirements.txt, train-config.json, train_lora.py, merge.py, Modelfile.template
+train/               phase 3 — requirements.txt, train-config.<variant>.json, train_lora.py, merge.py, Modelfile.template
 run.sh               phase 3 orchestrator (WSL2): dataset -> train -> merge -> gguf -> ollama create -> provenance
-dataset/ adapter/ merged/ *.gguf Modelfile PROVENANCE.md   generated, gitignored (spec FT-5)
+dataset/ adapter/ merged/ *.gguf Modelfile PROVENANCE.*.md   generated, gitignored (spec FT-5)
 ```
 
 ## Prerequisites
@@ -44,32 +44,64 @@ Fallen8__Security__EnableDynamicCodeExecution=true \
 dotnet run --project fallen-8-core-apiApp
 ```
 
-Training (phase 3) runs on WSL2 (Ubuntu) with an **8GB+ NVIDIA GPU** (any modern CUDA driver
-— `nvidia-smi` shows the version; a newer driver runs the torch wheels fine). It needs
-**Python 3.10+**, `ollama` (for `ollama create`), and `cmake` + a C/C++ compiler
-(`build-essential`) for the GGUF stage — that builds llama.cpp **CPU-only**, so no CUDA
-toolkit/`nvcc` is required. Ubuntu 24.04 ships Python 3.12, so no extra Python install is
-needed there.
+Training (phase 3) runs on **Linux with an 8GB+ NVIDIA GPU** — WSL2 (Ubuntu) on a Windows GPU
+box, or a native Ubuntu box. Any modern CUDA driver works (`nvidia-smi` shows the version; a
+newer driver runs the torch wheels fine). The toolchain is **Python 3.10+**, `ollama` (for
+`ollama create`, and to serve a base model for the optional bootstrap + eval steps), and
+`cmake` + a C/C++ compiler (`build-essential`) for the GGUF stage — that builds llama.cpp
+**CPU-only**, so no CUDA toolkit/`nvcc` is required. **Heads-up on Python:** Ubuntu 26.04's
+default `python3` is **3.14**, which PyTorch has no CUDA wheels for yet — so build the
+*training* venv with **Python 3.13** (steps below). Dataset generation and eval are fine on 3.14.
 
-> **Node.js and the apiApp are only for *generating* the dataset (phase 2).** The dataset is
-> deterministic, so a training-only box can copy `dataset/train.jsonl` (+ `dataset.meta.json`)
-> from wherever it was generated and skip both — `run.sh`'s `dataset` stage reuses an existing
-> file, so `./run.sh all` then needs neither.
+> **Node.js and the apiApp are only for *generating* the dataset (phase 2)** and the eval
+> harness. The dataset is deterministic, so a training-only box can copy `dataset/train.jsonl`
+> (+ `dataset.meta.json`) from wherever it was generated and skip both — `run.sh`'s `dataset`
+> stage reuses an existing file, so `./run.sh all` then needs neither.
 
-Mind the Python version: the distro default (`python3 --version`) is often too old — Ubuntu
-20.04 ships Python **3.8**, which is EOL and has no wheels for the toolchain, so `./run.sh
-deps` fails with "No matching distribution found". Install a supported Python + its venv
-package and point `deps` at it with the `PYTHON` env var:
+### Install the toolchain (Ubuntu)
+
+One script installs everything — build tools, Node 22 + tsx, .NET SDK 10, uv + **Python 3.13**,
+and Ollama — and is the single home for these installs (the cloud runner in
+[`infra/`](infra/README.md) runs this same script):
 
 ```bash
-# python3 < 3.10 → install a newer one (deadsnakes covers 20.04/22.04):
-sudo add-apt-repository -y ppa:deadsnakes/ppa
-sudo apt update && sudo apt install -y python3.12 python3.12-venv
-# then, in Phase 3:  PYTHON=python3.12 ./run.sh deps
-
-# python3 already >= 3.10 → just its venv/pip packages:
-sudo apt install -y python3-venv python3-pip
+./install-prereqs.sh          # idempotent; uses sudo for apt, or runs as root on a VM
+source ./.prereqs-env.sh      # puts dotnet + uv on PATH and exports $PY313
 ```
+
+> **Why Python 3.13:** PyTorch has no CUDA wheels for Ubuntu 26.04's default **3.14**
+> (`./run.sh deps` would otherwise die with `No matching distribution found for torch`), and
+> 26.04 doesn't carry 3.13 in its archive — so the script fetches a standalone 3.13 via
+> [uv](https://docs.astral.sh/uv/) and exports its path as `$PY313`. Pass that to the pipeline
+> (`PYTHON="$PY313" ./run.sh …`). Dataset generation and eval are fine on the system 3.14. For a
+> newer GPU (e.g. RTX 50-series) also set `TORCH_VERSION`/`TORCH_INDEX` (cu128 + torch ≥ 2.7).
+
+> **On WSL2, do NOT install an NVIDIA driver inside Ubuntu.** Install the current NVIDIA driver
+> on **Windows** (531+); WSL2 exposes the GPU automatically, and `nvidia-smi` then works inside
+> the distro. A Linux driver installed in WSL breaks the passthrough. On a **native** Ubuntu box
+> you do install it: `sudo ubuntu-drivers autoinstall`, then reboot.
+
+### Start Ollama (prerequisite for the bootstrap + eval steps)
+
+The install script registers a systemd service. On native Ubuntu — and on WSL2 with systemd
+enabled (the default on recent releases) — start it and pull the base model:
+
+```bash
+sudo systemctl enable --now ollama       # start now + on every boot
+systemctl status ollama --no-pager       # confirm it is active (listening on :11434)
+ollama pull phi4-mini                     # the base the bootstrap/eval reach for
+```
+
+If `systemctl` reports *"System has not been booted with systemd as init system"* (an older
+WSL2 without systemd), run the server in the background instead:
+
+```bash
+ollama serve > /tmp/ollama.log 2>&1 &     # background the daemon
+ollama pull phi4-mini
+```
+
+Either way, `ollama list` should succeed and the server answers on `http://localhost:11434`
+(the eval's `NL_EVAL_ENDPOINT` default).
 
 ## Phase 2 — generate the dataset
 
@@ -94,30 +126,39 @@ npx tsx nl-assist-finetune/dataset-gen/generate.ts --check
 # model pulled); errors out with "Ollama is not reachable" if it isn't. Skip it for a first run.
 NL_GEN_BOOTSTRAP=1 npx tsx nl-assist-finetune/dataset-gen/generate.ts
 ```
+```powershell
+npx tsx nl-assist-finetune/dataset-gen/generate.ts --check      # drift guard (needs no model)
+$env:NL_GEN_BOOTSTRAP = "1"; npx tsx nl-assist-finetune/dataset-gen/generate.ts   # mine extra phrasings (needs Ollama)
+```
 
 Each JSONL row is `{ delegateKind, intent, fragment, source, noisy, messages }`, where
 `messages` is the real runtime prompt (`system`/`user` from the web UI's own prompt module)
 plus the fragment as the `assistant` turn — so training matches the shipping prompt exactly
 and the prompt contract lives in one place, not re-encoded in Python.
 
-## Phase 3 — train on WSL2
+## Phase 3 — train on WSL2 / Linux (NVIDIA GPU)
 
-From `nl-assist-finetune/` inside WSL2, in this order:
+Training is **not** a Windows-PowerShell step: `run.sh` and the CUDA / QLoRA / GGUF toolchain
+need a Linux shell with an NVIDIA GPU — WSL2 (Ubuntu) on a Windows GPU box, or a native Linux
+box. Run the toolchain installer once first (Prerequisites above), then from
+`nl-assist-finetune/` (bash):
+
+> **No local GPU big enough?** The 14B `phi4-f8` needs ~16 GB VRAM. [`infra/`](infra/README.md)
+> provisions a throwaway Azure A10 (on-demand), trains **both** variants in one session,
+> publishes them, and deletes itself — no manual steps.
 
 ```bash
-# 1. Build the toolchain FIRST: this creates train/.venv and installs the pinned deps.
-#    Nothing under train/.venv exists until this has run. If your default python3 is < 3.10,
-#    prefix with a newer interpreter:  PYTHON=python3.12 ./run.sh deps
-./run.sh deps
+# 1. Build train/.venv + install the pinned torch/deps. PYTHON="$PY313" (from install-prereqs)
+#    because 26.04's system python3 is 3.14, which has no CUDA torch wheels.
+PYTHON="$PY313" ./run.sh deps
 
-# 2. (Optional pre-flight) eyeball the assistant marker the completion-only trainer keys on
-#    (Phi model revisions differ) before spending GPU time. Needs step 1 done.
-train/.venv/bin/python train/train_lora.py --inspect
+# 2. (Optional pre-flight, recommended for phi4-f8) eyeball the assistant marker + the LoRA
+#    target modules the trainer keys on, before spending GPU time.
+train/.venv/bin/python train/train_lora.py --inspect --config train/train-config.phi4-f8.json
 
 # 3. Run the whole chain: deps -> dataset -> QLoRA -> merge -> GGUF -> ollama create -> PROVENANCE.
-#    Safe to run on its own from a clean checkout - its first stage IS `deps`, so it builds the
-#    venv itself; steps 1-2 above are only useful for the pre-flight.
-./run.sh all
+#    Mini (default): PYTHON="$PY313" ./run.sh all    |    14B: add VARIANT=phi4-f8
+VARIANT=phi4-f8 PYTHON="$PY313" ./run.sh all
 
 # or a single stage:  ./run.sh deps | dataset | train | merge | gguf | modelfile | provenance
 ```
@@ -130,40 +171,43 @@ train/.venv/bin/python train/train_lora.py --inspect
 > pip pick the build for your Python + driver. If torch install fails or CUDA is unavailable at
 > train time, set `TORCH_INDEX` to the index matching `nvidia-smi`'s CUDA version (e.g. `cu121`).
 
-`run.sh` produces the Ollama model `f8-delegate` and a `PROVENANCE.md` (base model + MIT
-license, pinned tool versions, dataset hash — spec FT-7). Config, seed, and LoRA
-hyperparameters live in [train/train-config.json](train/train-config.json); the same
-dataset + config + seed reproduce an equivalent model (spec FT-1). If you hit OOM on 8GB,
-drop `training.perDeviceBatchSize` to 1.
+`run.sh` produces an Ollama model named for the variant (`phi4-f8-mini` by default; set
+`VARIANT=phi4-f8` for the full-Phi-4 fine-tune) plus a `PROVENANCE.<model>.md` (base model +
+MIT license, pinned tool versions, dataset hash — spec FT-7). Config, seed, and LoRA
+hyperparameters live in the per-variant `train/train-config.<variant>.json`; the same dataset
++ config + seed reproduce an equivalent model (spec FT-1). If you hit OOM, drop
+`training.perDeviceBatchSize` (and `maxSeqLength`) — the 14B `phi4-f8` needs ~16GB+.
 
-Point the NL assist at it by setting its `model` field to `f8-delegate` (spec FT-6) — no
-Fallen-8 code changes; with nothing configured the stock base model is used as before.
+Point the NL assist at it by setting its `model` field to `phi4-f8-mini` (or `phi4-f8`) — no
+Fallen-8 code changes (spec FT-6). The two variants and the UI selection are documented in
+[features/delegate-model-variants](../features/done/delegate-model-variants/README.md).
 
 ## Distribution — share your model (feedback-loop FL-4)
 
-`f8-delegate` lives only in the ollama on the box that trained it. Fallen-8 core ships no
+A fine-tune lives only in the ollama on the box that trained it. Fallen-8 core ships no
 weights (spec FT-5), so a retrained model reaches *other* instances only if **you** publish
-it — this is your opt-in channel, not something F8 does. After registering this machine's
-Ollama key with your ollama.com account:
+it — your opt-in channel, not something F8 does. After `ollama login` with your ollama.com
+account, publish the variant you built:
 
 ```bash
-PUBLISH_REPO=stoic_hellman_728/f8-delegate ./run.sh publish
+PUBLISH_REPO=<your-namespace>/phi4-f8-mini ./run.sh publish                # the default variant
+PUBLISH_REPO=<your-namespace>/phi4-f8 VARIANT=phi4-f8 ./run.sh publish     # the 14B variant
 ```
 
-A fresh `docker compose up` then pulls it automatically: `ollama-init` pulls
-`$F8_DELEGATE_REPO` (default `stoic_hellman_728/f8-delegate`) and tags it `f8-delegate`, so
-the UI default works out of the box. Point a different deployment at another publisher by
-setting `F8_DELEGATE_REPO`. Without Docker, an operator pulls it by hand:
+A fresh `docker compose up` then pulls automatically: `ollama-init` pulls `$F8_DELEGATE_REPO`
+(default `stoic_hellman_728/phi4-f8-mini`) and tags it `phi4-f8-mini`, so the UI default works
+out of the box; set `F8_PULL_PHI4F8=1` (+ `F8_PHI4F8_REPO`) to also fetch and tag `phi4-f8`.
+Point a deployment at your publisher via those vars. Without Docker, pull by hand:
 
 ```bash
-ollama pull stoic_hellman_728/f8-delegate
-ollama cp stoic_hellman_728/f8-delegate f8-delegate          # adopt it as the UI default…
-#   …or just set the NL-assist model field to stoic_hellman_728/f8-delegate
+ollama pull <your-namespace>/phi4-f8-mini
+ollama cp   <your-namespace>/phi4-f8-mini phi4-f8-mini       # adopt the short UI name…
+#   …or just set the NL-assist model field to <your-namespace>/phi4-f8-mini
 ```
 
-Ship `PROVENANCE.md` alongside so the licence position (Phi-4-mini MIT + MIT-generated
-dataset) travels with the artifact (FT-7). Until the model is published, a fresh deploy's
-`f8-delegate` default 404s and should use the stock phi4-mini preset.
+Ship `PROVENANCE.<model>.md` alongside so the licence position (Phi-4 / Phi-4-mini MIT +
+MIT-generated dataset) travels with the artifact (FT-7). Until a fine-tune is published, a
+fresh deploy's default 404s and should use the stock phi4-mini preset.
 
 ## Consolidate captured feedback into training (feedback-loop FL-3)
 
@@ -182,11 +226,20 @@ retrain folds your real-usage feedback in; re-run the eval gate to confirm it st
 
 ## Evaluation (baseline / comparison runs)
 
+This runs on the host (Windows PowerShell or bash) — it needs a model backend (the compose
+Ollama on `:11434`) and a dynamic-code apiApp, not a GPU.
+
 ```bash
 npx tsx nl-assist-finetune/eval/baseline.ts                              # stock base model
-NL_EVAL_MODEL=f8-delegate npx tsx nl-assist-finetune/eval/baseline.ts    # a fine-tuned model
+NL_EVAL_MODEL=phi4-f8-mini npx tsx nl-assist-finetune/eval/baseline.ts   # a fine-tuned model
 npx tsx nl-assist-finetune/eval/baseline.ts --semantic                   # + FT-8 element-set gate
 npx tsx nl-assist-finetune/eval/baseline.ts --rescore --semantic         # re-score recorded fragments, no model calls
+```
+```powershell
+npx tsx nl-assist-finetune/eval/baseline.ts                                       # stock base model
+$env:NL_EVAL_MODEL = "phi4-f8-mini"; npx tsx nl-assist-finetune/eval/baseline.ts  # a fine-tuned model
+npx tsx nl-assist-finetune/eval/baseline.ts --semantic                            # + FT-8 element-set gate
+npx tsx nl-assist-finetune/eval/baseline.ts --rescore --semantic                  # re-score, no model calls
 ```
 
 One first-pass call per `eval/eval-set.json` row through the web UI's real prompt/format
@@ -218,11 +271,12 @@ npx tsx nl-assist-finetune/eval/fixture.ts   # self-test
 
 ## Env vars
 
-Shared by every script (defined in `shared/f8.ts`):
+Set them per shell — bash: `NAME=value cmd`; PowerShell: `$env:NAME = "value"; cmd` (persists
+for the session, `Remove-Item Env:NAME` to clear). Shared by every script (defined in `shared/f8.ts`):
 `NL_EVAL_MODEL` (default `phi4-mini`), `NL_EVAL_ENDPOINT` (default `http://localhost:11434`),
 `NL_EVAL_F8` (default `http://localhost:5000`). Generator-only: `NL_GEN_BOOTSTRAP`,
-`NL_GEN_OUT`. `run.sh`: `VENV`, `LLAMA_CPP`, `OLLAMA_MODEL`, `PYTHON` (interpreter used to build
-the venv; default `python3`, set to e.g. `python3.12` when the default is too old), and
+`NL_GEN_OUT`. `run.sh`: `VARIANT` (`phi4-f8-mini` | `phi4-f8`), `VENV`, `LLAMA_CPP`,
+`OLLAMA_MODEL`, `PYTHON` (interpreter used to build the venv; default `python3`), and
 `TORCH_INDEX` (the CUDA wheel index torch is installed from; default `cu124`, set to e.g.
 `https://download.pytorch.org/whl/cu121` for an older driver — check `nvidia-smi`'s CUDA version
 against https://pytorch.org/get-started/locally/).

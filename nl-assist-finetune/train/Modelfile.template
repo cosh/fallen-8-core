@@ -1,5 +1,6 @@
-# f8-delegate - fine-tuned NL-assist model (nl-assist-finetune plan phase 3, spec Stage 5).
-# run.sh substitutes __GGUF__ with the quantized artifact path and writes ../Modelfile.
+# Fine-tuned NL-assist model - the phi4-f8-mini / phi4-f8 variants (nl-assist-finetune plan
+# phase 3, spec Stage 5; feature delegate-model-variants). run.sh substitutes __GGUF__ with the
+# quantized artifact path and writes ../Modelfile.
 #
 # The runtime NL assist sends its own per-kind system message with every request, which
 # Ollama uses in place of the SYSTEM default below; this SYSTEM is only the fallback when
@@ -12,5 +13,5 @@ SYSTEM """You draft a single C# fragment for a Fallen-8 graph query: a method bo
 
 # convert_hf_to_gguf.py carries the tokenizer's chat template into the GGUF metadata, which
 # Ollama uses to format system/user/assistant turns exactly as training did. Verify with:
-#   ollama show f8-delegate --template
+#   ollama show <model> --template          # e.g. phi4-f8-mini or phi4-f8
 # If it prints empty, add an explicit TEMPLATE block matching the base model's chat format.

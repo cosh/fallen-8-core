@@ -1,5 +1,6 @@
 # The complete F8 environment as ONE unit: engine + API + F8 Studio UI in one container,
-# plus the NL-assist model backend (Ollama with phi4-mini base + f8-delegate fine-tune).
+# plus the NL-assist model backend (Ollama with phi4-mini base + phi4-f8-mini fine-tune;
+# the larger full-Phi-4 fine-tune phi4-f8 is opt-in - feature delegate-model-variants).
 # Manage the environment as a whole - not individual containers:
 #
 #   npm run env:up                   # start everything (detects NVIDIA GPU automatically)
@@ -21,9 +22,10 @@
 # For AMD GPUs, use the Ollama rocm image manually (not yet covered by this compose).
 #
 #   F8 Studio:  http://localhost:8080
-#   NL assist:  endpoint http://localhost:11434, api kind "ollama". The UI uses the
-#               fine-tuned "f8-delegate" model (nl-assist-finetune), which is required.
-#               Override the model source (if running a custom fine-tune) via F8_DELEGATE_REPO.
+#   NL assist:  endpoint http://localhost:11434, api kind "ollama". The UI defaults to the
+#               fine-tuned "phi4-f8-mini" model (nl-assist-finetune). Override its pull source
+#               via F8_DELEGATE_REPO. To also serve the larger GPU-only "phi4-f8", set
+#               F8_PULL_PHI4F8=1 (source F8_PHI4F8_REPO); ~9GB, so it is off by default.
 
 services:
   fallen8:
@@ -67,8 +69,12 @@ services:
       # The browser calls Ollama directly (nl-assist spec §4); allow the F8 origin
       # (keep in sync with F8_PORT).
       - OLLAMA_ORIGINS=http://localhost:${F8_PORT:-8080}
-      # Override the model source if running a custom fine-tuned variant.
-      - F8_DELEGATE_REPO=${F8_DELEGATE_REPO:-stoic_hellman_728/f8-delegate}
+      # Fine-tune pull sources, tagged locally to the short variant names (phi4-f8-mini / phi4-f8).
+      # Override to run your own published fine-tune. phi4-f8 is opt-in (F8_PULL_PHI4F8=1): ~9GB,
+      # GPU-recommended, so it is never pulled by default.
+      - F8_DELEGATE_REPO=${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}
+      - F8_PHI4F8_REPO=${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}
+      - F8_PULL_PHI4F8=${F8_PULL_PHI4F8:-0}
     volumes:
       - ollama-models:/root/.ollama
     healthcheck:
