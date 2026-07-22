@@ -56,6 +56,22 @@ predating the `/status` field. Consequences:
   "Compute the Graph shape" hint disappears from provider messaging. (Embedding-*name*
   suggestions still come from the shape snapshot — those really are graph data.)
 
+Browser embeddings tab, three follow-up fixes from first real use:
+
+- **Vector previews clamp.** The REST egress sends `Single[]` values as a bracketed
+  *string* (`AGraphElement.FormatPropertyValue`), which the preview helper didn't
+  recognize — a 1024-dim embedding dumped raw and blew up the layout. Both shapes now
+  truncate to the first components plus `(d=N)`.
+- **The tab survives a write.** A set/remove refreshes the element by re-running the
+  lookup, which unmounts the detail panel while pending; tab state now lives on the
+  screen, so the user stays on Embeddings and sees the result of their write.
+- **Build the text from the element.** In text mode, the element's label and plain
+  properties appear as checkboxes (all included by default — one Fill + Set embeds the
+  whole vertex/edge); unchecking narrows to the interesting properties, and the composed
+  `key: value` lines land in an editable textarea before anything is sent. Reserved
+  embedding properties are never offered; the helper is provider-gated like the rest of
+  text mode.
+
 ### 3. Compose enables the provider by default (`F8_EMBEDDINGS`)
 
 `npm run env:up` yields working text-in embeddings, semantic search and GraphRAG with

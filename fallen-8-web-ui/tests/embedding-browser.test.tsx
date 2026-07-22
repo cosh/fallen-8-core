@@ -60,8 +60,10 @@ const ELEMENT: VertexREST = {
   properties: [
     { propertyId: "title", propertyValue: "Bicycles", fullQualifiedTypeName: "System.String" },
     {
+      // The REST egress sends Single[] values as the bracketed STRING form
+      // (AGraphElement.FormatPropertyValue) — the preview must truncate it, not dump it.
       propertyId: "$embedding:default",
-      propertyValue: [0.1, 0.2, 0.3, 0.4],
+      propertyValue: "[0.1,0.2,0.3,0.4]",
       fullQualifiedTypeName: "System.Single[]",
     },
     {
@@ -187,6 +189,62 @@ describe("Browser embeddings tab", () => {
 
     expect(screen.getByTestId("emb-text")).toBeDisabled();
     expect(screen.getByTestId("emb-text-unavailable")).toHaveTextContent(/provider is off/i);
+    // The build-from-element helper is provider-gated with the rest of text mode.
+    expect(screen.queryByTestId("emb-build")).not.toBeInTheDocument();
     expect(embedElementMock).not.toHaveBeenCalled();
+  });
+
+  it("truncates the stored-vector preview instead of dumping the whole vector", async () => {
+    const user = userEvent.setup();
+    renderScreen(true);
+    await lookUp42(user);
+    await user.click(screen.getByTestId("element-tab-embeddings"));
+
+    const row = screen.getByTestId("embedding-row-default");
+    expect(within(row).getByText(/\(d=4\)/)).toBeInTheDocument();
+    // The raw wire string ("[0.1,0.2,0.3,0.4]") must not appear verbatim.
+    expect(within(row).queryByText("[0.1,0.2,0.3,0.4]")).not.toBeInTheDocument();
+  });
+
+  it("stays on the embeddings tab after a write refreshes the element", async () => {
+    const user = userEvent.setup();
+    renderScreen(true);
+    await lookUp42(user);
+    await user.click(screen.getByTestId("element-tab-embeddings"));
+
+    await user.type(screen.getByTestId("emb-vector"), "1, 0, 0, 0");
+    await user.click(screen.getByTestId("emb-write"));
+    await waitFor(() => expect(putEmbeddingMock).toHaveBeenCalledTimes(1));
+
+    // The refresh re-runs the lookup (the detail panel remounts) — the tab must survive.
+    await waitFor(() =>
+      expect(screen.getByTestId("embeddings-tab")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("properties-tab")).not.toBeInTheDocument();
+  });
+
+  it("builds the embed text from the element's label and picked properties", async () => {
+    const user = userEvent.setup();
+    renderScreen(true);
+    await lookUp42(user);
+    await user.click(screen.getByTestId("element-tab-embeddings"));
+    await user.click(screen.getByTestId("emb-source-text"));
+
+    // Everything is included by default: whole-element embedding is one Fill + Set.
+    await user.click(screen.getByTestId("emb-build-fill"));
+    expect(screen.getByTestId("emb-text")).toHaveValue("label: doc\ntitle: Bicycles");
+
+    // Unchecking narrows; reserved embedding properties are never offered.
+    await user.click(screen.getByTestId("emb-build-title"));
+    expect(screen.queryByTestId("emb-build-$embedding:default")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("emb-build-fill"));
+    expect(screen.getByTestId("emb-text")).toHaveValue("label: doc");
+
+    await user.click(screen.getByTestId("emb-write"));
+    await waitFor(() => expect(embedElementMock).toHaveBeenCalledTimes(1));
+    expect(embedElementMock.mock.calls[0][1]).toMatchObject({
+      graphElementId: 42,
+      text: "label: doc",
+    });
   });
 });

@@ -41,16 +41,23 @@ function isReservedEmbeddingProperty(propertyId: string): boolean {
   );
 }
 
-/** A one-line preview of a stored vector value (arrays would otherwise dump huge). */
+/** A one-line preview of a stored vector value. The REST egress sends Single[] values as
+ * the bracketed string form (see AGraphElement.FormatPropertyValue), so both shapes are
+ * truncated — a 1024-dim embedding must never dump raw into the table. */
 function previewVector(value: unknown): string {
+  let components: unknown[] | null = null;
   if (Array.isArray(value)) {
-    const head = value
-      .slice(0, 4)
-      .map((n) => (typeof n === "number" ? Number(n.toFixed(4)) : n))
-      .join(", ");
-    return `[${head}${value.length > 4 ? ", …" : ""}] (d=${value.length})`;
+    components = value;
+  } else if (typeof value === "string" && value.trim().startsWith("[")) {
+    const parsed = parseVector(value);
+    if (parsed.ok) components = parsed.vector;
   }
-  return formatPropertyValue(value);
+  if (components === null) return formatPropertyValue(value);
+  const head = components
+    .slice(0, 4)
+    .map((n) => (typeof n === "number" ? Number(n.toFixed(4)) : n))
+    .join(", ");
+  return `[${head}${components.length > 4 ? ", …" : ""}] (d=${components.length})`;
 }
 
 /**
@@ -192,6 +199,36 @@ function EmbeddingsTab({
   const [text, setText] = useState("");
   const textUnavailable = providerEnabled !== true;
 
+  // Build-from-element (feature embedding-out-of-box): compose the text to embed from the
+  // element's label + plain properties. Everything is included by default (one click =
+  // embed the whole element); unchecking narrows. Tracking EXCLUSIONS keeps the default
+  // all-in and makes stale ids from a previous lookup harmless.
+  const LABEL_KEY = "$label";
+  const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set());
+  const buildable: { key: string; caption: string; line: string }[] = [
+    ...(element.label
+      ? [{ key: LABEL_KEY, caption: "label", line: `label: ${element.label}` }]
+      : []),
+    ...properties
+      .filter((p) => !isReservedEmbeddingProperty(p.propertyId))
+      .map((p) => ({
+        key: p.propertyId,
+        caption: p.propertyId,
+        line: `${p.propertyId}: ${formatPropertyValue(p.propertyValue)}`,
+      })),
+  ];
+  const composedText = buildable
+    .filter((b) => !excluded.has(b.key))
+    .map((b) => b.line)
+    .join("\n");
+  const toggleBuildKey = (key: string) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   const write = useMutation({
     mutationFn: async () => {
       const trimmedName = name.trim();
@@ -308,10 +345,11 @@ function EmbeddingsTab({
           </Field>
         ) : (
           <Field helpKey="embeddingText" label="text" htmlFor="emb-text" className="grow">
-            <input
+            <textarea
               id="emb-text"
               data-testid="emb-text"
               className="input w-full"
+              rows={2}
               value={text}
               disabled={textUnavailable}
               onChange={(event) => setText(event.target.value)}
@@ -322,6 +360,35 @@ function EmbeddingsTab({
                 {providerEnabled === null
                   ? "provider status not reported by this server — paste a vector instead."
                   : "the embedding provider is off on this instance — paste a vector instead."}
+              </div>
+            )}
+            {!textUnavailable && buildable.length > 0 && (
+              <div
+                className="text-fg-dim flex flex-wrap items-center gap-2 text-[11px]"
+                data-testid="emb-build"
+              >
+                <span className="text-fg-faint">build from element:</span>
+                {buildable.map((b) => (
+                  <label key={b.key} className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      data-testid={`emb-build-${b.key}`}
+                      checked={!excluded.has(b.key)}
+                      onChange={() => toggleBuildKey(b.key)}
+                    />
+                    {b.caption}
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  className="btn"
+                  data-testid="emb-build-fill"
+                  disabled={!composedText}
+                  onClick={() => setText(composedText)}
+                  title="Fill the text field from the checked label/properties; edit before setting if you like"
+                >
+                  Fill text
+                </button>
               </div>
             )}
           </Field>
@@ -406,14 +473,19 @@ function ElementDetail({
   element,
   providerEnabled,
   onRefresh,
+  tab,
+  onTabChange,
 }: {
   element: VertexREST | EdgeREST;
   providerEnabled: boolean | null;
   onRefresh: () => void;
+  /** Owned by the screen: a refresh unmounts this panel while the lookup is pending, so
+   *  local state would snap back to "properties" right after every embedding write. */
+  tab: "properties" | "embeddings";
+  onTabChange: (tab: "properties" | "embeddings") => void;
 }) {
   const instance = useActiveInstance()!;
   const edge = isEdge(element) ? element : null;
-  const [tab, setTab] = useState<"properties" | "embeddings">("properties");
 
   return (
     <div className="panel">
@@ -445,7 +517,7 @@ function ElementDetail({
                   ? "border-accent text-accent border-b-2"
                   : "text-fg-dim hover:text-fg"
               }`}
-              onClick={() => setTab(t)}
+              onClick={() => onTabChange(t)}
             >
               {t}
             </button>
@@ -475,6 +547,7 @@ export function BrowserScreen() {
   );
   const [maxElements, setMaxElements] = useState(1000);
   const [bulkFilter, setBulkFilter] = useState("");
+  const [detailTab, setDetailTab] = useState<"properties" | "embeddings">("properties");
 
   const lookup = useMutation({
     mutationFn: async ({
@@ -566,6 +639,8 @@ export function BrowserScreen() {
             element={element}
             providerEnabled={providerEnabled}
             onRefresh={() => lookup.mutate({ kind: lookupKind, id: element.id })}
+            tab={detailTab}
+            onTabChange={setDetailTab}
           />
           {!isEdge(element) && <AdjacencyPanel vertex={element} />}
         </div>
