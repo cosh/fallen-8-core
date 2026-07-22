@@ -247,4 +247,21 @@ describe("Browser embeddings tab", () => {
       text: "label: doc",
     });
   });
+
+  it("states when there is nothing to build from instead of hiding the helper", async () => {
+    // No label, and the only properties are reserved embedding state.
+    getGraphElementMock.mockResolvedValue({
+      ...ELEMENT,
+      label: null,
+      properties: ELEMENT.properties!.filter((p) => p.propertyId !== "title"),
+    });
+    const user = userEvent.setup();
+    renderScreen(true);
+    await lookUp42(user);
+    await user.click(screen.getByTestId("element-tab-embeddings"));
+    await user.click(screen.getByTestId("emb-source-text"));
+
+    expect(screen.getByTestId("emb-build-empty")).toHaveTextContent(/nothing to build from/i);
+    expect(screen.queryByTestId("emb-build")).not.toBeInTheDocument();
+  });
 });

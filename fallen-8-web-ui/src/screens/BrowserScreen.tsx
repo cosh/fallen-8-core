@@ -362,6 +362,12 @@ function EmbeddingsTab({
                   : "the embedding provider is off on this instance — paste a vector instead."}
               </div>
             )}
+            {!textUnavailable && buildable.length === 0 && (
+              <div className="text-fg-faint text-[11px]" data-testid="emb-build-empty">
+                build from element: nothing to build from — this element has no label and
+                no plain properties; type the text yourself.
+              </div>
+            )}
             {!textUnavailable && buildable.length > 0 && (
               <div
                 className="text-fg-dim flex flex-wrap items-center gap-2 text-[11px]"
