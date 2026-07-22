@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // Fallen8.Scan.cs
 //

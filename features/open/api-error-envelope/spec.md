@@ -2,9 +2,9 @@
 
 Status: open (spec/plan only). Related: [api-error-contract](../../done/api-error-contract/),
 [api-security-boundary](../../done/api-security-boundary/), [openapi-10](../../done/openapi-10/).
-Sequencing: runs **after** [structural-decomposition](../structural-decomposition/)'s
-GraphController split — the site inventory below references the pre-split file and is
-regenerated then.
+Sequencing: runs **after** [structural-decomposition](../../done/structural-decomposition/)'s
+GraphController split (merged 2026-07-22) — the site inventory below references the pre-split
+file and is regenerated against the partial-class files when this feature starts.
 
 ## Motivation
 

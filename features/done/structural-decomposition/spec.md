@@ -1,9 +1,11 @@
 # Structural decomposition — shrink the god-classes for dev velocity
 
-Status: open, under implementation on `feature/structural-decomposition` (branch-only workflow).
-Related: [engine-performance](../../done/engine-performance/), [subgraph](../../done/subgraph/),
-[web-ui](../../done/web-ui/), [index-lifecycle](../../done/index-lifecycle/),
-[api-error-envelope](../api-error-envelope/), [studio-embeddable](../studio-embeddable/).
+Status: implemented and merged (branch `feature/structural-decomposition`, merged 2026-07-22
+after the two-architect design review below; deferred items remain trigger-gated in
+"Non-goals"). Related: [engine-performance](../engine-performance/), [subgraph](../subgraph/),
+[web-ui](../web-ui/), [index-lifecycle](../index-lifecycle/),
+[api-error-envelope](../../open/api-error-envelope/),
+[studio-embeddable](../../open/studio-embeddable/).
 
 Revised 2026-07-22 after two independent architecture reviews (engine side; contracts/UI side)
 verified every claim below against the code. Findings that changed the approach are marked
@@ -113,7 +115,7 @@ instance members, OpenAPI tags derive from the controller name, and the proposed
   `useState` hooks spanning six scan families — decomposing it requires designing a scan-runner
   hook contract, not a file move. Same for `SubgraphScreen`'s inline pattern builder. Both
   happen after the studio-embeddable shell seams land.
-- **Constraints stated now** so extractions don't fight [studio-embeddable](../studio-embeddable/):
+- **Constraints stated now** so extractions don't fight [studio-embeddable](../../open/studio-embeddable/):
   extracted units receive instance/store state via `useInstanceStore()` or props — never module
   singletons — and introduce **no new direct `localStorage` reads**.
 - **[review]** The original "existing screen tests are the guard" was false for the largest
@@ -127,7 +129,7 @@ The store's volatile-snapshot discipline works because store mutation is single-
 are **multi-writer** (request threads call `AddOrUpdate`/`TryRemoveKey` directly while the
 engine writer thread purges and projects). Replacing `AThreadSafeElement` with snapshot
 publishing is therefore a category error unless index writes are first routed through the
-single writer — which is exactly [index-lifecycle](../../done/index-lifecycle/) item 3.5,
+single writer — which is exactly [index-lifecycle](../index-lifecycle/) item 3.5,
 explicitly deferred there because it changes observable REST behavior.
 
 Within this feature, only the standard-lock swap (index-lifecycle's named fallback shape,
@@ -151,14 +153,14 @@ acceptable outcome.*
 
 ## Impact on existing features (review sweep, 2026-07-22)
 
-- **[api-error-envelope](../api-error-envelope/)** — its inventory counts 53 error sites in
+- **[api-error-envelope](../../open/api-error-envelope/)** — its inventory counts 53 error sites in
   `GraphController` by location; the split stales that table. Sequenced **after** this
   feature's target 2; regenerate the inventory then. (Noted in that spec.)
-- **[studio-embeddable](../studio-embeddable/)** — the original "alongside" sequencing would
+- **[studio-embeddable](../../open/studio-embeddable/)** — the original "alongside" sequencing would
   have churned the same files concurrently. New order: mechanical screen extractions (here) →
   embeddable shell seams → QueryScreen designed decomposition (here). The two hook constraints
   in target 3 keep extractions embeddable-compatible.
-- **[index-lifecycle](../../done/index-lifecycle/)** — target 4 re-enters ground that feature
+- **[index-lifecycle](../index-lifecycle/)** — target 4 re-enters ground that feature
   deliberately deferred (defect d / item 3.5); this spec cross-references its decision and
   benchmarks instead of re-deriving them.
 - **OpenAPI snapshot** — one pure-reorder diff in target 0; byte-stable afterwards. The
