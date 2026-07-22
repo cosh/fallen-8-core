@@ -39,6 +39,6 @@ longer represent a real slot.
 
 **Follow-up once drained:** remove the GraphElementFilter kind end to end (validate
 endpoint, UI kind table, engine delegate) — trigger documented in
-`features/open/subgraph-typed-filters/spec.md`.
+`features/done/subgraph-typed-filters/spec.md`.
 
 **Closed by:** —
