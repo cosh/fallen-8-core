@@ -145,6 +145,38 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void ApiApp_AwaitsTransactionCompletion_InsteadOfBlocking()
+        {
+            // WaitUntilFinished() is a blocking Task.Wait: on an ASP.NET request path it pins a
+            // thread-pool thread for the transaction's full queue latency (feature
+            // async-completion-sweep; the awaitable is TransactionInformation.Completion). The
+            // pattern regressed once after the write-path-throughput conversion, so it is a rule.
+            // DurabilityLifecycleService is the documented exception: its waits run once at host
+            // startup/shutdown, never on a request thread. Engine-internal waits (fallen-8-core)
+            // are writer-thread mechanics and deliberately out of scope.
+            var allowlist = new[] { Path.Combine("fallen-8-core-apiApp", "Services", "DurabilityLifecycleService.cs") };
+            var root = TestRepo.Root();
+
+            var violations = new List<string>();
+            foreach (var file in SourceFiles("fallen-8-core-apiApp"))
+            {
+                var relative = Path.GetRelativePath(root, file);
+                if (allowlist.Contains(relative, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (CodeLines(file).Any(l => l.Contains(".WaitUntilFinished(", StringComparison.Ordinal)))
+                {
+                    violations.Add(file);
+                }
+            }
+
+            AssertNoViolations(violations,
+                "no blocking WaitUntilFinished() in fallen-8-core-apiApp - await TransactionInformation.Completion instead (allowlist: DurabilityLifecycleService.cs)");
+        }
+
+        [TestMethod]
         public void EveryPackageReference_PinsAnExactVersion()
         {
             // The repo's pin-everything rule, enforced: no floating ('1.*') or range versions,

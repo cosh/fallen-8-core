@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // StoredQueryInvocationTest.cs
 //
@@ -126,7 +126,7 @@ namespace NoSQL.GraphDB.Tests
                 spec.Path.Cost = new PathCostSpecification { Edge = edgeCost };
             }
 
-            var result = _storedQueriesController.RegisterStoredQuery(spec);
+            var result = _storedQueriesController.RegisterStoredQuery(spec).Result;
             Assert.AreEqual(201, ((ObjectResult)result).StatusCode, "Stored query registration must succeed.");
         }
 
@@ -242,7 +242,7 @@ namespace NoSQL.GraphDB.Tests
                     VertexFilter = PersonVertexFilter,
                     EdgeFilter = KnowsEdgeFilter
                 }
-            });
+            }).Wait();
 
             var storedResult = _subGraphController.CreateSubGraph(new SubGraphSpecification
             {
@@ -268,7 +268,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "reusable-template",
                 Kind = "SubGraph",
                 SubGraph = new StoredSubGraphQueryBlock { VertexFilter = PersonVertexFilter }
-            });
+            }).Wait();
 
             Assert.AreEqual(201, ((ObjectResult)_subGraphController.CreateSubGraph(
                 new SubGraphSpecification { Name = "instance-1", StoredQuery = "reusable-template" }).Result).StatusCode);
@@ -381,7 +381,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "a-subgraph-template",
                 Kind = "SubGraph",
                 SubGraph = new StoredSubGraphQueryBlock { VertexFilter = PersonVertexFilter }
-            });
+            }).Wait();
 
             var result = _graphController.CalculateShortestPath(_a, _d,
                 new PathSpecification { StoredQuery = "a-subgraph-template" }).Result.Result;
@@ -409,7 +409,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "subgraph-mixing-check",
                 Kind = "SubGraph",
                 SubGraph = new StoredSubGraphQueryBlock { VertexFilter = PersonVertexFilter }
-            });
+            }).Wait();
 
             var result = _subGraphController.CreateSubGraph(new SubGraphSpecification
             {
@@ -469,7 +469,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "needs-instance-name",
                 Kind = "SubGraph",
                 SubGraph = new StoredSubGraphQueryBlock { VertexFilter = PersonVertexFilter }
-            });
+            }).Wait();
 
             var result = _subGraphController.CreateSubGraph(new SubGraphSpecification
             {
@@ -491,7 +491,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = "short-lived-template",
                 Kind = "SubGraph",
                 SubGraph = new StoredSubGraphQueryBlock { VertexFilter = PersonVertexFilter }
-            });
+            }).Wait();
 
             Assert.AreEqual(201, ((ObjectResult)_subGraphController.CreateSubGraph(
                 new SubGraphSpecification { Name = "survivor", StoredQuery = "short-lived-template" }).Result).StatusCode);
@@ -499,7 +499,7 @@ namespace NoSQL.GraphDB.Tests
             // Delete the stored query, then verify the subgraph is fully self-contained: it still
             // exists, its recipe is materialized (no stored-query reference), and it can be
             // recalculated against the live graph.
-            Assert.AreEqual(204, ((StatusCodeResult)_storedQueriesController.DeleteStoredQuery("short-lived-template")).StatusCode);
+            Assert.AreEqual(204, ((StatusCodeResult)_storedQueriesController.DeleteStoredQuery("short-lived-template").Result).StatusCode);
 
             Assert.IsTrue(_fallen8.SubGraphFactory.TryGetSubGraph(out var survivor, "survivor"));
             Assert.IsNotNull(survivor.Recipe, "The subgraph must carry a persistable recipe.");

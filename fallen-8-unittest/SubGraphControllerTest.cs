@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // SubGraphControllerTest.cs
 //
@@ -246,10 +246,10 @@ namespace NoSQL.GraphDB.Tests
         public void Delete_Existing_Returns204_ThenGoneAnd404OnSecondDelete()
         {
             _ = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
-            Assert.IsInstanceOfType(_controller.DeleteSubGraph("people"), typeof(NoContentResult));
+            Assert.IsInstanceOfType(_controller.DeleteSubGraph("people").Result, typeof(NoContentResult));
             Assert.IsInstanceOfType(_controller.GetSubGraph("people"), typeof(NotFoundObjectResult),
                 "After deletion the subgraph must be gone");
-            Assert.IsInstanceOfType(_controller.DeleteSubGraph("people"), typeof(NotFoundObjectResult),
+            Assert.IsInstanceOfType(_controller.DeleteSubGraph("people").Result, typeof(NotFoundObjectResult),
                 "Deleting a non-existent subgraph must be 404");
         }
 
@@ -375,7 +375,7 @@ namespace NoSQL.GraphDB.Tests
             var controller = new SubGraphController(
                 TestLoggerFactory.Create().CreateLogger<SubGraphController>(), rollbackFallen8);
 
-            var result = controller.DeleteSubGraph("people");
+            var result = controller.DeleteSubGraph("people").Result;
 
             Assert.AreEqual(StatusCodes.Status500InternalServerError, StatusCodeOf(result),
                 "A delete whose remove transaction rolled back must be reported as 500, not 204.");

@@ -29,6 +29,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Net.NetworkInformation;
 using System.Text;
 using System.Threading.Tasks;
@@ -58,7 +59,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// </summary>
         /// <param name="nodeCount">The number of nodes to create</param>
         /// <param name="edgeCountPerVertex">The number of edges per vertex</param>
-        public void CreateScaleFreeNetwork(int nodeCount, int edgeCountPerVertex)
+        public async Task CreateScaleFreeNetworkAsync(int nodeCount, int edgeCountPerVertex)
         {
             // The shared local-clock stamp (feature code-quality): the clock convention lives
             // in DateHelper alone - see the comment on DateHelper.GetModificationDate.
@@ -86,7 +87,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
             var vertexTxTask = _f8.EnqueueTransaction(vertexTx);
 
-            vertexTxTask.WaitUntilFinished();
+            await vertexTxTask.Completion;
 
             var verticesCreates = vertexTx.GetCreatedVertices();
 
@@ -94,11 +95,18 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             {
                 var partitions = Partitioner.Create(0, verticesCreates.Count);
 
+                // The partitions build their edge transactions CPU-parallel and enqueue without
+                // blocking; the single await below covers all of them, so no pool thread is
+                // pinned while the writer drains the batch.
+                var edgeCommits = new ConcurrentBag<TransactionInformation>();
+
                 Parallel.ForEach(partitions, range =>
                 {
                     var verticesInPartition = range.Item2 - range.Item1;
-                    CreateEdges(verticesCreates, verticesCreates.GetRange(range.Item1, verticesInPartition), edgeCountPerVertex, creationDate);
+                    edgeCommits.Add(CreateEdges(verticesCreates, verticesCreates.GetRange(range.Item1, verticesInPartition), edgeCountPerVertex, creationDate));
                 });
+
+                await Task.WhenAll(edgeCommits.Select(commit => commit.Completion));
             }
 
             TrimTransaction tx = new TrimTransaction();
@@ -106,7 +114,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             _f8.EnqueueTransaction(tx);
         }
 
-        private void CreateEdges(ImmutableList<VertexModel> allVertices, ImmutableList<VertexModel> partition, long edgesPerVertex, UInt32 creationDate)
+        private TransactionInformation CreateEdges(ImmutableList<VertexModel> allVertices, ImmutableList<VertexModel> partition, long edgesPerVertex, UInt32 creationDate)
         {
             CreateEdgesTransaction edgesCreateTx = new CreateEdgesTransaction();
 
@@ -133,7 +141,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                 }
             }
 
-            _f8.EnqueueTransaction(edgesCreateTx).WaitUntilFinished();
+            return _f8.EnqueueTransaction(edgesCreateTx);
         }
 
         /// <summary>

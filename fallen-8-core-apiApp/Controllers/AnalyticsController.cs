@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -142,7 +143,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status408RequestTimeout)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-        public IActionResult RunAnalytics([FromRoute] String algorithmName,
+        public async Task<IActionResult> RunAnalytics([FromRoute] String algorithmName,
             [FromBody] AnalyticsSpecification definition)
         {
             definition ??= new AnalyticsSpecification();
@@ -176,7 +177,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (definition.WriteBack)
                 {
-                    var writeBackError = ExecuteWriteBack(out var writeBack, algorithmName, definition, engineDefinition, result);
+                    var (writeBackError, writeBack) = await ExecuteWriteBackAsync(algorithmName, definition, engineDefinition, result);
                     if (writeBackError != null)
                     {
                         return writeBackError;
@@ -511,12 +512,10 @@ namespace NoSQL.GraphDB.App.Controllers
             }
         }
 
-        private IActionResult ExecuteWriteBack(out WriteBackResultREST writeBack, String algorithmName,
+        private async Task<(IActionResult Error, WriteBackResultREST WriteBack)> ExecuteWriteBackAsync(String algorithmName,
             AnalyticsSpecification definition, GraphAnalyticsDefinition engineDefinition,
             GraphAnalyticsResult result)
         {
-            writeBack = null;
-
             var propertyKey = String.IsNullOrWhiteSpace(definition.WriteBackPropertyKey)
                 ? ConventionPropertyKey(algorithmName, engineDefinition.Direction)
                 : definition.WriteBackPropertyKey;
@@ -538,26 +537,26 @@ namespace NoSQL.GraphDB.App.Controllers
                     .ToList();
             }
 
-            if (!AnalyticsWriteBack.TryExecute(out var verticesWritten, out var chunks, _fallen8, values, propertyKey))
+            var (success, verticesWritten, chunks) = await AnalyticsWriteBack.ExecuteAsync(_fallen8, values, propertyKey);
+            if (!success)
             {
                 _logger?.LogError(
                     "Analytics write-back for {Algorithm} under '{PropertyKey}' failed after {Chunks} applied chunks ({Written} vertices) - earlier chunks stay applied; re-run to complete (idempotent overwrite).",
                     algorithmName, propertyKey, chunks, verticesWritten);
 
-                return ProblemResults.Create(StatusCodes.Status500InternalServerError,
+                return (ProblemResults.Create(StatusCodes.Status500InternalServerError,
                     "Analytics write-back failed mid-way",
                     String.Format(
                         "A write-back chunk was rolled back after {0} chunks ({1} vertices) were applied. Earlier chunks stay applied (chunk-atomic, not run-atomic); re-running the write-back overwrites idempotently.",
-                        chunks, verticesWritten));
+                        chunks, verticesWritten)), null);
             }
 
-            writeBack = new WriteBackResultREST
+            return (null, new WriteBackResultREST
             {
                 PropertyKey = propertyKey,
                 VerticesWritten = verticesWritten,
                 Chunks = chunks
-            };
-            return null;
+            });
         }
 
         #endregion

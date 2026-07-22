@@ -25,6 +25,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -68,12 +69,12 @@ namespace NoSQL.GraphDB.App.Controllers
 
         [HttpGet("/generate")]
         [Produces("application/json")]
-        public string CreateGraph([FromQuery] string nodeCount, [FromQuery] string edgeCount)
+        public async Task<string> CreateGraph([FromQuery] string nodeCount, [FromQuery] string edgeCount)
         {
 
             var sw = Stopwatch.StartNew();
 
-            _introProvider.CreateScaleFreeNetwork(Convert.ToInt32(nodeCount), Convert.ToInt32(edgeCount));
+            await _introProvider.CreateScaleFreeNetworkAsync(Convert.ToInt32(nodeCount), Convert.ToInt32(edgeCount));
 
             sw.Stop();
 

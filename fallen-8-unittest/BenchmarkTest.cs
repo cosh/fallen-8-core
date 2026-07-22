@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // BenchmarkTest.cs
 //
@@ -49,7 +49,7 @@ namespace NoSQL.GraphDB.Tests
             var benchmark = new ScaleFreeNetwork(fallen8);
 
             // Act
-            benchmark.CreateScaleFreeNetwork(1000, 10);
+            benchmark.CreateScaleFreeNetworkAsync(1000, 10).Wait();
             var benchRan = benchmark.TryBench(out var result, out var message, 10);
 
             // Assert

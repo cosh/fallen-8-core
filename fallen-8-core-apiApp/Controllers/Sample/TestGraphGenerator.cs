@@ -29,12 +29,13 @@ using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace NoSQL.GraphDB.App.Controllers.Sample
 {
     public static class TestGraphGenerator
     {
-        public static SampleStats GenerateSampleGraph(IFallen8 f8)
+        public static async Task<SampleStats> GenerateSampleGraphAsync(IFallen8 f8)
         {
             uint creationDate = 0;
 
@@ -50,7 +51,7 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             var vertexTxInfo = f8.EnqueueTransaction(vertexTx);
 
-            vertexTxInfo.WaitUntilFinished();
+            await vertexTxInfo.Completion;
 
             var verticesCreated = vertexTx.GetCreatedVertices();
             var alice = verticesCreated[0];
@@ -77,7 +78,7 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             var edgesTxInfo = f8.EnqueueTransaction(edgesTx);
 
-            edgesTxInfo.WaitUntilFinished();
+            await edgesTxInfo.Completion;
 
             #endregion
 
@@ -86,7 +87,7 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
             return stats;
         }
 
-        public static SampleStats GenerateAbcGraph(IFallen8 f8)
+        public static async Task<SampleStats> GenerateAbcGraphAsync(IFallen8 f8)
         {
             uint creationDate = 0;
 
@@ -122,7 +123,7 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             var vertexTxInfo = f8.EnqueueTransaction(vertexTx);
 
-            vertexTxInfo.WaitUntilFinished();
+            await vertexTxInfo.Completion;
 
 
             #endregion
@@ -139,7 +140,7 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             var edgesTxInfo = f8.EnqueueTransaction(edgesTx);
 
-            edgesTxInfo.WaitUntilFinished();
+            await edgesTxInfo.Completion;
 
             #endregion
 

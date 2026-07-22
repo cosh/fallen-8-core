@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // WeightedDijkstraPathTest.cs
 //
@@ -597,7 +597,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - the 26-vertex chain; the only route from 0 to 20 is 20 hops.
             var fallen8 = new Fallen8(TestLoggerFactory.Create());
-            TestGraphGenerator.GenerateAbcGraph(fallen8);
+            TestGraphGenerator.GenerateAbcGraphAsync(fallen8).Wait();
 
             var definition = new ShortestPathDefinition
             {

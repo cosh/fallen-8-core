@@ -325,7 +325,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 using var runSpan = Diagnostics.AppDiagnostics.Source.StartActivity("fallen8.subgraph.run");
 
                 var txInfo = _fallen8.EnqueueTransaction(tx);
-                txInfo.WaitUntilFinished();
+                await txInfo.Completion;
 
                 if (tx.SubGraphCreated != null)
                 {
@@ -472,7 +472,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public IActionResult DeleteSubGraph([FromRoute] String name)
+        public async Task<IActionResult> DeleteSubGraph([FromRoute] String name)
         {
             if (!_fallen8.SubGraphFactory.TryGetSubGraph(out _, name))
             {
@@ -481,7 +481,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             var tx = new RemoveSubGraphTransaction { SubGraphName = name };
             var txInfo = _fallen8.EnqueueTransaction(tx);
-            txInfo.WaitUntilFinished();
+            await txInfo.Completion;
 
             // RemoveSubGraphTransaction.TryExecute returns false (→ terminal RolledBack) on its
             // failure paths. A rolled-back removal must not be reported to the client as a

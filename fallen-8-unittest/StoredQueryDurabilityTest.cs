@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // StoredQueryDurabilityTest.cs
 //
@@ -116,7 +116,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     Filter = new PathFilterSpecification { Vertex = vertexFilter }
                 }
-            });
+            }).Result;
             Assert.AreEqual(201, ((ObjectResult)result).StatusCode, "registration of '" + name + "' must succeed");
         }
 
@@ -127,7 +127,7 @@ namespace NoSQL.GraphDB.Tests
                 Name = name,
                 Kind = "SubGraph",
                 SubGraph = new StoredSubGraphQueryBlock { VertexFilter = "return (v) => v.Label == \"person\";" }
-            });
+            }).Result;
             Assert.AreEqual(201, ((ObjectResult)result).StatusCode, "registration of '" + name + "' must succeed");
         }
 
@@ -322,7 +322,7 @@ namespace NoSQL.GraphDB.Tests
             var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "breaks-on-load" }).Result;
             Assert.IsInstanceOfType(outcome.Result, typeof(ConflictObjectResult));
 
-            Assert.AreEqual(204, ((StatusCodeResult)controller.DeleteStoredQuery("breaks-on-load")).StatusCode);
+            Assert.AreEqual(204, ((StatusCodeResult)controller.DeleteStoredQuery("breaks-on-load").Result).StatusCode);
             RegisterPathQueryViaController(target, "breaks-on-load");
 
             target.Dispose();
@@ -402,7 +402,7 @@ namespace NoSQL.GraphDB.Tests
             }).Result;
             Assert.AreEqual(201, ((ObjectResult)created).StatusCode);
 
-            Assert.AreEqual(204, ((StatusCodeResult)Controller(source).DeleteStoredQuery("doomed-template")).StatusCode);
+            Assert.AreEqual(204, ((StatusCodeResult)Controller(source).DeleteStoredQuery("doomed-template").Result).StatusCode);
             var actualPath = Save(source, SavePath);
             source.Dispose();
 
@@ -457,7 +457,7 @@ namespace NoSQL.GraphDB.Tests
             var engine = NewEngineWithWal();
             RegisterPathQueryViaController(engine, "survives");
             RegisterPathQueryViaController(engine, "removed-again");
-            var delete = Controller(engine).DeleteStoredQuery("removed-again");
+            var delete = Controller(engine).DeleteStoredQuery("removed-again").Result;
             Assert.AreEqual(204, ((StatusCodeResult)delete).StatusCode);
             // Simulated crash: no Save, no Dispose - the WAL alone carries the library.
 
@@ -541,7 +541,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var engine = NewEngineWithWal();
             RegisterPathQueryViaController(engine, "recycled-name", vertexFilter: "return (v) => v.Label == \"first\";");
-            Assert.AreEqual(204, ((StatusCodeResult)Controller(engine).DeleteStoredQuery("recycled-name")).StatusCode);
+            Assert.AreEqual(204, ((StatusCodeResult)Controller(engine).DeleteStoredQuery("recycled-name").Result).StatusCode);
             RegisterPathQueryViaController(engine, "recycled-name", vertexFilter: "return (v) => v.Label == \"second\";");
             // Simulated crash.
 
@@ -641,7 +641,7 @@ namespace NoSQL.GraphDB.Tests
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void Delete(Fallen8 engine, string name)
         {
-            Assert.AreEqual(204, ((StatusCodeResult)Controller(engine).DeleteStoredQuery(name)).StatusCode);
+            Assert.AreEqual(204, ((StatusCodeResult)Controller(engine).DeleteStoredQuery(name).Result).StatusCode);
         }
 
         [TestMethod]

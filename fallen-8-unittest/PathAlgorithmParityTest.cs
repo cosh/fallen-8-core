@@ -351,7 +351,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - the 5-person sample graph, checked over every ordered vertex pair.
             var fallen8 = NewFallen8();
-            TestGraphGenerator.GenerateSampleGraph(fallen8);
+            TestGraphGenerator.GenerateSampleGraphAsync(fallen8).Wait();
 
             // Act
             var mismatches = new List<String>();
@@ -374,7 +374,7 @@ namespace NoSQL.GraphDB.Tests
         public void ScaleFreeStyleGraph_AgreeOnFewestHopTier()
         {
             // Arrange - a deterministic replica of the studio's "generate sample graph" shape
-            // (ScaleFreeNetwork.CreateScaleFreeNetwork(200, 5): 200 vertices, 5 random distinct
+            // (ScaleFreeNetwork.CreateScaleFreeNetworkAsync(200, 5): 200 vertices, 5 random distinct
             // out-edges per vertex on the single edge property "A"), seeded so failures reproduce.
             const Int32 nodeCount = 200;
             const Int32 edgesPerVertex = 5;
