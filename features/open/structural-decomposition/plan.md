@@ -5,6 +5,10 @@ Companion to [spec.md](./spec.md). Feature branch: `feature/structural-decomposi
 its own commit(s), and holds the gates: full C# + web suites green, 0 warnings, OpenAPI
 snapshot byte-identical (after Phase 0's one-time reorder).
 
+Status 2026-07-22: Phases 0–5 are implemented on the branch (one commit each; Phase 3 landed
+as separate web and C# commits). Remaining items are the deliberately deferred,
+trigger-gated ones listed at the bottom.
+
 Ordering rationale: determinism first (Phase 0 makes the snapshot criterion honest), then the
 compiler-proven splits (Phases 1–2, no new tests needed — the compiler is the net), then the
 pinning tests (Phase 3, before any code *moves*), then the moves (Phases 4–5). Deferred work
