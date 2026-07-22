@@ -25,6 +25,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -132,6 +134,83 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(hasKnownDescription,
                 "A controller <remarks> block ('Sample request') must flow into the document as an " +
                 "operation description via the native XML reader.");
+        }
+
+        /// <summary>
+        /// Pins the REST contract inventory against the committed snapshot: the exact
+        /// (path, method, tags) set of the served document must match
+        /// <c>features/done/web-ui/openapi-v0.1.json</c>, and 'paths' must be sorted (the
+        /// document transformer added by feature structural-decomposition, target 0). This
+        /// turns "remember to run scripts/update-openapi-snapshot.ps1" into a failing test,
+        /// and catches an operation gaining/losing a tag or route during controller refactors.
+        /// </summary>
+        [TestMethod]
+        public async Task OpenApiDocument_MatchesThePinnedSnapshotInventory()
+        {
+            using var factory = new DevelopmentApiFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync(DocumentPath);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            var json = await response.Content.ReadAsStringAsync();
+
+            using var served = JsonDocument.Parse(json);
+            Assert.IsTrue(served.RootElement.TryGetProperty("paths", out var servedPaths),
+                "The served document must contain a 'paths' object.");
+
+            var servedPathKeys = servedPaths.EnumerateObject().Select(p => p.Name).ToList();
+            CollectionAssert.AreEqual(
+                servedPathKeys.OrderBy(k => k, StringComparer.Ordinal).ToList(), servedPathKeys,
+                "'paths' must be emitted in ordinal order (the sorting document transformer in Program.cs).");
+
+            var snapshotFile = Path.Combine(TestRepo.Root(), "features", "done", "web-ui", "openapi-v0.1.json");
+            Assert.IsTrue(File.Exists(snapshotFile), "pinned snapshot not found: " + snapshotFile);
+            using var snapshot = JsonDocument.Parse(File.ReadAllText(snapshotFile));
+            Assert.IsTrue(snapshot.RootElement.TryGetProperty("paths", out var snapshotPaths),
+                "The pinned snapshot must contain a 'paths' object.");
+
+            var servedInventory = OperationInventory(servedPaths);
+            var pinnedInventory = OperationInventory(snapshotPaths);
+
+            var missing = pinnedInventory.Except(servedInventory).ToList();
+            var extra = servedInventory.Except(pinnedInventory).ToList();
+            Assert.IsTrue(missing.Count == 0 && extra.Count == 0,
+                "The served OpenAPI document no longer matches the pinned snapshot - if the change is " +
+                "intended, regenerate it (pwsh scripts/update-openapi-snapshot.ps1) and review the diff.\n" +
+                "Missing from served:\n" + String.Join("\n", missing) +
+                "\nNot in snapshot:\n" + String.Join("\n", extra));
+        }
+
+        /// <summary>One line per operation: "METHOD path [tag1,tag2]", sorted ordinal.</summary>
+        private static List<String> OperationInventory(JsonElement paths)
+        {
+            var inventory = new List<String>();
+            foreach (var pathItem in paths.EnumerateObject())
+            {
+                if (pathItem.Value.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                foreach (var method in OperationMethods)
+                {
+                    if (!pathItem.Value.TryGetProperty(method, out var operation) ||
+                        operation.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    var tags = operation.TryGetProperty("tags", out var tagsElement) &&
+                               tagsElement.ValueKind == JsonValueKind.Array
+                        ? tagsElement.EnumerateArray().Select(t => t.GetString()).OrderBy(t => t, StringComparer.Ordinal)
+                        : Enumerable.Empty<String>();
+
+                    inventory.Add(method.ToUpperInvariant() + " " + pathItem.Name + " [" + String.Join(",", tags) + "]");
+                }
+            }
+
+            inventory.Sort(StringComparer.Ordinal);
+            return inventory;
         }
 
         private static void CollectOperationText(JsonElement paths, List<String> summaries, List<String> descriptions)

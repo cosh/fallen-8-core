@@ -51,6 +51,7 @@ using Scalar.AspNetCore;
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Threading.RateLimiting;
 
 namespace NoSQL.GraphDB.App
@@ -82,7 +83,23 @@ namespace NoSQL.GraphDB.App
             // (<summary>/<remarks>/<response>) into the document natively via its build-time
             // source generator (GenerateDocumentationFile is enabled), so no custom operation
             // transformer is required.
-            builder.Services.AddOpenApi("v0.1");
+            builder.Services.AddOpenApi("v0.1", options =>
+            {
+                // The generator emits 'paths' in action-discovery order (controller file order x
+                // declaration order), so any regrouping of controller code would reorder the
+                // pinned snapshot. Sorting makes the snapshot byte-stable across refactors
+                // (feature structural-decomposition, target 0).
+                options.AddDocumentTransformer((document, _, _) =>
+                {
+                    var sorted = new Microsoft.OpenApi.OpenApiPaths();
+                    foreach (var path in document.Paths.OrderBy(p => p.Key, StringComparer.Ordinal))
+                    {
+                        sorted.Add(path.Key, path.Value);
+                    }
+                    document.Paths = sorted;
+                    return System.Threading.Tasks.Task.CompletedTask;
+                });
+            });
 
             builder.Services.AddApiVersioning(o =>
                        {

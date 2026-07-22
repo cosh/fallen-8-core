@@ -29,6 +29,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
@@ -309,6 +310,124 @@ namespace NoSQL.GraphDB.Tests
                     "fallen-8-core must stay dependency-clean; found " + reference.Name);
             }
         }
+
+        #region gauge accessors + MeasureCheckpointBytes (structural-decomposition Phase 3 pins)
+
+        // The index gauge accessors and MeasureCheckpointBytes are internal/private engine
+        // members (the engine declares no InternalsVisibleTo), so - as elsewhere in this suite -
+        // the tests reach them by reflection rather than widening visibility.
+
+        private static Int32 IndexCountOf(Fallen8 engine)
+        {
+            var property = typeof(Fallen8).GetProperty("IndexCountForMetrics",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(property, "Fallen8.IndexCountForMetrics must exist (fallen8.index.count reads it)");
+            return (Int32)property.GetValue(engine);
+        }
+
+        private static Int64 IndexEntriesOf(Fallen8 engine)
+        {
+            var property = typeof(Fallen8).GetProperty("IndexEntriesForMetrics",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(property, "Fallen8.IndexEntriesForMetrics must exist (fallen8.index.entries reads it)");
+            return (Int64)property.GetValue(engine);
+        }
+
+        private static Int64 MeasureCheckpointBytes(String checkpointPath)
+        {
+            var method = typeof(Fallen8).GetMethod("MeasureCheckpointBytes",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.IsNotNull(method, "Fallen8.MeasureCheckpointBytes must exist (checkpoint save/load bytes read it)");
+            return (Int64)method.Invoke(null, new Object[] { checkpointPath });
+        }
+
+        private static Int64 SumOfFilesWithPrefix(String directory, String namePrefix)
+        {
+            return Directory.EnumerateFiles(directory, namePrefix + "*").Sum(file => new FileInfo(file).Length);
+        }
+
+        [TestMethod]
+        public void IndexGauges_TrackIndexCreate_EntryAdd_AndIndexDelete()
+        {
+            using var engine = new Fallen8(TestLoggerFactory.Create());
+            Assert.AreEqual(0, IndexCountOf(engine), "a fresh engine registers no index");
+            Assert.AreEqual(0L, IndexEntriesOf(engine));
+
+            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out var dictionary, "gaugeDict", "DictionaryIndex"));
+            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out var range, "gaugeRange", "RangeIndex"));
+            Assert.AreEqual(2, IndexCountOf(engine), "a live create is visible immediately");
+            Assert.AreEqual(0L, IndexEntriesOf(engine), "empty indices contribute no keys");
+
+            var id = CreateVertex(engine);
+            Assert.IsTrue(engine.TryGetVertex(out var vertex, id));
+            dictionary.AddOrUpdate("k1", vertex);
+            dictionary.AddOrUpdate("k2", vertex);
+            dictionary.AddOrUpdate("k2", vertex); // a re-add under the same key adds no KEY
+            range.AddOrUpdate(10, vertex);
+            range.AddOrUpdate(20, vertex);
+            range.AddOrUpdate(30, vertex);
+            Assert.AreEqual(2, IndexCountOf(engine), "entry adds do not change the index count");
+            Assert.AreEqual(5L, IndexEntriesOf(engine),
+                "the aggregate sums CountOfKeys across all registered indices (2 dict keys + 3 range keys)");
+
+            Assert.IsTrue(engine.IndexFactory.TryDeleteIndex("gaugeDict"));
+            Assert.AreEqual(1, IndexCountOf(engine), "a live delete is visible immediately");
+            Assert.AreEqual(3L, IndexEntriesOf(engine), "the deleted index's keys leave the aggregate");
+        }
+
+        [TestMethod]
+        public void MeasureCheckpointBytes_ExcludesTheVersionStampedSiblings_OfALaterSaveToTheSameBasePath()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "f8_obs_bytes_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                using var engine = new Fallen8(TestLoggerFactory.Create());
+                CreateVertex(engine);
+
+                var requestedPath = Path.Combine(tempDir, "snap.f8s");
+                var firstSave = new SaveTransaction { Path = requestedPath, SavePartitions = 1 };
+                engine.EnqueueTransaction(firstSave).WaitUntilFinished();
+                Assert.AreEqual(requestedPath, firstSave.ActualPath, "the first save takes the requested path verbatim");
+
+                // With only the first checkpoint on disk, the measurement is the plain sum of every
+                // prefix-sharing file (snapshot + partition/index sidecars).
+                var firstCheckpointBytes = SumOfFilesWithPrefix(tempDir, "snap.f8s");
+                Assert.IsTrue(firstCheckpointBytes > 0L, "the checkpoint wrote measurable files");
+                Assert.AreEqual(firstCheckpointBytes, MeasureCheckpointBytes(firstSave.ActualPath));
+
+                // A second save to the SAME base path gets a '#' version stamp instead of
+                // overwriting (PersistencyFactory) - its files SHARE the first checkpoint's prefix.
+                CreateVertex(engine);
+                var secondSave = new SaveTransaction { Path = requestedPath, SavePartitions = 1 };
+                engine.EnqueueTransaction(secondSave).WaitUntilFinished();
+                StringAssert.StartsWith(secondSave.ActualPath, requestedPath + "#",
+                    "a save onto an existing checkpoint version-stamps with '#'");
+                Assert.IsTrue(SumOfFilesWithPrefix(tempDir, "snap.f8s") > firstCheckpointBytes,
+                    "sanity: the sibling checkpoint's files really extend the first checkpoint's prefix");
+
+                // THE branch pin: re-measuring the FIRST checkpoint still counts only its own
+                // files - the '#'-stamped sibling is a DIFFERENT checkpoint and is excluded.
+                Assert.AreEqual(firstCheckpointBytes, MeasureCheckpointBytes(firstSave.ActualPath),
+                    "the '#'-stamped sibling checkpoint must not be summed into the first checkpoint's size");
+
+                // The second checkpoint measures as exactly its own files.
+                var secondPrefix = Path.GetFileName(secondSave.ActualPath);
+                var secondCheckpointBytes = SumOfFilesWithPrefix(tempDir, secondPrefix);
+                Assert.IsTrue(secondCheckpointBytes > 0L);
+                Assert.AreEqual(secondCheckpointBytes, MeasureCheckpointBytes(secondSave.ActualPath));
+
+                // Best-effort contract: an unmeasurable path answers the -1 sentinel, never throws
+                // (a metrics detail must not fault a save/load).
+                Assert.AreEqual(-1L, MeasureCheckpointBytes(Path.Combine(tempDir, "no-such-dir", "x.f8s")));
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
+            }
+        }
+
+        #endregion
 
         [TestMethod]
         public void TagHygiene_NoUserSuppliedStringEverBecomesATagValue()

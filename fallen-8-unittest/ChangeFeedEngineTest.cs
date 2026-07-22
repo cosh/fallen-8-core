@@ -332,6 +332,38 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void ConvergingSelfLoopsAcrossAdjacencyBuckets_AreEachReportedExactlyOnce()
+        {
+            // Extends SelfLoopCascade_IsReportedOnce (one loop, one bucket pair) to the converging
+            // case: DescribeRemovedElement walks the removed vertex's raw OUT and IN containers,
+            // so every self-loop arrives twice (out + in), parallel loops share one bucket, and a
+            // second edge property adds another bucket pair - the id dedup must still describe
+            // each cascaded edge exactly once (structural-decomposition Phase 3 pin).
+            var (a, b) = TwoVertices();
+            var loop1 = Edge(a, a, "self", "self");
+            var loop2 = Edge(a, a, "self", "self");   // parallel loop in the SAME bucket
+            var loop3 = Edge(a, a, "alt", "alt");     // loop under a SECOND edge property
+            var plain = Edge(a, b, "knows", "knows"); // ordinary cascade for contrast
+
+            WaitForSeq(_fallen8, 6);
+            using var subscription = Subscribe();
+
+            _fallen8.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = a })
+                .WaitUntilFinished();
+
+            var events = ReadMany(subscription, 5);
+            Assert.AreEqual(ChangeEventKind.VertexRemoved, events[0].Kind);
+            Assert.AreEqual(a, events[0].Id);
+
+            Assert.IsTrue(events.Skip(1).All(e => e.Kind == ChangeEventKind.EdgeRemoved));
+            CollectionAssert.AreEquivalent(new List<int> { loop1, loop2, loop3, plain },
+                events.Skip(1).Select(e => e.Id).ToList(),
+                "every cascaded edge is described exactly once, self-loops and parallel loops included");
+
+            AssertQuiet(subscription);
+        }
+
+        [TestMethod]
         public void CoarseOperations_MapToResyncReasons()
         {
             TwoVertices();

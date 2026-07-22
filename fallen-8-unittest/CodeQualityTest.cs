@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // CodeQualityTest.cs
 //
@@ -44,22 +44,9 @@ namespace NoSQL.GraphDB.Tests
         private static readonly string[] _allProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-unittest" };
         private static readonly string[] _productProjects = { "fallen-8-core", "fallen-8-core-apiApp" };
 
-        /// <summary>Walks up from the test assembly to the directory holding the solution.</summary>
-        private static string RepoRoot()
-        {
-            var directory = new DirectoryInfo(AppContext.BaseDirectory);
-            while (directory != null && !File.Exists(Path.Combine(directory.FullName, "fallen-8-core.sln")))
-            {
-                directory = directory.Parent;
-            }
-
-            Assert.IsNotNull(directory, "could not locate fallen-8-core.sln above the test assembly");
-            return directory.FullName;
-        }
-
         private static IEnumerable<string> SourceFiles(params string[] projects)
         {
-            var root = RepoRoot();
+            var root = TestRepo.Root();
             foreach (var project in projects)
             {
                 foreach (var file in Directory.EnumerateFiles(Path.Combine(root, project), "*.cs", SearchOption.AllDirectories))
@@ -137,7 +124,7 @@ namespace NoSQL.GraphDB.Tests
             // load-bearing and consistently local - see the comment in the file and the
             // code-quality spec's non-goal (with its revisit trigger).
             var allowlist = new[] { Path.Combine("fallen-8-core", "Helper", "DateHelper.cs") };
-            var root = RepoRoot();
+            var root = TestRepo.Root();
 
             var violations = new List<string>();
             foreach (var file in SourceFiles(_productProjects))
@@ -162,7 +149,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // The repo's pin-everything rule, enforced: no floating ('1.*') or range versions,
             // and no version-less references - a build must resolve the same graph tomorrow.
-            var root = RepoRoot();
+            var root = TestRepo.Root();
             var violations = new List<string>();
 
             foreach (var project in _allProjects)
