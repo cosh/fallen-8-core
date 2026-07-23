@@ -2,9 +2,9 @@
  * fallen8-jsonl emitter (feature sample-graphs): builds interchange files the server's
  * POST /bulk/import consumes. ONE emitter, two consumers — the sample build script
  * (scripts/build-samples.ts) and the GitHub dependency card, which transforms an SBOM
- * in the browser. The format contract (typed {type,value} pairs, strict fields, the
- * version-2 System.Single[] encoding) is owned by the server's JsonlGraphFormat; this
- * module only mirrors it.
+ * in the browser. The format contract (version 2: typed {type,value} pairs, strict
+ * fields, the System.Single[] embedding encoding) is owned by the server's
+ * JsonlGraphFormat; this module only mirrors it.
  */
 
 export interface JsonlProperty {
@@ -32,6 +32,9 @@ export const SAMPLE_CREATION_DATE = 1_767_225_600;
 
 const SINGLE_ARRAY_TYPE = "System.Single[]";
 
+/** The current fallen8-jsonl version; always stamped (System.Single[] is always available). */
+export const JSONL_FORMAT_VERSION = 2;
+
 /** Typed-pair constructors for the property types the datasets use. */
 export const prop = {
   string: (value: string): JsonlProperty => ({ type: "System.String", value }),
@@ -48,22 +51,15 @@ export const prop = {
 };
 
 /**
- * Serializes a whole graph to an importable jsonl string: meta line (exact counts,
- * lowest-sufficient version — 2 only when a Single[] property is present, mirroring the
- * server's export stamping), then vertices, then edges.
+ * Serializes a whole graph to an importable jsonl string: meta line (exact counts, always
+ * the current format version), then vertices, then edges.
  */
 export function buildJsonlGraph(vertices: JsonlVertex[], edges: JsonlEdge[]): string {
-  const hasArray = [...vertices, ...edges].some(
-    (element) =>
-      element.properties &&
-      Object.values(element.properties).some((pair) => pair.type === SINGLE_ARRAY_TYPE),
-  );
-
   const lines: string[] = [
     JSON.stringify({
       type: "meta",
       format: "fallen8-jsonl",
-      version: hasArray ? 2 : 1,
+      version: JSONL_FORMAT_VERSION,
       vertexCount: vertices.length,
       edgeCount: edges.length,
     }),

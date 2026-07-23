@@ -48,25 +48,25 @@ namespace NoSQL.GraphDB.App.Helper
     ///   at all).
     ///
     ///   <para>Strict: unknown top-level fields are rejected; the <c>version</c> field is the
-    ///   only evolution mechanism. Version 2 (feature sample-graphs) adds exactly one type over
-    ///   version 1: <c>System.Single[]</c>, encoded as comma-joined <c>"R"</c> floats - the
+    ///   only evolution mechanism. The current format is <b>version 2</b> (feature
+    ///   sample-graphs): it adds <c>System.Single[]</c> - comma-joined <c>"R"</c> floats, the
     ///   carrier of element embeddings (<c>$embedding:&lt;name&gt;</c> properties, feature
-    ///   element-embeddings). A reader accepts versions 1..2; the writer stamps 2 only when an
-    ///   array property is actually present, so files without embeddings remain version-1
-    ///   byte-identical and readable by older builds. A version-1-stamped file carrying an
-    ///   array is rejected (the stamp is a promise to older readers, not a hint).</para>
+    ///   element-embeddings) - over the original scalar set. The writer always stamps the
+    ///   current version and <c>System.Single[]</c> is always available; the reader tolerates
+    ///   an older <c>version 1</c> stamp identically (no version-dependent behaviour), and a
+    ///   missing meta line reads at full capability.</para>
     /// </summary>
     public static class JsonlGraphFormat
     {
         public const String FormatName = "fallen8-jsonl";
 
-        /// <summary>The highest version this build reads and writes.</summary>
+        /// <summary>The current format version; the writer always stamps it.</summary>
         public const Int32 FormatVersion = 2;
 
-        /// <summary>The version arrays (<see cref="SingleArrayTypeName"/>) first appeared in.</summary>
-        public const Int32 SingleArrayMinVersion = 2;
+        /// <summary>The oldest version a meta line may declare (read tolerance only).</summary>
+        public const Int32 MinReadableVersion = 1;
 
-        /// <summary>The one non-scalar type of the format (version 2): an embedding vector.</summary>
+        /// <summary>The non-scalar type of the format: an embedding vector.</summary>
         public const String SingleArrayTypeName = "System.Single[]";
 
         #region export - line writing
@@ -79,16 +79,15 @@ namespace NoSQL.GraphDB.App.Helper
 
         private static readonly byte[] _newline = { (byte)'\n' };
 
-        /// <summary>Writes the leading meta line stamped with <paramref name="version"/> (the
-        /// export pre-scan decides: 2 when an array property is present, else 1).</summary>
-        public static void WriteMetaLine(IBufferWriter<byte> output, DateTime exportedAtUtc, int vertexCount, int edgeCount, int version = FormatVersion)
+        /// <summary>Writes the leading meta line (always the current <see cref="FormatVersion"/>).</summary>
+        public static void WriteMetaLine(IBufferWriter<byte> output, DateTime exportedAtUtc, int vertexCount, int edgeCount)
         {
             using (var json = new Utf8JsonWriter(output, _writerOptions))
             {
                 json.WriteStartObject();
                 json.WriteString("type", "meta");
                 json.WriteString("format", FormatName);
-                json.WriteNumber("version", version);
+                json.WriteNumber("version", FormatVersion);
                 json.WriteString("exportedAtUtc", exportedAtUtc.ToString("O", CultureInfo.InvariantCulture));
                 json.WriteNumber("vertexCount", vertexCount);
                 json.WriteNumber("edgeCount", edgeCount);
@@ -98,21 +97,21 @@ namespace NoSQL.GraphDB.App.Helper
         }
 
         /// <summary>Writes one vertex line (the caller pre-validated every property type).</summary>
-        public static void WriteVertexLine(IBufferWriter<byte> output, VertexModel vertex, int version = FormatVersion)
+        public static void WriteVertexLine(IBufferWriter<byte> output, VertexModel vertex)
         {
             using (var json = new Utf8JsonWriter(output, _writerOptions))
             {
                 json.WriteStartObject();
                 json.WriteString("type", "vertex");
                 json.WriteNumber("id", vertex.Id);
-                WriteElementCommon(json, vertex, version);
+                WriteElementCommon(json, vertex);
                 json.WriteEndObject();
             }
             output.Write(_newline);
         }
 
         /// <summary>Writes one edge line (the caller pre-validated every property type).</summary>
-        public static void WriteEdgeLine(IBufferWriter<byte> output, EdgeModel edge, int version = FormatVersion)
+        public static void WriteEdgeLine(IBufferWriter<byte> output, EdgeModel edge)
         {
             using (var json = new Utf8JsonWriter(output, _writerOptions))
             {
@@ -122,13 +121,13 @@ namespace NoSQL.GraphDB.App.Helper
                 json.WriteString("edgePropertyId", edge.EdgePropertyId);
                 json.WriteNumber("source", edge.SourceVertex.Id);
                 json.WriteNumber("target", edge.TargetVertex.Id);
-                WriteElementCommon(json, edge, version);
+                WriteElementCommon(json, edge);
                 json.WriteEndObject();
             }
             output.Write(_newline);
         }
 
-        private static void WriteElementCommon(Utf8JsonWriter json, AGraphElementModel element, int version)
+        private static void WriteElementCommon(Utf8JsonWriter json, AGraphElementModel element)
         {
             if (element.Label != null)
             {
@@ -148,11 +147,8 @@ namespace NoSQL.GraphDB.App.Helper
                     // writer between the validation pass and this write pass; it is OMITTED -
                     // consistent with the export's documented contract that a write committed
                     // during the export may or may not appear - rather than aborting the
-                    // already-started response mid-stream. The same omission covers an array
-                    // property that appears after the pre-scan stamped version 1: a version-1
-                    // file must never carry a type its stamp promises not to.
-                    if (!TryFormatValue(property.Value, out var typeName, out var formatted) ||
-                        (version < SingleArrayMinVersion && typeName == SingleArrayTypeName))
+                    // already-started response mid-stream.
+                    if (!TryFormatValue(property.Value, out var typeName, out var formatted))
                     {
                         continue;
                     }
@@ -293,7 +289,6 @@ namespace NoSQL.GraphDB.App.Helper
             public LineType Type;
 
             // meta
-            public Int32 MetaFormatVersion;
             public Int32 MetaVertexCount;
             public Int32 MetaEdgeCount;
 
@@ -312,12 +307,8 @@ namespace NoSQL.GraphDB.App.Helper
         /// <summary>
         ///   Parses one line strictly. Returns null and a <paramref name="parsed"/> result on
         ///   success, otherwise a human-readable error (the caller adds the line number).
-        ///   <paramref name="formatVersion"/> is the file's effective version context: the meta
-        ///   line's declared version once one was seen, otherwise <see cref="FormatVersion"/>
-        ///   (meta-less files - grep-filtered subsets - read with the current build's full
-        ///   capability; a version-1 STAMP however is enforced as the promise it makes).
         /// </summary>
-        public static String TryParseLine(ReadOnlySequence<byte> line, out ParsedLine parsed, Int32 formatVersion = FormatVersion)
+        public static String TryParseLine(ReadOnlySequence<byte> line, out ParsedLine parsed)
         {
             parsed = null;
 
@@ -359,9 +350,9 @@ namespace NoSQL.GraphDB.App.Helper
                     case "meta":
                         return ParseMeta(root, out parsed);
                     case "vertex":
-                        return ParseElement(root, LineType.Vertex, formatVersion, out parsed);
+                        return ParseElement(root, LineType.Vertex, out parsed);
                     case "edge":
-                        return ParseElement(root, LineType.Edge, formatVersion, out parsed);
+                        return ParseElement(root, LineType.Edge, out parsed);
                     default:
                         return String.Format("unknown line type '{0}' (expected meta, vertex or edge)", typeElement.GetString());
                 }
@@ -424,12 +415,12 @@ namespace NoSQL.GraphDB.App.Helper
                 return "meta 'version' must be an integer";
             }
 
-            if (versionValue < 1 || versionValue > FormatVersion)
+            if (versionValue < MinReadableVersion || versionValue > FormatVersion)
             {
-                return String.Format("unsupported format version {0} (this build reads versions 1..{1})", versionValue, FormatVersion);
+                return String.Format("unsupported format version {0} (this build reads versions {1}..{2})", versionValue, MinReadableVersion, FormatVersion);
             }
 
-            var result = new ParsedLine { Type = LineType.Meta, MetaFormatVersion = versionValue, MetaVertexCount = -1, MetaEdgeCount = -1 };
+            var result = new ParsedLine { Type = LineType.Meta, MetaVertexCount = -1, MetaEdgeCount = -1 };
 
             if (root.TryGetProperty("vertexCount", out var vertexCount))
             {
@@ -451,7 +442,7 @@ namespace NoSQL.GraphDB.App.Helper
             return null;
         }
 
-        private static String ParseElement(JsonElement root, LineType lineType, Int32 formatVersion, out ParsedLine parsed)
+        private static String ParseElement(JsonElement root, LineType lineType, out ParsedLine parsed)
         {
             parsed = null;
             var allowed = lineType == LineType.Vertex ? _vertexFields : _edgeFields;
@@ -516,7 +507,7 @@ namespace NoSQL.GraphDB.App.Helper
 
                 foreach (var property in properties.EnumerateObject())
                 {
-                    var error = ParsePropertyPair(property.Name, property.Value, formatVersion, out var value);
+                    var error = ParsePropertyPair(property.Name, property.Value, out var value);
                     if (error != null)
                     {
                         return error;
@@ -534,7 +525,7 @@ namespace NoSQL.GraphDB.App.Helper
             return null;
         }
 
-        private static String ParsePropertyPair(String key, JsonElement pair, Int32 formatVersion, out Object value)
+        private static String ParsePropertyPair(String key, JsonElement pair, out Object value)
         {
             value = null;
 
@@ -572,7 +563,7 @@ namespace NoSQL.GraphDB.App.Helper
                 return String.Format("property '{0}' must carry both 'type' and 'value'", key);
             }
 
-            var parseError = TryParseValue(typeName, raw, out value, formatVersion);
+            var parseError = TryParseValue(typeName, raw, out value);
             return parseError == null ? null : String.Format("property '{0}': {1}", key, parseError);
         }
 
@@ -581,18 +572,12 @@ namespace NoSQL.GraphDB.App.Helper
         ///   <see cref="AllowedLiteralTypes"/> plus the pinned <see cref="SingleArrayTypeName"/>;
         ///   parsing is invariant-culture with the pinned round-trip formats.
         /// </summary>
-        public static String TryParseValue(String typeName, String raw, out Object value, Int32 formatVersion = FormatVersion)
+        public static String TryParseValue(String typeName, String raw, out Object value)
         {
             value = null;
 
             if (String.Equals(typeName, SingleArrayTypeName, StringComparison.OrdinalIgnoreCase))
             {
-                if (formatVersion < SingleArrayMinVersion)
-                {
-                    return String.Format(
-                        "'{0}' requires format version {1}, but the file's meta line declares version {2}",
-                        SingleArrayTypeName, SingleArrayMinVersion, formatVersion);
-                }
                 return TryParseSingleArray(raw, out value);
             }
 

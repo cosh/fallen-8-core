@@ -270,14 +270,6 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(JsonlGraphFormat.TryFormatValue(new double[] { 1d }, out _, out _));
         }
 
-        [TestMethod]
-        public void SingleArray_UnderAVersion1Context_IsRejected()
-        {
-            // A version-1 stamp is a promise to older readers; a file that breaks it is refused.
-            var error = JsonlGraphFormat.TryParseValue("System.Single[]", "1,2", out _, formatVersion: 1);
-            StringAssert.Contains(error, "requires format version 2");
-        }
-
         #endregion
 
         #region round trip
@@ -364,7 +356,7 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual("meta", lines[0].GetProperty("type").GetString());
             Assert.AreEqual("fallen8-jsonl", lines[0].GetProperty("format").GetString());
-            Assert.AreEqual(1, lines[0].GetProperty("version").GetInt32());
+            Assert.AreEqual(2, lines[0].GetProperty("version").GetInt32(), "the writer always stamps the current version");
             Assert.AreEqual(2, lines[0].GetProperty("vertexCount").GetInt32());
             Assert.AreEqual(1, lines[0].GetProperty("edgeCount").GetInt32());
 
@@ -472,33 +464,35 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task Export_WithoutArrays_KeepsStampingVersion1()
+        public async Task Export_AlwaysStampsTheCurrentVersion_EvenWithoutArrays()
         {
-            // Pinned separately from the shape test: embedding-free exports must remain readable
-            // by pre-version-2 builds - the stamp only escalates when the file needs it.
+            // Standardized on version 2 (feature sample-graphs): the writer always stamps the
+            // current version - no lowest-sufficient escalation, no version-dependent behaviour.
             using var factory = new BulkFactory();
             SeedSmallGraph(EngineOf(factory));
 
             using var client = factory.CreateClient();
             var lines = ParseNdjson(await client.GetStringAsync("/bulk/export"));
-            Assert.AreEqual(1, lines[0].GetProperty("version").GetInt32());
+            Assert.AreEqual(JsonlGraphFormat.FormatVersion, lines[0].GetProperty("version").GetInt32());
         }
 
         [TestMethod]
-        public async Task Import_Version1StampedFileWithAnArray_Is400_NamingTheLine()
+        public async Task Import_Version1StampedFileWithAnArray_IsAccepted()
         {
+            // No backward-compat baggage: an older version-1 stamp is tolerated identically -
+            // System.Single[] is always available regardless of the declared version.
             const string file =
                 "{\"type\":\"meta\",\"format\":\"fallen8-jsonl\",\"version\":1}\n" +
-                "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1,\"properties\":{\"$embedding:default\":{\"type\":\"System.Single[]\",\"value\":\"1,2\"}}}\n";
+                "{\"type\":\"vertex\",\"id\":1,\"label\":\"doc\",\"creationDate\":1,\"properties\":{\"$embedding:default\":{\"type\":\"System.Single[]\",\"value\":\"1,2\"}}}\n";
 
             using var factory = new BulkFactory();
             using var client = factory.CreateClient();
             using var response = await Import(client, file);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
 
-            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
-            var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
-            Assert.AreEqual(2, problem.GetProperty("lineNumber").GetInt32());
-            StringAssert.Contains(problem.GetProperty("detail").GetString(), "requires format version 2");
+            var imported = EngineOf(factory).GetAllVertices("doc").Single();
+            Assert.IsTrue(imported.TryGetProperty<object>(out var vector, "$embedding:default"));
+            CollectionAssert.AreEqual(new[] { 1f, 2f }, (float[])vector);
         }
 
         [TestMethod]

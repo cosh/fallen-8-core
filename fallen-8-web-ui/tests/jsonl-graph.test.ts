@@ -9,9 +9,9 @@ import {
 
 /**
  * The emitter mirrors the server's JsonlGraphFormat contract (feature sample-graphs):
- * strict line fields, typed {type,value} string pairs, lowest-sufficient version
- * stamping (2 only when a Single[] property is present). The server side of the
- * contract is pinned by fallen-8-unittest/BulkImportExportTest.cs.
+ * strict line fields, typed {type,value} string pairs, and the current format version
+ * (2) stamped on every file. The server side of the contract is pinned by
+ * fallen-8-unittest/BulkImportExportTest.cs.
  */
 describe("jsonlGraph emitter", () => {
   const vertex = (id: number, properties?: JsonlVertex["properties"]): JsonlVertex => ({
@@ -37,7 +37,7 @@ describe("jsonlGraph emitter", () => {
     expect(lines[0]).toEqual({
       type: "meta",
       format: "fallen8-jsonl",
-      version: 1,
+      version: 2,
       vertexCount: 2,
       edgeCount: 1,
     });
@@ -60,7 +60,7 @@ describe("jsonlGraph emitter", () => {
     expect(Object.keys(lines[3])).not.toContain("label");
   });
 
-  it("stamps version 2 exactly when a Single[] property is present", () => {
+  it("always stamps version 2 and encodes Single[] embeddings", () => {
     const withVector = buildJsonlGraph(
       [vertex(1, { "$embedding:default": prop.singleArray([0.25, -0.5]) })],
       [],
@@ -68,8 +68,9 @@ describe("jsonlGraph emitter", () => {
     expect(JSON.parse(withVector.split("\n")[0]).version).toBe(2);
     expect(withVector).toContain('"$embedding:default":{"type":"System.Single[]","value":"0.25,-0.5"}');
 
+    // No arrays present — still version 2 (standardized, no lowest-sufficient stamping).
     const withoutVector = buildJsonlGraph([vertex(1, { name: prop.string("x") })], []);
-    expect(JSON.parse(withoutVector.split("\n")[0]).version).toBe(1);
+    expect(JSON.parse(withoutVector.split("\n")[0]).version).toBe(2);
   });
 
   it("rounds embedding components to 5 decimals and typed pairs stay strings", () => {

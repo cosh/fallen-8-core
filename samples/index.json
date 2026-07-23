@@ -1,0 +1,231 @@
+{
+  "version": 1,
+  "samples": [
+    {
+      "id": "karate-club",
+      "title": "Zachary's Karate Club",
+      "emoji": "🥋",
+      "pitch": "The most famous graph in community detection: 34 club members, 78 friendships, one legendary split (Zachary, 1977).",
+      "vertexCount": 34,
+      "edgeCount": 78,
+      "badges": [
+        "canvas",
+        "analytics",
+        "path"
+      ],
+      "trySteps": [
+        "Analytics → LABELPROPAGATION with a write-back property, then color the canvas by it — the computed communities reproduce the club's real 1977 split (compare with color by 'faction').",
+        "Analytics → TRIANGLECOUNT and WCC on the textbook graph.",
+        "Path → route from Mr. Hi to the Officer (look their ids up on the Browser screen)."
+      ],
+      "file": "karate-club.jsonl",
+      "styleConfig": {
+        "nodeColorMode": "property",
+        "nodeColorProperty": "faction",
+        "nodeSizeMode": "degree",
+        "nodeImageProperty": "icon",
+        "edgeArrows": false
+      },
+      "indexRecipes": [],
+      "embedding": null
+    },
+    {
+      "id": "attack-surface",
+      "title": "AD Attack Surface",
+      "emoji": "🛡️",
+      "pitch": "A synthetic Active-Directory estate: phish an intern's workstation, then find the cheapest path to Domain Admins.",
+      "vertexCount": 117,
+      "edgeCount": 142,
+      "badges": [
+        "canvas",
+        "path",
+        "analytics",
+        "semantic"
+      ],
+      "trySteps": [
+        "Path → cheapest attack path from the phished 'finance.intern' workstation to the DOMAIN ADMINS group, using Dijkstra with cost property 'exploitCost' (look ids up on the Browser screen).",
+        "Semantic search: 'where do the financial documents live' surfaces the Finance file server.",
+        "Analytics → DEGREE or PAGERANK to spot the lateral-movement choke points (svc_backup, the DCs).",
+        "Canvas → color by 'label' to see users / servers / groups; the 'icon' emoji renders per node."
+      ],
+      "file": "attack-surface.jsonl",
+      "styleConfig": {
+        "nodeColorMode": "label",
+        "nodeSizeMode": "degree",
+        "nodeImageProperty": "icon",
+        "edgeArrows": true
+      },
+      "indexRecipes": [
+        {
+          "uniqueId": "embeddings",
+          "pluginType": "VectorIndex",
+          "pluginOptions": {
+            "dimension": {
+              "propertyId": "dimension",
+              "propertyValue": "1024",
+              "fullQualifiedTypeName": "System.Int32"
+            },
+            "metric": {
+              "propertyId": "metric",
+              "propertyValue": "Cosine",
+              "fullQualifiedTypeName": "System.String"
+            },
+            "embeddingName": {
+              "propertyId": "embeddingName",
+              "propertyValue": "default",
+              "fullQualifiedTypeName": "System.String"
+            }
+          }
+        }
+      ],
+      "embedding": {
+        "name": "default",
+        "model": "bge-m3#1024#Cosine",
+        "dimension": 1024,
+        "metric": "Cosine"
+      }
+    },
+    {
+      "id": "movie-night",
+      "title": "Movie Night",
+      "emoji": "🎬",
+      "pitch": "Films, genres, and viewers with real taste communities — poster-image nodes, plot embeddings, and rating-weighted recommendations.",
+      "vertexCount": 191,
+      "edgeCount": 1697,
+      "badges": [
+        "canvas",
+        "path",
+        "analytics",
+        "semantic"
+      ],
+      "trySteps": [
+        "Semantic search: 'mind-bending sci-fi about dreams' surfaces Inception; 'a haunted hotel' finds The Shining.",
+        "Path → a 2-hop viewer → movie → viewer → movie chain is a recommendation (look ids up on the Browser screen).",
+        "Analytics → PAGERANK ranks the canon; LABELPROPAGATION recovers the taste communities.",
+        "Canvas → movie nodes show real posters ('icon'); edge width by 'rating', size by degree."
+      ],
+      "file": "movie-night.jsonl",
+      "styleConfig": {
+        "nodeColorMode": "label",
+        "nodeSizeMode": "degree",
+        "nodeImageProperty": "icon",
+        "edgeWidthMode": "property",
+        "edgeWidthProperty": "rating",
+        "edgeArrows": false
+      },
+      "indexRecipes": [
+        {
+          "uniqueId": "embeddings",
+          "pluginType": "VectorIndex",
+          "pluginOptions": {
+            "dimension": {
+              "propertyId": "dimension",
+              "propertyValue": "1024",
+              "fullQualifiedTypeName": "System.Int32"
+            },
+            "metric": {
+              "propertyId": "metric",
+              "propertyValue": "Cosine",
+              "fullQualifiedTypeName": "System.String"
+            },
+            "embeddingName": {
+              "propertyId": "embeddingName",
+              "propertyValue": "default",
+              "fullQualifiedTypeName": "System.String"
+            }
+          }
+        }
+      ],
+      "embedding": {
+        "name": "default",
+        "model": "bge-m3#1024#Cosine",
+        "dimension": 1024,
+        "metric": "Cosine"
+      }
+    },
+    {
+      "id": "air-routes",
+      "title": "World Air Routes",
+      "emoji": "✈️",
+      "pitch": "The 250 busiest airports and the flights between them (OpenFlights) — shortest paths weighted by real distance.",
+      "vertexCount": 250,
+      "edgeCount": 5702,
+      "badges": [
+        "canvas",
+        "path",
+        "analytics",
+        "semantic"
+      ],
+      "trySteps": [
+        "Path → cheapest route between two airports with Dijkstra on cost property 'km' (e.g. a small hub to a far-away one); the result is a real minimum-distance itinerary.",
+        "Semantic search: 'major airports in Japan' or 'busiest hubs in the Middle East'.",
+        "Analytics → PAGERANK or DEGREE to rank the global mega-hubs.",
+        "Canvas → country-flag emoji per node ('icon'); size by degree to make the hubs pop."
+      ],
+      "file": "air-routes.jsonl",
+      "styleConfig": {
+        "nodeColorMode": "property",
+        "nodeColorProperty": "country",
+        "nodeSizeMode": "degree",
+        "nodeImageProperty": "icon",
+        "edgeArrows": false
+      },
+      "indexRecipes": [
+        {
+          "uniqueId": "embeddings",
+          "pluginType": "VectorIndex",
+          "pluginOptions": {
+            "dimension": {
+              "propertyId": "dimension",
+              "propertyValue": "1024",
+              "fullQualifiedTypeName": "System.Int32"
+            },
+            "metric": {
+              "propertyId": "metric",
+              "propertyValue": "Cosine",
+              "fullQualifiedTypeName": "System.String"
+            },
+            "embeddingName": {
+              "propertyId": "embeddingName",
+              "propertyValue": "default",
+              "fullQualifiedTypeName": "System.String"
+            }
+          }
+        }
+      ],
+      "embedding": {
+        "name": "default",
+        "model": "bge-m3#1024#Cosine",
+        "dimension": 1024,
+        "metric": "Cosine"
+      }
+    },
+    {
+      "id": "fallen8-deps",
+      "title": "Fallen-8 Dependencies",
+      "emoji": "📦",
+      "pitch": "Fallen-8's own supply chain across every ecosystem (npm 352, nuget 25, pypi 8, githubactions 6, github 1) — the static twin of the GitHub card below.",
+      "vertexCount": 392,
+      "edgeCount": 517,
+      "badges": [
+        "canvas",
+        "analytics"
+      ],
+      "trySteps": [
+        "Analytics → PAGERANK to rank the most-depended-on packages.",
+        "Analytics → WCC to see each ecosystem fall out as its own component.",
+        "Canvas → color by 'license' or 'ecosystem', size by in-degree, and the 'icon' emoji renders per ecosystem."
+      ],
+      "file": "fallen8-deps.jsonl",
+      "styleConfig": {
+        "nodeColorMode": "property",
+        "nodeColorProperty": "ecosystem",
+        "nodeSizeMode": "in-degree",
+        "nodeImageProperty": "icon",
+        "edgeArrows": true
+      },
+      "indexRecipes": [],
+      "embedding": null
+    }
+  ]
+}
