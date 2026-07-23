@@ -25,8 +25,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
+using NoSQL.GraphDB.Core.Model;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
@@ -97,6 +100,18 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
+        ///   The bound semantic state (feature subgraph-semantic-thresholds), projected from the
+        ///   persisted recipe; absent for non-semantic subgraphs and for subgraphs without a
+        ///   recipe (direct-delegate engine use).
+        /// </summary>
+        [JsonPropertyName("semantic")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public SubGraphSemanticSummary Semantic
+        {
+            get; set;
+        }
+
+        /// <summary>
         ///   Builds a summary from an engine <see cref="SubGraphResult"/>.
         /// </summary>
         public static SubGraphSummary FromResult(SubGraphResult result, Boolean canRecalculate)
@@ -114,7 +129,71 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                 AlgorithmPluginName = result.AlgorithmPluginName,
                 SourceFallen8Id = result.SourceFallen8Id,
                 CanRecalculate = canRecalculate,
-                AdditionalInformation = result.Definitions?.AdditionalInformation
+                AdditionalInformation = result.Definitions?.AdditionalInformation,
+                Semantic = ProjectSemantic(result.Recipe?.SpecificationJson)
+            };
+        }
+
+        /// <summary>
+        ///   Projects the echo from the recipe's specification. Defensive on a read path: a
+        ///   recipe that does not deserialize (it was written by this app, so it should) yields
+        ///   no echo rather than failing the summary.
+        /// </summary>
+        private static SubGraphSemanticSummary ProjectSemantic(String specificationJson)
+        {
+            if (String.IsNullOrWhiteSpace(specificationJson))
+            {
+                return null;
+            }
+
+            SubGraphSpecification specification;
+            try
+            {
+                specification = JsonSerializer.Deserialize(specificationJson, AppJsonContext.Default.SubGraphSpecification);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+
+            var semantic = specification?.Semantic;
+            if (semantic?.QueryVector == null)
+            {
+                return null;
+            }
+
+            List<SubGraphPatternThresholdSummary> thresholds = null;
+            if (specification.Patterns != null)
+            {
+                for (var i = 0; i < specification.Patterns.Count; i++)
+                {
+                    var pattern = specification.Patterns[i];
+                    if (pattern?.SemanticMinScore == null)
+                    {
+                        continue;
+                    }
+
+                    thresholds ??= new List<SubGraphPatternThresholdSummary>();
+                    thresholds.Add(new SubGraphPatternThresholdSummary
+                    {
+                        Pattern = String.IsNullOrWhiteSpace(pattern.PatternName)
+                            ? i.ToString(CultureInfo.InvariantCulture)
+                            : pattern.PatternName,
+                        MinScore = pattern.SemanticMinScore.Value
+                    });
+                }
+            }
+
+            return new SubGraphSemanticSummary
+            {
+                EmbeddingName = String.IsNullOrWhiteSpace(semantic.EmbeddingName)
+                    ? AGraphElementModel.DefaultEmbeddingName
+                    : semantic.EmbeddingName,
+                Metric = String.IsNullOrWhiteSpace(semantic.Metric) ? "Cosine" : semantic.Metric,
+                Dimension = semantic.QueryVector.Length,
+                QueryText = String.IsNullOrWhiteSpace(semantic.QueryText) ? null : semantic.QueryText,
+                MinScore = semantic.MinScore,
+                PatternThresholds = thresholds
             };
         }
     }

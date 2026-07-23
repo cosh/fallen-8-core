@@ -9,17 +9,23 @@ import {
   listSubGraphSummaries,
   recalculateSubGraph,
 } from "../api/endpoints";
-import type { PatternSpecification, SubGraphSpecification } from "../api/types";
+import type {
+  PatternSpecification,
+  SemanticTraversalSpecification,
+  SubGraphSpecification,
+} from "../api/types";
 import { ApiError } from "../api/client";
 import { validatePatternSequence } from "../lib/patternValidation";
 import { normalizePatterns, subGraphBlock } from "../lib/storedQueries";
 import {
-  buildSemanticSpec,
-  semanticOwnsVertexFilter,
-  type SemanticDraft,
+  buildSemanticQuery,
+  describeSemanticSummary,
+  parseThreshold,
+  type SemanticQueryDraft,
 } from "../lib/semantic";
 import { shapeSuggestions, useEmbeddingProvider, useGraphShape } from "../state/graphShape";
-import { SemanticBlockEditor } from "../components/SemanticBlockEditor";
+import { SemanticQueryEditor } from "../components/SemanticQueryEditor";
+import { VertexFilterSlot } from "../components/VertexFilterSlot";
 import { DelegateSlot } from "../delegate/DelegateSlot";
 import {
   FilterSourceToggle,
@@ -46,6 +52,8 @@ function newPattern(type: PatternSpecification["type"]): SubgraphPatternDraft {
     direction: "OutgoingEdge",
     minLength: 1,
     maxLength: 3,
+    filterMode: "everything",
+    semanticMinScore: "0.7",
   };
 }
 
@@ -96,16 +104,46 @@ export function SubgraphScreen() {
   const draft = store((s) => s.subgraphDraft);
   const setSubgraphDraft = store((s) => s.setSubgraphDraft);
   const resetSubgraphDraft = store((s) => s.resetSubgraphDraft);
-  const { name, fromSubGraph, vertexFilter, edgeFilter, patterns, filterSource, storedQuery, semantic } =
-    draft;
+  const {
+    name,
+    fromSubGraph,
+    vertexFilterMode,
+    vertexFilter,
+    vertexMinScore,
+    edgeFilter,
+    patterns,
+    filterSource,
+    storedQuery,
+    semanticQuery,
+  } = draft;
   const [message, setMessage] = useState<string | null>(null);
 
   const shape = useGraphShape(instance).data;
   const suggestions = shapeSuggestions(shape);
   const provider = useEmbeddingProvider(instance);
   const providerEnabled = provider ? provider.enabled : null;
-  const patchSemantic = (patch: Partial<SemanticDraft>) =>
-    setSubgraphDraft({ semantic: { ...semantic, ...patch } });
+  const patchSemanticQuery = (patch: Partial<SemanticQueryDraft>) =>
+    setSubgraphDraft({ semanticQuery: { ...semanticQuery, ...patch } });
+
+  // The semantic QUERY section exists exactly while some vertex slot is in semantic mode
+  // (feature subgraph-semantic-thresholds) - an inert semantic configuration is
+  // unrepresentable. Thresholds are validated per slot; the query is validated once.
+  const semanticSlotActive =
+    filterSource === "inline" &&
+    (vertexFilterMode === "semantic" ||
+      patterns.some((p) => p.type === "Vertex" && p.filterMode === "semantic"));
+  const thresholdInvalid =
+    filterSource === "inline" &&
+    ((vertexFilterMode === "semantic" && parseThreshold(vertexMinScore) === undefined) ||
+      patterns.some(
+        (p) =>
+          p.type === "Vertex" &&
+          p.filterMode === "semantic" &&
+          parseThreshold(p.semanticMinScore) === undefined,
+      ));
+  const semanticQueryBuild = semanticSlotActive
+    ? buildSemanticQuery(semanticQuery, { providerEnabled })
+    : null;
 
   // Consume a one-shot prefill (Dashboard → Stored queries → "Open in Subgraph").
   const subgraphPrefill = store((s) => s.subgraphPrefill);
@@ -133,24 +171,32 @@ export function SubgraphScreen() {
       // fromSubGraph is per-request scoping and rides along as a query param either way.
       let spec: SubGraphSpecification;
       if (filterSource === "stored") {
-        // The semantic block is disabled in stored mode and cannot ride a stored-template
-        // invocation (server 400s), so it is neither built nor validated here.
+        // Stored mode has no slots, so no semantic query travels (a stored-template
+        // invocation cannot carry one - server 400s).
         spec = { name: name.trim(), storedQuery };
       } else {
-        // The semantic block binds at registration and is data, not code (no dynamic-code
-        // gate); costBySimilarity is path-only (allowCost: false). When its minScore owns
-        // the top-level vertex pre-filter slot, the inline vertexFilter is OMITTED (the
-        // server 400s if both fill one slot); the fragment stays in local state.
-        const semanticBuild = buildSemanticSpec(semantic, { allowCost: false, providerEnabled });
-        if (!semanticBuild.ok) {
-          throw new ApiError(400, "/subgraph", `Semantic block: ${semanticBuild.error}`);
+        // Each vertex slot sends exactly what its MODE says; the semantic query - pure
+        // data, bound at registration - travels only while some slot consumes it. The
+        // one-owner-per-slot 400 is structurally unreachable from here.
+        let semantic: SemanticTraversalSpecification | undefined;
+        if (semanticSlotActive) {
+          const query = buildSemanticQuery(semanticQuery, { providerEnabled });
+          if (!query.ok) {
+            throw new ApiError(400, "/subgraph", `Semantic query: ${query.error}`);
+          }
+          semantic = query.spec;
+          if (vertexFilterMode === "semantic") {
+            // Gating (thresholdInvalid) guarantees this parses at submit time.
+            semantic.minScore = parseThreshold(vertexMinScore);
+          }
         }
         spec = {
           name: name.trim(),
-          vertexFilter: semanticOwnsVertexFilter(semantic) ? undefined : vertexFilter || undefined,
+          vertexFilter:
+            vertexFilterMode === "fragment" ? vertexFilter || undefined : undefined,
           edgeFilter: edgeFilter || undefined,
           patterns: normalizePatterns(patterns),
-          ...(semanticBuild.spec ? { semantic: semanticBuild.spec } : {}),
+          ...(semantic ? { semantic } : {}),
         };
       }
       return await createSubGraph(instance, spec, fromSubGraph.trim() || undefined);
@@ -226,7 +272,18 @@ export function SubgraphScreen() {
           <tbody>
             {(list.data ?? []).map((subgraph) => (
               <tr key={subgraph.name}>
-                <td className="table-cell font-semibold">{subgraph.name}</td>
+                <td className="table-cell font-semibold">
+                  {subgraph.name}
+                  {subgraph.semantic && (
+                    <span
+                      className="text-accent border-line ml-2 rounded border px-1 py-0.5 align-middle text-[10px] font-normal"
+                      data-testid={`sg-semantic-badge-${subgraph.name}`}
+                      title={describeSemanticSummary(subgraph.semantic)}
+                    >
+                      semantic
+                    </span>
+                  )}
+                </td>
                 <td className="table-cell">{subgraph.vertexCount}</td>
                 <td className="table-cell">{subgraph.edgeCount}</td>
                 <td className="table-cell">
@@ -325,19 +382,6 @@ export function SubgraphScreen() {
             onChange={(value) => setSubgraphDraft({ filterSource: value })}
           />
 
-          {/* Semantic scoring binds at registration; it cannot ride a stored template
-              (server 400), so it is disabled with a reason in stored mode. */}
-          <SemanticBlockEditor
-            draft={semantic}
-            onChange={patchSemantic}
-            allowCost={false}
-            providerEnabled={providerEnabled}
-            embeddingNames={suggestions.embeddingNames}
-            idPrefix="sg"
-            disabled={filterSource === "stored"}
-            disabledReason="a stored template already fixes its filters — inline the filters to add semantic scoring."
-          />
-
           {filterSource === "stored" && (
             <StoredQueryPicker
               instance={instance}
@@ -349,16 +393,47 @@ export function SubgraphScreen() {
 
           {filterSource === "inline" && (
           <>
+          {/* The semantic QUERY appears exactly while a vertex slot consumes it (feature
+              subgraph-semantic-thresholds): one query per request, bound at creation. */}
+          {semanticSlotActive && (
+            <div className="border-line rounded border" data-testid="sg-semantic-query">
+              <div className="panel-title">
+                semantic query
+                <span className="text-fg-faint normal-case">
+                  one query per request · resolved once at creation and stored with the
+                  subgraph — recalculate reuses it, text is never re-embedded
+                </span>
+              </div>
+              <div className="space-y-2 p-2">
+                <SemanticQueryEditor
+                  query={semanticQuery}
+                  onChange={patchSemanticQuery}
+                  providerEnabled={providerEnabled}
+                  embeddingNames={suggestions.embeddingNames}
+                  idPrefix="sg"
+                />
+                {semanticQueryBuild && !semanticQueryBuild.ok && (
+                  <p className="text-warn text-[11px]" data-testid="sg-sem-error">
+                    {semanticQueryBuild.error}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
-            <DelegateSlot
+            <VertexFilterSlot
               instance={instance}
-              delegateKind="VertexFilter"
+              idPrefix="sg-vf"
               label="vertexFilter (top level)"
               contextLabel={`Subgraph · ${name || "unnamed"}`}
-              value={vertexFilter}
-              onChange={(value) => setSubgraphDraft({ vertexFilter: value })}
-              disabled={semanticOwnsVertexFilter(semantic)}
-              disabledReason="owned by semantic minScore — clear it to write a fragment"
+              mode={vertexFilterMode}
+              onModeChange={(mode) => setSubgraphDraft({ vertexFilterMode: mode })}
+              fragment={vertexFilter}
+              onFragmentChange={(value) => setSubgraphDraft({ vertexFilter: value })}
+              minScore={vertexMinScore}
+              onMinScoreChange={(value) => setSubgraphDraft({ vertexMinScore: value })}
+              metric={semanticQuery.metric}
             />
             <DelegateSlot
               instance={instance}
@@ -487,15 +562,24 @@ export function SubgraphScreen() {
 
                   <div className="space-y-1">
                     {pattern.type === "Vertex" ? (
-                      <DelegateSlot
+                      <VertexFilterSlot
                         instance={instance}
-                        delegateKind="VertexFilter"
+                        idPrefix={`sg-p${index}-vf`}
                         label="vertexFilter"
                         contextLabel={`Subgraph pattern #${index + 1}`}
-                        value={pattern.vertexFilter ?? ""}
-                        onChange={(fragment) =>
+                        mode={pattern.filterMode}
+                        onModeChange={(mode) =>
+                          updatePattern(pattern.key, { filterMode: mode })
+                        }
+                        fragment={pattern.vertexFilter ?? ""}
+                        onFragmentChange={(fragment) =>
                           updatePattern(pattern.key, { vertexFilter: fragment })
                         }
+                        minScore={pattern.semanticMinScore}
+                        onMinScoreChange={(value) =>
+                          updatePattern(pattern.key, { semanticMinScore: value })
+                        }
+                        metric={semanticQuery.metric}
                       />
                     ) : (
                       <>
@@ -567,14 +651,30 @@ export function SubgraphScreen() {
             </div>
           </div>
 
+          {/* A template binds its delegates at ITS registration, where no semantic query
+              exists - the server 400s thresholds in templates, so saving is blocked with
+              the reason instead of silently dropping the semantic parts. */}
           <SaveAsStoredQuery
             instance={instance}
             kind="SubGraph"
             buildBlock={() =>
-              subGraphBlock(vertexFilter, edgeFilter, normalizePatterns(patterns))
+              subGraphBlock(
+                vertexFilterMode === "fragment" ? vertexFilter : "",
+                edgeFilter,
+                normalizePatterns(patterns),
+              )
             }
-            disabled={!vertexFilter && !edgeFilter && patterns.length === 0}
-            disabledReason="add a filter or a pattern step first"
+            disabled={
+              semanticSlotActive ||
+              ((vertexFilterMode !== "fragment" || !vertexFilter) &&
+                !edgeFilter &&
+                patterns.length === 0)
+            }
+            disabledReason={
+              semanticSlotActive
+                ? "semantic thresholds cannot ride a stored template — it has no query to bind"
+                : "add a filter or a pattern step first"
+            }
             onSaved={(savedName) => {
               setSubgraphDraft({ filterSource: "stored", storedQuery: savedName });
             }}
@@ -590,8 +690,8 @@ export function SubgraphScreen() {
               !name.trim() ||
               sequenceError !== null ||
               (filterSource === "stored" && !storedQuery) ||
-              (filterSource === "inline" &&
-                !buildSemanticSpec(semantic, { allowCost: false, providerEnabled }).ok) ||
+              (semanticQueryBuild !== null && !semanticQueryBuild.ok) ||
+              thresholdInvalid ||
               create.isPending
             }
             title={

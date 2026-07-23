@@ -7722,6 +7722,17 @@
             "description": "Vertex-specific filter. Only meaningful when string PatternSpecification.Type is\r\n`Vertex`. The lambda receives a `VertexModel`.",
             "example": "return (v) =&gt; v.TryGetProperty(out var age, \"age\") &amp;&amp; (int)age &gt;= 18;"
           },
+          "semanticMinScore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "Declarative semantic membership threshold for a `Vertex` pattern (feature\r\nsubgraph-semantic-thresholds): the vertex matches when its named embedding scores\r\npast this against the request's `semantic` query - the same scoring rules as\r\n`semantic.minScore` (at least, under Cosine/DotProduct; at most, under L2;\r\nvertices without the embedding never match). Owns the step's filter slot - setting\r\nit together with string PatternSpecification.VertexFilter is a 400, as is setting it on an edge\r\npattern or without a request-level `semantic` block. Pure data: it compiles\r\nno code and works with dynamic code execution disabled.",
+            "format": "double",
+            "example": 0.7
+          },
           "direction": {
             "type": [
               "null",
@@ -8702,6 +8713,97 @@
         "type": "string",
         "format": "binary"
       },
+      "SubGraphPatternThresholdSummary": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The step's `patternName`, or its zero-based index when unnamed."
+          },
+          "minScore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "The step's threshold.",
+            "format": "double"
+          }
+        },
+        "description": "One vertex pattern step's semantic threshold, identified by name or position."
+      },
+      "SubGraphSemanticSummary": {
+        "type": "object",
+        "properties": {
+          "embeddingName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The named embedding the subgraph's filters score (effective, so never null)."
+          },
+          "metric": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The metric the scores are computed under (effective, so never null)."
+          },
+          "dimension": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The dimension of the bound query vector.",
+            "format": "int32"
+          },
+          "queryText": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The query text the vector was resolved from at registration, when the subgraph was\r\ncreated via `semantic.queryText`; null for client-supplied vectors. Documents\r\nintent - the bound vector remains the truth and is never re-embedded."
+          },
+          "minScore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "The top-level vertex pre-filter threshold (`semantic.minScore`), when set.",
+            "format": "double"
+          },
+          "patternThresholds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SubGraphPatternThresholdSummary"
+            },
+            "description": "The vertex pattern steps carrying a `semanticMinScore`, when any."
+          }
+        },
+        "description": "The bound semantic state of a registered subgraph (feature\r\nsubgraph-semantic-thresholds), echoed on its summary: the query the subgraph's\r\nfilters were registered against and where its thresholds sit. The raw query vector is\r\ndeliberately NOT part of the echo - only its dimension; a registered subgraph reveals\r\nits binding, not its payload.",
+        "example": {
+          "embeddingName": "default",
+          "metric": "Cosine",
+          "dimension": 384,
+          "queryText": "red bicycles",
+          "minScore": 0.7,
+          "patternThresholds": [
+            {
+              "pattern": "start",
+              "minScore": 0.6
+            }
+          ]
+        }
+      },
       "SubGraphSpecification": {
         "required": [
           "name"
@@ -8843,6 +8945,10 @@
               "type": "string"
             },
             "description": "Metadata attached to the subgraph definition."
+          },
+          "semantic": {
+            "description": "The bound semantic state (feature subgraph-semantic-thresholds), projected from the\r\npersisted recipe; absent for non-semantic subgraphs and for subgraphs without a\r\nrecipe (direct-delegate engine use).",
+            "$ref": "#/components/schemas/SubGraphSemanticSummary"
           }
         },
         "description": "A lightweight summary of a registered subgraph (metadata and element counts),\r\nwithout the full vertex/edge payload.",

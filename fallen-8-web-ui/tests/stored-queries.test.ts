@@ -8,7 +8,12 @@ import {
   STORED_QUERY_NAME,
   subGraphBlock,
 } from "../src/lib/storedQueries";
-import { DEFAULT_PATH_DRAFT, type PathDraft } from "../src/state/instanceStore";
+import {
+  DEFAULT_PATH_DRAFT,
+  type PathDraft,
+  type SubgraphPatternDraft,
+} from "../src/state/instanceStore";
+import type { PatternSpecification } from "../src/api/types";
 
 /**
  * Stored-query spec building (concept spec §5.1): the server 400s when storedQuery is
@@ -104,25 +109,32 @@ describe("pathBlockFromDraft / hasAnyPathFragment", () => {
   });
 });
 
+/** A draft row with the slot-state fields every builder pattern now carries. */
+function draftPattern(
+  pattern: Partial<SubgraphPatternDraft> & { key: string; type: PatternSpecification["type"] },
+): SubgraphPatternDraft {
+  return { filterMode: "everything", semanticMinScore: "0.7", ...pattern };
+}
+
 describe("normalizePatterns / subGraphBlock", () => {
   it("strips builder keys and per-type-irrelevant fields", () => {
     const normalized = normalizePatterns([
-      { key: "k1", type: "Vertex", patternName: "", direction: "OutgoingEdge" },
-      {
+      draftPattern({ key: "k1", type: "Vertex", patternName: "", direction: "OutgoingEdge" }),
+      draftPattern({
         key: "k2",
         type: "Edge",
         patternName: "e",
         direction: "IncomingEdge",
         minLength: 1,
         maxLength: 3,
-      },
-      {
+      }),
+      draftPattern({
         key: "k3",
         type: "VariableLengthEdge",
         direction: "OutgoingEdge",
         minLength: 2,
         maxLength: 5,
-      },
+      }),
     ]);
     expect(normalized[0]).not.toHaveProperty("key");
     expect(normalized[0].direction).toBeUndefined(); // Vertex has no direction
@@ -131,6 +143,36 @@ describe("normalizePatterns / subGraphBlock", () => {
     expect(normalized[1].direction).toBe("IncomingEdge");
     expect(normalized[2].minLength).toBe(2);
     expect(normalized[2].maxLength).toBe(5);
+  });
+
+  it("a vertex slot sends exactly what its mode says", () => {
+    const normalized = normalizePatterns([
+      draftPattern({
+        key: "k1",
+        type: "Vertex",
+        filterMode: "fragment",
+        vertexFilter: "return (v) => true;",
+      }),
+      draftPattern({
+        key: "k2",
+        type: "Vertex",
+        filterMode: "semantic",
+        semanticMinScore: "0.6",
+        vertexFilter: "return (v) => true;", // stays in the draft, must not travel
+      }),
+      draftPattern({
+        key: "k3",
+        type: "Vertex",
+        filterMode: "everything",
+        vertexFilter: "return (v) => true;", // stale fragment, must not travel
+      }),
+    ]);
+    expect(normalized[0].vertexFilter).toBe("return (v) => true;");
+    expect(normalized[0]).not.toHaveProperty("semanticMinScore");
+    expect(normalized[1].vertexFilter).toBeUndefined();
+    expect(normalized[1].semanticMinScore).toBe(0.6);
+    expect(normalized[2].vertexFilter).toBeUndefined();
+    expect(normalized[2]).not.toHaveProperty("semanticMinScore");
   });
 
   it("subGraphBlock omits empty parts", () => {

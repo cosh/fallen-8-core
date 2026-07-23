@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
@@ -152,6 +153,55 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(2, result.SubGraph.VertexCount, "Rehydrated subgraph keeps Alice and Bob");
             Assert.AreEqual(1, result.SubGraph.EdgeCount, "Rehydrated subgraph keeps the knows edge");
             Assert.IsNotNull(result.Recipe, "The recipe should be retained so it can be persisted again");
+        }
+
+        [TestMethod]
+        public void SaveThenLoad_SemanticThresholdRecipe_IsRehydrated()
+        {
+            // A purely declarative semantic subgraph (feature subgraph-semantic-thresholds):
+            // top-level minScore + per-pattern thresholds, no fragments. The recipe must
+            // round-trip the bound vector and thresholds so load recomputes membership
+            // without any provider or compiled code.
+            var source = CreateGraphWithData(withCompiler: true);
+            var vertices = source.GetAllVertices();
+            var alice = vertices.First(v => v.TryGetProperty<string>(out var n, "name") && n == "Alice");
+            var bob = vertices.First(v => v.TryGetProperty<string>(out var n, "name") && n == "Bob");
+            var techCorp = vertices.First(v => v.TryGetProperty<string>(out var n, "name") && n == "TechCorp");
+            source.EnqueueTransaction(new SetEmbeddingsTransaction()
+                    .SetEmbedding(alice.Id, "default", new[] { 1f, 0f })
+                    .SetEmbedding(bob.Id, "default", new[] { 0.9f, 0.1f })
+                    .SetEmbedding(techCorp.Id, "default", new[] { 0f, 1f }))
+                .WaitUntilFinished();
+
+            var specification = new SubGraphSpecification
+            {
+                Name = "close",
+                Semantic = new SemanticTraversalSpecification { QueryVector = new[] { 1f, 0f } },
+                Patterns = new List<PatternSpecification>
+                {
+                    new PatternSpecification { Type = "Vertex", SemanticMinScore = 0.5 },
+                    new PatternSpecification { Type = "Edge" },
+                    new PatternSpecification { Type = "Vertex", SemanticMinScore = 0.5 }
+                }
+            };
+            var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(), source);
+            Assert.IsInstanceOfType(controller.CreateSubGraph(specification).Result,
+                typeof(Microsoft.AspNetCore.Mvc.CreatedResult));
+
+            var actualPath = SaveGraph(source);
+
+            var loaded = new Fallen8(TestLoggerFactory.Create());
+            loaded.SubGraphRecipeCompiler = new RecipeSubGraphCompiler();
+            loaded.EnqueueTransaction(new LoadTransaction { Path = actualPath }).WaitUntilFinished();
+
+            Assert.IsTrue(loaded.SubGraphFactory.TryGetSubGraph(out SubGraphResult result, "close"),
+                "The semantic subgraph should be rehydrated after load");
+            Assert.AreEqual(2, result.SubGraph.VertexCount,
+                "Only Alice knows Bob matches the thresholded pattern; TechCorp is orthogonal to the query");
+            Assert.AreEqual(1, result.SubGraph.EdgeCount, "works_at is pruned - its target fails the threshold");
+            Assert.IsNotNull(result.Recipe, "The recipe should be retained so it can be persisted again");
+            StringAssert.Contains(result.Recipe.SpecificationJson, "semanticMinScore",
+                "The thresholds ride the persisted recipe");
         }
 
         [TestMethod]

@@ -196,10 +196,40 @@ ever runs on the writer thread. The block also rides the subgraph's persisted re
 with `queryText`, the *resolved vector* is what persists — so a semantic subgraph survives
 restart and WAL replay without the provider being present.
 
-`minScore` fills the vertex **pre-filter** slot (which elements are copied into the
-subgraph); `costBySimilarity` is a path concept and is rejected (400). A stored *subgraph*
-template invocation cannot carry `semantic` (400): the template's delegates were
-materialized at its own registration and cannot be rebound per invocation.
+On a subgraph, semantic decisions are **vertex membership thresholds on filter slots**
+(feature subgraph-semantic-thresholds) — nothing in the result is scored or ranked:
+
+- `semantic.minScore` fills the **top-level vertex pre-filter** slot (which vertices are
+  copied into the subgraph before pattern matching).
+- A vertex pattern step's `semanticMinScore` fills **that step's** filter slot — the same
+  scoring rules against the same one-per-request query, so a fully declarative pattern
+  ("a vertex near the query −knows→ another vertex near the query") runs with dynamic
+  code execution OFF:
+
+```jsonc
+{
+  "name": "close-pairs",
+  "semantic": { "queryVector": [0.1, 0.2] },
+  "patterns": [
+    { "type": "Vertex", "semanticMinScore": 0.7 },
+    { "type": "Edge" },
+    { "type": "Vertex", "semanticMinScore": 0.7 }
+  ]
+}
+```
+
+- One owner per slot, per step: `semanticMinScore` + a `vertexFilter` fragment on the
+  same step is a 400; different steps choose independently.
+- `costBySimilarity` is a path concept and is rejected (400). A stored *subgraph*
+  template invocation cannot carry `semantic`, and a stored template's block cannot carry
+  `semanticMinScore` (both 400): the template's delegates were materialized at its own
+  registration, where no query exists to bind.
+
+A registered semantic subgraph **echoes its binding** on the summary (`GET
+/subgraph/{name}` and the create/recalculate responses): effective embedding name and
+metric, the vector's dimension, the registration `queryText` when one was used, and every
+threshold — never the raw vector. The Studio's subgraph list renders this echo as a
+`semantic` badge.
 
 ### Rules and errors
 
@@ -212,6 +242,8 @@ One owner per delegate slot, and everything invalid is a 400 with a reason:
 | `costBySimilarity` with `metric: "DotProduct"` | 400 (no honest non-negative mapping) |
 | `costBySimilarity` on `PUT /subgraph` | 400 (path concept) |
 | `semantic` on a stored-**subgraph** invocation | 400 (delegates bound at registration) |
+| `semanticMinScore` on an edge pattern step, without a `semantic` block, alongside the step's `vertexFilter` fragment, or non-finite | 400 (feature subgraph-semantic-thresholds) |
+| `semanticMinScore` in a stored SubGraph template block | 400 at registration (a template has no query to bind) |
 | `queryVector` and `queryText` together | 400 (exactly one source) |
 | missing/empty vector, NaN/Infinity components, zero-norm under `Cosine`, bad name/metric | 400 |
 | `queryText` with the embedding provider disabled | 403 (the provider capability) |

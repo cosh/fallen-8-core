@@ -161,8 +161,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// SEMANTIC SUBGRAPHS (feature element-embeddings): an optional "semantic" block carries
         /// a query vector (or "queryText" via the embedding provider) bound at REGISTRATION -
         /// recalculation reuses it and never embeds anything. "minScore" becomes the code-free
-        /// vertex pre-filter; compiled fragments read the same vector via "context". Pure data,
-        /// not gated by the dynamic-code switch; not available on stored-template invocations.
+        /// vertex pre-filter, a vertex pattern step's "semanticMinScore" that step's filter
+        /// (feature subgraph-semantic-thresholds); compiled fragments read the same vector via
+        /// "context". Pure data, not gated by the dynamic-code switch; not available on
+        /// stored-template invocations.
         /// Full rules: features/element-embeddings README, "Semantic traversal".
         ///
         /// SECURITY: inline filter/pattern fragments are compiled with Roslyn and executed

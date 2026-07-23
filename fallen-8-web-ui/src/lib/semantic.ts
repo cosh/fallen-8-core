@@ -1,11 +1,18 @@
-import type { SemanticTraversalSpecification } from "../api/types";
+import type { SemanticTraversalSpecification, SubGraphSemanticSummary } from "../api/types";
 import { parseVector } from "./vector";
 
 /**
- * The declarative semantic-traversal block (feature element-embeddings), as edited in the
- * studio and built into a request. Pure logic here so the gating rules — which mirror the
- * server's one-owner-per-slot and metric constraints — are unit-testable without a screen,
- * and so the Path and Subgraph screens share exactly one implementation.
+ * The declarative semantic-traversal drafts (features element-embeddings and
+ * subgraph-semantic-thresholds), as edited in the studio and built into requests. Pure
+ * logic here so the gating rules — which mirror the server's one-owner-per-slot and
+ * metric constraints — are unit-testable without a screen.
+ *
+ * Two shapes share one query core:
+ * - The Path screen edits a {@link SemanticDraft}: the query plus the block-local
+ *   minScore filter / costBySimilarity cost switches.
+ * - The Subgraph screen edits a bare {@link SemanticQueryDraft}: one query per request;
+ *   the thresholds live on the vertex-filter SLOTS (top level and per vertex pattern
+ *   step), not in the block.
  *
  * Reference for the rules: features/done/element-embeddings/README.md, "Semantic traversal".
  */
@@ -13,14 +20,34 @@ import { parseVector } from "./vector";
 export type SemanticSource = "vector" | "text";
 export type SemanticMetric = "Cosine" | "DotProduct" | "L2";
 
-export interface SemanticDraft {
-  /** Whether the block is active (sent, and owning its declarative slots). */
-  enabled: boolean;
+/**
+ * How a vertex-filter slot is filled (feature subgraph-semantic-thresholds): nothing, a
+ * compiled C# fragment, or a declarative semantic threshold. One owner per slot is
+ * structural — a slot has exactly one mode.
+ */
+export type SlotMode = "everything" | "fragment" | "semantic";
+
+/** The query core: what the traversal scores against, without any slot decisions. */
+export interface SemanticQueryDraft {
   source: SemanticSource;
   vectorText: string;
   queryText: string;
   embeddingName: string;
   metric: SemanticMetric;
+}
+
+export const DEFAULT_SEMANTIC_QUERY_DRAFT: SemanticQueryDraft = {
+  source: "vector",
+  vectorText: "",
+  queryText: "",
+  embeddingName: "default",
+  metric: "Cosine",
+};
+
+/** The Path screen's block: the query plus its declarative filter/cost switches. */
+export interface SemanticDraft extends SemanticQueryDraft {
+  /** Whether the block is active (sent, and owning its declarative slots). */
+  enabled: boolean;
   /** Apply the declarative minScore vertex filter. */
   minScoreEnabled: boolean;
   minScore: string;
@@ -29,12 +56,8 @@ export interface SemanticDraft {
 }
 
 export const DEFAULT_SEMANTIC_DRAFT: SemanticDraft = {
+  ...DEFAULT_SEMANTIC_QUERY_DRAFT,
   enabled: false,
-  source: "vector",
-  vectorText: "",
-  queryText: "",
-  embeddingName: "default",
-  metric: "Cosine",
   minScoreEnabled: false,
   minScore: "0.7",
   costBySimilarity: false,
@@ -50,25 +73,19 @@ export function semanticOwnsVertexCost(draft: SemanticDraft): boolean {
   return draft.enabled && draft.costBySimilarity;
 }
 
-export type SemanticBuild =
-  | { ok: true; spec: SemanticTraversalSpecification | undefined }
+export type SemanticQueryBuild =
+  | { ok: true; spec: SemanticTraversalSpecification }
   | { ok: false; error: string };
 
 /**
- * Builds the wire spec from a draft, applying the same guards the server enforces so an
- * invalid request is structurally caught before submit. `allowCost` is false on the
- * subgraph screen (costBySimilarity is a path concept the server 400s elsewhere).
- * `providerEnabled` is the resolved provider state (null = unknown/not-yet-computed):
- * queryText needs it true. Returns spec: undefined when the block is disabled.
+ * Builds the query core of a semantic block from a draft — the one implementation both
+ * screens validate with. `providerEnabled` is the resolved provider state (null =
+ * unknown/not-yet-computed): queryText needs it true.
  */
-export function buildSemanticSpec(
-  draft: SemanticDraft,
-  options: { allowCost: boolean; providerEnabled: boolean | null },
-): SemanticBuild {
-  if (!draft.enabled) {
-    return { ok: true, spec: undefined };
-  }
-
+export function buildSemanticQuery(
+  draft: SemanticQueryDraft,
+  options: { providerEnabled: boolean | null },
+): SemanticQueryBuild {
   const spec: SemanticTraversalSpecification = {
     embeddingName: draft.embeddingName.trim() || undefined,
     metric: draft.metric,
@@ -93,6 +110,66 @@ export function buildSemanticSpec(
     }
     spec.queryVector = parsed.vector;
   }
+
+  return { ok: true, spec };
+}
+
+/**
+ * Threshold text → finite number; empty or non-numeric is undefined (an empty input is
+ * NOT silently zero). The one parser every threshold slot builds and validates with.
+ */
+export function parseThreshold(text: string): number | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * One line for the subgraph list's semantic badge tooltip: what the registered subgraph
+ * was bound to and where its thresholds sit.
+ */
+export function describeSemanticSummary(summary: SubGraphSemanticSummary): string {
+  const compare = summary.metric === "L2" ? "≤" : "≥";
+  const parts = [`${summary.metric} over '${summary.embeddingName}' (d=${summary.dimension})`];
+  if (summary.minScore != null) {
+    parts.push(`pre-filter ${compare} ${summary.minScore}`);
+  }
+  for (const threshold of summary.patternThresholds ?? []) {
+    parts.push(`step ${threshold.pattern} ${compare} ${threshold.minScore}`);
+  }
+  if (summary.queryText) {
+    parts.push(`from text "${summary.queryText}"`);
+  }
+  parts.push("bound at creation — recalculate reuses the stored vector");
+  return parts.join(" · ");
+}
+
+export type SemanticBuild =
+  | { ok: true; spec: SemanticTraversalSpecification | undefined }
+  | { ok: false; error: string };
+
+/**
+ * Builds the Path screen's block from a draft, applying the same guards the server
+ * enforces so an invalid request is structurally caught before submit. `allowCost` is
+ * false where costBySimilarity cannot apply. Returns spec: undefined when the block is
+ * disabled.
+ */
+export function buildSemanticSpec(
+  draft: SemanticDraft,
+  options: { allowCost: boolean; providerEnabled: boolean | null },
+): SemanticBuild {
+  if (!draft.enabled) {
+    return { ok: true, spec: undefined };
+  }
+
+  const query = buildSemanticQuery(draft, { providerEnabled: options.providerEnabled });
+  if (!query.ok) {
+    return query;
+  }
+  const spec = query.spec;
 
   if (draft.minScoreEnabled) {
     const minScore = Number(draft.minScore);

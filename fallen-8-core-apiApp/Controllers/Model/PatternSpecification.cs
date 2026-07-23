@@ -39,7 +39,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   compiled at runtime into delegates, exactly like the path-finding API. Each
     ///   fragment must start with <c>return</c> followed by a single-parameter lambda,
     ///   for example <c>return (v) => v.Label == "person";</c>. A null or empty
-    ///   fragment means "match everything".
+    ///   fragment means "match everything". A vertex step may alternatively carry the
+    ///   declarative <see cref="SemanticMinScore"/> instead of a fragment.
     /// </remarks>
     public sealed class PatternSpecification
     {
@@ -71,6 +72,23 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <example>return (v) => v.TryGetProperty(out var age, "age") &amp;&amp; (int)age >= 18;</example>
         [JsonPropertyName("vertexFilter")]
         public String VertexFilter
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   Declarative semantic membership threshold for a <c>Vertex</c> pattern (feature
+        ///   subgraph-semantic-thresholds): the vertex matches when its named embedding scores
+        ///   past this against the request's <c>semantic</c> query - the same scoring rules as
+        ///   <c>semantic.minScore</c> (at least, under Cosine/DotProduct; at most, under L2;
+        ///   vertices without the embedding never match). Owns the step's filter slot - setting
+        ///   it together with <see cref="VertexFilter"/> is a 400, as is setting it on an edge
+        ///   pattern or without a request-level <c>semantic</c> block. Pure data: it compiles
+        ///   no code and works with dynamic code execution disabled.
+        /// </summary>
+        /// <example>0.7</example>
+        [JsonPropertyName("semanticMinScore")]
+        public Double? SemanticMinScore
         {
             get; set;
         }

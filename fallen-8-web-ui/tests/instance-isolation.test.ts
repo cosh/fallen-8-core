@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_SUBGRAPH_DRAFT,
   getInstanceStore,
   resetInstanceStoresForTests,
 } from "../src/state/instanceStore";
@@ -59,6 +60,53 @@ describe("per-instance state isolation", () => {
     expect(window.localStorage.getItem("f8.workspace.inst-a")).toBeTruthy();
     expect(window.localStorage.getItem("f8.workspace.inst-b")).toBeTruthy();
     expect(window.localStorage.getItem("f8.workspace.inst-a")).not.toContain('"from":"9"');
+  });
+
+  it("resets an old-shape subgraph draft (pre slot-modes) and keeps the other drafts", () => {
+    // Persisted before feature subgraph-semantic-thresholds: block-local `semantic`,
+    // patterns without filterMode. Rehydrating it as-is would silently drop pattern
+    // fragments in normalizePatterns, so the merge resets it - and ONLY it.
+    window.localStorage.setItem(
+      "f8.workspace.inst-old",
+      JSON.stringify({
+        state: {
+          pathDraft: { from: "7" },
+          subgraphDraft: {
+            name: "old",
+            vertexFilter: "return (v) => true;",
+            patterns: [{ key: "k", type: "Vertex", vertexFilter: "return (v) => true;" }],
+            semantic: { enabled: true, vectorText: "[1, 0]" },
+          },
+        },
+        version: 0,
+      }),
+    );
+
+    const state = getInstanceStore("inst-old").getState();
+    expect(state.subgraphDraft).toEqual(DEFAULT_SUBGRAPH_DRAFT);
+    expect(state.pathDraft.from).toBe("7");
+  });
+
+  it("keeps a new-shape persisted subgraph draft", () => {
+    window.localStorage.setItem(
+      "f8.workspace.inst-new",
+      JSON.stringify({
+        state: {
+          subgraphDraft: {
+            ...DEFAULT_SUBGRAPH_DRAFT,
+            name: "kept",
+            vertexFilterMode: "semantic",
+            semanticQuery: { ...DEFAULT_SUBGRAPH_DRAFT.semanticQuery, vectorText: "[1, 0]" },
+          },
+        },
+        version: 0,
+      }),
+    );
+
+    const draft = getInstanceStore("inst-new").getState().subgraphDraft;
+    expect(draft.name).toBe("kept");
+    expect(draft.vertexFilterMode).toBe("semantic");
+    expect(draft.semanticQuery.vectorText).toBe("[1, 0]");
   });
 
   it("merging is idempotent and edge endpoints get stub nodes", () => {
