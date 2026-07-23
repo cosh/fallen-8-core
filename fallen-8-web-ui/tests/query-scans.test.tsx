@@ -14,6 +14,7 @@ import type {
   StatusREST,
   VertexREST,
 } from "../src/api/types";
+import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 
 /**
  * Query screen non-embedding flows (feature index-workspace): each family's exact
@@ -119,6 +120,10 @@ async function pickIndex(user: ReturnType<typeof userEvent.setup>, indexId: stri
 }
 
 beforeEach(() => {
+  // QueryScreen now persists its input draft in the per-instance store; reset it so a
+  // prior test's mode/index/operator can't leak into the next (studio state persistence).
+  resetInstanceStoresForTests();
+  localStorage.clear();
   getStatusMock.mockReset().mockResolvedValue(STATUS);
   scanPropertyMock.mockReset().mockResolvedValue([]);
   scanIndexMock.mockReset().mockResolvedValue([]);
@@ -429,5 +434,25 @@ describe("query errors", () => {
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByText("boom")).toBeInTheDocument();
     expect(screen.queryByText(/results —/)).not.toBeInTheDocument();
+  });
+});
+
+describe("state persistence (studio state)", () => {
+  it("restores the input draft after leaving and returning, and Clear resets it", async () => {
+    const user = userEvent.setup();
+
+    const first = renderScreen();
+    await user.type(screen.getByTestId("scan-property"), "age");
+
+    // Leave for another screen: the component unmounts.
+    first.unmount();
+
+    // Return: the persisted per-instance draft rehydrates the form exactly.
+    renderScreen();
+    expect(await screen.findByTestId("scan-property")).toHaveValue("age");
+
+    // Clear resets every input to its default.
+    await user.click(screen.getByTestId("query-clear"));
+    expect(screen.getByTestId("scan-property")).toHaveValue("");
   });
 });

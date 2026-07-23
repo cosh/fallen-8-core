@@ -1,8 +1,16 @@
 import { create, type UseBoundStore, type StoreApi } from "zustand";
 import { persist } from "zustand/middleware";
-import type { CanvasEdgeInput, PathREST, PropertyREST, VertexREST } from "../api/types";
+import type {
+  BinaryOperatorName,
+  CanvasEdgeInput,
+  PathREST,
+  PropertyREST,
+  VertexREST,
+} from "../api/types";
 import { DEFAULT_STYLE_CONFIG, type StyleConfig } from "../canvas/styleConfig";
 import { DEFAULT_SEMANTIC_DRAFT, type SemanticDraft } from "../lib/semantic";
+import type { TypedValue } from "../lib/literals";
+import type { IndexCapability } from "../lib/indexCapabilities";
 
 /**
  * Per-instance workspace state (FR-1c), via a memoized store factory. Each instance id
@@ -135,6 +143,57 @@ export const DEFAULT_PATH_DRAFT: PathDraft = {
   semantic: { ...DEFAULT_SEMANTIC_DRAFT },
 };
 
+/**
+ * The Query screen's whole input form (feature index-workspace). Persisted per instance
+ * so leaving for the Canvas and coming back restores it exactly — results are re-run on
+ * demand (kept out of the lean persisted store). Reset via the screen's Clear button.
+ */
+export interface QueryDraft {
+  mode: "property" | "index";
+  propertyId: string;
+  indexId: string;
+  form: IndexCapability;
+  operator: BinaryOperatorName;
+  resultType: "Vertices" | "Edges" | "Both";
+  literal: TypedValue;
+  leftLimit: TypedValue;
+  rightLimit: TypedValue;
+  includeLeft: boolean;
+  includeRight: boolean;
+  fulltextQuery: string;
+  spatialElementId: string;
+  spatialDistance: string;
+  vectorText: string;
+  vectorK: string;
+  vectorKind: "any" | "vertex" | "edge";
+  vectorLabel: string;
+  vectorSource: "vector" | "text";
+  vectorSearchText: string;
+}
+
+export const DEFAULT_QUERY_DRAFT: QueryDraft = {
+  mode: "property",
+  propertyId: "",
+  indexId: "",
+  form: "equality",
+  operator: "Equals",
+  resultType: "Both",
+  literal: { type: "System.String", raw: "" },
+  leftLimit: { type: "System.Int32", raw: "0" },
+  rightLimit: { type: "System.Int32", raw: "100" },
+  includeLeft: true,
+  includeRight: true,
+  fulltextQuery: "",
+  spatialElementId: "",
+  spatialDistance: "10",
+  vectorText: "",
+  vectorK: "10",
+  vectorKind: "any",
+  vectorLabel: "",
+  vectorSource: "vector",
+  vectorSearchText: "",
+};
+
 /** One-shot navigation intent: "open Query with this index preselected" (cleared on consume). */
 export interface ScanPrefill {
   indexId: string;
@@ -152,6 +211,7 @@ export interface WorkspaceState {
   pathOverlay: PathREST | null;
   resultSets: ResultSet[];
   pathDraft: PathDraft;
+  queryDraft: QueryDraft;
   scanPrefill: ScanPrefill | null;
   subgraphPrefill: SubgraphPrefill | null;
 
@@ -163,6 +223,8 @@ export interface WorkspaceState {
   addResultSet: (title: string, elementIds: number[]) => void;
   removeResultSet: (id: string) => void;
   setPathDraft: (patch: Partial<PathDraft>) => void;
+  setQueryDraft: (patch: Partial<QueryDraft>) => void;
+  resetQueryDraft: () => void;
   setScanPrefill: (prefill: ScanPrefill | null) => void;
   setSubgraphPrefill: (prefill: SubgraphPrefill | null) => void;
 }
@@ -177,6 +239,7 @@ function createWorkspaceStore(instanceId: string) {
         pathOverlay: null,
         resultSets: [],
         pathDraft: { ...DEFAULT_PATH_DRAFT },
+        queryDraft: { ...DEFAULT_QUERY_DRAFT },
         scanPrefill: null,
         subgraphPrefill: null,
 
@@ -232,6 +295,11 @@ function createWorkspaceStore(instanceId: string) {
         setPathDraft: (patch) =>
           set((s) => ({ pathDraft: { ...s.pathDraft, ...patch } })),
 
+        setQueryDraft: (patch) =>
+          set((s) => ({ queryDraft: { ...s.queryDraft, ...patch } })),
+
+        resetQueryDraft: () => set({ queryDraft: { ...DEFAULT_QUERY_DRAFT } }),
+
         setScanPrefill: (scanPrefill) => set({ scanPrefill }),
 
         setSubgraphPrefill: (subgraphPrefill) => set({ subgraphPrefill }),
@@ -252,6 +320,7 @@ function createWorkspaceStore(instanceId: string) {
               // an older pathDraft picks up every semantic field instead of a partial.
               semantic: { ...DEFAULT_SEMANTIC_DRAFT, ...(p.pathDraft?.semantic ?? {}) },
             },
+            queryDraft: { ...DEFAULT_QUERY_DRAFT, ...(p.queryDraft ?? {}) },
             styleConfig: { ...DEFAULT_STYLE_CONFIG, ...(p.styleConfig ?? {}) },
           };
         },

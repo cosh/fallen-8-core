@@ -19,7 +19,7 @@ import type {
   VertexREST,
 } from "../api/types";
 import { BINARY_OPERATORS, type BinaryOperatorName } from "../api/types";
-import { toLiteral, type TypedValue } from "../lib/literals";
+import { toLiteral } from "../lib/literals";
 import { parseVector } from "../lib/vector";
 import {
   indexCapabilities,
@@ -60,31 +60,34 @@ export function QueryScreen() {
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
   const addResultSet = store((s) => s.addResultSet);
 
-  const [mode, setMode] = useState<QueryMode>("property");
-  const [propertyId, setPropertyId] = useState("");
-  const [indexId, setIndexId] = useState("");
-  const [form, setForm] = useState<IndexCapability>("equality");
-  const [operator, setOperator] = useState<BinaryOperatorName>("Equals");
-  const [resultType, setResultType] =
-    useState<(typeof RESULT_TYPES)[number]>("Both");
-  const [literal, setLiteral] = useState<TypedValue>({ type: "System.String", raw: "" });
-  const [leftLimit, setLeftLimit] = useState<TypedValue>({ type: "System.Int32", raw: "0" });
-  const [rightLimit, setRightLimit] = useState<TypedValue>({
-    type: "System.Int32",
-    raw: "100",
-  });
-  const [includeLeft, setIncludeLeft] = useState(true);
-  const [includeRight, setIncludeRight] = useState(true);
-  const [fulltextQuery, setFulltextQuery] = useState("");
-  const [spatialElementId, setSpatialElementId] = useState("");
-  const [spatialDistance, setSpatialDistance] = useState("10");
-  const [vectorText, setVectorText] = useState("");
-  const [vectorK, setVectorK] = useState("10");
-  const [vectorKind, setVectorKind] = useState<(typeof VECTOR_KINDS)[number]>("any");
-  const [vectorLabel, setVectorLabel] = useState("");
-  // Semantic search (feature embedding-provider): embed a query TEXT server-side, then kNN.
-  const [vectorSource, setVectorSource] = useState<"vector" | "text">("vector");
-  const [vectorSearchText, setVectorSearchText] = useState("");
+  // The whole input form lives in the persisted per-instance store, so leaving for the
+  // Canvas and returning restores it exactly (feature index-workspace / studio state
+  // persistence). Results are re-run on demand and stay local (below).
+  const draft = store((s) => s.queryDraft);
+  const setQueryDraft = store((s) => s.setQueryDraft);
+  const resetQueryDraft = store((s) => s.resetQueryDraft);
+  const {
+    mode,
+    propertyId,
+    indexId,
+    form,
+    operator,
+    resultType,
+    literal,
+    leftLimit,
+    rightLimit,
+    includeLeft,
+    includeRight,
+    fulltextQuery,
+    spatialElementId,
+    spatialDistance,
+    vectorText,
+    vectorK,
+    vectorKind,
+    vectorLabel,
+    vectorSource,
+    vectorSearchText,
+  } = draft;
 
   const [progress, setProgress] = useState<HydrationProgress | null>(null);
   const [elements, setElements] = useState<(VertexREST | EdgeREST)[]>([]);
@@ -119,19 +122,30 @@ export function QueryScreen() {
   const selectedIndex = inventory.find((i) => i.indexId === indexId);
   const capabilities = indexCapabilities(indexId ? selectedIndex : null);
   useEffect(() => {
-    if (!capabilities.includes(form)) setForm(capabilities[0]);
-  }, [capabilities, form]);
+    if (!capabilities.includes(form)) setQueryDraft({ form: capabilities[0] });
+  }, [capabilities, form, setQueryDraft]);
 
   // Consume a one-shot prefill (Indexes screen "Query" / Graph shape index row).
   const scanPrefill = store((s) => s.scanPrefill);
   const setScanPrefill = store((s) => s.setScanPrefill);
   useEffect(() => {
     if (scanPrefill) {
-      setMode("index");
-      setIndexId(scanPrefill.indexId);
+      setQueryDraft({ mode: "index", indexId: scanPrefill.indexId });
       setScanPrefill(null);
     }
-  }, [scanPrefill, setScanPrefill]);
+  }, [scanPrefill, setScanPrefill, setQueryDraft]);
+
+  // Results are ephemeral (kept local, never persisted): the lean per-instance store holds
+  // the input draft only, so returning from the Canvas restores the form and re-runs give
+  // the results back. Clear resets both.
+  const clearResults = () => {
+    setElements([]);
+    setFulltextResult(null);
+    setVectorResult(null);
+    setIdCount(null);
+    setCapped(false);
+    setProgress(null);
+  };
 
   const scan = useMutation({
     mutationFn: async () => {
@@ -237,7 +251,21 @@ export function QueryScreen() {
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <section className="panel">
-        <div className="panel-title">Query</div>
+        <div className="panel-title">
+          Query
+          <button
+            type="button"
+            className="btn ml-auto"
+            data-testid="query-clear"
+            title="Reset every query input to its default"
+            onClick={() => {
+              resetQueryDraft();
+              clearResults();
+            }}
+          >
+            Clear
+          </button>
+        </div>
         <form
           className="space-y-3 p-3"
           onSubmit={(e) => {
@@ -252,7 +280,7 @@ export function QueryScreen() {
                 data-testid="query-mode"
                 className="input w-auto"
                 value={mode}
-                onChange={(e) => setMode(e.target.value as QueryMode)}
+                onChange={(e) => setQueryDraft({ mode: e.target.value as QueryMode })}
               >
                 <option value="property">property scan</option>
                 <option value="index">ask an index</option>
@@ -267,7 +295,7 @@ export function QueryScreen() {
                   className="input w-40"
                   list="shape-property-keys"
                   value={propertyId}
-                  onChange={(e) => setPropertyId(e.target.value)}
+                  onChange={(e) => setQueryDraft({ propertyId: e.target.value })}
                   placeholder="age"
                 />
               </Field>
@@ -281,7 +309,7 @@ export function QueryScreen() {
                     data-testid="index-select"
                     className="input w-44"
                     value={indexId}
-                    onChange={(e) => setIndexId(e.target.value)}
+                    onChange={(e) => setQueryDraft({ indexId: e.target.value })}
                   >
                     <option value="">— pick an index —</option>
                     {indexIdOptions.map((id) => (
@@ -297,7 +325,7 @@ export function QueryScreen() {
                     className="input w-44"
                     list="query-index-ids"
                     value={indexId}
-                    onChange={(e) => setIndexId(e.target.value)}
+                    onChange={(e) => setQueryDraft({ indexId: e.target.value })}
                     placeholder="myIndex"
                   />
                 )}
@@ -322,7 +350,7 @@ export function QueryScreen() {
                           ? "bg-panel-2 text-accent"
                           : "text-fg-dim hover:text-fg"
                       }`}
-                      onClick={() => setForm(cap)}
+                      onClick={() => setQueryDraft({ form: cap })}
                     >
                       {FORM_LABELS[cap]}
                     </button>
@@ -346,7 +374,7 @@ export function QueryScreen() {
                         className="input w-auto"
                         value={operator}
                         onChange={(e) =>
-                          setOperator(e.target.value as BinaryOperatorName)
+                          setQueryDraft({ operator: e.target.value as BinaryOperatorName })
                         }
                       >
                         {OPERATORS.map((op) => (
@@ -359,7 +387,7 @@ export function QueryScreen() {
                       label="literal"
                       idPrefix="scan-literal"
                       value={literal}
-                      onChange={setLiteral}
+                      onChange={(v) => setQueryDraft({ literal: v })}
                     />
                   </>
                 )}
@@ -371,14 +399,14 @@ export function QueryScreen() {
                       label="left limit"
                       idPrefix="range-left"
                       value={leftLimit}
-                      onChange={setLeftLimit}
+                      onChange={(v) => setQueryDraft({ leftLimit: v })}
                     />
                     <TypedLiteralEditor
                       helpKey="rangeRightLimit"
                       label="right limit"
                       idPrefix="range-right"
                       value={rightLimit}
-                      onChange={setRightLimit}
+                      onChange={(v) => setQueryDraft({ rightLimit: v })}
                     />
                     <label
                       className="text-fg-dim label-help flex items-center gap-1 text-[12px]"
@@ -387,7 +415,7 @@ export function QueryScreen() {
                       <input
                         type="checkbox"
                         checked={includeLeft}
-                        onChange={(e) => setIncludeLeft(e.target.checked)}
+                        onChange={(e) => setQueryDraft({ includeLeft: e.target.checked })}
                       />
                       incl. left
                     </label>
@@ -398,7 +426,7 @@ export function QueryScreen() {
                       <input
                         type="checkbox"
                         checked={includeRight}
-                        onChange={(e) => setIncludeRight(e.target.checked)}
+                        onChange={(e) => setQueryDraft({ includeRight: e.target.checked })}
                       />
                       incl. right
                     </label>
@@ -416,7 +444,7 @@ export function QueryScreen() {
                       id="fulltext-query"
                       className="input"
                       value={fulltextQuery}
-                      onChange={(e) => setFulltextQuery(e.target.value)}
+                      onChange={(e) => setQueryDraft({ fulltextQuery: e.target.value })}
                       placeholder="search text"
                     />
                   </Field>
@@ -433,7 +461,7 @@ export function QueryScreen() {
                         id="spatial-element"
                         className="input w-28"
                         value={spatialElementId}
-                        onChange={(e) => setSpatialElementId(e.target.value)}
+                        onChange={(e) => setQueryDraft({ spatialElementId: e.target.value })}
                       />
                     </Field>
                     <Field
@@ -445,7 +473,7 @@ export function QueryScreen() {
                         id="spatial-distance"
                         className="input w-28"
                         value={spatialDistance}
-                        onChange={(e) => setSpatialDistance(e.target.value)}
+                        onChange={(e) => setQueryDraft({ spatialDistance: e.target.value })}
                       />
                     </Field>
                   </>
@@ -476,7 +504,7 @@ export function QueryScreen() {
                                   : "the embedding provider is off on this instance"
                                 : undefined
                             }
-                            onClick={() => setVectorSource(source)}
+                            onClick={() => setQueryDraft({ vectorSource: source })}
                           >
                             {source === "text" ? "text (provider)" : "vector"}
                           </button>
@@ -495,7 +523,7 @@ export function QueryScreen() {
                           data-testid="vector-search-text"
                           className="input w-full"
                           value={vectorSearchText}
-                          onChange={(e) => setVectorSearchText(e.target.value)}
+                          onChange={(e) => setQueryDraft({ vectorSearchText: e.target.value })}
                           placeholder="red bicycles"
                         />
                         <div className="text-fg-faint text-[11px]">
@@ -515,7 +543,7 @@ export function QueryScreen() {
                           data-testid="vector-query"
                           className="input h-16 w-full font-mono"
                           value={vectorText}
-                          onChange={(e) => setVectorText(e.target.value)}
+                          onChange={(e) => setQueryDraft({ vectorText: e.target.value })}
                           placeholder="[0.12, -0.5, 0.33]"
                         />
                         <div
@@ -538,7 +566,7 @@ export function QueryScreen() {
                         min={1}
                         max={1024}
                         value={vectorK}
-                        onChange={(e) => setVectorK(e.target.value)}
+                        onChange={(e) => setQueryDraft({ vectorK: e.target.value })}
                       />
                     </Field>
                     <Field helpKey="vectorKind" label="element kind" htmlFor="vector-kind">
@@ -547,7 +575,9 @@ export function QueryScreen() {
                         className="input w-auto"
                         value={vectorKind}
                         onChange={(e) =>
-                          setVectorKind(e.target.value as (typeof VECTOR_KINDS)[number])
+                          setQueryDraft({
+                            vectorKind: e.target.value as (typeof VECTOR_KINDS)[number],
+                          })
                         }
                       >
                         {VECTOR_KINDS.map((k) => (
@@ -565,7 +595,7 @@ export function QueryScreen() {
                         className="input w-32"
                         list="shape-labels"
                         value={vectorLabel}
-                        onChange={(e) => setVectorLabel(e.target.value)}
+                        onChange={(e) => setQueryDraft({ vectorLabel: e.target.value })}
                         placeholder="person"
                       />
                     </Field>
@@ -583,7 +613,9 @@ export function QueryScreen() {
                       className="input w-auto"
                       value={resultType}
                       onChange={(e) =>
-                        setResultType(e.target.value as (typeof RESULT_TYPES)[number])
+                        setQueryDraft({
+                          resultType: e.target.value as (typeof RESULT_TYPES)[number],
+                        })
                       }
                     >
                       {RESULT_TYPES.map((rt) => (
