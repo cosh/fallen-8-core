@@ -38,7 +38,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.App.Helper;
+using NoSQL.GraphDB.Core.SubGraph;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
@@ -620,6 +622,90 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.IsTrue(engine.SubGraphFactory.TryGetSubGraph(out var subGraph, "mixed"));
             CollectionAssert.AreEqual(new List<string> { "a", "b", "d" }, VertexNames(subGraph.SubGraph));
+        }
+
+        #endregion
+
+        #region semantic summary echo (feature subgraph-semantic-thresholds)
+
+        private static void AssertEcho(JsonElement summary)
+        {
+            var semantic = summary.GetProperty("semantic");
+            Assert.AreEqual("default", semantic.GetProperty("embeddingName").GetString());
+            Assert.AreEqual("Cosine", semantic.GetProperty("metric").GetString());
+            Assert.AreEqual(2, semantic.GetProperty("dimension").GetInt32());
+            Assert.AreEqual(0.5, semantic.GetProperty("minScore").GetDouble(), 1e-9);
+            var thresholds = semantic.GetProperty("patternThresholds");
+            Assert.AreEqual(1, thresholds.GetArrayLength());
+            Assert.AreEqual("start", thresholds[0].GetProperty("pattern").GetString());
+            Assert.AreEqual(0.6, thresholds[0].GetProperty("minScore").GetDouble(), 1e-9);
+        }
+
+        [TestMethod]
+        public async Task SubGraphSummary_EchoesBoundSemanticState_NeverTheVector()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: false);
+            Diamond(EngineOf(factory));
+            using var client = factory.CreateClient();
+
+            using var created = await PutJson(client, "/subgraph",
+                "{ \"name\": \"echo\", \"semantic\": { \"queryVector\": [1, 0], \"minScore\": 0.5 }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\", \"patternName\": \"start\", \"semanticMinScore\": 0.6 }, " +
+                "                  { \"type\": \"Edge\" }, { \"type\": \"Vertex\" } ] }");
+            Assert.AreEqual(HttpStatusCode.Created, created.StatusCode, await created.Content.ReadAsStringAsync());
+            AssertEcho(await ReadJson(created));
+
+            using var fetched = await client.GetAsync("/subgraph/echo");
+            Assert.AreEqual(HttpStatusCode.OK, fetched.StatusCode);
+            var body = await fetched.Content.ReadAsStringAsync();
+            Assert.IsFalse(body.Contains("queryVector"), "the bound vector must never ride a summary");
+            AssertEcho(JsonDocument.Parse(body).RootElement);
+
+            // The recipe - and with it the echo - survives recalculation (in-place result update).
+            using var recalc = await PostJson(client, "/subgraph/echo/recalculate", "{}");
+            Assert.AreEqual(HttpStatusCode.OK, recalc.StatusCode);
+            AssertEcho(await ReadJson(recalc));
+        }
+
+        [TestMethod]
+        public async Task SubGraphSummary_NonSemanticSubgraph_CarriesNoEcho()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: false);
+            Diamond(EngineOf(factory));
+            using var client = factory.CreateClient();
+
+            using var created = await PutJson(client, "/subgraph", "{ \"name\": \"plain\" }");
+            Assert.AreEqual(HttpStatusCode.Created, created.StatusCode, await created.Content.ReadAsStringAsync());
+            Assert.IsFalse((await ReadJson(created)).TryGetProperty("semantic", out _),
+                "a non-semantic subgraph must not carry the echo property at all");
+        }
+
+        [TestMethod]
+        public void SubGraphSummary_EchoesQueryText_AndIndexesUnnamedSteps()
+        {
+            // queryText persists in the recipe NEXT TO the resolved vector (the resolver fills
+            // queryVector without clearing the text); the echo documents that intent. Unit-level
+            // because the e2e path would need a live embedding provider.
+            var result = new SubGraphResult
+            {
+                Definitions = new SubGraphDefinition { Name = "t" },
+                Recipe = new SubGraphRecipe
+                {
+                    SpecificationJson =
+                        "{ \"name\": \"t\", " +
+                        "  \"semantic\": { \"queryVector\": [0.1, 0.2, 0.3], \"queryText\": \"red bicycles\" }, " +
+                        "  \"patterns\": [ { \"type\": \"Vertex\", \"semanticMinScore\": 0.6 } ] }"
+                }
+            };
+
+            var summary = SubGraphSummary.FromResult(result, canRecalculate: true);
+
+            Assert.AreEqual("red bicycles", summary.Semantic.QueryText);
+            Assert.AreEqual(3, summary.Semantic.Dimension);
+            Assert.IsNull(summary.Semantic.MinScore, "no top-level threshold was set");
+            Assert.AreEqual("0", summary.Semantic.PatternThresholds[0].Pattern,
+                "an unnamed step is identified by its zero-based index");
+            Assert.AreEqual(0.6, summary.Semantic.PatternThresholds[0].MinScore, 1e-9);
         }
 
         #endregion
