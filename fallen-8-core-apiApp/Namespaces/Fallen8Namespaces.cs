@@ -42,11 +42,9 @@ namespace NoSQL.GraphDB.App.Namespaces
 {
     /// <summary>
     ///   The entire collection of namespaces behind one endpoint — the Fallen-8 itself (feature
-    ///   graph-namespaces; terminology is spec §1). It owns one Fallen-8 engine per namespace and
-    ///   always holds the reserved <see cref="DefaultName"/> namespace, which lives on the legacy
-    ///   storage paths and is what bare (un-prefixed) URLs address. Namespacing is a hosting
-    ///   concern: each engine is constructed exactly the way the previous single-engine factory
-    ///   built the one engine, and the engine itself is unchanged.
+    ///   graph-namespaces; the living doc is the feature README). Owns one Fallen-8 engine per
+    ///   namespace, always holding the reserved <see cref="DefaultName"/> on the legacy storage
+    ///   paths; namespacing is a hosting concern and the engine itself is unchanged.
     ///
     ///   Engine construction supplies both compilers AT CONSTRUCTION: an unanchored write-ahead
     ///   log replays during construction, so only compilers present then can recompile its
@@ -59,6 +57,14 @@ namespace NoSQL.GraphDB.App.Namespaces
 
         /// <summary>The reserved namespace bare URLs address; it cannot be renamed or dropped.</summary>
         public const String DefaultName = "default";
+
+        /// <summary>
+        ///   The default namespace's STABLE id. Every other namespace gets a generated immutable
+        ///   id, but the default is reborn on every boot — a generated id would change across
+        ///   restarts and break everything keyed by namespace id (the save-game boot chain, metric
+        ///   continuity). "default" is system-chosen, so the no-user-input tag invariant holds.
+        /// </summary>
+        public const String DefaultId = "default";
 
         /// <summary>The maximum name length accepted by <see cref="IsValidName"/>.</summary>
         public const Int32 MaxNameLength = 63;
@@ -136,15 +142,28 @@ namespace NoSQL.GraphDB.App.Namespaces
                 _catalogPath = Path.Combine(metadata.Value.ResolveDirectory(), CatalogFileName);
             }
 
-            var defaultId = NewId(DateTime.UtcNow);
-            Default = new Namespace(DefaultName, defaultId, CreateEngine(defaultWalPath, defaultId), DateTime.UtcNow);
+            Default = new Namespace(DefaultName, DefaultId, CreateEngine(defaultWalPath, DefaultId), DateTime.UtcNow);
             _byName[DefaultName] = Default;
 
             // Boot every cataloged namespace eagerly, each on its id-keyed directory: its engine
             // constructor replays that namespace's unanchored WAL exactly like the single engine
             // always has; checkpoint loading follows in DurabilityLifecycleService.StartAsync.
+            // Semantically bad entries are SKIPPED LOUDLY (an unreadable catalog still throws): a
+            // "default"-named entry would split-brain the bare alias against /ns/default, and a
+            // duplicate/invalid name would silently overwrite (leaking an engine + WAL handle).
             foreach (var entry in LoadCatalog().Namespaces)
             {
+                if (String.Equals(entry.Name, DefaultName, StringComparison.Ordinal)
+                    || !IsValidName(entry.Name)
+                    || String.IsNullOrEmpty(entry.Id)
+                    || _byName.ContainsKey(entry.Name))
+                {
+                    _logger.LogError("The namespace catalog entry {{ id: \"{Id}\", name: \"{Name}\" }} is invalid " +
+                        "(reserved/duplicate/malformed) and was SKIPPED; its on-disk data (if any) is untouched. " +
+                        "Repair \"{CatalogPath}\" to restore it.", entry.Id, entry.Name, _catalogPath);
+                    continue;
+                }
+
                 Directory.CreateDirectory(ResolveNamespaceDirectory(entry.Id));
                 var createdAt = DateTime.TryParseExact(entry.CreatedAt, CreatedAtFormat, CultureInfo.InvariantCulture,
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var stamp)
@@ -250,20 +269,22 @@ namespace NoSQL.GraphDB.App.Namespaces
                 }
 
                 ns = new Namespace(name, id, CreateEngine(walPath, id), createdAt);
-                _byName[name] = ns;
 
+                // Catalog BEFORE publishing: were the namespace routable first, a concurrent
+                // request could commit writes into an engine a failing catalog write then
+                // destroys. Disk truth leads; memory follows.
                 try
                 {
-                    WriteCatalogUnlocked();
+                    WriteCatalogUnlocked(_byName.Values.Concat(new[] { ns }));
                 }
                 catch
                 {
-                    // Memory must not claim a namespace disk truth does not know: undo and rethrow.
-                    _byName.TryRemove(name, out _);
-                    ns.Engine.Dispose();
+                    DisposeEngineOnce(ns);
                     ns = null;
                     throw;
                 }
+
+                _byName[name] = ns;
             }
 
             _logger.LogInformation("Created namespace \"{Name}\" ({Id}).", ns.Name, ns.Id);
@@ -316,7 +337,7 @@ namespace NoSQL.GraphDB.App.Namespaces
 
                 try
                 {
-                    WriteCatalogUnlocked();
+                    WriteCatalogUnlocked(_byName.Values);
                 }
                 catch
                 {
@@ -335,9 +356,11 @@ namespace NoSQL.GraphDB.App.Namespaces
 
         /// <summary>
         ///   Drops a namespace irreversibly: it leaves the collection first (new requests 404
-        ///   immediately), then its engine is disposed (the engine's teardown is reader-safe: a
-        ///   racing reader observes an empty snapshot, never null), then its on-disk data is
-        ///   deleted. <see cref="DefaultName"/> cannot be dropped (<see cref="NamespaceFailure.Reserved"/>).
+        ///   immediately), then its engine is disposed, then its live on-disk state (the WAL) is
+        ///   deleted. A request already past the validation filter when the drop lands may fail —
+        ///   there is deliberately no in-flight drain (the engine's element snapshot degrades
+        ///   safely to empty; factory accesses can fault, surfaced as a 404/500 to that one
+        ///   caller). <see cref="DefaultName"/> cannot be dropped (<see cref="NamespaceFailure.Reserved"/>).
         /// </summary>
         public Boolean TryDrop(String name, out NamespaceFailure failure)
         {
@@ -358,7 +381,7 @@ namespace NoSQL.GraphDB.App.Namespaces
 
                 try
                 {
-                    WriteCatalogUnlocked();
+                    WriteCatalogUnlocked(_byName.Values);
                 }
                 catch
                 {
@@ -367,7 +390,7 @@ namespace NoSQL.GraphDB.App.Namespaces
                 }
             }
 
-            ns.Engine.Dispose();
+            DisposeEngineOnce(ns);
 
             if (!_durability.Volatile)
             {
@@ -439,9 +462,33 @@ namespace NoSQL.GraphDB.App.Namespaces
                 _disposed = true;
                 foreach (var ns in _byName.Values)
                 {
-                    ns.Engine.Dispose();
+                    DisposeEngineOnceUnderGate(ns);
                 }
             }
+        }
+
+        /// <summary>
+        ///   Disposes a namespace's engine exactly once, under the dispose gate: a drop, a failed
+        ///   create's revert, and the collection's own disposal can all reach the same engine, and
+        ///   <c>Fallen8.Dispose</c> is not idempotent.
+        /// </summary>
+        private void DisposeEngineOnce(Namespace ns)
+        {
+            lock (_disposeGate)
+            {
+                DisposeEngineOnceUnderGate(ns);
+            }
+        }
+
+        private static void DisposeEngineOnceUnderGate(Namespace ns)
+        {
+            if (ns.EngineDisposed)
+            {
+                return;
+            }
+
+            ns.EngineDisposed = true;
+            ns.Engine.Dispose();
         }
 
         #endregion
@@ -501,7 +548,7 @@ namespace NoSQL.GraphDB.App.Namespaces
 
         [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
             Justification = "Trimming is disabled for this application; the catalog DTOs are simple and also registered in AppJsonContext.")]
-        private void WriteCatalogUnlocked()
+        private void WriteCatalogUnlocked(IEnumerable<Namespace> namespaces)
         {
             if (_catalogPath == null)
             {
@@ -509,7 +556,7 @@ namespace NoSQL.GraphDB.App.Namespaces
             }
 
             var document = new NamespaceCatalogDocument();
-            foreach (var ns in _byName.Values.OrderBy(n => n.Name, StringComparer.Ordinal))
+            foreach (var ns in namespaces.OrderBy(n => n.Name, StringComparer.Ordinal))
             {
                 if (ReferenceEquals(ns, Default))
                 {

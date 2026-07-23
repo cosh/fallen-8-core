@@ -23,6 +23,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -244,6 +247,55 @@ namespace NoSQL.GraphDB.Tests
 
             using var badBody = await client.PatchAsync("/ns/fl-eu", Json("{}"));
             await AssertProblem(badBody, HttpStatusCode.BadRequest, "Invalid namespace name");
+        }
+
+        /// <summary>
+        /// Pins the twin/exclusion invariant structurally: every namespace-scoped path in the
+        /// served OpenAPI document has its /ns/{ns} twin, and every [Fallen8Level] path has none.
+        /// A new endpoint that forgets the attribute (or loses it) fails here, not in a manual
+        /// snapshot review.
+        /// </summary>
+        [TestMethod]
+        public async Task OpenApi_EveryPathIsEitherTwinned_OrDeclaredFallen8Level()
+        {
+            // Fallen-8-level paths (spec §5.1): these exist once and must never gain a twin.
+            var fallen8Level = new HashSet<string>
+            {
+                "/save/all",
+                "/tabularasa/all",
+                "/generate",
+                "/benchmark",
+                "/delegates/validate",
+                "/plugin",
+                "/ns",
+                "/ns/{name}",
+            };
+
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+            using var response = await client.GetAsync("/openapi/v0.1.json");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            var paths = (await ReadJson(response)).GetProperty("paths").EnumerateObject()
+                .Select(p => p.Name).ToHashSet();
+
+            foreach (var path in paths)
+            {
+                if (path.StartsWith("/ns/{ns}", StringComparison.Ordinal))
+                {
+                    continue; // a twin itself
+                }
+
+                var isFallen8Level = fallen8Level.Contains(path) || path.StartsWith("/savegames", StringComparison.Ordinal);
+                var hasTwin = paths.Contains("/ns/{ns}" + path);
+                if (isFallen8Level)
+                {
+                    Assert.IsFalse(hasTwin, path + " is Fallen-8-level and must not have a /ns twin");
+                }
+                else
+                {
+                    Assert.IsTrue(hasTwin, path + " is namespace-scoped and must have a /ns/{ns} twin");
+                }
+            }
         }
 
         [TestMethod]

@@ -230,6 +230,15 @@ namespace NoSQL.GraphDB.App.Controllers
                    ?? Fallen8Namespaces.DefaultName;
         }
 
+        /// <summary>The addressed namespace's immutable id (what save-game members are keyed by);
+        /// the default's stable id under direct unit construction.</summary>
+        private String AddressedNamespaceId()
+        {
+            return _namespaces != null && _namespaces.TryGet(AddressedNamespaceName(), out var ns)
+                ? ns.Id
+                : Fallen8Namespaces.DefaultId;
+        }
+
         /// <summary>
         /// The addressed namespace's default save location: the legacy path for "default" (and
         /// under direct unit construction), the id-keyed namespace directory otherwise.
@@ -308,7 +317,8 @@ namespace NoSQL.GraphDB.App.Controllers
             // now (feature save-games FR-7), so the historical record captures manually-loaded saves.
             try
             {
-                _saveGames.RegisterImportIfUnknown(AddressedNamespaceName(), _fallen8, definition.SaveGameLocation);
+                _saveGames.RegisterImportIfUnknown(AddressedNamespaceName(), AddressedNamespaceId(), _fallen8,
+                    definition.SaveGameLocation);
             }
             catch (Exception ex)
             {
@@ -371,7 +381,8 @@ namespace NoSQL.GraphDB.App.Controllers
             // successful save into a 500. Fall back to a best-effort entry describing the save.
             try
             {
-                return Ok(_saveGames.Register(AddressedNamespaceName(), _fallen8, saveTx.ActualPath, "api"));
+                return Ok(_saveGames.Register(AddressedNamespaceName(), AddressedNamespaceId(), _fallen8,
+                    saveTx.ActualPath, "api"));
             }
             catch (Exception ex)
             {
@@ -410,10 +421,13 @@ namespace NoSQL.GraphDB.App.Controllers
         /// valid restore points. Afterwards only an empty "default" namespace exists.
         /// </remarks>
         /// <response code="204">All namespaces erased</response>
+        /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         [Fallen8Level]
         [HttpHead("/tabularasa/all")]
+        [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
-        public void TabulaRasaAll()
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+        public IActionResult TabulaRasaAll()
         {
             foreach (var ns in _namespaces.Snapshot())
             {
@@ -424,6 +438,7 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             _namespaces.Default.Engine.EnqueueTransaction(new TabulaRasaTransaction());
+            return NoContent();
         }
 
         /// <summary>
@@ -437,14 +452,17 @@ namespace NoSQL.GraphDB.App.Controllers
         /// via PUT /savegames/{id}/load.
         /// </remarks>
         /// <response code="200">Returns the created save-game registry entry</response>
-        /// <response code="500">At least one namespace's save transaction rolled back (the body names it; successfully saved namespaces are still registered)</response>
+        /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
+        /// <response code="500">At least one namespace's save failed (the body names it; successfully saved namespaces are still registered)</response>
         [Fallen8Level]
         [HttpPut("/save/all")]
+        [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [ProducesResponseType(typeof(SaveGameREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async System.Threading.Tasks.Task<IActionResult> SaveAll()
         {
-            var members = new List<(String Name, IFallen8 Engine, String Location)>();
+            var members = new List<(String Name, String Id, IFallen8 Engine, String Location)>();
             var failed = new List<String>();
 
             foreach (var ns in _namespaces.Snapshot())
@@ -453,18 +471,29 @@ namespace NoSQL.GraphDB.App.Controllers
                     ? _savePath
                     : System.IO.Path.Combine(EnsuredNamespaceDirectory(ns), _saveFile);
 
-                var saveTx = new SaveTransaction { Path = savePath, SavePartitions = _optimalNumberOfPartitions };
-                var task = ns.Engine.EnqueueTransaction(saveTx);
-                await task.Completion;
+                // Per-namespace containment (mirrors the shutdown save): a namespace dropped
+                // mid-loop throws on its disposed engine, and one failure must neither abort the
+                // sweep nor un-register the checkpoints already written.
+                try
+                {
+                    var saveTx = new SaveTransaction { Path = savePath, SavePartitions = _optimalNumberOfPartitions };
+                    var task = ns.Engine.EnqueueTransaction(saveTx);
+                    await task.Completion;
 
-                if (task.TransactionState == TransactionState.RolledBack)
-                {
-                    _logger.LogError(task.Error, "The save of namespace \"{Namespace}\" rolled back during PUT /save/all.", ns.Name);
-                    failed.Add(ns.Name);
+                    if (task.TransactionState == TransactionState.RolledBack)
+                    {
+                        _logger.LogError(task.Error, "The save of namespace \"{Namespace}\" rolled back during PUT /save/all.", ns.Name);
+                        failed.Add(ns.Name);
+                    }
+                    else
+                    {
+                        members.Add((ns.Name, ns.Id, ns.Engine, saveTx.ActualPath ?? savePath));
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    members.Add((ns.Name, ns.Engine, saveTx.ActualPath ?? savePath));
+                    _logger.LogError(ex, "The save of namespace \"{Namespace}\" threw during PUT /save/all (dropped mid-sweep?).", ns.Name);
+                    failed.Add(ns.Name);
                 }
             }
 
@@ -567,6 +596,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Fallen8:Security:EnableDynamicPluginLoading=true. The DLL is written to the configured,
         /// isolated plugin directory, never next to the server binaries.
         /// </remarks>
+        // Fallen-8-level: plugin discovery is process-global, shared by every namespace.
         [Fallen8Level]
         [HttpPut("/plugin")]
         [Authorize(Policy = Fallen8SecurityOptions.DynamicPluginPolicy)]

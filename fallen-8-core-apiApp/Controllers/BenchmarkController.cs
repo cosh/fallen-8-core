@@ -78,9 +78,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// "preferential" (Barabási–Albert-style attachment — heavy-tailed in-degrees, so
         /// PageRank/degree analytics at scale show real hubs)</param>
         /// <remarks>
-        /// The generated vertices are unlabeled and the edges carry edge property "A" — exactly
-        /// what GET /benchmark traverses, so generate-then-benchmark is the intended pairing
-        /// regardless of the distribution.
+        /// Fallen-8-level: generation targets the "default" namespace, whatever namespace a
+        /// client is otherwise working in (feature graph-namespaces). The generated vertices are
+        /// unlabeled and the edges carry edge property "A" — exactly what GET /benchmark
+        /// traverses, so generate-then-benchmark is the intended pairing regardless of the
+        /// distribution.
         /// </remarks>
         /// <response code="200">A human-readable timing summary</response>
         /// <response code="400">A non-numeric or negative count, or an unknown distribution</response>
@@ -131,6 +133,9 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         /// <param name="iterations">Number of timed iterations (default 1000)</param>
         /// <returns>Per-iteration TPS statistics (average, median, standard deviation)</returns>
+        /// <remarks>
+        /// Fallen-8-level: the benchmark traverses the "default" namespace (feature graph-namespaces).
+        /// </remarks>
         /// <response code="200">The benchmark statistics</response>
         /// <response code="400">Empty graph, non-positive or non-numeric iteration count</response>
         [HttpGet("/benchmark")]

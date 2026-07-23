@@ -376,6 +376,7 @@
           "Benchmark"
         ],
         "summary": "Runs the edge-traversal benchmark and returns structured statistics",
+        "description": "Fallen-8-level: the benchmark traverses the \"default\" namespace (feature graph-namespaces).",
         "parameters": [
           {
             "name": "iterations",
@@ -1648,7 +1649,7 @@
           "Benchmark"
         ],
         "summary": "Generates a random benchmark graph on top of the current one",
-        "description": "The generated vertices are unlabeled and the edges carry edge property \"A\" — exactly\r\nwhat GET /benchmark traverses, so generate-then-benchmark is the intended pairing\r\nregardless of the distribution.",
+        "description": "Fallen-8-level: generation targets the \"default\" namespace, whatever namespace a\r\nclient is otherwise working in (feature graph-namespaces). The generated vertices are\r\nunlabeled and the edges carry edge property \"A\" — exactly what GET /benchmark\r\ntraverses, so generate-then-benchmark is the intended pairing regardless of the\r\ndistribution.",
         "parameters": [
           {
             "name": "nodeCount",
@@ -3122,6 +3123,26 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       },
@@ -3272,6 +3293,26 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       },
@@ -3280,7 +3321,7 @@
           "Namespaces"
         ],
         "summary": "Drops a namespace irreversibly",
-        "description": "The namespace's graph, indices, stored queries, and on-disk data are deleted — there is\r\nno undo. Save-game entries that contain the namespace remain valid restore points. The\r\nreserved \"default\" namespace cannot be dropped.",
+        "description": "The namespace's in-memory graph, indices, and stored queries are gone and its live\r\non-disk state (the write-ahead log) is deleted — there is no undo. Checkpoint files are\r\nNOT deleted: they belong to save-game entries, which remain valid restore points\r\n(delete them via DELETE /savegames/{id}?deleteFiles=true). The reserved \"default\"\r\nnamespace cannot be dropped.",
         "parameters": [
           {
             "name": "name",
@@ -3352,6 +3393,26 @@
           },
           "409": {
             "description": "The namespace is \"default\"",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -9327,8 +9388,28 @@
               }
             }
           },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "500": {
-            "description": "At least one namespace's save transaction rolled back (the body names it; successfully saved namespaces are still registered)"
+            "description": "At least one namespace's save failed (the body names it; successfully saved namespaces are still registered)"
           }
         }
       }
@@ -11043,6 +11124,26 @@
         "responses": {
           "204": {
             "description": "All namespaces erased"
+          },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -14360,6 +14461,13 @@
               "string"
             ],
             "description": "The namespace name at save time (restores under this name)."
+          },
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The namespace's IMMUTABLE id at save time — what the boot chain matches on, so a\r\nrename never orphans a namespace's newest save and a drop+recreate (fresh id) never\r\nresurrects the dropped one's checkpoints. Null on pre-namespace (v1) entries, which\r\nnormalize to the default namespace's stable id."
           },
           "location": {
             "type": [

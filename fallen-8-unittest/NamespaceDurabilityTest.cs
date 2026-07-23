@@ -335,6 +335,125 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task RenamedNamespace_StillBootsFromItsNewestSave_AfterAnUncleanRestart()
+        {
+            // The boot chain is keyed by the IMMUTABLE id (council finding): a rename must not
+            // orphan the namespace's newest save when no clean-shutdown save re-registers it.
+            using (var host = NewHost(saveOnShutdown: false))
+            {
+                using var client = host.CreateClient();
+                var namespaces = Collection(host);
+                var flights = Create(namespaces, "flights");
+                AddVertices(flights.Engine, 2);
+
+                using var saved = await client.PutAsync("/ns/flights/save",
+                    new StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
+                Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
+
+                using var renamed = await client.PatchAsync("/ns/flights",
+                    new StringContent("{\"name\":\"fl-eu\"}", System.Text.Encoding.UTF8, "application/json"));
+                Assert.AreEqual(HttpStatusCode.OK, renamed.StatusCode);
+            }
+
+            using (var host = NewHost(saveOnShutdown: false))
+            {
+                var namespaces = Collection(host);
+                Assert.IsTrue(namespaces.TryGet("fl-eu", out var kept));
+                Assert.AreEqual(2, kept.Engine.VertexCount, "the save registered under the OLD name must still load (id-keyed)");
+            }
+        }
+
+        [TestMethod]
+        public async Task RecreatedNamesake_DoesNotResurrectTheDroppedNamespacesCheckpoints()
+        {
+            // Drop keeps checkpoint files (they belong to save games); a fresh namesake has a
+            // fresh id, so boot must NOT load the dropped predecessor's newest save over it.
+            using (var host = NewHost(saveOnShutdown: false))
+            {
+                using var client = host.CreateClient();
+                var namespaces = Collection(host);
+                var flights = Create(namespaces, "flights");
+                AddVertices(flights.Engine, 1);
+
+                using var saved = await client.PutAsync("/ns/flights/save",
+                    new StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
+                Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
+
+                Assert.IsTrue(namespaces.TryDrop("flights", out _));
+                var reborn = Create(namespaces, "flights");
+                AddVertices(reborn.Engine, 2);
+            }
+
+            using (var host = NewHost(saveOnShutdown: false))
+            {
+                var namespaces = Collection(host);
+                Assert.IsTrue(namespaces.TryGet("flights", out var flights));
+                Assert.AreEqual(2, flights.Engine.VertexCount,
+                    "the reborn namespace must recover its own WAL, not the dropped predecessor's checkpoint");
+            }
+        }
+
+        [TestMethod]
+        public async Task Restore_WithMissingCheckpointFiles_Answers500_AndRecreatesNothing()
+        {
+            using var host = NewHost(saveOnShutdown: false);
+            using var client = host.CreateClient();
+            var namespaces = Collection(host);
+
+            var flights = Create(namespaces, "flights");
+            var flightsDir = Path.Combine(_storageDir, "namespaces", flights.Id);
+            AddVertices(flights.Engine, 1);
+            using var saved = await client.PutAsync("/ns/flights/save",
+                new StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
+            Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
+            var entryId = (await ReadJson(saved)).GetProperty("id").GetString();
+
+            Assert.IsTrue(namespaces.TryDrop("flights", out _));
+            foreach (var file in Directory.GetFiles(flightsDir))
+            {
+                File.Delete(file); // gut the entry: the checkpoint files are gone
+            }
+
+            using var restored = await client.PutAsync(
+                "/savegames/" + entryId + "/load?waitForCompletion=true&namespace=flights", null);
+            Assert.AreEqual(HttpStatusCode.InternalServerError, restored.StatusCode);
+            Assert.AreEqual("application/problem+json", restored.Content.Headers.ContentType?.MediaType);
+            Assert.IsFalse(namespaces.TryGet("flights", out _),
+                "a restore that cannot load anything must not recreate the namespace");
+        }
+
+        [TestMethod]
+        public async Task PreNamespaceRegistry_V1OnDisk_BootsIntoDefault()
+        {
+            // A REAL pre-upgrade deployment: strip this build's v2 fields from the on-disk
+            // registry (schemaVersion 1, no namespaces manifests) and boot against it.
+            using (var host = NewHost(saveOnShutdown: false))
+            {
+                using var client = host.CreateClient();
+                AddVertices(Collection(host).Default.Engine, 2);
+                using var saved = await client.PutAsync("/save",
+                    new StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
+                Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
+            }
+
+            var registryPath = Path.Combine(_metaDir, "savegames.json");
+            var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(registryPath))!.AsObject();
+            document["schemaVersion"] = 1;
+            foreach (var entry in document["saveGames"]!.AsArray())
+            {
+                entry!.AsObject().Remove("namespaces");
+            }
+            File.WriteAllText(registryPath, document.ToJsonString());
+
+            using (var host = NewHost(saveOnShutdown: false))
+            {
+                var namespaces = Collection(host);
+                Assert.AreEqual(2, namespaces.Default.Engine.VertexCount,
+                    "a v1 entry must be read forever as a default-only save");
+            }
+        }
+
+        [TestMethod]
         public void V1Entries_ReadAsDefaultOnly()
         {
             var v1 = new NoSQL.GraphDB.App.Controllers.Model.SaveGameREST

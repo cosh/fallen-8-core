@@ -93,6 +93,23 @@ export async function throwIfNotOk(response: Response, url: string): Promise<voi
     } catch {
       // keep the status-only error
     }
+
+    // The server marks a missing namespace with a "namespace" extension on its 404
+    // problem+json (feature graph-namespaces); announce it so the recover state renders
+    // immediately instead of waiting for the next inventory poll.
+    if (response.status === 404 && typeof window !== "undefined") {
+      try {
+        const problem = JSON.parse(body) as { namespace?: unknown };
+        if (typeof problem.namespace === "string") {
+          window.dispatchEvent(
+            new CustomEvent("f8:namespace-missing", { detail: { namespace: problem.namespace } }),
+          );
+        }
+      } catch {
+        // not a problem+json body
+      }
+    }
+
     throw new ApiError(response.status, url, body);
   }
 }

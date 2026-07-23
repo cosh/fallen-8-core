@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -8,6 +8,7 @@ import {
   DEFAULT_NAMESPACE,
 } from "../instances/registry";
 import { describeEndpoint, type InstanceConfig } from "../instances/types";
+import { ApiError } from "../api/client";
 import { getStatus, isAuthorized, listNamespaces } from "../api/endpoints";
 import { useLiveChangeFeed, type LiveFeedStatus } from "../state/liveFeed";
 import { help } from "../lib/fieldHelp";
@@ -126,8 +127,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const liveStatus = useLiveChangeFeed(feedInstance);
   const connection = useConnectionState(active);
 
-  // The namespace inventory feeds the switcher (name + counts + quota). On a
-  // pre-namespace server the call 404s and the switcher quietly shows only "default".
+  // The namespace inventory feeds the switcher (name + counts + quota) AND the capability
+  // probe: a 404 marks the server pre-namespace, and every screen then degrades to the
+  // unbound (bare-path) view instead of 404ing on /ns/default (see useInstanceStore).
+  const setNamespaceSupport = useRegistry((s) => s.setNamespaceSupport);
+  const namespaceSupported = useRegistry((s) =>
+    active ? s.namespaceSupport[active.id] : undefined,
+  );
   const namespaces = useQuery({
     queryKey: [active?.id, "namespaces"],
     queryFn: ({ signal }) => listNamespaces(active!, signal),
@@ -135,18 +141,40 @@ export function AppShell({ children }: { children: ReactNode }) {
     refetchInterval: 15_000,
     retry: 0,
   });
+  useEffect(() => {
+    if (!active) return;
+    if (namespaces.data) {
+      setNamespaceSupport(active.id, true);
+    } else if (namespaces.error instanceof ApiError && namespaces.error.status === 404) {
+      setNamespaceSupport(active.id, false);
+    }
+  }, [active?.id, namespaces.data, namespaces.error, setNamespaceSupport]);
   const namespaceEntries = namespaces.data?.namespaces ?? [
     { name: DEFAULT_NAMESPACE, state: "ready" as const, vertexCount: 0, edgeCount: 0, createdAt: "" },
   ];
 
+  const leafOf = (path: string) => (path.startsWith("/q/") ? path.split("/").slice(3).join("/") : "");
+
   const switchNamespace = (name: string) => {
     if (active) setActiveNamespace(active.id, name);
     // Stay on the current scoped screen when there is one; land on the dashboard otherwise.
-    const leaf = pathname.startsWith("/q/") ? pathname.split("/").slice(3).join("/") : "";
     void navigate({
-      to: `/q/$ns/${leaf || "dashboard"}` as "/q/$ns/dashboard",
+      to: `/q/$ns/${leafOf(pathname) || "dashboard"}` as "/q/$ns/dashboard",
       params: { ns: name },
     });
+  };
+
+  const switchInstance = (id: string) => {
+    setActive(id);
+    // Under a namespaced URL, restore the NEW instance's remembered namespace - never stamp
+    // the previous instance's namespace onto it via the URL-sync effect.
+    if (pathname.startsWith("/q/")) {
+      const remembered = useRegistry.getState().activeNamespaces[id] || DEFAULT_NAMESPACE;
+      void navigate({
+        to: `/q/$ns/${leafOf(pathname) || "dashboard"}` as "/q/$ns/dashboard",
+        params: { ns: remembered },
+      });
+    }
   };
 
   /** The concrete path a nav item points at (scoped items resolve against the active ns). */
@@ -224,7 +252,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             data-testid="instance-switcher"
             className="input w-auto min-w-40"
             value={activeId ?? ""}
-            onChange={(e) => setActive(e.target.value)}
+            onChange={(e) => switchInstance(e.target.value)}
           >
             {instances.map((instance) => (
               <option key={instance.id} value={instance.id}>
@@ -232,7 +260,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               </option>
             ))}
           </select>
-          {active && (
+          {active && namespaceSupported === false && (
+            <span data-testid="active-endpoint" className="text-fg-dim truncate text-[12px]">
+              {describeEndpoint(active)} (pre-namespace server)
+            </span>
+          )}
+          {active && namespaceSupported !== false && (
             <>
               <label
                 htmlFor="namespace-switcher"

@@ -94,7 +94,8 @@ revisit trigger — not v1 machinery.
 ### 5.1 Addressing — route twins
 
 - An `IApplicationModelConvention` adds, to every namespace-scoped action, a second route selector
-  that prefixes the action's absolute template with `/ns/{ns:regex(^[a-z0-9-]{{1,63}}$)}`. Both
+  that prefixes the action's absolute template with `/ns/{ns}` (unconstrained: an invalid name is
+  simply a registry miss, answered by the validation filter's 404 problem+json). Both
   routes bind the same action; the scoped `IFallen8` resolves from the `ns` route value.
 - **Bare URL ⇒ `default`**: `/vertex` and `/ns/default/vertex` are the same operation on the same
   engine. Full backward compatibility, byte for byte.
@@ -104,7 +105,7 @@ revisit trigger — not v1 machinery.
 - **Fallen-8-level actions are not twinned.** Marked `[Fallen8Level]` (consumed by the convention)
   and their OpenAPI remarks say "Fallen-8-level — all namespaces":
   `PUT /save/all`, `HEAD /tabularasa/all`, `/savegames*` (all), `/generate` + `/benchmark`,
-  `/delegates/validate`, `GET /plugin`.
+  `/delegates/validate`, `PUT /plugin` (upload).
   Everything else — status, graph/vertex/edge, scans, indices, path, subgraph, analytics, stored
   queries, bulk import/export, change feed, embeddings, `/unittest` sample graph, **and save /
   load / tabula rasa / trim** — is namespace-scoped. (`/ns/{ns}/status` reports that namespace's
@@ -135,7 +136,7 @@ restore points (that is how a dropped namespace comes back).
 | `GET /ns/{name}` | `200` one entry; `404` unknown |
 | `PUT /ns/{name}` | `201` + entry; `400` invalid name; `409` exists; `422` quota exceeded (body carries the configured limit) |
 | `PATCH /ns/{name}` | body `{ "name": "new" }` → `200` + entry; `400` invalid; `404` unknown; `409` target exists or `name`/target is `default` |
-| `DELETE /ns/{name}` | `204`; irreversible, deletes the namespace's on-disk data; `404` unknown; `409` for `default` |
+| `DELETE /ns/{name}` | `204`; irreversible; deletes the live on-disk state (the WAL) — checkpoint files belong to save games and remain restore points; `404` unknown; `409` for `default` |
 
 Entry shape: `{ name, state, vertexCount, edgeCount, createdAt }`. **No per-namespace memory
 figure** — engines share one GC heap, so a per-namespace byte count would be fiction; the mock's
@@ -157,8 +158,8 @@ existing stored-query/change-feed/analytics ceilings.
 
 The twins are real routes, so the snapshot roughly doubles in paths — regenerate with
 `pwsh scripts/update-openapi-snapshot.ps1` and review (additions only, plus the new `/ns` CRUD and
-`…/all` endpoints). The `ns` parameter gets one shared description via the convention; the prefix
-rule is explained once in the document description, not per operation.
+`…/all` endpoints). The prefix rule is explained once in the document description, not per
+operation (the `ns` parameter itself carries no per-operation description).
 
 ## 6. Durability — catalog, per-namespace storage, save games
 
@@ -194,8 +195,10 @@ namespaces/{id}/…                 ← per-namespace WAL + checkpoints (id = co
   `?namespace={name}` restores a single one. `DELETE /savegames/{id}?deleteFiles=true` deletes all
   the entry's per-namespace files.
 - **Drop.** `DELETE /ns/{name}`: remove from the collection first (new requests 404 immediately),
-  then dispose the engine after in-flight readers drain (reusing the trim-reader-safety
-  discipline), then delete `namespaces/{id}/`.
+  then dispose the engine — deliberately with NO in-flight drain: a request already past the
+  validation filter when the drop lands may fail, mapped to the same 404 problem+json (the
+  UnknownNamespaceException filter) — then delete the live WAL under `namespaces/{id}/`
+  (checkpoint files belong to save games and stay).
 - **Volatile mode** (`Fallen8:Durability:Volatile=true`): no catalog, no WAL — namespaces are
   in-memory only and vanish on restart, like all data in that mode.
 
@@ -243,7 +246,8 @@ All Studio work lives in `fallen-8-web-ui/` (in-repo).
    created, URL prefix, actions Rename / Switch to / Drop), `default` row labeled "alias of bare
    URLs" with Drop disabled, create form (pattern hint, live URL preview, Create), an error strip
    documenting the 409/404/422 semantics. No memory column (§5.3). A namespace with a running bulk
-   import renders the mock's "creating" row from the import job state, with Cancel.
+   import shows the server-reported state dot only (the mock's import-job-driven "creating" row
+   with Cancel is not wired in v1 — the state field exists for a future async provisioning path).
 6. **Save & erase actions.** The Dashboard offers **Save namespace** (`/ns/{ns}/save`) and
    **Save all namespaces** (`/save/all`); tabula rasa on the Dashboard is namespace-scoped ("erase
    namespace `flights`"), with the Fallen-8-level factory reset a separate, clearly-labeled action.
@@ -263,7 +267,7 @@ All Studio work lives in `fallen-8-web-ui/` (in-repo).
 | Feature / asset | Impact |
 |---|---|
 | [multi-instance-host](../../open/multi-instance-host/) (open) | **Superseded** — status updated in its spec; auth would be re-specced from scratch (revisit trigger: untrusted caller). |
-| [save-games](../save-games/) | Registry schema v2 (per-namespace manifest, 1..n members), per-namespace + all saves, entry-driven and single-namespace restore, v1 entries read as default-only. README updated when this lands. |
+| [save-games](../save-games/) | Registry schema v2 (per-namespace manifest, 1..n members), per-namespace + all saves, entry-driven and single-namespace restore, v1 entries read as default-only. save-games has no README; the registry semantics live in this feature's README (the living doc). |
 | [hosted-durability-lifecycle](../hosted-durability-lifecycle/), [crash-durability-hardening](../crash-durability-hardening/) | Lifecycle service generalizes to the catalog (per-namespace newest-entry boot, `/save/all` on shutdown); per-namespace WAL dirs; `default` keeps legacy paths (zero-migration upgrade). |
 | OpenAPI snapshot (`features/done/web-ui/openapi-v0.1.json`) | ~2× paths (twins) + `/ns` CRUD + `…/all` endpoints; regenerate + review. Consumed by the web-ui contract test and the [mcp-server](../../open/mcp-server/) spec — both flagged. |
 | NL-assist (`nl-assist-finetune/`) | **No retrain.** The harness and dataset use bare relative paths against a base URL; bare URLs keep aliasing `default`. No RETRAIN-LOG entry needed. Targeting a named namespace later is a one-line opt-in prefix in `shared/f8.ts`. |
@@ -273,7 +277,7 @@ All Studio work lives in `fallen-8-web-ui/` (in-repo).
 | [change-feed](../change-feed/) | Dispatcher already per-engine; `/changefeed` twinned; `MaxSubscribers` applies per namespace (document). |
 | [observability](../observability/) | Meter collision fix: namespace-id tag on `Fallen8Metrics` (§7). |
 | [api-error-envelope](../../open/api-error-envelope/) (open) | New endpoints are problem+json from day one; its 134-site inventory is unaffected. |
-| [studio-embeddable](../../open/studio-embeddable/) (open) | Orthogonal (`storageNamespace` prefixes localStorage keys); its `InstanceConfig` note gains "may pin a namespace" as future work. |
+| [studio-embeddable](../../open/studio-embeddable/) (open) | Orthogonal (`storageNamespace` prefixes localStorage keys); its spec carries a one-line "may pin a namespace" future-work note. |
 | [agent-host](../../open/agent-host/), [mcp-server](../../open/mcp-server/) (open) | Both consume the REST contract; their specs get a one-line note that tools/agents address `/ns/{ns}/…`. |
 
 ## 10. Acceptance scenarios

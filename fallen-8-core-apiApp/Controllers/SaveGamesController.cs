@@ -137,19 +137,43 @@ namespace NoSQL.GraphDB.App.Controllers
                 members = new List<SaveGameNamespaceREST> { member };
             }
 
-            // Recreate dropped target namespaces, then enqueue every load. Namespaces the entry
-            // does not contain are deliberately never touched.
-            var loads = new List<(String Name, TransactionInformation Info)>();
+            // Validate EVERY member's checkpoint file BEFORE touching anything: the engine's Load
+            // treats a missing file as a no-op success (never a rollback), so without this check a
+            // gutted entry would answer 200, recreate dropped namespaces permanently, and load
+            // nothing - the REST twin of the boot path's FR-9 loud failure.
             foreach (var member in members)
             {
-                if (!_namespaces.TryGet(member.Name, out var target)
-                    && !_namespaces.TryCreate(member.Name, out target, out var failure))
+                if (!System.IO.File.Exists(member.Location))
                 {
-                    return ProblemResults.Create(StatusCodes.Status500InternalServerError, "Namespace restore failed",
-                        "The dropped namespace \"" + member.Name + "\" could not be recreated (" + failure + "); " +
-                        "nothing was loaded for it.");
+                    return ProblemResults.Create(StatusCodes.Status500InternalServerError, "Save game files missing",
+                        "Save game \"" + id + "\" points at \"" + member.Location + "\" for namespace \"" +
+                        member.Name + "\", which does not exist; nothing was restored. Restore the files, or " +
+                        "remove the entry (DELETE /savegames/" + id + ").");
                 }
+            }
 
+            // Resolve/recreate ALL target namespaces before enqueuing ANY load, so a failure here
+            // leaves every graph untouched. Namespaces the entry does not contain are never touched.
+            var targets = new List<(SaveGameNamespaceREST Member, Namespace Target, Boolean Recreated)>();
+            foreach (var member in members)
+            {
+                var recreated = false;
+                if (!_namespaces.TryGet(member.Name, out var target))
+                {
+                    if (!_namespaces.TryCreate(member.Name, out target, out var failure))
+                    {
+                        return ProblemResults.Create(StatusCodes.Status500InternalServerError, "Namespace restore failed",
+                            "The dropped namespace \"" + member.Name + "\" could not be recreated (" + failure + "); " +
+                            "nothing was restored.");
+                    }
+                    recreated = true;
+                }
+                targets.Add((member, target, recreated));
+            }
+
+            var loads = new List<(String Name, TransactionInformation Info)>();
+            foreach (var (member, target, _) in targets)
+            {
                 var tx = new LoadTransaction { Path = member.Location, StartServices = true };
                 loads.Add((member.Name, target.Engine.EnqueueTransaction(tx)));
             }
@@ -159,15 +183,44 @@ namespace NoSQL.GraphDB.App.Controllers
                 return Accepted();
             }
 
+            // Await EVERY load before answering - an early error return would report a state that
+            // is still changing behind it.
+            var rolledBack = new List<String>();
             foreach (var load in loads)
             {
                 await load.Info.Completion;
                 if (load.Info.TransactionState == TransactionState.RolledBack)
                 {
-                    return StatusCode(StatusCodes.Status500InternalServerError,
-                        "The load transaction for namespace '" + load.Name + "' was rolled back; that namespace was not loaded.");
+                    rolledBack.Add(load.Name);
                 }
             }
+
+            if (rolledBack.Count > 0)
+            {
+                return ProblemResults.Create(StatusCodes.Status500InternalServerError, "Restore incomplete",
+                    "The load transaction rolled back for: " + String.Join(", ", rolledBack) + ".",
+                    p => p.Extensions["failedNamespaces"] = rolledBack);
+            }
+
+            // A RECREATED namespace has a fresh immutable id, so the entry that just restored it
+            // no longer matches it at boot; register the restored checkpoint under the new id to
+            // keep the boot chain intact (an unclean restart must not serve it empty).
+            foreach (var (member, target, recreated) in targets)
+            {
+                if (recreated)
+                {
+                    try
+                    {
+                        _registry.RegisterImportIfUnknown(target.Name, target.Id, target.Engine, member.Location);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Restored namespace \"{Namespace}\" could not be re-registered under its new id.",
+                            target.Name);
+                    }
+                }
+            }
+
             return Ok(entry);
         }
 

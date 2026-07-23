@@ -11,6 +11,7 @@ import {
 } from "../api/endpoints";
 import type { NamespaceEntry } from "../api/types";
 import { ApiError } from "../api/client";
+import { migrateInstanceStore, purgeInstanceStore } from "../state/instanceStore";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
 
@@ -59,7 +60,15 @@ export function NamespacesPanel() {
   const rename = useMutation({
     mutationFn: ({ from, to }: { from: string; to: string }) =>
       renameNamespace(instance!, from, to),
-    onSuccess: (entry, { from }) => {
+    onSuccess: (entry, { from, to }) => {
+      // Rename is a pure address change: the workspace (canvas, drafts) follows the new
+      // name, and if the RENAMED namespace was the active one, the active pointer follows
+      // too - otherwise the session strands on the dead name and lands in the recover state.
+      migrateInstanceStore(instance!.id, from, to);
+      const registry = useRegistry.getState();
+      if (registry.activeNamespaces[instance!.id] === from) {
+        registry.setActiveNamespace(instance!.id, to);
+      }
       setMessage(entry ? `Renamed “${from}” to “${entry.name}”.` : "Renamed.");
       setRenaming(null);
       setRenameTo("");
@@ -70,6 +79,9 @@ export function NamespacesPanel() {
   const drop = useMutation({
     mutationFn: (name: string) => dropNamespace(instance!, name),
     onSuccess: (_result, name) => {
+      // The graph is gone; a lingering workspace would resurface phantom elements if a
+      // namesake is ever created.
+      purgeInstanceStore(instance!.id, name);
       setMessage(`Dropped namespace “${name}”.`);
       invalidate();
     },

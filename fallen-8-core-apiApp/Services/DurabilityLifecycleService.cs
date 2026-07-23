@@ -105,10 +105,12 @@ namespace NoSQL.GraphDB.App.Services
         private void StartNamespace(Namespace ns)
         {
             var directory = _namespaces.DirectoryFor(ns);
-            var newest = _saveGames.NewestContaining(ns.Name);
+            // Matched by the IMMUTABLE id: a rename keeps the boot chain; a recreated namesake
+            // (fresh id) never loads the dropped predecessor's checkpoints.
+            var newest = _saveGames.NewestContaining(ns.Id);
             var member = newest == null
                 ? null
-                : SaveGameRegistry.EffectiveNamespaces(newest).First(m => m.Name == ns.Name);
+                : SaveGameRegistry.EffectiveNamespaces(newest).First(m => SaveGameRegistry.EffectiveId(m) == ns.Id);
 
             if (member == null)
             {
@@ -190,7 +192,7 @@ namespace NoSQL.GraphDB.App.Services
                 // Register the adopted orphan now that the graph is loaded (so its KPIs are correct).
                 try
                 {
-                    _saveGames.RegisterImportIfUnknown(ns.Name, ns.Engine, loadTarget);
+                    _saveGames.RegisterImportIfUnknown(ns.Name, ns.Id, ns.Engine, loadTarget);
                 }
                 catch (Exception ex)
                 {
@@ -236,7 +238,7 @@ namespace NoSQL.GraphDB.App.Services
             // can race this StopAsync during host teardown, and the saves must win that race.
             var ranBeforeDispose = _namespaces.TryRunBeforeDispose(() =>
             {
-                var members = new List<(String Name, IFallen8 Engine, String Location)>();
+                var members = new List<(String Name, String Id, IFallen8 Engine, String Location)>();
                 foreach (var ns in _namespaces.Snapshot())
                 {
                     var checkpointPath = ReferenceEquals(ns, _namespaces.Default)
@@ -263,7 +265,7 @@ namespace NoSQL.GraphDB.App.Services
                         }
                         else
                         {
-                            members.Add((ns.Name, ns.Engine, saveTx.ActualPath ?? checkpointPath));
+                            members.Add((ns.Name, ns.Id, ns.Engine, saveTx.ActualPath ?? checkpointPath));
                         }
                     }
                     catch (Exception ex)

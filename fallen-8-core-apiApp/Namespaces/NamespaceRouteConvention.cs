@@ -31,12 +31,9 @@ using Microsoft.AspNetCore.Mvc.ApplicationModels;
 namespace NoSQL.GraphDB.App.Namespaces
 {
     /// <summary>
-    ///   Gives every namespace-scoped action a REAL route twin under <c>/ns/{ns}/…</c> (feature
-    ///   graph-namespaces, spec §5.1): the action keeps its bare absolute route (which aliases the
-    ///   default namespace) and gains a second selector whose template carries the namespace name.
-    ///   Both are ordinary attribute routes — visible to routing, ApiExplorer, and OpenAPI — so no
-    ///   path rewriting happens anywhere. Actions or controllers marked
-    ///   <see cref="Fallen8LevelAttribute"/> are skipped.
+    ///   Gives every namespace-scoped action a REAL route twin under <c>/ns/{ns}/…</c> — a second
+    ///   ordinary attribute-route selector, no path rewriting; <see cref="Fallen8LevelAttribute"/>
+    ///   opts out. The URL scheme's one home is features/done/graph-namespaces/README.md.
     /// </summary>
     public sealed class NamespaceRouteConvention : IApplicationModelConvention
     {

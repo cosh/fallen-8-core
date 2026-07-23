@@ -67,7 +67,8 @@ namespace NoSQL.GraphDB.App.Namespaces
         {
             get
             {
-                var name = _httpContextAccessor.HttpContext?.Request.RouteValues["ns"] as String;
+                var name = _httpContextAccessor.HttpContext?
+                    .Request.RouteValues[NamespaceRouteConvention.RouteParameterName] as String;
                 if (name == null)
                 {
                     return _namespaces.Default.Engine;
@@ -75,9 +76,10 @@ namespace NoSQL.GraphDB.App.Namespaces
 
                 if (!_namespaces.TryGet(name, out var ns))
                 {
-                    // The namespace-validation filter answers 404 before any action runs; reaching
-                    // this line means a request carried an unknown namespace past it - fail loudly.
-                    throw new InvalidOperationException("Unknown namespace \"" + name + "\".");
+                    // The validation filter answered 404 before the action ran, so reaching this
+                    // line means a drop/rename raced the request; the exception filter renders it
+                    // as the same 404 problem+json.
+                    throw new UnknownNamespaceException(name);
                 }
 
                 return ns.Engine;

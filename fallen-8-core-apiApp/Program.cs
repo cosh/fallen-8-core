@@ -341,6 +341,7 @@ namespace NoSQL.GraphDB.App
                 // the filter answers 404 problem+json for unknown namespaces before any action runs.
                 options.Conventions.Add(new NamespaceRouteConvention());
                 options.Filters.Add(typeof(NamespaceValidationFilter));
+                options.Filters.Add(typeof(UnknownNamespaceExceptionFilter));
             }).AddJsonOptions(options =>
             {
                 // Serve the REST DTOs through source-generated metadata instead of runtime

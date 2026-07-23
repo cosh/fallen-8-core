@@ -3,6 +3,8 @@ import { Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRegistry, useActiveInstance, DEFAULT_NAMESPACE } from "../instances/registry";
 import { listNamespaces, createNamespace } from "../api/endpoints";
+import { purgeInstanceStore } from "../state/instanceStore";
+import { bumpFeedGeneration } from "../state/liveFeed";
 
 /**
  * Layout under /q/$ns/… (feature graph-namespaces): keeps the registry's active namespace
@@ -21,7 +23,8 @@ export function NamespaceScope() {
     if (instance) setActiveNamespace(instance.id, ns);
   }, [instance?.id, ns, setActiveNamespace]);
 
-  // The same poll the switcher uses; a namespace dropped elsewhere surfaces within a cycle.
+  // The same poll the switcher uses; a namespace dropped elsewhere surfaces within a cycle —
+  // or immediately, when any request's marked 404 announces it (see throwIfNotOk).
   const namespaces = useQuery({
     queryKey: [instance?.id, "namespaces"],
     queryFn: ({ signal }) => listNamespaces(instance!, signal),
@@ -29,6 +32,12 @@ export function NamespaceScope() {
     refetchInterval: 15_000,
     retry: 0,
   });
+  const refetchNamespaces = namespaces.refetch;
+  useEffect(() => {
+    const onMissing = () => void refetchNamespaces();
+    window.addEventListener("f8:namespace-missing", onMissing);
+    return () => window.removeEventListener("f8:namespace-missing", onMissing);
+  }, [refetchNamespaces]);
 
   const known = namespaces.data?.namespaces.map((entry) => entry.name);
   if (instance && known && !known.includes(ns)) {
@@ -45,6 +54,11 @@ export function NamespaceScope() {
             className="btn"
             onClick={async () => {
               await createNamespace(instance, ns);
+              // The recreated namespace is EMPTY: the old workspace (canvas, results) would
+              // reference elements that no longer exist. Its change-feed stream died on the
+              // 404 and the effect key did not change - the generation bump resubscribes it.
+              purgeInstanceStore(instance.id, ns);
+              bumpFeedGeneration();
               await queryClient.invalidateQueries({ queryKey: [instance.id, "namespaces"] });
             }}
           >

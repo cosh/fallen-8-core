@@ -13,6 +13,8 @@ import {
   trimGraph,
 } from "../api/endpoints";
 import { ApiError } from "../api/client";
+import { invalidateInstanceQueries } from "../api/queries";
+import { purgeAllInstanceStores } from "../state/instanceStore";
 import { shapeSuggestions, useEmbeddingProvider, useGraphShape } from "../state/graphShape";
 import { useStatus } from "../state/status";
 import { ErrorBox } from "../components/ErrorBox";
@@ -65,7 +67,9 @@ export function DashboardScreen() {
 
   const status = useStatus(instance);
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: [instance.id] });
+  // Raw + compound keys both: a namespace-scoped action here can change Fallen-8-level
+  // views too (a save appears on the raw-keyed Save-games list).
+  const refresh = () => invalidateInstanceQueries(queryClient, instance.id);
 
   const save = useMutation({
     mutationFn: () => saveGraph(instance),
@@ -111,7 +115,9 @@ export function DashboardScreen() {
     mutationFn: () => tabulaRasaAll(instance),
     onSuccess: () => {
       setLastMessage("Factory reset: every namespace dropped, “default” erased.");
-      // Fallen-8-wide: every namespace's caches are stale now, not just this one's.
+      // Fallen-8-wide: every namespace's caches AND persisted workspaces (canvases would
+      // resurface phantom elements) are stale now, not just this one's.
+      purgeAllInstanceStores(instance.id.split("/")[0]);
       queryClient.invalidateQueries();
     },
   });

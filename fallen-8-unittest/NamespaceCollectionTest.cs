@@ -322,6 +322,59 @@ namespace NoSQL.GraphDB.Tests
         #region durable-mode on-disk layout
 
         [TestMethod]
+        public void CorruptCatalog_FailsBootLoudly()
+        {
+            var storage = Path.Combine(Path.GetTempPath(), "f8-ns-test-" + Guid.NewGuid().ToString("N"));
+            var metadata = Path.Combine(storage, "metadata");
+            try
+            {
+                Directory.CreateDirectory(metadata);
+                File.WriteAllText(Path.Combine(metadata, "namespaces.json"), "{{{ not json");
+
+                var thrown = Assert.ThrowsException<InvalidOperationException>(
+                    () => CreateCollection(storageDirectory: storage));
+                StringAssert.Contains(thrown.Message, "namespaces.json",
+                    "the failure must name the catalog file (never silently overwritten)");
+            }
+            finally
+            {
+                if (Directory.Exists(storage))
+                {
+                    Directory.Delete(storage, recursive: true);
+                }
+            }
+        }
+
+        [TestMethod]
+        public void SemanticallyBadCatalogEntries_AreSkippedLoudly_NeverSplitBrainDefault()
+        {
+            var storage = Path.Combine(Path.GetTempPath(), "f8-ns-test-" + Guid.NewGuid().ToString("N"));
+            var metadata = Path.Combine(storage, "metadata");
+            try
+            {
+                Directory.CreateDirectory(metadata);
+                // A "default"-named entry (would split-brain the bare alias) and an invalid name.
+                File.WriteAllText(Path.Combine(metadata, "namespaces.json"),
+                    "{\"schemaVersion\":1,\"namespaces\":[" +
+                    "{\"id\":\"ns-x\",\"name\":\"default\",\"createdAt\":\"2026-07-23T10:00:00.000Z\"}," +
+                    "{\"id\":\"ns-y\",\"name\":\"Bad_Name\",\"createdAt\":\"2026-07-23T10:00:00.000Z\"}]}");
+
+                using var namespaces = CreateCollection(storageDirectory: storage);
+
+                Assert.AreEqual(1, namespaces.Count, "both bad entries are skipped");
+                Assert.IsTrue(namespaces.TryGet("default", out var def));
+                Assert.AreSame(namespaces.Default, def, "bare alias and /ns/default stay the SAME engine");
+            }
+            finally
+            {
+                if (Directory.Exists(storage))
+                {
+                    Directory.Delete(storage, recursive: true);
+                }
+            }
+        }
+
+        [TestMethod]
         public void DurableMode_UsesIdKeyedDirectories_AndDropDeletesThem()
         {
             var storage = Path.Combine(Path.GetTempPath(), "f8-ns-test-" + Guid.NewGuid().ToString("N"));

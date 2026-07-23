@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
 import { generateGraph, runBenchmark } from "../api/endpoints";
+import { invalidateInstanceQueries } from "../api/queries";
 import type { BenchmarkResult } from "../api/types";
 import { useStatus } from "../state/status";
 import { ErrorBox } from "../components/ErrorBox";
@@ -59,7 +60,7 @@ export function BenchmarkScreen() {
       ),
     onSuccess: (serverMessage) => {
       setGenerateMessage(serverMessage ?? "Graph generated.");
-      queryClient.invalidateQueries({ queryKey: [instance.id] });
+      invalidateInstanceQueries(queryClient, instance.id);
     },
   });
 

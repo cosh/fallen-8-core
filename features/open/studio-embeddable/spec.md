@@ -3,6 +3,10 @@
 Status: open (spec/plan only). Owner: TBD. Related: [web-ui](../../done/web-ui/),
 [nl-assist-ux](../../done/nl-assist-ux/), [api-security-boundary](../../done/api-security-boundary/).
 
+> **Namespaces (feature graph-namespaces, 2026-07-23):** a future `InstanceConfig` may pin
+> a namespace, so an embedded Studio addresses `/ns/{ns}/…` for exactly one namespace.
+
+
 ## Motivation
 
 F8 Studio (`fallen-8-web-ui`) today is a standalone SPA served from the database's own

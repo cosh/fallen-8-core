@@ -63,6 +63,13 @@ namespace NoSQL.GraphDB.App.Namespaces
         ///   path is not a breaking contract change.
         /// </summary>
         public NamespaceState State { get; internal set; } = NamespaceState.Ready;
+
+        /// <summary>
+        ///   Set exactly once, under the collection's dispose gate, when the engine is disposed —
+        ///   a drop and the collection's own disposal can both reach an engine, and
+        ///   <c>Fallen8.Dispose</c> is not idempotent.
+        /// </summary>
+        internal Boolean EngineDisposed { get; set; }
     }
 
     /// <summary>Lifecycle state of a <see cref="Namespace"/>.</summary>

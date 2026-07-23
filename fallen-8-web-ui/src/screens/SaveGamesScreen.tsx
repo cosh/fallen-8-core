@@ -9,6 +9,8 @@ import {
   saveAllNamespaces,
 } from "../api/endpoints";
 import type { SaveGame, SaveGameNamespace } from "../api/types";
+import { invalidateInstanceQueries } from "../api/queries";
+import { getInstanceStore } from "../state/instanceStore";
 import { formatExact } from "../lib/format";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -75,7 +77,9 @@ export function SaveGamesScreen() {
     queryFn: ({ signal }) => listSaveGames(instance, signal),
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: [instance.id] });
+  // Raw + compound keys both: a restore changes the per-namespace caches (compound-keyed),
+  // not just this Fallen-8-level screen's raw-keyed list.
+  const invalidate = () => invalidateInstanceQueries(queryClient, instance.id);
 
   const saveAll = useMutation({
     mutationFn: () => saveAllNamespaces(instance),
@@ -96,6 +100,16 @@ export function SaveGamesScreen() {
     mutationFn: ({ id, namespaceName }: { id: string; namespaceName?: string }) =>
       loadSaveGame(instance, id, namespaceName),
     onSuccess: (entry, variables) => {
+      // A restore reassigns element ids, so the restored namespaces' persisted canvases
+      // would silently render DIFFERENT elements under the old ids - clear them.
+      if (entry) {
+        const restored = variables.namespaceName
+          ? effectiveNamespaces(entry).filter((m) => m.name === variables.namespaceName)
+          : effectiveNamespaces(entry);
+        for (const member of restored) {
+          getInstanceStore(instance.id, member.name).getState().clearCanvas();
+        }
+      }
       setMessage(
         entry
           ? variables.namespaceName

@@ -17,11 +17,18 @@ export interface RegistryState {
   activeId: string | null;
   /** The active namespace per instance id (feature graph-namespaces); absent = "default". */
   activeNamespaces: Record<string, string>;
+  /**
+   * Whether an instance's server supports namespaces (probed via GET /ns): true/false once
+   * known, absent while unknown. A pre-namespace server (false) gets UNBOUND instances —
+   * bare paths — so the previous release keeps working instead of 404ing on /ns/default.
+   */
+  namespaceSupport: Record<string, boolean>;
   addInstance: (instance: Omit<InstanceConfig, "id">) => InstanceConfig;
   updateInstance: (id: string, patch: Partial<Omit<InstanceConfig, "id">>) => void;
   removeInstance: (id: string) => void;
   setActive: (id: string) => void;
   setActiveNamespace: (instanceId: string, namespace: string) => void;
+  setNamespaceSupport: (instanceId: string, supported: boolean) => void;
 }
 
 function newId(): string {
@@ -42,6 +49,7 @@ export const useRegistry = create<RegistryState>()(
       instances: [SAME_ORIGIN_INSTANCE],
       activeId: SAME_ORIGIN_INSTANCE.id,
       activeNamespaces: {},
+      namespaceSupport: {},
 
       addInstance: (instance) => {
         const created: InstanceConfig = {
@@ -84,6 +92,13 @@ export const useRegistry = create<RegistryState>()(
         set((s) => ({
           activeNamespaces: { ...s.activeNamespaces, [instanceId]: namespace },
         })),
+
+      setNamespaceSupport: (instanceId, supported) =>
+        set((s) =>
+          s.namespaceSupport[instanceId] === supported
+            ? s
+            : { namespaceSupport: { ...s.namespaceSupport, [instanceId]: supported } },
+        ),
     }),
     { name: "f8.instances" },
   ),
@@ -110,6 +125,14 @@ export function useActiveInstance(): InstanceConfig | null {
 export function useInstanceStore() {
   const instance = useActiveInstance()!;
   const namespace = useActiveNamespace();
+  const supported = useRegistry((s) => s.namespaceSupport[instance.id]);
+
+  // A server known to predate namespaces gets the UNBOUND view: bare paths (which are the
+  // whole graph there) and the legacy workspace store — full graceful degradation.
+  if (supported === false) {
+    return { instance, store: getInstanceStore(instance.id) };
+  }
+
   return {
     instance: {
       ...instance,

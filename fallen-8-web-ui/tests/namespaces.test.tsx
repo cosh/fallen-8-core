@@ -34,7 +34,12 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import { scopedPath } from "../src/api/client";
-import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/instanceStore";
+import {
+  getInstanceStore,
+  migrateInstanceStore,
+  purgeInstanceStore,
+  resetInstanceStoresForTests,
+} from "../src/state/instanceStore";
 import {
   DEFAULT_NAMESPACE,
   SAME_ORIGIN_INSTANCE,
@@ -64,6 +69,7 @@ beforeEach(() => {
     instances: [SAME_ORIGIN_INSTANCE],
     activeId: SAME_ORIGIN_INSTANCE.id,
     activeNamespaces: {},
+    namespaceSupport: {},
   });
 });
 
@@ -126,6 +132,38 @@ describe("registry active namespace + bound view", () => {
     expect(result.current.instance.namespace).toBe(DEFAULT_NAMESPACE);
     expect(result.current.instance.id).toBe("local/default");
     expect(result.current.store).toBe(getInstanceStore("local"));
+  });
+
+  it("degrades to the UNBOUND view on a server known to predate namespaces", () => {
+    // The /ns capability probe 404ed: bare paths and the legacy store, so the previous
+    // release keeps working instead of 404ing on /ns/default/… .
+    useRegistry.getState().setNamespaceSupport(SAME_ORIGIN_INSTANCE.id, false);
+    const { result } = renderHook(() => useInstanceStore());
+
+    expect(result.current.instance.namespace).toBeUndefined();
+    expect(result.current.instance.id).toBe("local");
+    expect(scopedPath(result.current.instance, "/vertex")).toBe("/vertex");
+    expect(result.current.store).toBe(getInstanceStore("local"));
+  });
+});
+
+describe("workspace store lifecycle on rename / drop", () => {
+  it("migrates the persisted workspace to the renamed namespace", () => {
+    getInstanceStore("inst-a", "flights").getState().setBrowserDraft({ idInput: "42" });
+
+    migrateInstanceStore("inst-a", "flights", "fl-eu");
+
+    expect(localStorage.getItem("f8.workspace.inst-a/flights")).toBeNull();
+    expect(getInstanceStore("inst-a", "fl-eu").getState().browserDraft.idInput).toBe("42");
+  });
+
+  it("purges the workspace on drop so a namesake starts fresh", () => {
+    getInstanceStore("inst-a", "flights").getState().setBrowserDraft({ idInput: "42" });
+
+    purgeInstanceStore("inst-a", "flights");
+
+    expect(localStorage.getItem("f8.workspace.inst-a/flights")).toBeNull();
+    expect(getInstanceStore("inst-a", "flights").getState().browserDraft.idInput).not.toBe("42");
   });
 });
 

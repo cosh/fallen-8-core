@@ -53,8 +53,10 @@ count would be fiction.
 | `HEAD /tabularasa` (twinned) | erases the addressed namespace's content (stays registered) |
 | `HEAD /tabularasa/all` | factory reset: drops all non-default, erases `default` |
 
-Save-game registry schema v2: entries carry a `namespaces` manifest (1..n members);
-pre-namespace (v1) entries are read forever as default-only saves. A drop deletes only the
+Save-game registry schema v2: entries carry a `namespaces` manifest (1..n members), each
+keyed by the IMMUTABLE namespace id — a rename keeps the boot chain, and a recreated
+namesake (fresh id) never resurrects the dropped one's saves. Pre-namespace (v1) entries
+are read forever as default-only saves. A drop deletes only the
 namespace's live WAL — checkpoint files belong to save games and remain valid restore
 points (deleted via `DELETE /savegames/{id}?deleteFiles=true`).
 
@@ -87,7 +89,9 @@ distinguishable instruments. Map id → name via `GET /ns`.
 The top bar shows the `instance / namespace` pair; scoped screens live under `/q/{ns}/…`
 (deep links restore the namespace; old flat paths redirect). Studio always sends the
 explicit `/ns/{ns}` prefix — `default` included — the bare alias exists for legacy clients,
-not for hiding the namespace. Workspace stores, react-query caches, and the change-feed
+not for hiding the namespace. (One exception: when the `/ns` capability probe 404s, the
+server predates namespaces and Studio degrades to bare paths so the previous release keeps
+working.) Workspace stores, react-query caches, and the change-feed
 stream are all keyed per instance + namespace (the pre-namespace store is adopted as
 `default`'s). The Connect screen carries the NAMESPACES panel (create with live URL preview,
 rename, switch, typed-name drop); Save games and Benchmark stay Fallen-8-level and say so.

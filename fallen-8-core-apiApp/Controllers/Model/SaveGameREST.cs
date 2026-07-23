@@ -170,6 +170,18 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
+        /// <summary>
+        ///   The namespace's IMMUTABLE id at save time — what the boot chain matches on, so a
+        ///   rename never orphans a namespace's newest save and a drop+recreate (fresh id) never
+        ///   resurrects the dropped one's checkpoints. Null on pre-namespace (v1) entries, which
+        ///   normalize to the default namespace's stable id.
+        /// </summary>
+        [JsonPropertyName("id")]
+        public String Id
+        {
+            get; set;
+        }
+
         /// <summary>Absolute path of this namespace's primary checkpoint file.</summary>
         [JsonPropertyName("location")]
         public String Location

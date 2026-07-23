@@ -36,9 +36,8 @@ namespace NoSQL.GraphDB.App.Controllers
 {
     /// <summary>
     ///   Namespace CRUD (feature graph-namespaces): list, inspect, create, rename, and drop the
-    ///   namespaces of this Fallen-8. Every other (namespace-scoped) route exists twice — bare
-    ///   (aliasing the reserved <c>default</c> namespace) and under <c>/ns/{ns}/…</c>; these
-    ///   management routes are Fallen-8-level and exist once.
+    ///   namespaces of this Fallen-8. Fallen-8-level — these management routes exist once, never
+    ///   under <c>/ns/{ns}</c> (the URL scheme's one home is the feature README).
     /// </summary>
     [ApiController]
     [ApiVersion("0.1")]
@@ -118,6 +117,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public IActionResult Create([FromRoute] String name)
         {
             return _namespaces.TryCreate(name, out var ns, out var failure)
@@ -141,13 +141,16 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="404">No namespace with this name exists</response>
         /// <response code="409">The new name is already in use, or the namespace is "default"</response>
+        /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         [HttpPatch("/ns/{name}")]
+        [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [Consumes("application/json")]
         [ProducesResponseType(typeof(NamespaceREST), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public IActionResult Rename([FromRoute] String name, [FromBody] NamespaceRenameSpecification specification)
         {
             if (specification == null || String.IsNullOrEmpty(specification.Name))
@@ -166,9 +169,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         /// <param name="name">The namespace name</param>
         /// <remarks>
-        /// The namespace's graph, indices, stored queries, and on-disk data are deleted — there is
-        /// no undo. Save-game entries that contain the namespace remain valid restore points. The
-        /// reserved "default" namespace cannot be dropped.
+        /// The namespace's in-memory graph, indices, and stored queries are gone and its live
+        /// on-disk state (the write-ahead log) is deleted — there is no undo. Checkpoint files are
+        /// NOT deleted: they belong to save-game entries, which remain valid restore points
+        /// (delete them via DELETE /savegames/{id}?deleteFiles=true). The reserved "default"
+        /// namespace cannot be dropped.
         /// </remarks>
         /// <response code="204">The namespace was dropped</response>
         /// <response code="401">No valid credential was supplied</response>
@@ -181,6 +186,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public IActionResult Drop([FromRoute] String name)
         {
             return _namespaces.TryDrop(name, out var failure)
