@@ -30,7 +30,10 @@ export function ConfirmDialog({
   extra?: ReactNode;
 }) {
   const [typed, setTyped] = useState("");
-  const armed = typed === instanceName;
+  // Case-insensitive, trimmed: the typed-name gate is deliberate friction, not a
+  // credential, and the prompt renders the name uppercased (the .label style) — matching
+  // exactly would reject the "LOCAL" a user types after reading "TYPE 'LOCAL'".
+  const armed = typed.trim().toLowerCase() === instanceName.trim().toLowerCase();
 
   return (
     <Dialog.Root
@@ -54,7 +57,11 @@ export function ConfirmDialog({
           {extra && <div className="mt-3">{extra}</div>}
           <Field
             helpKey="confirmTyped"
-            label={<>type “{instanceName}” to confirm</>}
+            label={
+              <>
+                type “<span className="normal-case">{instanceName}</span>” to confirm
+              </>
+            }
             htmlFor="confirm-typed"
             className="mt-4"
           >
