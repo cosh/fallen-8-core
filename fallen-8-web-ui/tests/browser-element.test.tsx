@@ -47,6 +47,29 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
   };
 });
 
+// Sigma needs WebGL at import time; the preview's model/select contract is pinned in
+// neighborhood-preview.test.tsx - here only the screen wiring matters. GraphCanvas is
+// the module's only runtime export, so no importOriginal.
+vi.mock("../src/canvas/GraphCanvas", () => {
+  return {
+    GraphCanvas: ({
+      nodes,
+      onSelect,
+    }: {
+      nodes: Record<number, { id: number }>;
+      onSelect: (ref: { kind: "node" | "edge"; id: number } | null) => void;
+    }) => (
+      <div data-testid="mock-canvas">
+        {Object.values(nodes).map((n) => (
+          <button key={n.id} type="button" onClick={() => onSelect({ kind: "node", id: n.id })}>
+            node-{n.id}
+          </button>
+        ))}
+      </div>
+    ),
+  };
+});
+
 import { BrowserScreen } from "../src/screens/BrowserScreen";
 
 const STATUS: StatusREST = {
@@ -126,7 +149,7 @@ describe("element detail", () => {
     expect(screen.queryByTestId("embeddings-tab")).not.toBeInTheDocument();
   });
 
-  it("renders an edge header with endpoint links and no adjacency panel", async () => {
+  it("renders an edge header with endpoint links and the neighborhood panel", async () => {
     const user = userEvent.setup();
     getGraphElementMock.mockResolvedValue(EDGE);
     renderScreen();
@@ -136,9 +159,26 @@ describe("element detail", () => {
     expect(screen.getByText(/endpoints/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "#1" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "#2" })).toBeInTheDocument();
-    // Adjacency is a vertex concept — an edge detail must not query degrees.
+    // An edge gets the rendered neighborhood, never the vertex adjacency stats.
+    expect(screen.getByText("neighborhood")).toBeInTheDocument();
+    expect(await screen.findByTestId("mock-canvas")).toBeInTheDocument();
     expect(screen.queryByTestId("degrees")).not.toBeInTheDocument();
     expect(getInDegreeMock).not.toHaveBeenCalled();
+  });
+
+  it("navigates to an endpoint via its link — an in-screen lookup, not a dead URL", async () => {
+    const user = userEvent.setup();
+    getGraphElementMock.mockResolvedValue(EDGE);
+    renderScreen();
+    await lookUp(user, "7");
+    await waitFor(() => expect(screen.getByText("edge #7")).toBeInTheDocument());
+
+    getGraphElementMock.mockResolvedValue(VERTEX);
+    await user.click(screen.getByRole("button", { name: "#1" }));
+
+    expect(getGraphElementMock).toHaveBeenCalledWith(expect.anything(), 1, undefined);
+    await waitFor(() => expect(screen.getByText("vertex #42")).toBeInTheDocument());
+    expect(screen.getByTestId("lookup-id")).toHaveValue("1");
   });
 
   it("routes the lookup kind to the matching endpoint", async () => {
@@ -203,6 +243,48 @@ describe("properties tab", () => {
 });
 
 describe("adjacency panel", () => {
+  it("defaults to the rendered graph view with the focus vertex on the canvas", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await lookUp(user, "42");
+
+    expect(await screen.findByTestId("mock-canvas")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "node-42" })).toBeInTheDocument();
+    // The degree line stays visible above the preview.
+    await waitFor(() =>
+      expect(screen.getByTestId("degrees")).toHaveTextContent("degree 0 · in 0 · out 0"),
+    );
+  });
+
+  it("navigates when a preview element is clicked", async () => {
+    const user = userEvent.setup();
+    getOutEdgePropertiesMock.mockResolvedValue(["knows"]);
+    getOutEdgesMock.mockResolvedValue([7]);
+    getEdgeMock.mockResolvedValue(EDGE);
+    renderScreen();
+    await lookUp(user, "42");
+
+    await user.click(await screen.findByRole("button", { name: "node-2" }));
+
+    expect(getGraphElementMock).toHaveBeenCalledWith(expect.anything(), 2, undefined);
+    expect(screen.getByTestId("lookup-id")).toHaveValue("2");
+  });
+
+  it("switches between the graph and stats views", async () => {
+    const user = userEvent.setup();
+    getOutEdgePropertiesMock.mockResolvedValue(["knows"]);
+    renderScreen();
+    await lookUp(user, "42");
+    await screen.findByTestId("mock-canvas");
+
+    await user.click(screen.getByTestId("adjacency-view-stats"));
+    expect(screen.queryByTestId("mock-canvas")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "knows" })).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("adjacency-view-graph"));
+    expect(await screen.findByTestId("mock-canvas")).toBeInTheDocument();
+  });
+
   it("shows the combined degree line and the out/in edge-property buttons", async () => {
     const user = userEvent.setup();
     getInDegreeMock.mockResolvedValue(2);
@@ -211,6 +293,7 @@ describe("adjacency panel", () => {
     getInEdgePropertiesMock.mockResolvedValue([]);
     renderScreen();
     await lookUp(user, "42");
+    await user.click(await screen.findByTestId("adjacency-view-stats"));
 
     await waitFor(() =>
       expect(screen.getByTestId("degrees")).toHaveTextContent("degree 5 · in 2 · out 3"),
@@ -231,6 +314,7 @@ describe("adjacency panel", () => {
     getInEdgesMock.mockResolvedValue([13]);
     renderScreen();
     await lookUp(user, "42");
+    await user.click(await screen.findByTestId("adjacency-view-stats"));
 
     await user.click(await screen.findByRole("button", { name: "knows" }));
     await waitFor(() => expect(getOutEdgesMock).toHaveBeenCalledWith(expect.anything(), 42, "knows"));
@@ -253,6 +337,7 @@ describe("adjacency panel", () => {
     getOutEdgesMock.mockResolvedValue([]);
     renderScreen();
     await lookUp(user, "42");
+    await user.click(await screen.findByTestId("adjacency-view-stats"));
 
     await user.click(await screen.findByRole("button", { name: "knows" }));
     await waitFor(() => expect(screen.getByText(/out · knows edge ids/)).toBeInTheDocument());

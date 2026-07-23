@@ -46,6 +46,50 @@ export function snapshotProps(properties: PropertyREST[] | null | undefined): Ca
   return props;
 }
 
+export interface CanvasModel {
+  nodes: Record<number, CanvasNode>;
+  edges: Record<number, CanvasEdge>;
+}
+
+/**
+ * REST elements → canvas model, merge-only over an optional base. An edge can only
+ * render when both endpoints are present, so unhydrated endpoints get stub nodes —
+ * expand-on-demand and previews stay merge-only. Shared by mergeIntoCanvas and the
+ * adjacency preview (feature adjacency-preview).
+ */
+export function buildCanvasModel(
+  vertices: VertexREST[],
+  edges: CanvasEdgeInput[],
+  base?: CanvasModel,
+): CanvasModel {
+  const nodes = { ...(base?.nodes ?? {}) };
+  const edgeMap = { ...(base?.edges ?? {}) };
+  for (const v of vertices) {
+    nodes[v.id] = {
+      id: v.id,
+      label: v.label ?? null,
+      props: snapshotProps(v.properties),
+    };
+  }
+  for (const e of edges) {
+    if (!nodes[e.sourceVertex]) {
+      nodes[e.sourceVertex] = { id: e.sourceVertex, label: null };
+    }
+    if (!nodes[e.targetVertex]) {
+      nodes[e.targetVertex] = { id: e.targetVertex, label: null };
+    }
+    edgeMap[e.id] = {
+      id: e.id,
+      source: e.sourceVertex,
+      target: e.targetVertex,
+      edgePropertyId: e.edgePropertyId ?? null,
+      label: e.label ?? e.edgePropertyId ?? null,
+      props: snapshotProps(e.properties),
+    };
+  }
+  return { nodes, edges: edgeMap };
+}
+
 export interface ResultSet {
   id: string;
   title: string;
@@ -138,34 +182,11 @@ function createWorkspaceStore(instanceId: string) {
 
         mergeIntoCanvas: (vertices, edges) =>
           set((s) => {
-            const canvasNodes = { ...s.canvasNodes };
-            const canvasEdges = { ...s.canvasEdges };
-            for (const v of vertices) {
-              canvasNodes[v.id] = {
-                id: v.id,
-                label: v.label ?? null,
-                props: snapshotProps(v.properties),
-              };
-            }
-            for (const e of edges) {
-              // An edge can only render when both endpoints are present; add stubs for
-              // endpoints we have not hydrated yet so expand-on-demand stays merge-only.
-              if (!canvasNodes[e.sourceVertex]) {
-                canvasNodes[e.sourceVertex] = { id: e.sourceVertex, label: null };
-              }
-              if (!canvasNodes[e.targetVertex]) {
-                canvasNodes[e.targetVertex] = { id: e.targetVertex, label: null };
-              }
-              canvasEdges[e.id] = {
-                id: e.id,
-                source: e.sourceVertex,
-                target: e.targetVertex,
-                edgePropertyId: e.edgePropertyId ?? null,
-                label: e.label ?? e.edgePropertyId ?? null,
-                props: snapshotProps(e.properties),
-              };
-            }
-            return { canvasNodes, canvasEdges };
+            const model = buildCanvasModel(vertices, edges, {
+              nodes: s.canvasNodes,
+              edges: s.canvasEdges,
+            });
+            return { canvasNodes: model.nodes, canvasEdges: model.edges };
           }),
 
         removeFromCanvas: (kind, id) =>

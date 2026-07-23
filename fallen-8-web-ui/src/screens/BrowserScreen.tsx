@@ -11,6 +11,7 @@ import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 import { MutationsPanel } from "../components/MutationsPanel";
+import { NeighborhoodPreview } from "../components/NeighborhoodPreview";
 import { useEmbeddingProvider } from "../state/graphShape";
 
 /**
@@ -54,6 +55,14 @@ export function BrowserScreen() {
   const providerEnabled = provider ? provider.enabled : null;
 
   const element = lookup.data ?? null;
+
+  // The one navigation mechanism on this screen: endpoint links, edge-id chips, the
+  // bulk table, and the neighborhood preview all land here (feature adjacency-preview).
+  const inspect = (id: number) => {
+    setIdInput(String(id));
+    setLookupKind("graphelement");
+    lookup.mutate({ kind: "graphelement", id });
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -119,10 +128,18 @@ export function BrowserScreen() {
             element={element}
             providerEnabled={providerEnabled}
             onRefresh={() => lookup.mutate({ kind: lookupKind, id: element.id })}
+            onInspect={inspect}
             tab={detailTab}
             onTabChange={setDetailTab}
           />
-          {!isEdge(element) && <AdjacencyPanel vertex={element} />}
+          {isEdge(element) ? (
+            <section className="panel">
+              <div className="panel-title">neighborhood</div>
+              <NeighborhoodPreview element={element} onInspect={inspect} />
+            </section>
+          ) : (
+            <AdjacencyPanel vertex={element} onInspect={inspect} />
+          )}
         </div>
       )}
 
@@ -194,11 +211,7 @@ export function BrowserScreen() {
                   );
                 })
                 .slice(0, 200)}
-              onInspect={(id) => {
-                setIdInput(String(id));
-                setLookupKind("graphelement");
-                lookup.mutate({ kind: "graphelement", id });
-              }}
+              onInspect={inspect}
             />
           </>
         )}
