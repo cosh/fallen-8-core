@@ -58,7 +58,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         private static Fallen8 EngineOf(WebApplicationFactory<Program> factory)
-            => (Fallen8)factory.Services.GetRequiredService<IFallen8>();
+            => factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
 
         private static int Vertex(Fallen8 engine)
         {

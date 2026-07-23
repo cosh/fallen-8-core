@@ -32,6 +32,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Helper;
+using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -60,11 +61,13 @@ namespace NoSQL.GraphDB.App.Services
         /// direct test construction stays unchanged.</summary>
         private readonly StartupState _startupState;
 
-        public DurabilityLifecycleService(IFallen8 fallen8, IOptions<Fallen8DurabilityOptions> options,
+        public DurabilityLifecycleService(Fallen8Namespaces namespaces, IOptions<Fallen8DurabilityOptions> options,
             SaveGameRegistry saveGames, ILogger<DurabilityLifecycleService> logger,
             StartupState startupState = null)
         {
-            _fallen8 = fallen8;
+            // Phase 1 of feature graph-namespaces: the lifecycle still covers only the default
+            // namespace (legacy paths). Phase 3 generalizes it across the collection.
+            _fallen8 = namespaces.Default.Engine;
             _options = options.Value;
             _saveGames = saveGames;
             _logger = logger;

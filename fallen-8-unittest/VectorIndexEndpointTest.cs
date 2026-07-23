@@ -64,7 +64,7 @@ namespace NoSQL.GraphDB.Tests
 
         private static Fallen8 EngineOf(VectorFactory factory)
         {
-            return (Fallen8)factory.Services.GetRequiredService<IFallen8>();
+            return factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
         }
 
         private static async Task CreateVectorIndex(HttpClient client, string name = "emb", int dimension = 3, string metric = "Cosine")
