@@ -10,6 +10,7 @@ import { DashboardScreen } from "../screens/DashboardScreen";
 import { SaveGamesScreen } from "../screens/SaveGamesScreen";
 import { BrowserScreen } from "../screens/BrowserScreen";
 import { QueryScreen } from "../screens/QueryScreen";
+import { IndexesScreen } from "../screens/IndexesScreen";
 import { PathScreen } from "../screens/PathScreen";
 import { SubgraphScreen } from "../screens/SubgraphScreen";
 import { AnalyticsScreen } from "../screens/AnalyticsScreen";
@@ -56,6 +57,14 @@ const queryRoute = createRoute({
   component: QueryScreen,
 });
 
+// NOTE: "/indexes" (plural) - the singular path is the real POST /index API route, which
+// would win over the SPA fallback on a full-page load (same reason /subgraphs is plural).
+const indexesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/indexes",
+  component: IndexesScreen,
+});
+
 const pathRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/path",
@@ -90,6 +99,7 @@ const routeTree = rootRoute.addChildren([
   saveGamesRoute,
   browserRoute,
   queryRoute,
+  indexesRoute,
   pathRoute,
   subgraphRoute,
   analyticsRoute,

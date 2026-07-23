@@ -18,6 +18,7 @@ import type {
   GraphREST,
   GraphStatisticsREST,
   IndexAddToSpecification,
+  IndexKeySpecification,
   IndexScanSpecification,
   PartitionMembersREST,
   PathREST,
@@ -272,15 +273,17 @@ export const embeddingSearch = (i: InstanceConfig, spec: EmbeddingSearchSpecific
     body: spec,
   });
 
-// ---- index management (FR-10) ----
+// ---- index lifecycle + content (FR-10, surfaced on the Indexes screen) ----
 
 // Answers the server's boolean: false means "not created" (duplicate id, invalid or
 // REST-inexpressible plugin options) — surface it, don't report success.
 export const createIndex = (i: InstanceConfig, spec: PluginSpecification) =>
   apiRequest<boolean>(i, "/index", { method: "POST", body: spec, query: WAIT });
 
+// The add/remove-element endpoints answer the server's boolean: false means "index or
+// element not found" — surface it, don't report success.
 export const addToIndex = (i: InstanceConfig, indexId: string, spec: IndexAddToSpecification) =>
-  apiRequest<void>(i, `/index/${encodeURIComponent(indexId)}`, {
+  apiRequest<boolean>(i, `/index/${encodeURIComponent(indexId)}`, {
     method: "PUT",
     body: spec,
     query: WAIT,
@@ -289,7 +292,7 @@ export const addToIndex = (i: InstanceConfig, indexId: string, spec: IndexAddToS
 export const removeIndexKey = (
   i: InstanceConfig,
   indexId: string,
-  key: PropertySpecification,
+  key: IndexKeySpecification,
 ) =>
   apiRequest<boolean>(i, `/index/${encodeURIComponent(indexId)}/propertyValue`, {
     method: "DELETE",
@@ -297,7 +300,7 @@ export const removeIndexKey = (
   });
 
 export const removeFromIndex = (i: InstanceConfig, indexId: string, graphElementId: number) =>
-  apiRequest<void>(i, `/index/${encodeURIComponent(indexId)}/${graphElementId}`, {
+  apiRequest<boolean>(i, `/index/${encodeURIComponent(indexId)}/${graphElementId}`, {
     method: "DELETE",
     query: WAIT,
   });

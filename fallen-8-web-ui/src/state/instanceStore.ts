@@ -91,9 +91,8 @@ export const DEFAULT_PATH_DRAFT: PathDraft = {
   semantic: { ...DEFAULT_SEMANTIC_DRAFT },
 };
 
-/** One-shot navigation intent: "open Query with this scan pre-filled" (cleared on consume). */
+/** One-shot navigation intent: "open Query with this index preselected" (cleared on consume). */
 export interface ScanPrefill {
-  kind: "index";
   indexId: string;
 }
 

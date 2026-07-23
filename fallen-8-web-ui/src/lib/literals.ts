@@ -1,4 +1,8 @@
-import type { LiteralSpecification, PropertySpecification } from "../api/types";
+import type {
+  IndexKeySpecification,
+  LiteralSpecification,
+  PropertySpecification,
+} from "../api/types";
 
 /**
  * Typed-literal editing (FR-9): everywhere the API takes
@@ -74,6 +78,10 @@ export function toPropertySpec(propertyId: string, value: TypedValue): PropertyS
     propertyValue: toWireValue(value),
     fullQualifiedTypeName: value.type,
   };
+}
+
+export function toIndexKey(value: TypedValue): IndexKeySpecification {
+  return { propertyValue: toWireValue(value), fullQualifiedTypeName: value.type };
 }
 
 /**

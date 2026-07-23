@@ -19,6 +19,15 @@ export interface IndexDescription {
   embeddingName?: string | null;
   /** The declared model-identity string a vector index expects, or null. Diagnostic only. */
   model?: string | null;
+  /**
+   * The query families this index answers (feature index-workspace) — the derivation
+   * contract lives on the server's IndexDescriptionREST. Live /status inventory only,
+   * absent on older servers (lib/indexCapabilities.ts holds the client fallback).
+   */
+  capabilities?: string[] | null;
+  /** CountOfKeys() / CountOfValues() snapshots — live /status inventory only. */
+  keys?: number | null;
+  values?: number | null;
 }
 
 /** Save-game registry (feature save-games). */
@@ -334,9 +343,18 @@ export interface EmbeddingSearchSpecification {
   label?: string;
 }
 
+/**
+ * An index key on the wire: PropertySpecification minus the property id — the server's
+ * add/remove-key endpoints read only propertyValue + type (see GraphController.Index).
+ */
+export interface IndexKeySpecification {
+  propertyValue: string;
+  fullQualifiedTypeName: string;
+}
+
 export interface IndexAddToSpecification {
   graphElementId: number;
-  key: LiteralSpecification;
+  key: IndexKeySpecification;
 }
 
 /**

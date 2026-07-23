@@ -175,7 +175,7 @@ export function GraphShapePanel() {
                           type="button"
                           className="btn"
                           onClick={() => {
-                            setScanPrefill({ kind: "index", indexId: index.name! });
+                            setScanPrefill({ indexId: index.name! });
                             navigate({ to: "/query" });
                           }}
                         >

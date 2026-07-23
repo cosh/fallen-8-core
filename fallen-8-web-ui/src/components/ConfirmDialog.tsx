@@ -68,7 +68,16 @@ export function ConfirmDialog({
             />
           </Field>
           <div className="mt-4 flex justify-end gap-2">
-            <button type="button" className="btn" onClick={() => onCancel()}>
+            {/* Reset here too: a parent-driven close (open=false) never fires onOpenChange,
+                and a surviving typed name would pre-arm the NEXT delete target. */}
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setTyped("");
+                onCancel();
+              }}
+            >
               Cancel
             </button>
             <button
