@@ -9,6 +9,7 @@ import type {
   StatusREST,
   VectorSearchResultREST,
 } from "../src/api/types";
+import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 
 /**
  * Embedding semantics across the split screens (features element-embeddings /
@@ -87,6 +88,8 @@ function renderScreen(
 }
 
 beforeEach(() => {
+  resetInstanceStoresForTests();
+  localStorage.clear();
   getStatusMock.mockReset().mockResolvedValue(STATUS);
   createIndexMock.mockReset().mockResolvedValue(true);
   embeddingSearchMock.mockReset().mockResolvedValue({
