@@ -37,13 +37,20 @@ vi.mock("../src/canvas/GraphCanvas", () => {
       edges,
       emphasis,
       onSelect,
+      config,
     }: {
       nodes: Record<number, { id: number; label: string | null }>;
       edges: Record<number, { id: number }>;
       emphasis?: { nodeIds: readonly number[]; edgeIds: readonly number[] } | null;
       onSelect: (ref: { kind: "node" | "edge"; id: number } | null) => void;
+      config?: { nodeImageProperty?: string; renderer?: string };
     }) => (
-      <div data-testid="mock-canvas" data-emphasis={JSON.stringify(emphasis)}>
+      <div
+        data-testid="mock-canvas"
+        data-emphasis={JSON.stringify(emphasis)}
+        data-node-image={config?.nodeImageProperty ?? ""}
+        data-renderer={config?.renderer ?? ""}
+      >
         {Object.values(nodes).map((n) => (
           <button
             key={n.id}
@@ -69,6 +76,7 @@ vi.mock("../src/canvas/GraphCanvas", () => {
 });
 
 import { NeighborhoodPreview } from "../src/components/NeighborhoodPreview";
+import { getInstanceStore } from "../src/state/instanceStore";
 
 const VERTEX: VertexREST = {
   id: 42,
@@ -128,6 +136,30 @@ describe("vertex mode", () => {
       "1 edge · click an element to inspect it",
     );
     expect(screen.queryByTestId("preview-truncation")).not.toBeInTheDocument();
+  });
+
+  it("inherits the instance's image/emoji property so icons render like the canvas, pinned to 2D", async () => {
+    // The instance's canvas styling (persisted by a sample load) must flow into the
+    // preview — otherwise nodes are plain dots here while the Canvas screen shows icons.
+    getInstanceStore("local").getState().setStyleConfig({
+      nodeImageProperty: "icon",
+      renderer: "3d",
+    });
+    fetchVertexNeighborhoodMock.mockResolvedValue(
+      neighborhood({ vertices: [{ ...VERTEX, id: 7, label: "city" }], edges: [] }),
+    );
+    renderPreview(VERTEX);
+
+    const canvas = await screen.findByTestId("mock-canvas");
+    expect(canvas.dataset.nodeImage).toBe("icon");
+    // ...but the teaser stays 2D even though the instance canvas is set to 3D.
+    expect(canvas.dataset.renderer).toBe("2d");
+
+    // Restore the default so store state can't leak into sibling tests.
+    getInstanceStore("local").getState().setStyleConfig({
+      nodeImageProperty: "",
+      renderer: "2d",
+    });
   });
 
   it("navigates on node and edge clicks", async () => {

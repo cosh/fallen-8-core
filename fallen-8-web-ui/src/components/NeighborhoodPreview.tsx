@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
 import {
@@ -10,12 +10,8 @@ import {
 } from "../lib/neighborhood";
 import { buildCanvasModel, type CanvasModel } from "../state/instanceStore";
 import { GraphCanvas } from "../canvas/GraphCanvas";
-import { DEFAULT_STYLE_CONFIG, type StyleConfig } from "../canvas/styleConfig";
 import { ErrorBox } from "./ErrorBox";
 import { TruncationBadge } from "./TruncationBadge";
-
-/** Fixed render config — the preview is a canvas teaser, not a workbench (spec non-goals). */
-const PREVIEW_STYLE: StyleConfig = { ...DEFAULT_STYLE_CONFIG, edgeArrows: true };
 
 /**
  * Rendered 1-hop neighborhood (feature adjacency-preview): a vertex with its adjacent
@@ -29,8 +25,17 @@ export function NeighborhoodPreview({
   element: VertexREST | EdgeREST;
   onInspect: (id: number) => void;
 }) {
-  const instance = useActiveInstance()!;
+  const { instance, store } = useInstanceStore();
   const edge = isEdge(element) ? element : null;
+
+  // Mirror the canvas: adopt the instance's persisted styling (node color/size and the
+  // image/emoji property, so icons render here exactly as on the Canvas screen) but pin
+  // to the 2D renderer — the preview is a teaser and must not lazy-load three.js.
+  const styleConfig = store((s) => s.styleConfig);
+  const previewStyle = useMemo(
+    () => ({ ...styleConfig, renderer: "2d" as const }),
+    [styleConfig],
+  );
 
   const neighborhood = useQuery({
     queryKey: [instance.id, "neighborhood", edge ? "edge" : "vertex", element.id],
@@ -107,7 +112,7 @@ export function NeighborhoodPreview({
         <GraphCanvas
           nodes={model!.nodes}
           edges={model!.edges}
-          config={PREVIEW_STYLE}
+          config={previewStyle}
           pathOverlay={null}
           emphasis={emphasis}
           onSelect={(ref) => {
