@@ -158,6 +158,16 @@ In the Development environment the API description and interactive reference are
 
 ![The Scalar API reference for fallen-8-core, listing the Admin, Graph, SubGraph and other endpoint groups.](./pics/scalarApiReference.png)
 
+## Namespaces
+
+A Fallen-8 hosts up to 10,000 (configurable) **isolated graph namespaces**, each with its own
+vertices, edges, indices, subgraphs and stored queries. Every data route also answers under
+`/ns/{name}/…`; bare URLs alias the reserved `default` namespace, so everything below works
+unchanged. Manage them via `GET/PUT/PATCH/DELETE /ns/{name}`, save one (`PUT /save`) or all
+(`PUT /save/all`), and restore any namespace out of a save game. In F8 Studio the top bar
+carries the instance / namespace pair and the Connect screen manages the set. Full story:
+[features/done/graph-namespaces/](features/done/graph-namespaces/).
+
 ## Samples
 
 Start `fallen-8-core-apiApp` and have fun. The following walkthrough uses the built-in
