@@ -5,6 +5,7 @@ import type { InstanceConfig } from "../instances/types";
 import { describeEndpoint } from "../instances/types";
 import { getStatus, isAuthorized } from "../api/endpoints";
 import { Field } from "../components/Field";
+import { NamespacesPanel } from "../components/NamespacesPanel";
 
 /**
  * Connect / Instances (FR-1a): registry with add/edit/remove, lazy health overview via
@@ -195,6 +196,8 @@ export function ConnectScreen() {
           )}
         </div>
       </section>
+
+      <NamespacesPanel />
 
       <p className="text-fg-faint text-[11px]">
         Fallen-8 instances are developer/operator tools for trusted networks. An instance

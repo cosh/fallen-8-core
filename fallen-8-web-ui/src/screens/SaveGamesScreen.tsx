@@ -6,18 +6,19 @@ import {
   deleteSaveGame,
   listSaveGames,
   loadSaveGame,
-  saveGraph,
+  saveAllNamespaces,
 } from "../api/endpoints";
-import type { SaveGame } from "../api/types";
+import type { SaveGame, SaveGameNamespace } from "../api/types";
 import { formatExact } from "../lib/format";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { help } from "../lib/fieldHelp";
 
 /**
- * Save games (feature save-games): the persistent checkpoint registry as a table, with
- * Save now, Load (typed confirmation - loading replaces the graph), and Delete (typed
- * confirmation, optional file deletion). Sits under Dashboard in the rail.
+ * Save games (feature save-games + graph-namespaces): the persistent checkpoint registry
+ * as a table. Fallen-8-level — an entry can span several namespaces ("Save all" creates
+ * one), and loading restores exactly the namespaces an entry contains (or one of them,
+ * via the restore selector). Sits under Dashboard in the rail.
  */
 
 function formatBytes(bytes: number): string {
@@ -32,6 +33,32 @@ function formatSavedAt(iso: string): string {
   return Number.isNaN(t) ? iso : new Date(t).toLocaleString();
 }
 
+/**
+ * The namespaces an entry effectively contains — mirrors the server's normalization: a
+ * pre-namespace (v1) entry is a default-only save described by its top-level fields.
+ */
+export function effectiveNamespaces(game: SaveGame): SaveGameNamespace[] {
+  if (game.namespaces && game.namespaces.length > 0) return game.namespaces;
+  return [
+    {
+      name: "default",
+      location: game.location ?? "",
+      fileCount: game.fileCount,
+      totalBytes: game.totalBytes,
+      kpis: game.kpis ?? {
+        vertexCount: 0,
+        edgeCount: 0,
+        usedMemoryBytes: 0,
+        indices: [],
+        availableIndexPlugins: [],
+        availablePathPlugins: [],
+        availableServicePlugins: [],
+        subGraphs: [],
+      },
+    },
+  ];
+}
+
 export function SaveGamesScreen() {
   const instance = useActiveInstance()!;
   const queryClient = useQueryClient();
@@ -40,6 +67,8 @@ export function SaveGamesScreen() {
     { kind: "load" | "delete"; game: SaveGame } | null
   >(null);
   const [deleteFiles, setDeleteFiles] = useState(false);
+  /** "" = restore the entire entry; otherwise the one namespace to restore. */
+  const [loadNamespace, setLoadNamespace] = useState("");
 
   const list = useQuery({
     queryKey: [instance.id, "savegames"],
@@ -48,12 +77,15 @@ export function SaveGamesScreen() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: [instance.id] });
 
-  const saveNow = useMutation({
-    mutationFn: () => saveGraph(instance),
+  const saveAll = useMutation({
+    mutationFn: () => saveAllNamespaces(instance),
     onSuccess: (entry) => {
+      const members = entry ? effectiveNamespaces(entry) : [];
       setMessage(
         entry
-          ? `Saved: ${entry.kpis.vertexCount} vertices, ${entry.kpis.edgeCount} edges → ${entry.location}`
+          ? `Saved ${members.length} namespace${members.length === 1 ? "" : "s"}: ${members
+              .map((m) => m.name)
+              .join(", ")}`
           : "Saved.",
       );
       invalidate();
@@ -61,9 +93,16 @@ export function SaveGamesScreen() {
   });
 
   const load = useMutation({
-    mutationFn: (id: string) => loadSaveGame(instance, id),
-    onSuccess: (entry) => {
-      setMessage(entry ? `Loaded save game ${entry.id}.` : "Loaded.");
+    mutationFn: ({ id, namespaceName }: { id: string; namespaceName?: string }) =>
+      loadSaveGame(instance, id, namespaceName),
+    onSuccess: (entry, variables) => {
+      setMessage(
+        entry
+          ? variables.namespaceName
+            ? `Restored namespace “${variables.namespaceName}” from ${entry.id}.`
+            : `Restored save game ${entry.id}.`
+          : "Loaded.",
+      );
       invalidate();
     },
   });
@@ -77,7 +116,9 @@ export function SaveGamesScreen() {
     },
   });
 
-  const failed = [saveNow, load, remove].find((m) => m.isError);
+  const failed = [saveAll, load, remove].find((m) => m.isError);
+
+  const confirmingMembers = confirming ? effectiveNamespaces(confirming.game) : [];
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -89,10 +130,11 @@ export function SaveGamesScreen() {
           type="button"
           className="btn btn-accent ml-auto"
           data-testid="save-now"
-          disabled={saveNow.isPending}
-          onClick={() => saveNow.mutate()}
+          title="Fallen-8-wide: checkpoints EVERY namespace into one restore point"
+          disabled={saveAll.isPending}
+          onClick={() => saveAll.mutate()}
         >
-          {saveNow.isPending ? "Saving…" : "Save now"}
+          {saveAll.isPending ? "Saving…" : "Save all namespaces"}
         </button>
         <button type="button" className="btn" onClick={() => list.refetch()}>
           Refresh
@@ -110,7 +152,7 @@ export function SaveGamesScreen() {
         <div className="panel-title">
           registry
           <span className="text-fg-faint normal-case">
-            metadata/savegames.json · values captured at save time
+            metadata/savegames.json · Fallen-8-level · values captured at save time
           </span>
         </div>
         {list.isError && (
@@ -124,67 +166,76 @@ export function SaveGamesScreen() {
               <tr className="text-fg-faint">
                 <th className="table-cell">saved at</th>
                 <th className="table-cell">trigger</th>
+                <th className="table-cell">namespaces</th>
                 <th className="table-cell">vertices</th>
                 <th className="table-cell">edges</th>
                 <th className="table-cell">files</th>
                 <th className="table-cell">size</th>
-                <th className="table-cell">indices / subgraphs</th>
-                <th className="table-cell">location</th>
                 <th className="table-cell w-40">actions</th>
               </tr>
             </thead>
             <tbody>
-              {(list.data ?? []).map((game) => (
-                <tr key={game.id} data-testid={`savegame-row-${game.id}`} className="hover:bg-panel-2">
-                  <td className="table-cell">{formatSavedAt(game.savedAt)}</td>
-                  <td className="table-cell">
-                    <span className="border-line rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase">
-                      {game.trigger}
-                    </span>
-                  </td>
-                  <td className="table-cell">{formatExact(game.kpis.vertexCount)}</td>
-                  <td className="table-cell">{formatExact(game.kpis.edgeCount)}</td>
-                  <td className="table-cell">{game.fileCount}</td>
-                  <td className="table-cell">{formatBytes(game.totalBytes)}</td>
-                  <td className="table-cell text-fg-dim">
-                    {game.kpis.indices.map((i) => i.indexId).join(", ") || "—"}
-                    {game.kpis.subGraphs.length > 0 && (
-                      <div className="text-fg-faint">sg: {game.kpis.subGraphs.join(", ")}</div>
-                    )}
-                  </td>
-                  <td className="table-cell text-fg-faint max-w-64 truncate" title={game.location}>
-                    {game.location}
-                  </td>
-                  <td className="table-cell">
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        className="btn"
-                        data-testid={`load-${game.id}`}
-                        onClick={() => setConfirming({ kind: "load", game })}
-                      >
-                        Load…
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-danger"
-                        data-testid={`delete-${game.id}`}
-                        onClick={() => {
-                          setDeleteFiles(false);
-                          setConfirming({ kind: "delete", game });
-                        }}
-                      >
-                        Delete…
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {(list.data ?? []).map((game) => {
+                const members = effectiveNamespaces(game);
+                return (
+                  <tr key={game.id} data-testid={`savegame-row-${game.id}`} className="hover:bg-panel-2">
+                    <td className="table-cell">{formatSavedAt(game.savedAt)}</td>
+                    <td className="table-cell">
+                      <span className="border-line rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase">
+                        {game.trigger}
+                      </span>
+                    </td>
+                    <td
+                      className="table-cell"
+                      data-testid={`savegame-namespaces-${game.id}`}
+                      title={members
+                        .map((m) => `${m.name}: ${m.kpis.vertexCount} v · ${m.kpis.edgeCount} e`)
+                        .join("\n")}
+                    >
+                      {members.map((m) => m.name).join(", ")}
+                    </td>
+                    <td className="table-cell">
+                      {formatExact(members.reduce((sum, m) => sum + m.kpis.vertexCount, 0))}
+                    </td>
+                    <td className="table-cell">
+                      {formatExact(members.reduce((sum, m) => sum + m.kpis.edgeCount, 0))}
+                    </td>
+                    <td className="table-cell">{game.fileCount}</td>
+                    <td className="table-cell">{formatBytes(game.totalBytes)}</td>
+                    <td className="table-cell">
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          className="btn"
+                          data-testid={`load-${game.id}`}
+                          onClick={() => {
+                            setLoadNamespace("");
+                            setConfirming({ kind: "load", game });
+                          }}
+                        >
+                          Load…
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          data-testid={`delete-${game.id}`}
+                          onClick={() => {
+                            setDeleteFiles(false);
+                            setConfirming({ kind: "delete", game });
+                          }}
+                        >
+                          Delete…
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {(list.data ?? []).length === 0 && !list.isError && (
                 <tr>
-                  <td className="table-cell text-fg-faint" colSpan={9}>
-                    No save games yet. “Save now” creates the first one; loading a checkpoint on
-                    another instance registers it automatically.
+                  <td className="table-cell text-fg-faint" colSpan={8}>
+                    No save games yet. “Save all namespaces” creates the first one; loading a
+                    checkpoint on another instance registers it automatically.
                   </td>
                 </tr>
               )}
@@ -195,15 +246,41 @@ export function SaveGamesScreen() {
 
       <ConfirmDialog
         open={confirming?.kind === "load"}
-        title="Load save game"
-        description="Loading replaces the entire in-memory graph with this save game."
+        title="Restore save game"
+        description={
+          loadNamespace
+            ? `Restores ONLY namespace “${loadNamespace}” to this entry's content (recreating it if dropped). Every other namespace stays untouched.`
+            : `Restores the namespaces this entry contains — ${confirmingMembers
+                .map((m) => m.name)
+                .join(", ")} — replacing their current content (dropped ones are recreated). Namespaces the entry does not contain stay untouched.`
+        }
         instanceName={instance.name}
         endpoint={describeEndpoint(instance)}
-        confirmLabel="Load save game"
+        confirmLabel="Restore"
+        extra={
+          confirmingMembers.length > 1 ? (
+            <label className="text-fg-dim flex items-center gap-2 text-[12px]" data-testid="load-namespace-select">
+              restore
+              <select
+                className="input w-auto"
+                value={loadNamespace}
+                onChange={(e) => setLoadNamespace(e.target.value)}
+              >
+                <option value="">entire entry ({confirmingMembers.length} namespaces)</option>
+                {confirmingMembers.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    only “{m.name}”
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : undefined
+        }
         onConfirm={() => {
           const game = confirming!.game;
+          const namespaceName = loadNamespace || undefined;
           setConfirming(null);
-          load.mutate(game.id);
+          load.mutate({ id: game.id, namespaceName });
         }}
         onCancel={() => setConfirming(null)}
       />

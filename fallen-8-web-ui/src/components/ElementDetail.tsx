@@ -1,4 +1,4 @@
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
 import { EmbeddingsTab } from "./EmbeddingsTab";
@@ -22,7 +22,7 @@ export function ElementDetail({
   tab: "properties" | "embeddings";
   onTabChange: (tab: "properties" | "embeddings") => void;
 }) {
-  const instance = useActiveInstance()!;
+  const { instance } = useInstanceStore();
   const edge = isEdge(element) ? element : null;
 
   return (

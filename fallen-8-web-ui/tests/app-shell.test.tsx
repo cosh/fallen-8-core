@@ -17,12 +17,15 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({
     to,
     children,
+    // Swallow router-only props (params) so they never land on the anchor element.
+    params: _params,
     ...rest
-  }: { to: string; children: ReactNode } & Record<string, unknown>) => (
+  }: { to: string; children: ReactNode; params?: unknown } & Record<string, unknown>) => (
     <a href={to} {...rest}>
       {children}
     </a>
   ),
+  useNavigate: () => () => Promise.resolve(),
   useRouterState: ({
     select,
   }: {

@@ -1,13 +1,15 @@
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import {
   exportBulk,
   importBulk,
   loadGraph,
+  saveAllNamespaces,
   saveGraph,
   tabulaRasa,
+  tabulaRasaAll,
   trimGraph,
 } from "../api/endpoints";
 import { ApiError } from "../api/client";
@@ -45,9 +47,12 @@ function PluginList({ title, plugins }: { title: string; plugins: string[] }) {
 }
 
 export function DashboardScreen() {
-  const instance = useActiveInstance()!;
+  const { instance } = useInstanceStore();
+  const namespace = instance.namespace ?? "default";
   const queryClient = useQueryClient();
-  const [confirming, setConfirming] = useState<"tabularasa" | "load" | null>(null);
+  const [confirming, setConfirming] = useState<
+    "tabularasa" | "factory-reset" | "load" | null
+  >(null);
   const [loadPath, setLoadPath] = useState("");
   const [lastMessage, setLastMessage] = useState<string | null>(null);
   const [showExportFilter, setShowExportFilter] = useState(false);
@@ -67,7 +72,18 @@ export function DashboardScreen() {
     onSuccess: (entry) => {
       setLastMessage(
         entry
-          ? `Saved to ${entry.location} — registered as save game ${entry.id}. See the Save games screen.`
+          ? `Saved namespace “${namespace}” to ${entry.location} — registered as save game ${entry.id}. See the Save games screen.`
+          : "Saved.",
+      );
+      refresh();
+    },
+  });
+  const saveAll = useMutation({
+    mutationFn: () => saveAllNamespaces(instance),
+    onSuccess: (entry) => {
+      setLastMessage(
+        entry
+          ? `Saved ALL namespaces as save game ${entry.id}. See the Save games screen.`
           : "Saved.",
       );
       refresh();
@@ -87,8 +103,16 @@ export function DashboardScreen() {
   const erase = useMutation({
     mutationFn: () => tabulaRasa(instance),
     onSuccess: () => {
-      setLastMessage("All data erased.");
+      setLastMessage(`Namespace “${namespace}” erased.`);
       refresh();
+    },
+  });
+  const factoryReset = useMutation({
+    mutationFn: () => tabulaRasaAll(instance),
+    onSuccess: () => {
+      setLastMessage("Factory reset: every namespace dropped, “default” erased.");
+      // Fallen-8-wide: every namespace's caches are stale now, not just this one's.
+      queryClient.invalidateQueries();
     },
   });
   const exportGraph = useMutation({
@@ -127,7 +151,9 @@ export function DashboardScreen() {
     },
   });
 
-  const failed = [save, load, trim, erase, exportGraph].find((m) => m.isError);
+  const failed = [save, saveAll, load, trim, erase, factoryReset, exportGraph].find(
+    (m) => m.isError,
+  );
 
   if (status.isPending) {
     return <div className="text-fg-faint">Loading status…</div>;
@@ -141,7 +167,7 @@ export function DashboardScreen() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex items-center gap-2">
         <h1 className="text-fg text-sm font-bold tracking-wider uppercase">
-          Dashboard — {instance.name}
+          Dashboard — {instance.name} / {namespace}
         </h1>
         <button type="button" className="btn ml-auto" onClick={() => status.refetch()}>
           Refresh
@@ -211,10 +237,21 @@ export function DashboardScreen() {
             <button
               type="button"
               className="btn"
+              title={`Checkpoints namespace “${namespace}” into a save-game entry`}
               disabled={save.isPending}
               onClick={() => save.mutate()}
             >
-              {save.isPending ? "Saving…" : "Save"}
+              {save.isPending ? "Saving…" : "Save namespace"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              data-testid="save-all"
+              title="Fallen-8-wide: checkpoints EVERY namespace into one restore point"
+              disabled={saveAll.isPending}
+              onClick={() => saveAll.mutate()}
+            >
+              {saveAll.isPending ? "Saving…" : "Save all namespaces"}
             </button>
             <button
               type="button"
@@ -247,9 +284,19 @@ export function DashboardScreen() {
               type="button"
               className="btn btn-danger ml-auto"
               data-testid="tabularasa"
+              title={`Erases namespace “${namespace}” (it stays registered, empty)`}
               onClick={() => setConfirming("tabularasa")}
             >
-              Tabula rasa…
+              Erase namespace…
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              data-testid="factory-reset"
+              title="Fallen-8-wide: drops every non-default namespace and erases “default”"
+              onClick={() => setConfirming("factory-reset")}
+            >
+              Factory reset…
             </button>
           </div>
 
@@ -365,11 +412,11 @@ export function DashboardScreen() {
 
       <ConfirmDialog
         open={confirming === "tabularasa"}
-        title="Erase all data"
-        description="Tabula rasa removes every vertex, edge, and index. This cannot be undone."
-        instanceName={instance.name}
-        endpoint={describeEndpoint(instance)}
-        confirmLabel="Erase everything"
+        title={`Erase namespace “${namespace}”`}
+        description={`Removes every vertex, edge, and index of namespace “${namespace}” (the namespace stays registered, empty; other namespaces are untouched). This cannot be undone.`}
+        instanceName={namespace}
+        endpoint={`${describeEndpoint(instance)} → /ns/${namespace}/*`}
+        confirmLabel="Erase namespace"
         onConfirm={() => {
           setConfirming(null);
           erase.mutate();
@@ -377,11 +424,24 @@ export function DashboardScreen() {
         onCancel={() => setConfirming(null)}
       />
       <ConfirmDialog
-        open={confirming === "load"}
-        title="Load a checkpoint"
-        description="Loading replaces the entire in-memory graph with the checkpoint."
+        open={confirming === "factory-reset"}
+        title="Factory reset — Fallen-8-wide"
+        description="Drops EVERY non-default namespace (their data is gone; save games remain restore points) and erases “default”. This affects ALL namespaces of this Fallen-8 and cannot be undone."
         instanceName={instance.name}
         endpoint={describeEndpoint(instance)}
+        confirmLabel="Reset everything"
+        onConfirm={() => {
+          setConfirming(null);
+          factoryReset.mutate();
+        }}
+        onCancel={() => setConfirming(null)}
+      />
+      <ConfirmDialog
+        open={confirming === "load"}
+        title="Load a checkpoint"
+        description={`Loading replaces namespace “${namespace}”'s in-memory graph with the checkpoint.`}
+        instanceName={namespace}
+        endpoint={`${describeEndpoint(instance)} → /ns/${namespace}/*`}
         confirmLabel="Load checkpoint"
         onConfirm={() => {
           setConfirming(null);

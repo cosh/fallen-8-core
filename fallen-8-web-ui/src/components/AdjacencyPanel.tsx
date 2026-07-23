@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import {
   getInDegree,
   getInEdgeProperties,
@@ -30,7 +30,7 @@ export function AdjacencyPanel({
   element: VertexREST | EdgeREST;
   onInspect: (id: number) => void;
 }) {
-  const instance = useActiveInstance()!;
+  const { instance } = useInstanceStore();
   const [view, setView] = useState<AdjacencyView>("graph");
   const [expanded, setExpanded] = useState<{ dir: "out" | "in"; prop: string } | null>(null);
   const edge = isEdge(element);

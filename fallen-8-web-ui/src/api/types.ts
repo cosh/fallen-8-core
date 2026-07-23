@@ -42,15 +42,41 @@ export interface SaveGameKpis {
   subGraphs: string[];
 }
 
+/** One namespace inside a save game (feature graph-namespaces, registry schema v2). */
+export interface SaveGameNamespace {
+  name: string;
+  location: string;
+  fileCount: number;
+  totalBytes: number;
+  kpis: SaveGameKpis;
+}
+
 export interface SaveGame {
   id: string;
   savedAt: string;
   trigger: "api" | "shutdown" | "imported";
-  location: string;
+  /** Null on multi-namespace entries (the per-member locations live in `namespaces`). */
+  location: string | null;
   fileCount: number;
   totalBytes: number;
   engineVersion: string | null;
-  kpis: SaveGameKpis;
+  kpis: SaveGameKpis | null;
+  /** Null/absent on pre-namespace (v1) entries, which are default-only saves. */
+  namespaces?: SaveGameNamespace[] | null;
+}
+
+/** GET /ns — one namespace of the Fallen-8 (feature graph-namespaces). */
+export interface NamespaceEntry {
+  name: string;
+  state: "ready" | "creating";
+  vertexCount: number;
+  edgeCount: number;
+  createdAt: string;
+}
+
+export interface NamespacesResponse {
+  namespaces: NamespaceEntry[];
+  maxNamespaces: number;
 }
 
 /** POST /bulk/import success summary (feature bulk-import-export). */

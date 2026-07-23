@@ -10,13 +10,18 @@ import { getInstanceStore } from "../state/instanceStore";
  * (state/instanceStore.ts) keyed by instance id (FR-1c).
  */
 
+export const DEFAULT_NAMESPACE = "default";
+
 export interface RegistryState {
   instances: InstanceConfig[];
   activeId: string | null;
+  /** The active namespace per instance id (feature graph-namespaces); absent = "default". */
+  activeNamespaces: Record<string, string>;
   addInstance: (instance: Omit<InstanceConfig, "id">) => InstanceConfig;
   updateInstance: (id: string, patch: Partial<Omit<InstanceConfig, "id">>) => void;
   removeInstance: (id: string) => void;
   setActive: (id: string) => void;
+  setActiveNamespace: (instanceId: string, namespace: string) => void;
 }
 
 function newId(): string {
@@ -36,6 +41,7 @@ export const useRegistry = create<RegistryState>()(
     (set) => ({
       instances: [SAME_ORIGIN_INSTANCE],
       activeId: SAME_ORIGIN_INSTANCE.id,
+      activeNamespaces: {},
 
       addInstance: (instance) => {
         const created: InstanceConfig = {
@@ -73,20 +79,46 @@ export const useRegistry = create<RegistryState>()(
 
       setActive: (id) =>
         set((s) => (s.instances.some((instance) => instance.id === id) ? { activeId: id } : s)),
+
+      setActiveNamespace: (instanceId, namespace) =>
+        set((s) => ({
+          activeNamespaces: { ...s.activeNamespaces, [instanceId]: namespace },
+        })),
     }),
     { name: "f8.instances" },
   ),
 );
+
+/** The active instance's active namespace (feature graph-namespaces); "default" until set. */
+export function useActiveNamespace(): string {
+  return useRegistry(
+    (s) => (s.activeId && s.activeNamespaces[s.activeId]) || DEFAULT_NAMESPACE,
+  );
+}
 
 export function useActiveInstance(): InstanceConfig | null {
   return useRegistry((s) => s.instances.find((instance) => instance.id === s.activeId) ?? null);
 }
 
 /**
- * The active instance plus its per-instance workspace store - the preamble every connected
+ * The active instance plus its per-namespace workspace store - the preamble every connected
  * screen needs (the AppShell connection gate guarantees an active instance, hence the non-null).
+ * The returned instance is NAMESPACE-BOUND (feature graph-namespaces): its API calls address
+ * /ns/{activeNamespace}/… explicitly, and the workspace store is keyed per namespace so
+ * results, drafts and canvas state never cross namespaces.
  */
 export function useInstanceStore() {
   const instance = useActiveInstance()!;
-  return { instance, store: getInstanceStore(instance.id) };
+  const namespace = useActiveNamespace();
+  return {
+    instance: {
+      ...instance,
+      // The bound view's id is "<instance-id>/<namespace>" ON PURPOSE: every react-query
+      // key and cache derived from `instance.id` becomes per-namespace at once, so no
+      // screen can serve another namespace's cached results. The registry keeps the raw id.
+      id: `${instance.id}/${namespace}`,
+      namespace,
+    },
+    store: getInstanceStore(instance.id, namespace),
+  };
 }

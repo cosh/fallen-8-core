@@ -1,7 +1,9 @@
-import { apiRequest, authHeaders, buildUrl, throwIfNotOk } from "./client";
+import { apiRequest, authHeaders, buildUrl, scopedPath, throwIfNotOk } from "./client";
 import type { InstanceConfig } from "../instances/types";
 import type {
   AnalyticsResultREST,
+  NamespaceEntry,
+  NamespacesResponse,
   AnalyticsSpecification,
   BenchmarkResult,
   BulkImportResultREST,
@@ -71,24 +73,60 @@ export const saveGraph = (i: InstanceConfig, path?: string) =>
     query: WAIT,
   });
 
-// ---- save games (feature save-games) ----
+/** Saves EVERY namespace into one spanning save-game entry (Fallen-8-level). */
+export const saveAllNamespaces = (i: InstanceConfig) =>
+  apiRequest<SaveGame>(i, "/save/all", { method: "PUT", scope: "fallen8" });
+
+/** Factory reset: drops every non-default namespace and erases "default" (Fallen-8-level). */
+export const tabulaRasaAll = (i: InstanceConfig) =>
+  apiRequest<void>(i, "/tabularasa/all", { method: "HEAD", scope: "fallen8" });
+
+// ---- namespaces (feature graph-namespaces) ----
+// Management routes are Fallen-8-level: they exist once, never under /ns/{ns}.
+
+export const listNamespaces = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<NamespacesResponse>(i, "/ns", { signal, scope: "fallen8" });
+
+export const createNamespace = (i: InstanceConfig, name: string) =>
+  apiRequest<NamespaceEntry>(i, `/ns/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    scope: "fallen8",
+  });
+
+export const renameNamespace = (i: InstanceConfig, name: string, newName: string) =>
+  apiRequest<NamespaceEntry>(i, `/ns/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: { name: newName },
+    scope: "fallen8",
+  });
+
+export const dropNamespace = (i: InstanceConfig, name: string) =>
+  apiRequest<void>(i, `/ns/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    scope: "fallen8",
+  });
+
+// ---- save games (feature save-games; Fallen-8-level - entries can span namespaces) ----
 
 export const listSaveGames = (i: InstanceConfig, signal?: AbortSignal) =>
-  apiRequest<SaveGame[]>(i, "/savegames", { signal });
+  apiRequest<SaveGame[]>(i, "/savegames", { signal, scope: "fallen8" });
 
 export const getSaveGame = (i: InstanceConfig, id: string) =>
-  apiRequest<SaveGame>(i, `/savegames/${encodeURIComponent(id)}`);
+  apiRequest<SaveGame>(i, `/savegames/${encodeURIComponent(id)}`, { scope: "fallen8" });
 
-export const loadSaveGame = (i: InstanceConfig, id: string) =>
+/** Restores the entry's namespaces — or exactly one of them via `namespaceName`. */
+export const loadSaveGame = (i: InstanceConfig, id: string, namespaceName?: string) =>
   apiRequest<SaveGame>(i, `/savegames/${encodeURIComponent(id)}/load`, {
     method: "PUT",
-    query: WAIT,
+    query: { ...WAIT, namespace: namespaceName },
+    scope: "fallen8",
   });
 
 export const deleteSaveGame = (i: InstanceConfig, id: string, deleteFiles: boolean) =>
   apiRequest<void>(i, `/savegames/${encodeURIComponent(id)}`, {
     method: "DELETE",
     query: { deleteFiles },
+    scope: "fallen8",
   });
 
 export const loadGraph = (i: InstanceConfig, path: string, startServices = true) =>
@@ -104,16 +142,20 @@ export const trimGraph = (i: InstanceConfig) =>
 export const tabulaRasa = (i: InstanceConfig) =>
   apiRequest<void>(i, "/tabularasa", { method: "HEAD", query: WAIT });
 
-/** Generates a random benchmark graph server-side (edgeCount = out-edges PER VERTEX). */
+/** Generates a random benchmark graph server-side (edgeCount = out-edges PER VERTEX; Fallen-8-level, targets "default"). */
 export const generateGraph = (
   i: InstanceConfig,
   nodeCount = 200,
   edgeCount = 5,
   distribution: "uniform" | "preferential" = "uniform",
-) => apiRequest<string>(i, "/generate", { query: { nodeCount, edgeCount, distribution } });
+) =>
+  apiRequest<string>(i, "/generate", {
+    query: { nodeCount, edgeCount, distribution },
+    scope: "fallen8",
+  });
 
 export const runBenchmark = (i: InstanceConfig, iterations = 1000) =>
-  apiRequest<BenchmarkResult>(i, "/benchmark", { query: { iterations } });
+  apiRequest<BenchmarkResult>(i, "/benchmark", { query: { iterations }, scope: "fallen8" });
 
 // ---- bulk interchange (concept spec §7) ----
 // Raw fetch, not apiRequest: the payload is application/x-ndjson, not JSON.
@@ -124,7 +166,7 @@ export async function exportBulk(
   filters?: { vertexLabel?: string; edgeLabel?: string },
   signal?: AbortSignal,
 ): Promise<Blob> {
-  const url = buildUrl(i.baseUrl, "/bulk/export", {
+  const url = buildUrl(i.baseUrl, scopedPath(i, "/bulk/export"), {
     vertexLabel: filters?.vertexLabel,
     edgeLabel: filters?.edgeLabel,
   });
@@ -138,7 +180,7 @@ export async function importBulk(
   i: InstanceConfig,
   file: Blob,
 ): Promise<BulkImportResultREST | null> {
-  const url = buildUrl(i.baseUrl, "/bulk/import", undefined);
+  const url = buildUrl(i.baseUrl, scopedPath(i, "/bulk/import"), undefined);
   const response = await fetch(url, {
     method: "POST",
     headers: { ...authHeaders(i), "Content-Type": "application/x-ndjson" },
@@ -450,4 +492,5 @@ export const validateDelegate = (
     method: "POST",
     body: { delegateKind, fragment },
     signal,
+    scope: "fallen8",
   });

@@ -479,12 +479,22 @@ type WorkspaceStore = UseBoundStore<StoreApi<WorkspaceState>>;
 
 const stores = new Map<string, WorkspaceStore>();
 
-/** Returns the one store belonging to this instance id (memoized). */
-export function getInstanceStore(instanceId: string): WorkspaceStore {
-  let store = stores.get(instanceId);
+/**
+ * Returns the one store belonging to this instance id + namespace (memoized). The
+ * "default" namespace keeps the pre-namespace key (`f8.workspace.<id>`) so an existing
+ * workspace is adopted as default's with no migration; other namespaces persist under
+ * `f8.workspace.<id>/<ns>` (feature graph-namespaces). Also accepts a pre-bound
+ * "<id>/<namespace>" compound as the first argument (the bound instance view's id, see
+ * useInstanceStore) — both call shapes resolve to the same canonical key. Registry ids
+ * never contain "/".
+ */
+export function getInstanceStore(instanceId: string, namespace?: string): WorkspaceStore {
+  const compound = namespace === undefined ? instanceId : `${instanceId}/${namespace}`;
+  const key = compound.endsWith("/default") ? compound.slice(0, -"/default".length) : compound;
+  let store = stores.get(key);
   if (!store) {
-    store = createWorkspaceStore(instanceId);
-    stores.set(instanceId, store);
+    store = createWorkspaceStore(key);
+    stores.set(key, store);
   }
   return store;
 }

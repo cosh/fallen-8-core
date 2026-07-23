@@ -1,24 +1,33 @@
 import type { ReactNode } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useRegistry, useActiveInstance } from "../instances/registry";
+import {
+  useRegistry,
+  useActiveInstance,
+  useActiveNamespace,
+  DEFAULT_NAMESPACE,
+} from "../instances/registry";
 import { describeEndpoint, type InstanceConfig } from "../instances/types";
-import { getStatus, isAuthorized } from "../api/endpoints";
+import { getStatus, isAuthorized, listNamespaces } from "../api/endpoints";
 import { useLiveChangeFeed, type LiveFeedStatus } from "../state/liveFeed";
 import { help } from "../lib/fieldHelp";
 
+/**
+ * Navigation: Connect, Save games and Benchmark are Fallen-8-level (flat routes); the rest
+ * operate on the ACTIVE NAMESPACE and live under /q/{ns}/… (feature graph-namespaces).
+ */
 const NAV = [
-  { to: "/", label: "Connect", icon: "◉" },
-  { to: "/dashboard", label: "Dashboard", icon: "▦" },
-  { to: "/save-games", label: "Save games", icon: "⭯" },
-  { to: "/browser", label: "Browser", icon: "☰" },
-  { to: "/query", label: "Query", icon: "∴" },
-  { to: "/indexes", label: "Indexes", icon: "⌗" },
-  { to: "/path", label: "Path", icon: "↝" },
-  { to: "/subgraphs", label: "Subgraph", icon: "◫" },
-  { to: "/analytics", label: "Analytics", icon: "∑" },
-  { to: "/canvas", label: "Canvas", icon: "❉" },
-  { to: "/benchmarks", label: "Benchmark", icon: "◔" },
+  { leaf: "/", label: "Connect", icon: "◉", scoped: false },
+  { leaf: "dashboard", label: "Dashboard", icon: "▦", scoped: true },
+  { leaf: "/save-games", label: "Save games", icon: "⭯", scoped: false },
+  { leaf: "browser", label: "Browser", icon: "☰", scoped: true },
+  { leaf: "query", label: "Query", icon: "∴", scoped: true },
+  { leaf: "indexes", label: "Indexes", icon: "⌗", scoped: true },
+  { leaf: "path", label: "Path", icon: "↝", scoped: true },
+  { leaf: "subgraphs", label: "Subgraph", icon: "◫", scoped: true },
+  { leaf: "analytics", label: "Analytics", icon: "∑", scoped: true },
+  { leaf: "canvas", label: "Canvas", icon: "❉", scoped: true },
+  { leaf: "/benchmarks", label: "Benchmark", icon: "◔", scoped: false },
 ] as const;
 
 /**
@@ -96,19 +105,57 @@ function LiveChip({ status }: { status: LiveFeedStatus }) {
 }
 
 /**
- * App shell: left icon rail + top bar with the always-visible instance switcher (FR-1b).
- * Every screen renders under a bar that names the active instance and its endpoint, so
- * production is never mistaken for local.
+ * App shell: left icon rail + top bar with the instance / namespace pair (FR-1b +
+ * feature graph-namespaces). Every screen renders under a bar that names the active
+ * instance, the active namespace, and the resulting endpoint prefix, so production is
+ * never mistaken for local and namespaces are never implicit.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const instances = useRegistry((s) => s.instances);
   const activeId = useRegistry((s) => s.activeId);
   const setActive = useRegistry((s) => s.setActive);
+  const setActiveNamespace = useRegistry((s) => s.setActiveNamespace);
   const active = useActiveInstance();
+  const ns = useActiveNamespace();
+  const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  // One change feed stream per ACTIVE instance, torn down on switch (FR-1c).
-  const liveStatus = useLiveChangeFeed(active);
+  // One change feed stream per ACTIVE instance + namespace, torn down on either switch
+  // (FR-1c + feature graph-namespaces): the feed streams /ns/{ns}/changefeed and its
+  // invalidations hit the per-namespace query keys (the bound view's compound id).
+  const feedInstance = active ? { ...active, id: `${active.id}/${ns}`, namespace: ns } : null;
+  const liveStatus = useLiveChangeFeed(feedInstance);
   const connection = useConnectionState(active);
+
+  // The namespace inventory feeds the switcher (name + counts + quota). On a
+  // pre-namespace server the call 404s and the switcher quietly shows only "default".
+  const namespaces = useQuery({
+    queryKey: [active?.id, "namespaces"],
+    queryFn: ({ signal }) => listNamespaces(active!, signal),
+    enabled: active !== null && connection === "connected",
+    refetchInterval: 15_000,
+    retry: 0,
+  });
+  const namespaceEntries = namespaces.data?.namespaces ?? [
+    { name: DEFAULT_NAMESPACE, state: "ready" as const, vertexCount: 0, edgeCount: 0, createdAt: "" },
+  ];
+
+  const switchNamespace = (name: string) => {
+    if (active) setActiveNamespace(active.id, name);
+    // Stay on the current scoped screen when there is one; land on the dashboard otherwise.
+    const leaf = pathname.startsWith("/q/") ? pathname.split("/").slice(3).join("/") : "";
+    void navigate({
+      to: `/q/$ns/${leaf || "dashboard"}` as "/q/$ns/dashboard",
+      params: { ns: name },
+    });
+  };
+
+  /** The concrete path a nav item points at (scoped items resolve against the active ns). */
+  const navTarget = (item: (typeof NAV)[number]): string =>
+    item.scoped ? `/q/${ns}/${item.leaf}` : item.leaf;
+
+  /** The route mask Link navigates by (params supply the namespace). */
+  const navMask = (item: (typeof NAV)[number]): string =>
+    item.scoped ? `/q/$ns/${item.leaf}` : item.leaf;
 
   return (
     <div className="flex h-full">
@@ -121,6 +168,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
         {NAV.map((item) => {
           const testid = `nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`;
+          const target = navTarget(item);
           const inner = (
             <>
               <span aria-hidden className="text-base leading-none">
@@ -130,10 +178,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             </>
           );
           // Everything beyond Connect is locked until the active instance is connected.
-          if (item.to !== "/" && connection !== "connected") {
+          if (item.leaf !== "/" && connection !== "connected") {
             return (
               <span
-                key={item.to}
+                key={item.label}
                 data-testid={testid}
                 aria-disabled="true"
                 title={`${item.label} — needs a connected instance (see Connect)`}
@@ -145,12 +193,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           }
           return (
             <Link
-              key={item.to}
-              to={item.to}
+              key={item.label}
+              to={navMask(item) as "/q/$ns/dashboard"}
+              params={{ ns }}
               data-testid={testid}
               title={item.label}
               className={`flex w-14 flex-col items-center gap-0.5 rounded px-1 py-2 text-center transition-colors ${
-                pathname === item.to
+                pathname === target
                   ? "bg-panel-2 text-accent"
                   : "text-fg-dim hover:text-fg"
               }`}
@@ -184,9 +233,39 @@ export function AppShell({ children }: { children: ReactNode }) {
             ))}
           </select>
           {active && (
-            <span data-testid="active-endpoint" className="text-fg-dim truncate text-[12px]">
-              {describeEndpoint(active)}
-            </span>
+            <>
+              <label
+                htmlFor="namespace-switcher"
+                className="text-fg-faint text-[11px] uppercase"
+                title="The active namespace: an isolated graph inside this Fallen-8. Manage namespaces on the Connect screen."
+              >
+                namespace
+              </label>
+              <select
+                id="namespace-switcher"
+                data-testid="namespace-switcher"
+                className="input w-auto min-w-32"
+                value={ns}
+                onChange={(e) => switchNamespace(e.target.value)}
+                title={
+                  namespaces.data
+                    ? `${namespaces.data.namespaces.length} / ${namespaces.data.maxNamespaces} namespaces`
+                    : undefined
+                }
+              >
+                {namespaceEntries.map((entry) => (
+                  <option key={entry.name} value={entry.name}>
+                    {entry.name} ({entry.vertexCount} v · {entry.edgeCount} e)
+                  </option>
+                ))}
+                {!namespaceEntries.some((entry) => entry.name === ns) && (
+                  <option value={ns}>{ns}</option>
+                )}
+              </select>
+              <span data-testid="active-endpoint" className="text-fg-dim truncate text-[12px]">
+                {describeEndpoint(active)} → /ns/{ns}/*
+              </span>
+            </>
           )}
           <div className="ml-auto flex items-center gap-2">
             <LiveChip status={liveStatus} />
@@ -208,12 +287,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 screen.
               </div>
             ) : (
-              // Key the screen subtree by instance id so switching instances REMOUNTS the
-              // active screen (FR-1c): component-local result sets (browser lookups, query
-              // hydrations, path results) are dropped rather than carried into another
-              // instance's context. Per-instance stores are already isolated; this closes
-              // the leak one layer above them.
-              <div key={active.id} className="h-full">
+              // Key the screen subtree by instance id + namespace so switching EITHER
+              // remounts the active screen (FR-1c + feature graph-namespaces):
+              // component-local result sets (browser lookups, query hydrations, path
+              // results) are dropped rather than carried into another context. Per-
+              // namespace stores are already isolated; this closes the leak one layer
+              // above them.
+              <div key={`${active.id}/${ns}`} className="h-full">
                 {children}
               </div>
             )
