@@ -107,10 +107,17 @@ namespace NoSQL.GraphDB.App.Controllers
 
         #endregion
 
+        /// <summary>The namespace collection (feature graph-namespaces); null under direct unit
+        /// construction, where every operation targets the one supplied engine.</summary>
+        private readonly Fallen8Namespaces _namespaces;
+
         public AdminController(ILogger<AdminController> logger, IFallen8 fallen8, IOptions<Fallen8SecurityOptions> security,
-            Services.SaveGameRegistry saveGames, Embedding.Fallen8EmbeddingProvider embeddingProvider = null)
+            Services.SaveGameRegistry saveGames, Embedding.Fallen8EmbeddingProvider embeddingProvider = null,
+            Fallen8Namespaces namespaces = null)
         {
             _embeddingProvider = embeddingProvider;
+
+            _namespaces = namespaces;
 
             _logger = logger;
 
@@ -215,6 +222,36 @@ namespace NoSQL.GraphDB.App.Controllers
             return count >= 0 ? count : null;
         }
 
+        /// <summary>The namespace this request addresses: the "ns" route value on a twin route,
+        /// "default" on a bare one (feature graph-namespaces).</summary>
+        private String AddressedNamespaceName()
+        {
+            return HttpContext?.Request.RouteValues[NamespaceRouteConvention.RouteParameterName] as String
+                   ?? Fallen8Namespaces.DefaultName;
+        }
+
+        /// <summary>
+        /// The addressed namespace's default save location: the legacy path for "default" (and
+        /// under direct unit construction), the id-keyed namespace directory otherwise.
+        /// </summary>
+        private String DefaultSavePath()
+        {
+            if (_namespaces == null || !_namespaces.TryGet(AddressedNamespaceName(), out var ns)
+                || ReferenceEquals(ns, _namespaces.Default))
+            {
+                return _savePath;
+            }
+
+            return System.IO.Path.Combine(EnsuredNamespaceDirectory(ns), _saveFile);
+        }
+
+        private String EnsuredNamespaceDirectory(Namespaces.Namespace ns)
+        {
+            var directory = _namespaces.DirectoryFor(ns);
+            System.IO.Directory.CreateDirectory(directory);
+            return directory;
+        }
+
         /// <summary>
         /// Trims the database, releasing unused memory
         /// </summary>
@@ -271,7 +308,7 @@ namespace NoSQL.GraphDB.App.Controllers
             // now (feature save-games FR-7), so the historical record captures manually-loaded saves.
             try
             {
-                _saveGames.RegisterImportIfUnknown(_fallen8, definition.SaveGameLocation);
+                _saveGames.RegisterImportIfUnknown(AddressedNamespaceName(), _fallen8, definition.SaveGameLocation);
             }
             catch (Exception ex)
             {
@@ -310,10 +347,10 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async System.Threading.Tasks.Task<IActionResult> Save([FromBody] SaveSpecification definition)
         {
-            // Use provided path or fall back to default
+            // Use provided path or fall back to the addressed namespace's default location
             string savePath = !string.IsNullOrWhiteSpace(definition?.SaveGameLocation)
                 ? definition.SaveGameLocation
-                : _savePath;
+                : DefaultSavePath();
 
             // Use provided partitions or fall back to optimal
             int savePartitions = definition?.SavePartitions ?? _optimalNumberOfPartitions;
@@ -334,7 +371,7 @@ namespace NoSQL.GraphDB.App.Controllers
             // successful save into a 500. Fall back to a best-effort entry describing the save.
             try
             {
-                return Ok(_saveGames.Register(_fallen8, saveTx.ActualPath, "api"));
+                return Ok(_saveGames.Register(AddressedNamespaceName(), _fallen8, saveTx.ActualPath, "api"));
             }
             catch (Exception ex)
             {
@@ -349,9 +386,13 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        /// Clears all data from the database (resets to empty state)
+        /// Erases the addressed namespace's data (the namespace stays registered, empty)
         /// </summary>
-        /// <response code="204">Database successfully cleared</response>
+        /// <remarks>
+        /// Bare /tabularasa erases the "default" namespace; /ns/{ns}/tabularasa erases that
+        /// namespace. The Fallen-8-wide factory reset is HEAD /tabularasa/all.
+        /// </remarks>
+        /// <response code="204">Namespace successfully cleared</response>
         [HttpHead("/tabularasa")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         public void TabulaRasa()
@@ -359,6 +400,96 @@ namespace NoSQL.GraphDB.App.Controllers
             TabulaRasaTransaction tx = new TabulaRasaTransaction();
 
             _fallen8.EnqueueTransaction(tx);
+        }
+
+        /// <summary>
+        /// Factory reset: drops every non-default namespace and erases "default" (Fallen-8-level — all namespaces)
+        /// </summary>
+        /// <remarks>
+        /// Irreversible. Dropped namespaces lose their on-disk data; save-game entries remain
+        /// valid restore points. Afterwards only an empty "default" namespace exists.
+        /// </remarks>
+        /// <response code="204">All namespaces erased</response>
+        [Fallen8Level]
+        [HttpHead("/tabularasa/all")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public void TabulaRasaAll()
+        {
+            foreach (var ns in _namespaces.Snapshot())
+            {
+                if (!ReferenceEquals(ns, _namespaces.Default))
+                {
+                    _namespaces.TryDrop(ns.Name, out _);
+                }
+            }
+
+            _namespaces.Default.Engine.EnqueueTransaction(new TabulaRasaTransaction());
+        }
+
+        /// <summary>
+        /// Saves every namespace into one save-game entry (Fallen-8-level — all namespaces)
+        /// </summary>
+        /// <returns>The created save-game registry entry spanning all namespaces</returns>
+        /// <remarks>
+        /// One consistent restore point for the whole Fallen-8: each namespace is checkpointed to
+        /// its own default location and the registry records a single entry whose "namespaces"
+        /// manifest lists every member. Restore the whole entry - or a single namespace out of it -
+        /// via PUT /savegames/{id}/load.
+        /// </remarks>
+        /// <response code="200">Returns the created save-game registry entry</response>
+        /// <response code="500">At least one namespace's save transaction rolled back (the body names it; successfully saved namespaces are still registered)</response>
+        [Fallen8Level]
+        [HttpPut("/save/all")]
+        [ProducesResponseType(typeof(SaveGameREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async System.Threading.Tasks.Task<IActionResult> SaveAll()
+        {
+            var members = new List<(String Name, IFallen8 Engine, String Location)>();
+            var failed = new List<String>();
+
+            foreach (var ns in _namespaces.Snapshot())
+            {
+                var savePath = ReferenceEquals(ns, _namespaces.Default)
+                    ? _savePath
+                    : System.IO.Path.Combine(EnsuredNamespaceDirectory(ns), _saveFile);
+
+                var saveTx = new SaveTransaction { Path = savePath, SavePartitions = _optimalNumberOfPartitions };
+                var task = ns.Engine.EnqueueTransaction(saveTx);
+                await task.Completion;
+
+                if (task.TransactionState == TransactionState.RolledBack)
+                {
+                    _logger.LogError(task.Error, "The save of namespace \"{Namespace}\" rolled back during PUT /save/all.", ns.Name);
+                    failed.Add(ns.Name);
+                }
+                else
+                {
+                    members.Add((ns.Name, ns.Engine, saveTx.ActualPath ?? savePath));
+                }
+            }
+
+            SaveGameREST entry = null;
+            if (members.Count > 0)
+            {
+                try
+                {
+                    entry = _saveGames.RegisterAll(members, "api");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "The save/all checkpoints were written but could not be registered in the save-game registry.");
+                }
+            }
+
+            if (failed.Count > 0)
+            {
+                return Helper.ProblemResults.Create(StatusCodes.Status500InternalServerError, "Save incomplete",
+                    "The save transaction rolled back for: " + String.Join(", ", failed) +
+                    ". Successfully saved namespaces were registered" + (entry != null ? " as " + entry.Id : "") + ".",
+                    p => p.Extensions["failedNamespaces"] = failed);
+            }
+
+            return Ok(entry);
         }
 
         /// <summary>

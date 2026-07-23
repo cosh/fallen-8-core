@@ -8046,7 +8046,8 @@
         "tags": [
           "Admin"
         ],
-        "summary": "Clears all data from the database (resets to empty state)",
+        "summary": "Erases the addressed namespace's data (the namespace stays registered, empty)",
+        "description": "Bare /tabularasa erases the \"default\" namespace; /ns/{ns}/tabularasa erases that\r\nnamespace. The Fallen-8-wide factory reset is HEAD /tabularasa/all.",
         "parameters": [
           {
             "name": "ns",
@@ -8073,7 +8074,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Database successfully cleared"
+            "description": "Namespace successfully cleared"
           }
         }
       }
@@ -9282,6 +9283,56 @@
         }
       }
     },
+    "/save/all": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Saves every namespace into one save-game entry (Fallen-8-level — all namespaces)",
+        "description": "One consistent restore point for the whole Fallen-8: each namespace is checkpointed to\r\nits own default location and the registry records a single entry whose \"namespaces\"\r\nmanifest lists every member. Restore the whole entry - or a single namespace out of it -\r\nvia PUT /savegames/{id}/load.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the created save-game registry entry",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveGameREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveGameREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveGameREST"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "At least one namespace's save transaction rolled back (the body names it; successfully saved namespaces are still registered)"
+          }
+        }
+      }
+    },
     "/savegames": {
       "get": {
         "tags": [
@@ -9444,7 +9495,8 @@
         "tags": [
           "SaveGames"
         ],
-        "summary": "Loads a registered save game, replacing the current in-memory graph",
+        "summary": "Restores a registered save game's namespaces, replacing their in-memory graphs",
+        "description": "Restores exactly the namespaces the entry contains (feature graph-namespaces): a dropped\r\nnamespace is recreated, an existing one has its content replaced, and namespaces the\r\nentry does NOT contain are left untouched. Pre-namespace (v1) entries restore into\r\n\"default\". With ?namespace={name}, only that one namespace is restored.",
         "parameters": [
           {
             "name": "id",
@@ -9458,10 +9510,17 @@
           {
             "name": "waitForCompletion",
             "in": "query",
-            "description": "Wait for the load transaction to finish before responding",
+            "description": "Wait for the load transactions to finish before responding",
             "schema": {
               "type": "boolean",
               "default": false
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -9483,36 +9542,48 @@
           "200": {
             "description": "Loaded (waited); returns the save game",
             "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveGameREST"
+                }
+              },
               "application/json; ver=0.1": {
                 "schema": {
                   "$ref": "#/components/schemas/SaveGameREST"
                 }
               },
-              "application/json": { }
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveGameREST"
+                }
+              }
             }
           },
           "202": {
-            "description": "Load accepted (not waited)",
-            "content": {
-              "application/json": { }
-            }
+            "description": "Load accepted (not waited)"
           },
           "404": {
-            "description": "No save game with that id",
+            "description": "No save game with that id, or the entry does not contain the requested namespace",
             "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
               "application/json; ver=0.1": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
-              "application/json": { }
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
             }
           },
           "500": {
-            "description": "The load transaction was rolled back",
-            "content": {
-              "application/json": { }
-            }
+            "description": "A load transaction was rolled back, or a dropped namespace could not be recreated"
           }
         }
       }
@@ -10921,7 +10992,8 @@
         "tags": [
           "Admin"
         ],
-        "summary": "Clears all data from the database (resets to empty state)",
+        "summary": "Erases the addressed namespace's data (the namespace stays registered, empty)",
+        "description": "Bare /tabularasa erases the \"default\" namespace; /ns/{ns}/tabularasa erases that\r\nnamespace. The Fallen-8-wide factory reset is HEAD /tabularasa/all.",
         "parameters": [
           {
             "name": "api-version",
@@ -10940,7 +11012,37 @@
         ],
         "responses": {
           "204": {
-            "description": "Database successfully cleared"
+            "description": "Namespace successfully cleared"
+          }
+        }
+      }
+    },
+    "/tabularasa/all": {
+      "head": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Factory reset: drops every non-default namespace and erases \"default\" (Fallen-8-level — all namespaces)",
+        "description": "Irreversible. Dropped namespaces lose their on-disk data; save-game entries remain\r\nvalid restore points. Afterwards only an empty \"default\" namespace exists.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "All namespaces erased"
           }
         }
       }
@@ -14249,6 +14351,47 @@
         },
         "description": "Cheap KPIs captured at save/import time - values the engine already has, no graph scan."
       },
+      "SaveGameNamespaceREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The namespace name at save time (restores under this name)."
+          },
+          "location": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Absolute path of this namespace's primary checkpoint file."
+          },
+          "fileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Number of files belonging to this namespace's checkpoint.",
+            "format": "int32"
+          },
+          "totalBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Total size of those files in bytes at registration time.",
+            "format": "int64"
+          },
+          "kpis": {
+            "$ref": "#/components/schemas/SaveGameKpisREST"
+          }
+        },
+        "description": "One namespace inside a save game: its own checkpoint location, file facts, and KPIs\r\n(feature graph-namespaces, registry schema v2)."
+      },
       "SaveGameREST": {
         "type": "object",
         "properties": {
@@ -14307,6 +14450,16 @@
           },
           "kpis": {
             "$ref": "#/components/schemas/SaveGameKpisREST"
+          },
+          "namespaces": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SaveGameNamespaceREST"
+            },
+            "description": "The namespaces this save game contains (feature graph-namespaces, registry schema v2).\r\nNull on pre-namespace (v1) entries, which are read forever as \"a default-only save\"\r\nwhose checkpoint is string SaveGameREST.Location. On single-namespace entries the top-level\r\nlocation/kpis mirror the one member (v1-shaped); on multi-namespace entries the\r\ntop-level location is null and fileCount/totalBytes are sums across the members."
           }
         },
         "description": "A registered save game (checkpoint) with its metadata (feature save-games)."

@@ -181,6 +181,9 @@ namespace NoSQL.GraphDB.App.Services
             var path = RegistryPath;
             var temp = path + ".tmp";
 
+            // Every write is by this build, so every write is the current schema (v1 entries inside
+            // the document stay readable regardless).
+            document.SchemaVersion = SaveGameRegistryDocument.CurrentSchemaVersion;
             var text = JsonSerializer.Serialize(document, _json);
             File.WriteAllText(temp, text);
 
@@ -303,44 +306,153 @@ namespace NoSQL.GraphDB.App.Services
         #region registration + lifecycle
 
         /// <summary>
-        ///   Registers a just-written checkpoint (trigger "api" or "shutdown"), prepends it (newest
-        ///   first) and persists. Returns the created entry.
+        ///   Registers a just-written checkpoint of the DEFAULT namespace (trigger "api" or
+        ///   "shutdown"). Kept as the un-namespaced convenience over
+        ///   <see cref="Register(String, IFallen8, String, String)"/>.
         /// </summary>
         public SaveGameREST Register(IFallen8 fallen8, String location, String trigger)
+        {
+            return Register(Namespaces.Fallen8Namespaces.DefaultName, fallen8, location, trigger);
+        }
+
+        /// <summary>
+        ///   Registers a just-written checkpoint of ONE namespace (feature graph-namespaces),
+        ///   prepends it (newest first) and persists. Returns the created entry, whose top-level
+        ///   location/kpis mirror the single member (v1-shaped).
+        /// </summary>
+        public SaveGameREST Register(String namespaceName, IFallen8 fallen8, String location, String trigger)
         {
             lock (Gate)
             {
                 var document = LoadUnlocked();
-                var entry = BuildEntry(fallen8, location, trigger, DateTime.UtcNow);
+                var entry = BuildEntry(namespaceName, fallen8, location, trigger, DateTime.UtcNow);
                 document.SaveGames.Insert(0, entry);
                 Persist(document);
-                _logger.LogInformation("Registered save game {Id} ({Trigger}) at \"{Location}\": {Vertices} vertices, {Edges} edges, {Files} files.",
-                    entry.Id, trigger, entry.Location, entry.Kpis.VertexCount, entry.Kpis.EdgeCount, entry.FileCount);
+                _logger.LogInformation("Registered save game {Id} ({Trigger}, namespace \"{Namespace}\") at \"{Location}\": {Vertices} vertices, {Edges} edges, {Files} files.",
+                    entry.Id, trigger, namespaceName, entry.Location, entry.Kpis.VertexCount, entry.Kpis.EdgeCount, entry.FileCount);
                 return entry;
             }
+        }
+
+        /// <summary>
+        ///   Registers ONE entry spanning several just-written per-namespace checkpoints — the
+        ///   Fallen-8-level restore point behind PUT /save/all and the shutdown auto-save (feature
+        ///   graph-namespaces). Top-level file facts are sums; the top-level location/kpis mirror
+        ///   the single member when there is exactly one.
+        /// </summary>
+        public SaveGameREST RegisterAll(IReadOnlyList<(String Name, IFallen8 Engine, String Location)> members, String trigger)
+        {
+            lock (Gate)
+            {
+                var document = LoadUnlocked();
+                var savedAt = DateTime.UtcNow;
+
+                var entry = new SaveGameREST
+                {
+                    Id = NewId(savedAt),
+                    SavedAt = savedAt.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                    Trigger = trigger,
+                    EngineVersion = typeof(IFallen8).Assembly.GetName().Version?.ToString(),
+                    Namespaces = new List<SaveGameNamespaceREST>(members.Count),
+                };
+                foreach (var member in members)
+                {
+                    entry.Namespaces.Add(BuildMember(member.Name, member.Engine, member.Location));
+                }
+
+                entry.FileCount = entry.Namespaces.Sum(m => m.FileCount);
+                entry.TotalBytes = entry.Namespaces.Sum(m => m.TotalBytes);
+                if (entry.Namespaces.Count == 1)
+                {
+                    entry.Location = entry.Namespaces[0].Location;
+                    entry.Kpis = entry.Namespaces[0].Kpis;
+                }
+                else
+                {
+                    // No single checkpoint to point at; the honest aggregate is the counts.
+                    entry.Location = null;
+                    entry.Kpis = new SaveGameKpisREST
+                    {
+                        VertexCount = entry.Namespaces.Sum(m => m.Kpis.VertexCount),
+                        EdgeCount = entry.Namespaces.Sum(m => m.Kpis.EdgeCount),
+                        UsedMemoryBytes = System.Diagnostics.Process.GetCurrentProcess().VirtualMemorySize64,
+                    };
+                }
+
+                document.SaveGames.Insert(0, entry);
+                Persist(document);
+                _logger.LogInformation("Registered save game {Id} ({Trigger}) spanning {Count} namespaces: {Names}.",
+                    entry.Id, trigger, entry.Namespaces.Count, String.Join(", ", entry.Namespaces.Select(m => m.Name)));
+                return entry;
+            }
+        }
+
+        /// <summary>Default-namespace convenience over <see cref="RegisterImportIfUnknown(String, IFallen8, String)"/>.</summary>
+        public SaveGameREST RegisterImportIfUnknown(IFallen8 fallen8, String location)
+        {
+            return RegisterImportIfUnknown(Namespaces.Fallen8Namespaces.DefaultName, fallen8, location);
         }
 
         /// <summary>
         ///   Registers a loaded checkpoint as "imported" if its resolved path is not already known
         ///   (FR-7). savedAt is the checkpoint file's last-write time. A no-op when already registered.
         /// </summary>
-        public SaveGameREST RegisterImportIfUnknown(IFallen8 fallen8, String location)
+        public SaveGameREST RegisterImportIfUnknown(String namespaceName, IFallen8 fallen8, String location)
         {
             lock (Gate)
             {
                 var document = LoadUnlocked();
                 var full = SafeFullPath(location);
-                if (document.SaveGames.Any(s => SafeFullPath(s.Location) == full))
+                if (document.SaveGames.Any(s => EffectiveNamespaces(s).Any(m => SafeFullPath(m.Location) == full)))
                 {
                     return null;
                 }
 
                 var savedAt = File.Exists(location) ? File.GetLastWriteTimeUtc(location) : DateTime.UtcNow;
-                var entry = BuildEntry(fallen8, location, "imported", savedAt);
+                var entry = BuildEntry(namespaceName, fallen8, location, "imported", savedAt);
                 document.SaveGames.Insert(0, entry);
                 Persist(document);
                 _logger.LogInformation("Imported previously-unregistered save game {Id} at \"{Location}\".", entry.Id, entry.Location);
                 return entry;
+            }
+        }
+
+        /// <summary>
+        ///   The namespaces a save game effectively contains, normalizing pre-namespace entries: a
+        ///   v1 entry (no manifest) is a default-only save whose checkpoint is the entry location
+        ///   (feature graph-namespaces).
+        /// </summary>
+        public static List<SaveGameNamespaceREST> EffectiveNamespaces(SaveGameREST entry)
+        {
+            if (entry.Namespaces != null && entry.Namespaces.Count > 0)
+            {
+                return entry.Namespaces;
+            }
+
+            return new List<SaveGameNamespaceREST>
+            {
+                new SaveGameNamespaceREST
+                {
+                    Name = Namespaces.Fallen8Namespaces.DefaultName,
+                    Location = entry.Location,
+                    FileCount = entry.FileCount,
+                    TotalBytes = entry.TotalBytes,
+                    Kpis = entry.Kpis,
+                }
+            };
+        }
+
+        /// <summary>
+        ///   The newest entry containing the given namespace, or null — the per-namespace boot
+        ///   authority (feature graph-namespaces).
+        /// </summary>
+        public SaveGameREST NewestContaining(String namespaceName)
+        {
+            lock (Gate)
+            {
+                return LoadUnlocked().SaveGames
+                    .OrderByDescending(s => s.SavedAt, StringComparer.Ordinal)
+                    .FirstOrDefault(s => EffectiveNamespaces(s).Any(m => m.Name == namespaceName));
             }
         }
 
@@ -394,7 +506,11 @@ namespace NoSQL.GraphDB.App.Services
 
                 if (deleteFiles)
                 {
-                    DeleteFiles(entry.Location);
+                    // Every member's checkpoint files (a v1 entry normalizes to one default member).
+                    foreach (var member in EffectiveNamespaces(entry))
+                    {
+                        DeleteFiles(member.Location);
+                    }
                 }
                 _logger.LogInformation("Deleted save game {Id} (deleteFiles={DeleteFiles}).", id, deleteFiles);
                 return true;
@@ -417,19 +533,34 @@ namespace NoSQL.GraphDB.App.Services
             }
         }
 
-        private SaveGameREST BuildEntry(IFallen8 fallen8, String location, String trigger, DateTime savedAtUtc)
+        private SaveGameREST BuildEntry(String namespaceName, IFallen8 fallen8, String location, String trigger, DateTime savedAtUtc)
         {
-            var full = SafeFullPath(location);
-            var (fileCount, totalBytes) = MeasureFiles(full);
+            var member = BuildMember(namespaceName, fallen8, location);
             return new SaveGameREST
             {
                 Id = NewId(savedAtUtc),
                 SavedAt = savedAtUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
                 Trigger = trigger,
+                // Single-namespace entry: the top level mirrors the one member (v1-shaped).
+                Location = member.Location,
+                FileCount = member.FileCount,
+                TotalBytes = member.TotalBytes,
+                EngineVersion = typeof(IFallen8).Assembly.GetName().Version?.ToString(),
+                Kpis = member.Kpis,
+                Namespaces = new List<SaveGameNamespaceREST> { member },
+            };
+        }
+
+        private SaveGameNamespaceREST BuildMember(String namespaceName, IFallen8 fallen8, String location)
+        {
+            var full = SafeFullPath(location);
+            var (fileCount, totalBytes) = MeasureFiles(full);
+            return new SaveGameNamespaceREST
+            {
+                Name = namespaceName,
                 Location = full,
                 FileCount = fileCount,
                 TotalBytes = totalBytes,
-                EngineVersion = typeof(IFallen8).Assembly.GetName().Version?.ToString(),
                 Kpis = CaptureKpis(fallen8),
             };
         }

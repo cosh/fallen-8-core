@@ -29,10 +29,11 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using NoSQL.GraphDB.App.Namespaces;
+using System.Linq;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Helper;
+using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.App.Services;
-using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.App.Controllers
@@ -47,13 +48,13 @@ namespace NoSQL.GraphDB.App.Controllers
     [Fallen8Level]
     public class SaveGamesController : ControllerBase
     {
-        private readonly IFallen8 _fallen8;
+        private readonly Fallen8Namespaces _namespaces;
         private readonly SaveGameRegistry _registry;
         private readonly ILogger<SaveGamesController> _logger;
 
-        public SaveGamesController(IFallen8 fallen8, SaveGameRegistry registry, ILogger<SaveGamesController> logger)
+        public SaveGamesController(Fallen8Namespaces namespaces, SaveGameRegistry registry, ILogger<SaveGamesController> logger)
         {
-            _fallen8 = fallen8;
+            _namespaces = namespaces;
             _registry = registry;
             _logger = logger;
         }
@@ -93,22 +94,29 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        /// Loads a registered save game, replacing the current in-memory graph
+        /// Restores a registered save game's namespaces, replacing their in-memory graphs
         /// </summary>
         /// <param name="id">The save-game id</param>
-        /// <param name="waitForCompletion">Wait for the load transaction to finish before responding</param>
+        /// <param name="waitForCompletion">Wait for the load transactions to finish before responding</param>
+        /// <param name="namespaceName">Restore only this namespace out of the entry (404 when the entry does not contain it)</param>
         /// <returns>The loaded save game's summary</returns>
+        /// <remarks>
+        /// Restores exactly the namespaces the entry contains (feature graph-namespaces): a dropped
+        /// namespace is recreated, an existing one has its content replaced, and namespaces the
+        /// entry does NOT contain are left untouched. Pre-namespace (v1) entries restore into
+        /// "default". With ?namespace={name}, only that one namespace is restored.
+        /// </remarks>
         /// <response code="200">Loaded (waited); returns the save game</response>
         /// <response code="202">Load accepted (not waited)</response>
-        /// <response code="404">No save game with that id</response>
-        /// <response code="500">The load transaction was rolled back</response>
+        /// <response code="404">No save game with that id, or the entry does not contain the requested namespace</response>
+        /// <response code="500">A load transaction was rolled back, or a dropped namespace could not be recreated</response>
         [HttpPut("/savegames/{id}/load")]
-        [Produces("application/json")]
         [ProducesResponseType(typeof(SaveGameREST), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> Load([FromRoute] String id, [FromQuery] bool waitForCompletion = false)
+        public async Task<IActionResult> Load([FromRoute] String id, [FromQuery] bool waitForCompletion = false,
+            [FromQuery(Name = "namespace")] String namespaceName = null)
         {
             var entry = _registry.GetById(id);
             if (entry == null)
@@ -116,19 +124,49 @@ namespace NoSQL.GraphDB.App.Controllers
                 return NotFound(String.Format("No save game with id '{0}'.", id));
             }
 
-            var tx = new LoadTransaction { Path = entry.Location, StartServices = true };
-            var task = _fallen8.EnqueueTransaction(tx);
+            var members = SaveGameRegistry.EffectiveNamespaces(entry);
+            if (namespaceName != null)
+            {
+                var member = members.FirstOrDefault(m => m.Name == namespaceName);
+                if (member == null)
+                {
+                    return ProblemResults.Create(StatusCodes.Status404NotFound, "Namespace not in save game",
+                        "Save game \"" + id + "\" does not contain namespace \"" + namespaceName + "\"; it contains: " +
+                        String.Join(", ", members.Select(m => m.Name)) + ".");
+                }
+                members = new List<SaveGameNamespaceREST> { member };
+            }
+
+            // Recreate dropped target namespaces, then enqueue every load. Namespaces the entry
+            // does not contain are deliberately never touched.
+            var loads = new List<(String Name, TransactionInformation Info)>();
+            foreach (var member in members)
+            {
+                if (!_namespaces.TryGet(member.Name, out var target)
+                    && !_namespaces.TryCreate(member.Name, out target, out var failure))
+                {
+                    return ProblemResults.Create(StatusCodes.Status500InternalServerError, "Namespace restore failed",
+                        "The dropped namespace \"" + member.Name + "\" could not be recreated (" + failure + "); " +
+                        "nothing was loaded for it.");
+                }
+
+                var tx = new LoadTransaction { Path = member.Location, StartServices = true };
+                loads.Add((member.Name, target.Engine.EnqueueTransaction(tx)));
+            }
 
             if (!waitForCompletion)
             {
                 return Accepted();
             }
 
-            await task.Completion;
-            if (task.TransactionState == TransactionState.RolledBack)
+            foreach (var load in loads)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError,
-                    "The load transaction was rolled back; the save game was not loaded.");
+                await load.Info.Completion;
+                if (load.Info.TransactionState == TransactionState.RolledBack)
+                {
+                    return StatusCode(StatusCodes.Status500InternalServerError,
+                        "The load transaction for namespace '" + load.Name + "' was rolled back; that namespace was not loaded.");
+                }
             }
             return Ok(entry);
         }
