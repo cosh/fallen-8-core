@@ -11,8 +11,9 @@ import type {
 } from "../src/api/types";
 
 /**
- * Query screen semantics (feature element-embeddings / studio-semantics): bound-index
- * create options, the bound badge + add-vector guard, and semantic search by text.
+ * Embedding semantics across the split screens (features element-embeddings /
+ * studio-semantics / index-workspace): bound-index create options and the bound badge +
+ * content guard on the Indexes screen; semantic search by text on the Query screen.
  */
 
 const getStatusMock = vi.fn<(i: InstanceConfig) => Promise<StatusREST | null>>();
@@ -32,14 +33,21 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
 });
 
 import { QueryScreen } from "../src/screens/QueryScreen";
+import { IndexesScreen } from "../src/screens/IndexesScreen";
 
 const STATUS: StatusREST = {
   vertexCount: 0,
   edgeCount: 0,
   usedMemory: 0,
   indices: [
-    { indexId: "raw", pluginType: "VectorIndex" },
-    { indexId: "emb", pluginType: "VectorIndex", embeddingName: "default", model: null },
+    { indexId: "raw", pluginType: "VectorIndex", capabilities: ["vector"] },
+    {
+      indexId: "emb",
+      pluginType: "VectorIndex",
+      embeddingName: "default",
+      model: null,
+      capabilities: ["vector"],
+    },
   ],
   availableIndexPlugins: ["DictionaryIndex", "VectorIndex"],
   availablePathPlugins: [],
@@ -63,14 +71,17 @@ function statusWithProvider(enabled: boolean): StatusREST {
   };
 }
 
-function renderScreen(providerEnabled?: boolean) {
+function renderScreen(
+  Screen: typeof QueryScreen | typeof IndexesScreen,
+  providerEnabled?: boolean,
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (providerEnabled !== undefined) {
     getStatusMock.mockResolvedValue(statusWithProvider(providerEnabled));
   }
   return render(
     <QueryClientProvider client={client}>
-      <QueryScreen />
+      <Screen />
     </QueryClientProvider>,
   );
 }
@@ -85,16 +96,16 @@ beforeEach(() => {
   });
 });
 
-describe("bound vector index", () => {
+describe("bound vector index (Indexes screen)", () => {
   it("shows a bound badge in the inventory", async () => {
-    renderScreen();
+    renderScreen(IndexesScreen);
     await waitFor(() => expect(screen.getByTestId("index-bound-emb")).toBeInTheDocument());
     expect(screen.getByTestId("index-bound-emb")).toHaveTextContent("bound:default");
   });
 
   it("create sends embeddingName/model as typed literals when set", async () => {
     const user = userEvent.setup();
-    renderScreen();
+    renderScreen(IndexesScreen);
     await waitFor(() => expect(screen.getByTestId("index-type").tagName).toBe("SELECT"));
     await user.selectOptions(screen.getByTestId("index-type"), "VectorIndex");
     await user.type(screen.getByLabelText(/index id/i), "bound2");
@@ -112,28 +123,29 @@ describe("bound vector index", () => {
     expect(options.model).toBeUndefined();
   });
 
-  it("disables add-vector against a bound index with a reason", async () => {
+  it("offers no content forms against a bound index, with the reason", async () => {
     const user = userEvent.setup();
-    renderScreen();
-    await waitFor(() => expect(screen.getByTestId("index-type").tagName).toBe("SELECT"));
-    await user.type(screen.getByLabelText(/index id/i), "emb");
-    await user.click(screen.getByTestId("toggle-vector-add"));
-    await user.type(screen.getByLabelText(/element id/i), "1");
+    renderScreen(IndexesScreen);
+    await waitFor(() => expect(screen.getByTestId("index-row-emb")).toBeInTheDocument());
+    await user.click(screen.getByTestId("index-row-emb"));
 
-    expect(screen.getByTestId("bound-add-note")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add vector" })).toBeDisabled();
+    await waitFor(() =>
+      expect(screen.getByTestId("bound-content-note")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("vector-add")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add vector" })).not.toBeInTheDocument();
   });
 });
 
-describe("semantic search by text", () => {
-  it("routes the vector scan to /embedding/search when the source is text", async () => {
+describe("semantic search by text (Query screen)", () => {
+  it("routes the vector query to /embedding/search when the source is text", async () => {
     const user = userEvent.setup();
-    const { container } = renderScreen(true);
-    await user.selectOptions(screen.getByTestId("scan-kind"), "vector");
+    renderScreen(QueryScreen, true);
+    await user.selectOptions(screen.getByTestId("query-mode"), "index");
+    await waitFor(() => expect(screen.getByTestId("index-select")).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId("index-select"), "emb");
+    // vector is the index's only capability — the kNN form is active without a toggle.
     await user.click(screen.getByTestId("vector-source-text"));
-    // Two "index id" fields exist once the vector scan renders (scan + index mgmt); target
-    // the scan form's input by id.
-    await user.type(container.querySelector("#scan-index")!, "emb");
     await user.type(screen.getByTestId("vector-search-text"), "red bicycles");
     await user.click(screen.getByTestId("scan-run"));
 
@@ -149,8 +161,10 @@ describe("semantic search by text", () => {
 
   it("keeps the text source disabled when the provider is off", async () => {
     const user = userEvent.setup();
-    renderScreen(false);
-    await user.selectOptions(screen.getByTestId("scan-kind"), "vector");
+    renderScreen(QueryScreen, false);
+    await user.selectOptions(screen.getByTestId("query-mode"), "index");
+    await waitFor(() => expect(screen.getByTestId("index-select")).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId("index-select"), "raw");
     expect(screen.getByTestId("vector-source-text")).toBeDisabled();
   });
 });

@@ -115,10 +115,9 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     await endpoints.createIndex(instance, { uniqueId: "i", pluginType: "DictionaryIndex" });
     await endpoints.addToIndex(instance, "i", {
       graphElementId: 1,
-      key: { value: "k", fullQualifiedTypeName: "System.String" },
+      key: { propertyValue: "k", fullQualifiedTypeName: "System.String" },
     });
     await endpoints.removeIndexKey(instance, "i", {
-      propertyId: "k",
       propertyValue: "v",
       fullQualifiedTypeName: "System.String",
     });

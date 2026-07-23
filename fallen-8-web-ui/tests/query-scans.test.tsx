@@ -16,10 +16,11 @@ import type {
 } from "../src/api/types";
 
 /**
- * Query screen non-embedding scan flows (feature structural-decomposition, Phase 3
- * pinning): each scan family's exact request payload, id-list hydration into the result
- * table, and the fulltext highlight rendering — pinned BEFORE the screen is decomposed.
- * The vector/semantic flows are pinned in embedding-query.test.tsx.
+ * Query screen non-embedding flows (feature index-workspace): each family's exact
+ * request payload behind the INDEX-FIRST interaction — pick the index from the live
+ * inventory, the offered forms follow its capabilities — plus id-list hydration into
+ * the result table, fulltext highlights, and the free-form fallback when no inventory
+ * is known. The vector/semantic flows are pinned in embedding-query.test.tsx.
  */
 
 const getStatusMock =
@@ -62,7 +63,13 @@ const STATUS: StatusREST = {
   vertexCount: 0,
   edgeCount: 0,
   usedMemory: 0,
-  indices: [],
+  indices: [
+    { indexId: "nameIndex", pluginType: "DictionaryIndex", capabilities: ["equality"] },
+    { indexId: "ageIndex", pluginType: "RangeIndex", capabilities: ["equality", "range"] },
+    { indexId: "scoreIndex", pluginType: "RangeIndex", capabilities: ["equality", "range"] },
+    { indexId: "ft", pluginType: "RegExIndex", capabilities: ["equality", "fulltext"] },
+    { indexId: "geo", pluginType: "SpatialIndex", capabilities: ["spatial"] },
+  ],
   availableIndexPlugins: ["DictionaryIndex"],
   availablePathPlugins: [],
   availableAnalyticsPlugins: [],
@@ -102,6 +109,13 @@ function renderScreen() {
       <QueryScreen />
     </QueryClientProvider>,
   );
+}
+
+/** Switch to index mode and pick an inventory index (waits for the /status dropdown). */
+async function pickIndex(user: ReturnType<typeof userEvent.setup>, indexId: string) {
+  await user.selectOptions(screen.getByTestId("query-mode"), "index");
+  await waitFor(() => expect(screen.getByTestId("index-select")).toBeInTheDocument());
+  await user.selectOptions(screen.getByTestId("index-select"), indexId);
 }
 
 beforeEach(() => {
@@ -193,14 +207,14 @@ describe("property scan", () => {
   });
 });
 
-describe("index scan", () => {
+describe("index equality query", () => {
   it("sends indexId + operator + literal + result type", async () => {
     const user = userEvent.setup();
-    const { container } = renderScreen();
+    renderScreen();
 
-    await user.selectOptions(screen.getByTestId("scan-kind"), "index");
-    // Two "index id" fields exist (scan form + index management) — target by id.
-    await user.type(container.querySelector("#scan-index")!, "nameIndex");
+    await pickIndex(user, "nameIndex");
+    // A single-capability index needs no form toggle — the one form is stated.
+    expect(screen.getByTestId("form-single")).toHaveTextContent("equality / operator");
     await user.selectOptions(screen.getByLabelText("operator"), "NotEquals");
     await user.type(screen.getByTestId("scan-literal-value"), "Alice");
     await user.click(screen.getByTestId("scan-run"));
@@ -213,15 +227,25 @@ describe("index scan", () => {
       resultType: "Both",
     });
   });
+
+  it("blocks the run until an index is picked", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.selectOptions(screen.getByTestId("query-mode"), "index");
+    await waitFor(() => expect(screen.getByTestId("index-select")).toBeInTheDocument());
+    expect(screen.getByTestId("scan-run")).toBeDisabled();
+  });
 });
 
-describe("range scan", () => {
+describe("range query", () => {
   it("sends both typed limits with their inclusivity flags", async () => {
     const user = userEvent.setup();
-    const { container } = renderScreen();
+    renderScreen();
 
-    await user.selectOptions(screen.getByTestId("scan-kind"), "range");
-    await user.type(container.querySelector("#scan-index")!, "ageIndex");
+    await pickIndex(user, "ageIndex");
+    // RangeIndex answers equality + range: the form toggle appears; pick range.
+    await user.click(screen.getByTestId("form-range"));
     // Defaults are Int32 0..100, both ends inclusive; adjust the right limit + exclusivity.
     await user.clear(screen.getByTestId("range-right-value"));
     await user.type(screen.getByTestId("range-right-value"), "65");
@@ -241,10 +265,10 @@ describe("range scan", () => {
 
   it("carries a re-typed limit (Double) into the wire literal", async () => {
     const user = userEvent.setup();
-    const { container } = renderScreen();
+    renderScreen();
 
-    await user.selectOptions(screen.getByTestId("scan-kind"), "range");
-    await user.type(container.querySelector("#scan-index")!, "scoreIndex");
+    await pickIndex(user, "scoreIndex");
+    await user.click(screen.getByTestId("form-range"));
     await user.selectOptions(screen.getByLabelText("left limit type"), "System.Double");
     await user.clear(screen.getByTestId("range-left-value"));
     await user.type(screen.getByTestId("range-left-value"), "0.5");
@@ -258,7 +282,7 @@ describe("range scan", () => {
   });
 });
 
-describe("fulltext scan", () => {
+describe("fulltext query", () => {
   it("sends the request string and renders scores + highlights above the hydrated table", async () => {
     const user = userEvent.setup();
     scanFulltextMock.mockResolvedValue({
@@ -269,10 +293,10 @@ describe("fulltext scan", () => {
       ],
     });
     getGraphElementMock.mockImplementation(async (_i, id) => vertex(id, `doc${id}`));
-    const { container } = renderScreen();
+    renderScreen();
 
-    await user.selectOptions(screen.getByTestId("scan-kind"), "fulltext");
-    await user.type(container.querySelector("#scan-index")!, "ft");
+    await pickIndex(user, "ft");
+    await user.click(screen.getByTestId("form-fulltext"));
     await user.type(screen.getByLabelText("query"), "red bicycles");
     await user.click(screen.getByTestId("scan-run"));
 
@@ -298,23 +322,23 @@ describe("fulltext scan", () => {
     expect(screen.getByText("doc9")).toBeInTheDocument();
   });
 
-  it("clears the previous highlight block when the next scan is not fulltext", async () => {
+  it("clears the previous highlight block when the next query is not fulltext", async () => {
     const user = userEvent.setup();
     scanFulltextMock.mockResolvedValue({
       maximumScore: 1,
       elements: [{ graphElementId: 7, score: 1, highlights: ["hit"] }],
     });
     getGraphElementMock.mockResolvedValue(vertex(7, "doc7"));
-    const { container } = renderScreen();
+    renderScreen();
 
-    await user.selectOptions(screen.getByTestId("scan-kind"), "fulltext");
-    await user.type(container.querySelector("#scan-index")!, "ft");
+    await pickIndex(user, "ft");
+    await user.click(screen.getByTestId("form-fulltext"));
     await user.type(screen.getByLabelText("query"), "hit");
     await user.click(screen.getByTestId("scan-run"));
     await waitFor(() => expect(screen.getByText(/highlights/)).toBeInTheDocument());
 
     scanPropertyMock.mockResolvedValue([]);
-    await user.selectOptions(screen.getByTestId("scan-kind"), "property");
+    await user.selectOptions(screen.getByTestId("query-mode"), "property");
     await user.type(screen.getByTestId("scan-property"), "age");
     await user.type(screen.getByTestId("scan-literal-value"), "1");
     await user.click(screen.getByTestId("scan-run"));
@@ -324,14 +348,15 @@ describe("fulltext scan", () => {
   });
 });
 
-describe("spatial scan", () => {
+describe("spatial query", () => {
   it("sends numeric graphElementId and distance", async () => {
     const user = userEvent.setup();
     scanSpatialMock.mockResolvedValue([]);
-    const { container } = renderScreen();
+    renderScreen();
 
-    await user.selectOptions(screen.getByTestId("scan-kind"), "spatial");
-    await user.type(container.querySelector("#scan-index")!, "geo");
+    await pickIndex(user, "geo");
+    // Spatial is the index's only capability — its form is active without a toggle.
+    expect(screen.getByTestId("form-single")).toHaveTextContent("spatial");
     await user.type(screen.getByLabelText("element id"), "42");
     await user.clear(screen.getByLabelText("distance"));
     await user.type(screen.getByLabelText("distance"), "5.5");
@@ -347,7 +372,30 @@ describe("spatial scan", () => {
   });
 });
 
-describe("scan errors", () => {
+describe("free-form fallback", () => {
+  it("offers a free index input and every query form when no inventory is known", async () => {
+    const user = userEvent.setup();
+    getStatusMock.mockResolvedValue({ ...STATUS, indices: [] });
+    renderScreen();
+
+    await user.selectOptions(screen.getByTestId("query-mode"), "index");
+    const free = await screen.findByTestId("index-free");
+    await user.type(free, "adhoc");
+
+    // Unknown index: all five forms stay available; pick fulltext and query.
+    await user.click(screen.getByTestId("form-fulltext"));
+    await user.type(screen.getByLabelText("query"), "needle");
+    await user.click(screen.getByTestId("scan-run"));
+
+    await waitFor(() => expect(scanFulltextMock).toHaveBeenCalledTimes(1));
+    expect(scanFulltextMock.mock.calls[0][1]).toEqual({
+      indexId: "adhoc",
+      requestString: "needle",
+    });
+  });
+});
+
+describe("query errors", () => {
   it("surfaces a failed scan in the error box without a results section", async () => {
     const user = userEvent.setup();
     scanPropertyMock.mockRejectedValue(new Error("boom"));

@@ -13,6 +13,7 @@ const NAV = [
   { to: "/save-games", label: "Save games", icon: "⭯" },
   { to: "/browser", label: "Browser", icon: "☰" },
   { to: "/query", label: "Query", icon: "∴" },
+  { to: "/indexes", label: "Indexes", icon: "⌗" },
   { to: "/path", label: "Path", icon: "↝" },
   { to: "/subgraphs", label: "Subgraph", icon: "◫" },
   { to: "/analytics", label: "Analytics", icon: "∑" },

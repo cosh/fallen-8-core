@@ -17,7 +17,7 @@ build green and the tests passing.
 - Regenerate the OpenAPI snapshot (`pwsh scripts/update-openapi-snapshot.ps1`) —
   additions only.
 
-Status: pending
+Status: done
 
 ## Phase 2 — Indexes screen
 
@@ -35,7 +35,7 @@ Status: pending
   inventory refetch), plus new pins: delete confirmation flow, content-management
   payloads, bound-index gating.
 
-Status: pending
+Status: done
 
 ## Phase 3 — Query screen goes index-first
 
@@ -47,7 +47,7 @@ Status: pending
 - Tests: re-pin `query-scans.test.tsx` and `embedding-query.test.tsx` on the new flow —
   identical request payloads, new interaction path.
 
-Status: pending
+Status: done
 
 ## Phase 4 — docs + finish
 

@@ -42,7 +42,7 @@ export const FIELD_HELP = {
 
   // ---- query: scans ----
   scanKind:
-    "Which query to run: property scan (walks all elements), index scans (exact / range / fulltext / spatial / vector — need an index id).",
+    "Property scan walks all elements (no index needed); 'ask an index' picks a registered index and offers the query forms its type answers.",
   scanOperator:
     "How each element's property value is compared against the literal, using the literal's type ordering.",
   fulltextQuery: "Search text for the fulltext index; results come back scored with highlights.",
@@ -62,7 +62,14 @@ export const FIELD_HELP = {
   scanResultType: "Restrict matches to vertices, edges, or return both.",
   scanLiteral: "The typed value each element's property is compared against.",
 
-  // ---- query: index management ----
+  // ---- query: index-first querying ----
+  indexQueryForm:
+    "How to ask this index. The forms offered come from the index's server-reported capabilities (its type decides what it can answer).",
+
+  // ---- indexes screen ----
+  indexContentElementId: "Id of the vertex or edge to add to / remove from the index.",
+  indexContentKey:
+    "The typed key the element is filed under — index lookups compare against exactly this value and type.",
   indexPluginType:
     "Index plugin to instantiate. The list comes from the server's plugin discovery. Only VectorIndex takes creation options (dimension, metric); SpatialIndex cannot be created over REST.",
   vectorDimension:
