@@ -8,7 +8,7 @@ import { Canvas2D } from "./Canvas2D";
 export type ElementRef = { kind: "node" | "edge"; id: number };
 
 /** Elements to emphasize with the overlay visuals WITHOUT dimming the rest (adjacency-preview). */
-export type EmphasisSet = { nodeIds: readonly number[]; edgeIds: readonly number[] };
+type EmphasisSet = { nodeIds: readonly number[]; edgeIds: readonly number[] };
 
 // three.js only loads when an instance actually switches to 3D.
 const Canvas3D = lazy(() => import("./Canvas3D").then((m) => ({ default: m.Canvas3D })));

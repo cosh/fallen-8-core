@@ -12,6 +12,7 @@ import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 import { MutationsPanel } from "../components/MutationsPanel";
+import { TruncationBadge } from "../components/TruncationBadge";
 import { useEmbeddingProvider } from "../state/graphShape";
 
 /**
@@ -46,8 +47,13 @@ export function BrowserScreen() {
       if (kind === "edge") return await getEdge(instance, id);
       return await getGraphElement(instance, id);
     },
-    onSuccess: (data) => setElement(data),
   });
+
+  // setElement rides the MUTATE-scope callback, which react-query only fires for the
+  // latest mutate call - an option-scope onSuccess fires per call in completion order,
+  // so a slow older hop would overwrite a faster newer one.
+  const runLookup = (kind: "graphelement" | "vertex" | "edge", id: number) =>
+    lookup.mutate({ kind, id }, { onSuccess: (data) => setElement(data) });
 
   const bulk = useQuery({
     queryKey: [instance.id, "graph", maxElements],
@@ -65,7 +71,7 @@ export function BrowserScreen() {
     if (element?.id === id) return;
     setIdInput(String(id));
     setLookupKind("graphelement");
-    lookup.mutate({ kind: "graphelement", id });
+    runLookup("graphelement", id);
   };
 
   return (
@@ -76,7 +82,7 @@ export function BrowserScreen() {
           className="flex items-end gap-2 p-3"
           onSubmit={(e) => {
             e.preventDefault();
-            lookup.mutate({ kind: lookupKind, id: Number(idInput) });
+            runLookup(lookupKind, Number(idInput));
           }}
         >
           <Field helpKey="lookupKind" label="kind" htmlFor="lookup-kind">
@@ -131,7 +137,7 @@ export function BrowserScreen() {
           <ElementDetail
             element={element}
             providerEnabled={providerEnabled}
-            onRefresh={() => lookup.mutate({ kind: lookupKind, id: element.id })}
+            onRefresh={() => runLookup(lookupKind, element.id)}
             onInspect={inspect}
             tab={detailTab}
             onTabChange={setDetailTab}
@@ -162,12 +168,9 @@ export function BrowserScreen() {
                 {bulk.data.vertices.length} vertices · {bulk.data.edges.length} edges
               </span>
               {isTruncated(bulk.data, maxElements) && (
-                <span
-                  data-testid="truncation-indicator"
-                  className="border-warn/50 text-warn rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase"
-                >
+                <TruncationBadge testId="truncation-indicator">
                   truncated at {maxElements}
-                </span>
+                </TruncationBadge>
               )}
               <button
                 type="button"

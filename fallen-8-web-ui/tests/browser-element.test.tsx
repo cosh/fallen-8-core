@@ -47,9 +47,7 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
   };
 });
 
-// Sigma needs WebGL at import time; the preview's model/select contract is pinned in
-// neighborhood-preview.test.tsx - here only the screen wiring matters. GraphCanvas is
-// the module's only runtime export, so no importOriginal.
+// GraphCanvas stub - why: see neighborhood-preview.test.tsx; here only screen wiring matters.
 vi.mock("../src/canvas/GraphCanvas", () => {
   return {
     GraphCanvas: ({
@@ -294,6 +292,33 @@ describe("adjacency panel", () => {
 
     resolveHop({ ...VERTEX, id: 2 });
     await waitFor(() => expect(screen.getByText("vertex #2")).toBeInTheDocument());
+  });
+
+  it("shows the LAST clicked element when hop responses arrive out of order", async () => {
+    const user = userEvent.setup();
+    getOutEdgePropertiesMock.mockResolvedValue(["knows"]);
+    getOutEdgesMock.mockResolvedValue([7]);
+    renderScreen();
+    await lookUp(user, "42");
+    await screen.findByRole("button", { name: "node-2" });
+
+    const pending = new Map<number, (v: VertexREST) => void>();
+    getGraphElementMock.mockImplementation((_i, id) =>
+      id === 1 || id === 2
+        ? new Promise((resolve) => pending.set(id, resolve))
+        : Promise.resolve(VERTEX),
+    );
+    await user.click(screen.getByRole("button", { name: "node-2" }));
+    await user.click(screen.getByRole("button", { name: "node-1" }));
+
+    // The newer hop (1) resolves first; the older one (2) must not overwrite it.
+    pending.get(1)!({ ...VERTEX, id: 1 });
+    await waitFor(() => expect(screen.getByText("vertex #1")).toBeInTheDocument());
+    pending.get(2)!({ ...VERTEX, id: 2 });
+    // Give the superseded mutation's completion a chance to (incorrectly) apply.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(screen.getByText("vertex #1")).toBeInTheDocument();
+    expect(screen.queryByText("vertex #2")).not.toBeInTheDocument();
   });
 
   it("does not reload anything when the shown element is clicked again", async () => {

@@ -77,6 +77,12 @@ export function Canvas3D({
   const fgRef = useRef<ForceGraph3DInstance<FgNode, FgLink> | null>(null);
   const nodesByIdRef = useRef(new Map<number, FgNode>());
 
+  // Same as Canvas2D: mount-once click handlers must read the CURRENT onSelect.
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
   // Mount the force graph once.
   useEffect(() => {
     const container = containerRef.current;
@@ -104,9 +110,9 @@ export function Canvas3D({
       .linkColor((l) => l.color)
       .linkWidth((l) => l.width)
       .linkOpacity(0.55)
-      .onNodeClick((n) => onSelect({ kind: "node", id: n.id }))
-      .onLinkClick((l) => onSelect({ kind: "edge", id: l.id }))
-      .onBackgroundClick(() => onSelect(null))
+      .onNodeClick((n) => onSelectRef.current({ kind: "node", id: n.id }))
+      .onLinkClick((l) => onSelectRef.current({ kind: "edge", id: l.id }))
+      .onBackgroundClick(() => onSelectRef.current(null))
       // Cyclic graphs are the norm here; DAG layouts just do their best (FR-6).
       .onDagError(() => undefined);
 

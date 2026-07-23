@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
 import type { EdgeREST, VertexREST } from "../api/types";
@@ -8,10 +8,11 @@ import {
   fetchVertexNeighborhood,
   PREVIEW_EDGE_CAP,
 } from "../lib/neighborhood";
-import { buildCanvasModel } from "../state/instanceStore";
+import { buildCanvasModel, type CanvasModel } from "../state/instanceStore";
 import { GraphCanvas } from "../canvas/GraphCanvas";
 import { DEFAULT_STYLE_CONFIG, type StyleConfig } from "../canvas/styleConfig";
 import { ErrorBox } from "./ErrorBox";
+import { TruncationBadge } from "./TruncationBadge";
 
 /** Fixed render config — the preview is a canvas teaser, not a workbench (spec non-goals). */
 const PREVIEW_STYLE: StyleConfig = { ...DEFAULT_STYLE_CONFIG, edgeArrows: true };
@@ -46,13 +47,22 @@ export function NeighborhoodPreview({
     placeholderData: keepPreviousData,
   });
 
+  const lastFreshModel = useRef<CanvasModel | null>(null);
   const model = useMemo(() => {
     if (!neighborhood.data) return null;
     const vertices = edge
       ? neighborhood.data.vertices
       : [element as VertexREST, ...neighborhood.data.vertices];
-    return buildCanvasModel(vertices, neighborhood.data.edges);
-  }, [neighborhood.data, element, edge]);
+    if (neighborhood.isPlaceholderData) {
+      // Placeholder frame of a hop: the OLD focus vertex is not in the stale vertices
+      // list (it was seeded at fetch time) - keep the last fresh model underneath so it
+      // holds its label instead of demoting to a stub until the new neighborhood lands.
+      return buildCanvasModel(vertices, neighborhood.data.edges, lastFreshModel.current ?? undefined);
+    }
+    const fresh = buildCanvasModel(vertices, neighborhood.data.edges);
+    lastFreshModel.current = fresh;
+    return fresh;
+  }, [neighborhood.data, neighborhood.isPlaceholderData, element, edge]);
 
   const emphasis = useMemo(
     () =>
@@ -85,12 +95,9 @@ export function NeighborhoodPreview({
               : `${edges.length} edge${edges.length === 1 ? "" : "s"} · click an element to inspect it`}
         </span>
         {!neighborhood.isPlaceholderData && truncated && (
-          <span
-            data-testid="preview-truncation"
-            className="border-warn/50 text-warn rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase"
-          >
-            first {PREVIEW_EDGE_CAP} edges
-          </span>
+          <TruncationBadge testId="preview-truncation">
+            capped at {PREVIEW_EDGE_CAP}
+          </TruncationBadge>
         )}
       </div>
       <div

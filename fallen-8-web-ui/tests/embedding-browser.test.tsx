@@ -49,9 +49,7 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
   };
 });
 
-// The default adjacency view is the rendered preview and Sigma needs WebGL at import
-// time — stub the whole module (GraphCanvas is its only runtime export); the preview
-// contract is pinned in neighborhood-preview.test.tsx.
+// GraphCanvas stub - why: see neighborhood-preview.test.tsx; nothing here reads the preview.
 vi.mock("../src/canvas/GraphCanvas", () => ({
   GraphCanvas: () => <div data-testid="mock-canvas" />,
 }));

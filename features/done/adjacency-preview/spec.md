@@ -24,16 +24,18 @@ The Browser screen's element detail is a dead end visually and navigationally:
 
 The adjacency panel gets a two-way view toggle, **graph** (default) | **stats**:
 
-- **stats** is the existing content, unchanged: degree line, per-property out/in chips,
-  edge-id expansion.
+- **stats** keeps the per-property out/in chips and the edge-id expansion; the degree
+  line moved above the toggle and stays visible in both views.
 - **graph** renders the vertex's 1-hop neighborhood as a small 2D force-layout preview —
   the same renderer, styling rules, and force layout as the Canvas screen (label-hashed
   colors, arrows on, labels on). The focus vertex is emphasized (path-overlay size bump)
   without dimming the neighbors.
 - Clicking a node or an edge in the preview navigates the Browser screen to that element
   (same in-screen lookup as the bulk table). Clicking the stage does nothing.
-- The neighborhood fetch is capped at `PREVIEW_EDGE_CAP` (60) edges; hitting the cap
-  shows the standard truncation badge. Failed element hydrations are skipped, not errors.
+- The neighborhood fetch caps BOTH edge and endpoint-vertex hydration at
+  `PREVIEW_EDGE_CAP` (60); hitting either cap shows the truncation badge ("capped at
+  60") — endpoints beyond the cap still render, as label-less stubs. Failed element
+  hydrations are skipped, not errors.
 
 ### Edge: a neighborhood panel appears
 
@@ -57,8 +59,10 @@ loads:
   (`keepPreviousData`): the canvas instance persists across hops and morphs to the new
   neighborhood when it lands; the caption shows `…` while the placeholder is up. One
   `AdjacencyPanel` serves both kinds so vertex↔edge hops reuse the same preview instance.
-- Clicking the element already on screen (focus vertex, current edge, its own endpoint
-  chip) is a no-op — no refetch, no re-render.
+- Clicking the element already on screen (the focus vertex, the current edge) is a
+  no-op — the guard is id equality in the screen's single `inspect(id)`. A FAILED hop
+  keeps the previous element on screen with the error box above it (previously the
+  detail blanked while an error showed).
 
 ### Navigation: one mechanism
 
@@ -114,7 +118,12 @@ edge neighborhood panel. Endpoint/edge-id links therefore *work* now.
   canvas's `clickEdge` handler (edge selection → detail panel) had never fired —
   `enableEdgeEvents: true` turns it on; and `minEdgeThickness: 2.5` floors the rendered
   (= clickable) edge geometry so width-1 edges are an actually hittable target. Resolved
-  style widths are untouched.
+  style widths are untouched (width-by-property contrast is visually compressed below
+  2.5px until zoomed — accepted for clickability). Both renderers' mount-once click
+  handlers now read the live `onSelect` through a ref; the frozen-closure was latent on
+  the Canvas screen (its handler is a stable setState) and manifest in the preview,
+  where the same-id guard would compare against the mount-time element (council
+  finding, pinned by canvas2d-select.test.tsx).
 - **web-ui (Browser screen)**: `InspectLink` changes contract from router navigation to
   callback — its two call sites are both on this screen; endpoint and edge-id links go
   from dead to functional.

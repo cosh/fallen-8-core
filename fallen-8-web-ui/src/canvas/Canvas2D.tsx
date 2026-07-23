@@ -51,6 +51,13 @@ export function Canvas2D({
   const fa2Ref = useRef<FA2Layout | null>(null);
   const graphRef = useRef<Graph>(new Graph({ multi: true, type: "directed" }));
 
+  // Click handlers live for the Sigma instance's lifetime; they must read the CURRENT
+  // onSelect, or navigation guards upstream compare against a closure frozen at mount.
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
   // Mount Sigma once.
   useEffect(() => {
     const container = containerRef.current;
@@ -86,12 +93,12 @@ export function Canvas2D({
     });
     sigmaRef.current = sigma;
 
-    sigma.on("clickNode", ({ node }) => onSelect({ kind: "node", id: Number(node) }));
+    sigma.on("clickNode", ({ node }) => onSelectRef.current({ kind: "node", id: Number(node) }));
     sigma.on("clickEdge", ({ edge }) => {
       const id = graph.getEdgeAttribute(edge, "elementId") as number;
-      onSelect({ kind: "edge", id });
+      onSelectRef.current({ kind: "edge", id });
     });
-    sigma.on("clickStage", () => onSelect(null));
+    sigma.on("clickStage", () => onSelectRef.current(null));
 
     return () => {
       fa2Ref.current?.kill();

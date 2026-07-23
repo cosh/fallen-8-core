@@ -150,7 +150,7 @@ describe("vertex mode", () => {
     fetchVertexNeighborhoodMock.mockResolvedValue(neighborhood({ truncated: true }));
     renderPreview(VERTEX);
 
-    expect(await screen.findByTestId("preview-truncation")).toHaveTextContent(/first \d+ edges/);
+    expect(await screen.findByTestId("preview-truncation")).toHaveTextContent(/capped at \d+/);
   });
 
   it("surfaces a failed fetch as an error box", async () => {
@@ -189,6 +189,8 @@ describe("vertex mode", () => {
     expect(screen.getByTestId("mock-canvas")).toBeInTheDocument();
     expect(screen.queryByText("loading neighborhood…")).not.toBeInTheDocument();
     expect(screen.getByTestId("preview-caption")).toHaveTextContent("…");
+    // The OLD focus keeps its label through the placeholder frame (last-fresh-model base).
+    expect(screen.getByRole("button", { name: "node-42-person" })).toBeInTheDocument();
 
     resolveNext(neighborhood({ edges: [] }));
     await waitFor(() =>
