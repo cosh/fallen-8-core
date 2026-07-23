@@ -1,12 +1,16 @@
-import { useNavigate } from "@tanstack/react-router";
-
-export function InspectLink({ id }: { id: number }) {
-  const navigate = useNavigate();
+/** Clickable element-id chip. Navigation is owned by the Browser screen via onInspect. */
+export function InspectLink({
+  id,
+  onInspect,
+}: {
+  id: number;
+  onInspect: (id: number) => void;
+}) {
   return (
     <button
       type="button"
       className="text-accent-2 cursor-pointer hover:underline"
-      onClick={() => navigate({ to: "/browser", search: { id: String(id) } as never })}
+      onClick={() => onInspect(id)}
     >
       #{id}
     </button>

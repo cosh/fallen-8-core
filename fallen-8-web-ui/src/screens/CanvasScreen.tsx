@@ -5,15 +5,8 @@ import { GraphCanvas, type ElementRef } from "../canvas/GraphCanvas";
 import { StylePanel } from "../canvas/StylePanel";
 import { buildLegend, knownPropertyKeys } from "../canvas/styleEngine";
 import { GRADIENT_HIGH, GRADIENT_LOW } from "../canvas/styling";
-import {
-  getEdge,
-  getGraphElement,
-  getInEdgeProperties,
-  getInEdges,
-  getOutEdgeProperties,
-  getOutEdges,
-} from "../api/endpoints";
-import type { EdgeREST, VertexREST } from "../api/types";
+import { getEdge, getGraphElement } from "../api/endpoints";
+import { EXPAND_EDGE_CAP, fetchVertexNeighborhood } from "../lib/neighborhood";
 import { formatPropertyValue } from "../lib/literals";
 import { ErrorBox } from "../components/ErrorBox";
 
@@ -61,52 +54,13 @@ export function CanvasScreen() {
 
   const expand = useMutation({
     mutationFn: async (vertexId: number) => {
-      // Expand-on-demand (FR-18): fetch the vertex's edge ids per property (FR-6),
-      // hydrate the edges, and merge - never a whole-graph reload.
-      const [outProps, inProps] = await Promise.all([
-        getOutEdgeProperties(instance, vertexId).catch(() => []),
-        getInEdgeProperties(instance, vertexId).catch(() => []),
-      ]);
-      const perProperty = await Promise.all([
-        ...(outProps ?? []).map(async (p) => ({
-          property: p,
-          ids: (await getOutEdges(instance, vertexId, p).catch(() => [])) ?? [],
-        })),
-        ...(inProps ?? []).map(async (p) => ({
-          property: p,
-          ids: (await getInEdges(instance, vertexId, p).catch(() => [])) ?? [],
-        })),
-      ]);
-      // The REST Edge DTO has no property id, but the per-property listing does - carry it
-      // so expanded edges keep their labels on the canvas.
-      const edgePropertyById = new Map<number, string>();
-      for (const { property, ids } of perProperty) {
-        for (const edgeId of ids) {
-          if (!edgePropertyById.has(edgeId)) edgePropertyById.set(edgeId, property);
-        }
-      }
-      const edgeIds = [...edgePropertyById.keys()].slice(0, 200);
-      const edges = (
-        await Promise.all(edgeIds.map((id) => getEdge(instance, id).catch(() => null)))
-      )
-        .filter((e): e is EdgeREST => e !== null)
-        .map((e) => ({ ...e, edgePropertyId: edgePropertyById.get(e.id) ?? null }));
-
-      const neighborIds = new Set<number>();
-      for (const edge of edges) {
-        neighborIds.add(edge.sourceVertex);
-        neighborIds.add(edge.targetVertex);
-      }
-      const neighbors = (
-        await Promise.all(
-          [...neighborIds]
-            .filter((id) => !canvasNodes[id])
-            .slice(0, 200)
-            .map((id) => getGraphElement(instance, id).catch(() => null)),
-        )
-      ).filter((v): v is VertexREST => v !== null);
-
-      mergeIntoCanvas(neighbors, edges);
+      // Expand-on-demand (FR-18): hydrate the vertex's 1-hop neighborhood and merge -
+      // never a whole-graph reload. Endpoints already on the canvas are not re-fetched.
+      const { vertices, edges } = await fetchVertexNeighborhood(instance, vertexId, {
+        cap: EXPAND_EDGE_CAP,
+        skipNeighborIds: new Set(Object.keys(canvasNodes).map(Number)),
+      });
+      mergeIntoCanvas(vertices, edges);
     },
   });
 

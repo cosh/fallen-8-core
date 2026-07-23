@@ -49,6 +49,11 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
   };
 });
 
+// GraphCanvas stub - why: see neighborhood-preview.test.tsx; nothing here reads the preview.
+vi.mock("../src/canvas/GraphCanvas", () => ({
+  GraphCanvas: () => <div data-testid="mock-canvas" />,
+}));
+
 import { BrowserScreen } from "../src/screens/BrowserScreen";
 
 const ELEMENT: VertexREST = {

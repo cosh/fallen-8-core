@@ -12,12 +12,15 @@ export interface PathOverlaySets {
   nodeIds: Set<number>;
   edgeIds: Set<number>;
   active: boolean;
+  /** true: non-members grey out (path overlay); false: members pop, the rest keeps its colors (adjacency-preview emphasis). */
+  dim: boolean;
 }
 
 export const EMPTY_OVERLAY: PathOverlaySets = {
   nodeIds: new Set(),
   edgeIds: new Set(),
   active: false,
+  dim: false,
 };
 
 /** What a node image property value turned out to be (FR-5). */
@@ -216,7 +219,7 @@ export function resolveStyles(
   const resolvedNodes: Record<number, ResolvedNodeStyle> = {};
   for (const node of nodeList) {
     const inPath = overlay.nodeIds.has(node.id);
-    const dimmed = overlay.active && !inPath;
+    const dimmed = overlay.active && overlay.dim && !inPath;
     const size = nodeSize(nodeSizeSource(node));
     const image = config.nodeImageProperty
       ? classifyImageValue(propValue(node, config.nodeImageProperty))
@@ -234,7 +237,7 @@ export function resolveStyles(
   const resolvedEdges: Record<number, ResolvedEdgeStyle> = {};
   for (const edge of edgeList) {
     const inPath = overlay.edgeIds.has(edge.id);
-    const dimmed = overlay.active && !inPath;
+    const dimmed = overlay.active && overlay.dim && !inPath;
     const width = edgeWidth(edgeWidthSource(edge));
     const labelFallback = edge.label ? colorForLabel(edge.label) : UNLABELED_EDGE_COLOR;
     resolvedEdges[edge.id] = {

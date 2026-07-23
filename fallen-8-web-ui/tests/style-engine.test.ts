@@ -306,6 +306,7 @@ describe("resolveStyles — path overlay precedence (FR-9)", () => {
     nodeIds: new Set([1]),
     edgeIds: new Set([10]),
     active: true,
+    dim: true,
   };
 
   it("dims non-path elements and suppresses their images", () => {
@@ -319,6 +320,41 @@ describe("resolveStyles — path overlay precedence (FR-9)", () => {
     expect(styles.nodes[1].color).toBe(colorForLabel("a"));
     expect(styles.nodes[1].size).toBeGreaterThanOrEqual(PATH_NODE_MIN_SIZE);
     expect(styles.nodes[1].image).toEqual({ kind: "emoji", value: "🦊" });
+    expect(styles.nodes[1].zIndex).toBe(2);
+    expect(styles.edges[10]).toMatchObject({
+      color: PATH_EDGE_COLOR,
+      width: PATH_EDGE_MIN_WIDTH,
+      zIndex: 2,
+    });
+  });
+});
+
+describe("resolveStyles — non-dimming emphasis (adjacency-preview)", () => {
+  const nodes = nodesOf(
+    { id: 1, label: "a", props: { icon: "🦊" } },
+    { id: 2, label: "b", props: { icon: "🦊" } },
+  );
+  const edges = edgesOf(edge(10, 1, 2), edge(11, 2, 1));
+  const emphasis: PathOverlaySets = {
+    nodeIds: new Set([1]),
+    edgeIds: new Set([10]),
+    active: true,
+    dim: false,
+  };
+
+  it("keeps non-members fully styled — colors, images, no dimming", () => {
+    const styles = resolveStyles(nodes, edges, emphasis, config({ nodeImageProperty: "icon" }));
+    expect(styles.nodes[2]).toMatchObject({
+      color: colorForLabel("b"),
+      image: { kind: "emoji", value: "🦊" },
+      dimmed: false,
+    });
+    expect(styles.edges[11]).toMatchObject({ color: colorForLabel("knows"), dimmed: false });
+  });
+
+  it("still pops the emphasized members like the path overlay does", () => {
+    const styles = resolveStyles(nodes, edges, emphasis, DEFAULT_STYLE_CONFIG);
+    expect(styles.nodes[1].size).toBeGreaterThanOrEqual(PATH_NODE_MIN_SIZE);
     expect(styles.nodes[1].zIndex).toBe(2);
     expect(styles.edges[10]).toMatchObject({
       color: PATH_EDGE_COLOR,

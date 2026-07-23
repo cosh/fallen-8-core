@@ -9,14 +9,16 @@ export function ElementDetail({
   element,
   providerEnabled,
   onRefresh,
+  onInspect,
   tab,
   onTabChange,
 }: {
   element: VertexREST | EdgeREST;
   providerEnabled: boolean | null;
   onRefresh: () => void;
-  /** Owned by the screen: a refresh unmounts this panel while the lookup is pending, so
-   *  local state would snap back to "properties" right after every embedding write. */
+  onInspect: (id: number) => void;
+  /** Owned by the screen so the chosen tab survives the unmount a missing-element
+   *  lookup causes (hops and refreshes keep this panel mounted since adjacency-preview). */
   tab: "properties" | "embeddings";
   onTabChange: (tab: "properties" | "embeddings") => void;
 }) {
@@ -39,7 +41,8 @@ export function ElementDetail({
         {edge && (
           <div>
             <span className="text-fg-faint">endpoints </span>
-            <InspectLink id={edge.sourceVertex} /> → <InspectLink id={edge.targetVertex} />
+            <InspectLink id={edge.sourceVertex} onInspect={onInspect} /> →{" "}
+            <InspectLink id={edge.targetVertex} onInspect={onInspect} />
           </div>
         )}
         <div className="border-line flex gap-1 border-b">

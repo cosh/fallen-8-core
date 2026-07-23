@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { getEdge, getGraph, getGraphElement, getVertex } from "../api/endpoints";
+import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
 import { isTruncated } from "../lib/truncation";
 import { AdjacencyPanel } from "../components/AdjacencyPanel";
@@ -11,6 +12,7 @@ import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 import { MutationsPanel } from "../components/MutationsPanel";
+import { TruncationBadge } from "../components/TruncationBadge";
 import { useEmbeddingProvider } from "../state/graphShape";
 
 /**
@@ -29,6 +31,9 @@ export function BrowserScreen() {
   const [bulkFilter, setBulkFilter] = useState("");
   const [detailTab, setDetailTab] = useState<"properties" | "embeddings">("properties");
 
+  // The shown element is state, not lookup.data: a mutation resets its data while
+  // pending, which would unmount everything below the lookup form on every hop.
+  const [element, setElement] = useState<VertexREST | EdgeREST | null>(null);
   const lookup = useMutation({
     mutationFn: async ({
       kind,
@@ -44,6 +49,12 @@ export function BrowserScreen() {
     },
   });
 
+  // setElement rides the MUTATE-scope callback, which react-query only fires for the
+  // latest mutate call - an option-scope onSuccess fires per call in completion order,
+  // so a slow older hop would overwrite a faster newer one.
+  const runLookup = (kind: "graphelement" | "vertex" | "edge", id: number) =>
+    lookup.mutate({ kind, id }, { onSuccess: (data) => setElement(data) });
+
   const bulk = useQuery({
     queryKey: [instance.id, "graph", maxElements],
     queryFn: ({ signal }) => getGraph(instance, maxElements, signal),
@@ -53,7 +64,15 @@ export function BrowserScreen() {
   const provider = useEmbeddingProvider(instance);
   const providerEnabled = provider ? provider.enabled : null;
 
-  const element = lookup.data ?? null;
+  // The one navigation mechanism on this screen: endpoint links, edge-id chips, the
+  // bulk table, and the neighborhood preview all land here (feature adjacency-preview).
+  const inspect = (id: number) => {
+    // Clicking the element already on screen must not reload anything.
+    if (element?.id === id) return;
+    setIdInput(String(id));
+    setLookupKind("graphelement");
+    runLookup("graphelement", id);
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -63,7 +82,7 @@ export function BrowserScreen() {
           className="flex items-end gap-2 p-3"
           onSubmit={(e) => {
             e.preventDefault();
-            lookup.mutate({ kind: lookupKind, id: Number(idInput) });
+            runLookup(lookupKind, Number(idInput));
           }}
         >
           <Field helpKey="lookupKind" label="kind" htmlFor="lookup-kind">
@@ -118,11 +137,12 @@ export function BrowserScreen() {
           <ElementDetail
             element={element}
             providerEnabled={providerEnabled}
-            onRefresh={() => lookup.mutate({ kind: lookupKind, id: element.id })}
+            onRefresh={() => runLookup(lookupKind, element.id)}
+            onInspect={inspect}
             tab={detailTab}
             onTabChange={setDetailTab}
           />
-          {!isEdge(element) && <AdjacencyPanel vertex={element} />}
+          <AdjacencyPanel element={element} onInspect={inspect} />
         </div>
       )}
 
@@ -148,12 +168,9 @@ export function BrowserScreen() {
                 {bulk.data.vertices.length} vertices · {bulk.data.edges.length} edges
               </span>
               {isTruncated(bulk.data, maxElements) && (
-                <span
-                  data-testid="truncation-indicator"
-                  className="border-warn/50 text-warn rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase"
-                >
+                <TruncationBadge testId="truncation-indicator">
                   truncated at {maxElements}
-                </span>
+                </TruncationBadge>
               )}
               <button
                 type="button"
@@ -194,11 +211,7 @@ export function BrowserScreen() {
                   );
                 })
                 .slice(0, 200)}
-              onInspect={(id) => {
-                setIdInput(String(id));
-                setLookupKind("graphelement");
-                lookup.mutate({ kind: "graphelement", id });
-              }}
+              onInspect={inspect}
             />
           </>
         )}

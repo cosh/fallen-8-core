@@ -3,6 +3,11 @@ import Graph from "graphology";
 import Sigma from "sigma";
 import { EdgeArrowProgram, EdgeRectangleProgram, NodeCircleProgram } from "sigma/rendering";
 import { createNodeImageProgram } from "@sigma/node-image";
+import EdgeCurveProgram, {
+  DEFAULT_EDGE_CURVATURE,
+  EdgeCurvedArrowProgram,
+  indexParallelEdgesIndex,
+} from "@sigma/edge-curve";
 import { circlepack, circular, random } from "graphology-layout";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
 import forceAtlas2 from "graphology-layout-forceatlas2";
@@ -12,6 +17,17 @@ import type { ResolvedStyles } from "./styleEngine";
 import { imageUrlFor } from "./imageAssets";
 import { DEGRADE_THRESHOLD } from "./styling";
 import type { ElementRef } from "./GraphCanvas";
+
+/**
+ * Curvature spread for the i-th of a parallel-edge bundle (the sigma.js parallel-edges
+ * recipe): amplitude-damped so big bundles stay inside a readable fan.
+ */
+function parallelCurvature(index: number, maxIndex: number): number {
+  if (index < 0) return -parallelCurvature(-index, maxIndex);
+  const amplitude = 3.5;
+  const maxCurvature = amplitude * (1 - Math.exp(-maxIndex / amplitude)) * DEFAULT_EDGE_CURVATURE;
+  return maxIndex === 0 ? 0 : (maxCurvature * index) / maxIndex;
+}
 
 /**
  * Sigma.js (WebGL) 2D projection. Renders resolved styles only — the mapping rules
@@ -35,6 +51,13 @@ export function Canvas2D({
   const fa2Ref = useRef<FA2Layout | null>(null);
   const graphRef = useRef<Graph>(new Graph({ multi: true, type: "directed" }));
 
+  // Click handlers live for the Sigma instance's lifetime; they must read the CURRENT
+  // onSelect, or navigation guards upstream compare against a closure frozen at mount.
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
   // Mount Sigma once.
   useEffect(() => {
     const container = containerRef.current;
@@ -43,6 +66,12 @@ export function Canvas2D({
     const graph = graphRef.current;
     const sigma = new Sigma(graph, container, {
       allowInvalidContainer: true,
+      // Off by default in Sigma v3 - without it clickEdge never fires, breaking edge
+      // selection on the canvas and edge hops in the adjacency preview.
+      enableEdgeEvents: true,
+      // Width-1 edges render ~1px and the click hit area equals the rendered geometry -
+      // a floor keeps them clickable without touching the resolved style widths.
+      minEdgeThickness: 2.5,
       renderEdgeLabels: true,
       labelColor: { color: "#cdd6e4" },
       labelFont: "JetBrains Mono, monospace",
@@ -58,16 +87,18 @@ export function Canvas2D({
       edgeProgramClasses: {
         line: EdgeRectangleProgram,
         arrow: EdgeArrowProgram,
+        curved: EdgeCurveProgram,
+        curvedArrow: EdgeCurvedArrowProgram,
       },
     });
     sigmaRef.current = sigma;
 
-    sigma.on("clickNode", ({ node }) => onSelect({ kind: "node", id: Number(node) }));
+    sigma.on("clickNode", ({ node }) => onSelectRef.current({ kind: "node", id: Number(node) }));
     sigma.on("clickEdge", ({ edge }) => {
       const id = graph.getEdgeAttribute(edge, "elementId") as number;
-      onSelect({ kind: "edge", id });
+      onSelectRef.current({ kind: "edge", id });
     });
-    sigma.on("clickStage", () => onSelect(null));
+    sigma.on("clickStage", () => onSelectRef.current(null));
 
     return () => {
       fa2Ref.current?.kill();
@@ -133,7 +164,6 @@ export function Canvas2D({
         color: style.color,
         size: style.width,
         zIndex: style.zIndex,
-        type: config.edgeArrows ? "arrow" : "line",
       };
       if (graph.hasEdge(key)) {
         graph.mergeEdgeAttributes(key, attributes);
@@ -144,6 +174,25 @@ export function Canvas2D({
     for (const edgeKey of graph.edges()) {
       if (!seenEdges.has(edgeKey)) graph.dropEdge(edgeKey);
     }
+
+    // Parallel edges (same endpoint pair, either direction) would render as coincident
+    // straight lines - fan them out with spread curvatures instead.
+    indexParallelEdgesIndex(graph);
+    graph.forEachEdge((edgeKey, attributes) => {
+      const parallelIndex = attributes.parallelIndex as number | null;
+      const parallelMaxIndex = attributes.parallelMaxIndex as number | null;
+      if (typeof parallelIndex === "number") {
+        graph.mergeEdgeAttributes(edgeKey, {
+          type: config.edgeArrows ? "curvedArrow" : "curved",
+          curvature: parallelCurvature(parallelIndex, parallelMaxIndex ?? 1),
+        });
+      } else {
+        graph.mergeEdgeAttributes(edgeKey, {
+          type: config.edgeArrows ? "arrow" : "line",
+          curvature: 0,
+        });
+      }
+    });
 
     sigmaRef.current?.refresh();
   }, [nodes, edges, styles, config.showNodeLabels, config.showEdgeLabels, config.edgeArrows]);
