@@ -23,11 +23,10 @@ round-trips value- and CLR-type-exactly.
 **Embeddings (format version 2):** element embeddings are the reserved `$embedding:<name>`
 `float[]` properties (feature element-embeddings) and travel as
 `{"type": "System.Single[]", "value": "0.1,-0.5,…"}` — comma-joined `"R"` floats, the one
-non-scalar type of the format. The version stamp is the lowest sufficient one: a file
-containing any array is stamped `2`, everything else stays `1` and remains readable by
-older builds (a version-1 stamp that carries an array is rejected — the stamp is a promise,
-not a hint). Importing an embedded file and then creating a bound `VectorIndex` projects
-the vectors immediately.
+non-scalar type of the format. The format is standardized on version 2: the writer always
+stamps it and `System.Single[]` is always available; the reader tolerates an older `1`
+stamp identically and rejects unknown versions. Importing an embedded file and then
+creating a bound `VectorIndex` projects the vectors immediately.
 
 **Consistency (honest):** this is data interchange, not a crash-consistent backup. A write
 committed during the export may or may not appear; the guarantee is that the file is

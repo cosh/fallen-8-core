@@ -103,14 +103,16 @@ scale, plus one more) and the dependency-graph showcase. Static datasets are
 from the Studio bundle — `VITE_F8_SAMPLES_BASE` overrides the base). Each is small enough
 to render fully on the canvas.
 
+Counts below are the actual built figures (the manifest is the runtime source of truth).
+
 | id | title | vertices | edges | shows off |
 |---|---|---|---|---|
 | `karate-club` | Zachary's Karate Club | 34 | 78 | analytics classics: label propagation vs. the real split, triangles, WCC |
-| `attack-surface` | AD Attack Surface | ~350 | ~900 | weighted attack paths (Dijkstra), semantic search, choke-point analytics |
-| `movie-night` | Movie Night | ~290 | ~2 000 | recommendation traversals, poster-image nodes, plot embeddings, PageRank |
-| `air-routes` | World Air Routes | ~250 | ~2 500 | distance-weighted shortest paths, hub analysis, flag-emoji nodes |
+| `attack-surface` | AD Attack Surface | 117 | 142 | weighted attack paths (Dijkstra), semantic search, choke-point analytics |
+| `movie-night` | Movie Night | 191 | 1 697 | recommendation traversals, poster-image nodes, plot embeddings, PageRank |
+| `air-routes` | World Air Routes | 250 | 5 702 | distance-weighted shortest paths, hub analysis, flag-emoji nodes |
 | *(generated)* | Scale: 100k × 1M | 100 000 | ~1 000 000 | ingest speed, memory footprint, analytics at scale, benchmark pairing |
-| `fallen8-deps` | Fallen-8 Dependencies | ~395 | ~520 | multi-ecosystem dependency graph; the static twin of the dynamic GitHub card |
+| `fallen8-deps` | Fallen-8 Dependencies | 392 | 517 | multi-ecosystem dependency graph; the static twin of the dynamic GitHub card |
 
 Every static sample carries an `icon` property per node — the canvas renders emoji and
 image URLs from the *same* property, per value (studio-canvas-viz contract), so movies
@@ -190,8 +192,9 @@ as the reserved `$embedding:default` float[] property with the `$embeddingModel:
 stamp (element-embeddings v1 layout; the engine projects them on import). Implementation
 finding: format v1 could not encode a `float[]` at all — an embedded graph was not even
 *exportable* (422). This feature added **format version 2**: `System.Single[]` as a
-comma-joined `"R"`-float typed pair; the reader accepts 1–2, the writer stamps 2 only
-when an array is present (embedding-free files stay v1 byte-identical).
+comma-joined `"R"`-float typed pair. The format is now standardized on v2 — the writer
+always stamps it and `System.Single[]` is always available; the reader tolerates an older
+v1 stamp identically (no version-dependent behaviour) and unknown versions are rejected.
 
 **Manifest:** `samples/index.json` — per sample: id, title, emoji, pitch, counts, demo
 badges, suggested next steps, style config, index recipes, embedding metadata (`model`,
@@ -256,11 +259,11 @@ consumed as-is. (`SampleGraphController`'s `/unittest` fixed graph is untouched.
 
 ## Impact on existing features (mandatory sweep)
 
-- **bulk-import-export** — **extended, not just consumed**: format version 2 adds
-  `System.Single[]` (see "Dataset format"), fixing the latent gap where an embedded
-  graph could not be exported (422 on `$embedding:*`). Reader accepts v1–v2; v1 output
-  is byte-identical for embedding-free graphs. Its README documents the encoding; the
-  historical spec is untouched.
+- **bulk-import-export** — **extended, not just consumed**: the format is standardized on
+  version 2, which adds `System.Single[]` (see "Dataset format"), fixing the latent gap
+  where an embedded graph could not be exported (422 on `$embedding:*`). The writer always
+  stamps v2; the reader tolerates an older v1 stamp identically. Its README documents the
+  encoding; the historical spec is untouched.
 - **element-embeddings / embedding-provider / embedding-out-of-box** — consumed
   (reserved-property import path, bound-index projection, `/embedding/text`,
   `/status` gating); the element-embeddings README's "rides bulk import/export" claim

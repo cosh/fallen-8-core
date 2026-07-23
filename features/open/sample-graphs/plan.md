@@ -19,12 +19,12 @@ Findings (pinned by `BulkImportExportTest`):
   (edges add `edgePropertyId`/`source`/`target`); every property is a
   `{"type": <name>, "value": <invariant string>}` pair. Strict fields, no duplicates.
 - **v1 could not encode `float[]`** — embedded graphs were not even exportable (422).
-  Resolved by extending the format to **version 2**: `System.Single[]` as comma-joined
-  `"R"` floats; reader accepts 1–2; writer stamps the lowest sufficient version; a
-  v1-stamped file carrying an array is rejected. Implemented in `JsonlGraphFormat` +
-  `BulkController`, tested endpoint-to-engine (export stamps v2, vector + model stamp
-  round-trip, v1-with-array 400s with line number, meta-less files read at full
-  capability).
+  Resolved by extending the format to **version 2** and standardizing on it:
+  `System.Single[]` as comma-joined `"R"` floats; the writer always stamps v2 and the
+  type is always available; the reader tolerates an older v1 stamp identically (no
+  backward-compat baggage). Implemented in `JsonlGraphFormat` + `BulkController`, tested
+  endpoint-to-engine (export always stamps v2, vector + model stamp round-trip, v1-stamped
+  and meta-less files with arrays both import).
 - Bound `VectorIndex` created AFTER import backfills from element state
   (`BoundIndex_CreatedOverExistingData_MaterializesImmediately`) — loader order is
   tabula rasa → import → create indices.
