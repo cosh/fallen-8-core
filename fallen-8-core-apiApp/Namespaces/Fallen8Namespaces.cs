@@ -136,7 +136,8 @@ namespace NoSQL.GraphDB.App.Namespaces
                 _catalogPath = Path.Combine(metadata.Value.ResolveDirectory(), CatalogFileName);
             }
 
-            Default = new Namespace(DefaultName, NewId(DateTime.UtcNow), CreateEngine(defaultWalPath), DateTime.UtcNow);
+            var defaultId = NewId(DateTime.UtcNow);
+            Default = new Namespace(DefaultName, defaultId, CreateEngine(defaultWalPath, defaultId), DateTime.UtcNow);
             _byName[DefaultName] = Default;
 
             // Boot every cataloged namespace eagerly, each on its id-keyed directory: its engine
@@ -149,7 +150,7 @@ namespace NoSQL.GraphDB.App.Namespaces
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var stamp)
                     ? stamp
                     : DateTime.UtcNow;
-                var ns = new Namespace(entry.Name, entry.Id, CreateEngine(ResolveNamespaceWalPath(entry.Id)), createdAt);
+                var ns = new Namespace(entry.Name, entry.Id, CreateEngine(ResolveNamespaceWalPath(entry.Id), entry.Id), createdAt);
                 _byName[entry.Name] = ns;
             }
         }
@@ -248,7 +249,7 @@ namespace NoSQL.GraphDB.App.Namespaces
                     walPath = ResolveNamespaceWalPath(id);
                 }
 
-                ns = new Namespace(name, id, CreateEngine(walPath), createdAt);
+                ns = new Namespace(name, id, CreateEngine(walPath, id), createdAt);
                 _byName[name] = ns;
 
                 try
@@ -538,12 +539,12 @@ namespace NoSQL.GraphDB.App.Namespaces
             }
         }
 
-        private Fallen8 CreateEngine(String walPath)
+        private Fallen8 CreateEngine(String walPath, String metricsScopeId)
         {
             Fallen8 engine;
             if (walPath == null)
             {
-                engine = new Fallen8(_loggerFactory, _changeFeedOptions)
+                engine = new Fallen8(_loggerFactory, _changeFeedOptions, metricsScopeId)
                 {
                     StoredQueryCompiler = new StoredQueryCompiler()
                 };
@@ -554,7 +555,8 @@ namespace NoSQL.GraphDB.App.Namespaces
                     new WriteAheadLogOptions(walPath),
                     new RecipeSubGraphCompiler(),
                     new StoredQueryCompiler(),
-                    _changeFeedOptions);
+                    _changeFeedOptions,
+                    metricsScopeId);
             }
 
             // Stored query library: apply the configured registration ceiling (per namespace).

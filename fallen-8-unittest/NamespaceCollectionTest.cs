@@ -277,6 +277,48 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region observability
+
+        [TestMethod]
+        public void EveryEngineMeter_CarriesItsNamespaceIdAsTheScopeTag()
+        {
+            // Meter-level tags distinguish the N same-named engine meters (feature graph-namespaces
+            // Phase 4); the value is the collection-assigned id, never the user-supplied name. The
+            // listener starts FIRST so every engine meter created below publishes into it.
+            var scopeIds = new HashSet<String>();
+            using var listener = new System.Diagnostics.Metrics.MeterListener();
+            listener.InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == NoSQL.GraphDB.Core.Diagnostics.Fallen8Diagnostics.SourceName
+                    && instrument.Meter.Tags != null)
+                {
+                    foreach (var tag in instrument.Meter.Tags)
+                    {
+                        if (tag.Key == "fallen8.scope.id" && tag.Value is String id)
+                        {
+                            lock (scopeIds)
+                            {
+                                scopeIds.Add(id);
+                            }
+                        }
+                    }
+                }
+            };
+            listener.Start();
+
+            using var namespaces = CreateCollection();
+            Assert.IsTrue(namespaces.TryCreate("flights", out var flights, out _));
+
+            lock (scopeIds)
+            {
+                Assert.IsTrue(scopeIds.Contains(namespaces.Default.Id), "the default engine's meter carries its id");
+                Assert.IsTrue(scopeIds.Contains(flights.Id), "a created engine's meter carries its id");
+                Assert.IsFalse(scopeIds.Contains("flights"), "the user-supplied NAME never becomes a tag value");
+            }
+        }
+
+        #endregion
+
         #region durable-mode on-disk layout
 
         [TestMethod]

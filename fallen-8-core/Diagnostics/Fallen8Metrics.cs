@@ -47,12 +47,19 @@ namespace NoSQL.GraphDB.Core.Diagnostics
     ///
     ///   <para>TAG HYGIENE (hard invariant, pinned by test): no tag value may originate from
     ///   user input. Tags carry .NET type names and enum names only; anything user-named
-    ///   (labels, index names, property keys) belongs to <c>GET /statistics</c>, never here.</para>
+    ///   (labels, index names, property keys) belongs to <c>GET /statistics</c>, never here.
+    ///   The meter-level <c>fallen8.scope.id</c> tag is HOST-ASSIGNED (an opaque generated id,
+    ///   e.g. the namespace id in the hosted API - never a user-supplied name), so it keeps the
+    ///   invariant while letting several engines in one process report distinguishable
+    ///   instruments (feature graph-namespaces).</para>
     /// </summary>
     internal sealed class Fallen8Metrics : IDisposable
     {
         /// <summary>The meter name (same as the trace source, per OTel convention).</summary>
         internal const String MeterName = Fallen8Diagnostics.SourceName;
+
+        /// <summary>The meter-level tag carrying the host-assigned scope id (when supplied).</summary>
+        internal const String ScopeTagName = "fallen8.scope.id";
 
         private readonly Meter _meter;
 
@@ -71,9 +78,12 @@ namespace NoSQL.GraphDB.Core.Diagnostics
         private readonly Histogram<Double> _checkpointLoadDuration;
         private readonly Histogram<Int64> _checkpointLoadBytes;
 
-        internal Fallen8Metrics(Fallen8 engine)
+        internal Fallen8Metrics(Fallen8 engine, String scopeId = null)
         {
-            _meter = new Meter(MeterName);
+            _meter = scopeId == null
+                ? new Meter(MeterName)
+                : new Meter(MeterName, version: null,
+                    tags: new[] { new KeyValuePair<String, Object>(ScopeTagName, scopeId) });
 
             _commits = _meter.CreateCounter<Int64>("fallen8.transaction.commits", "{transaction}",
                 "Committed (Finished) transactions.");
