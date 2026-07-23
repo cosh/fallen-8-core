@@ -4,6 +4,13 @@ Companion to [spec.md](./spec.md); the spec owns the contract, this file owns th
 phasing. Each phase ends green: `dotnet build`/`dotnet test`, web-ui `npm test` + e2e,
 warnings-as-errors.
 
+**Status:** phases 0–7 implemented on `feature/sample-graphs`. Deltas from the original
+plan, all reflected in the spec: (a) datasets are served from a **public GitHub raw URL**
+(top-level `samples/`), not bundled in the Studio `public/`; (b) **no SpatialIndex** sample
+— the REST `/index` recipe can't express its non-literal options (deferred, future work);
+(c) `movie-night` is a curated ~40-film set (hand-authoring 120 plots was out of scope);
+(d) the Fallen-8 SBOM is fetched once and **stored**, refreshed by CI. Marked ✅ below.
+
 ## Phase 0 — pin the interchange details ✅ (became the format-v2 change)
 
 Findings (pinned by `BulkImportExportTest`):
@@ -26,7 +33,7 @@ Findings (pinned by `BulkImportExportTest`):
 - `creationDate` is a `UInt32` unix timestamp; datasets use a fixed constant for
   determinism.
 
-## Phase 1 — Benchmark tab
+## Phase 1 — Benchmark tab ✅
 
 - `src/screens/BenchmarkScreen.tsx`; route `/benchmarks` in `routes.tsx`; NAV entry in
   `AppShell.tsx` directly below Canvas.
@@ -38,7 +45,7 @@ Findings (pinned by `BulkImportExportTest`):
   `generate-sample`/`run-benchmark`/`benchmark-result` testids move here); adjust the
   Dashboard e2e that expects the Playground section.
 
-## Phase 2 — `/generate` distribution parameter (backend)
+## Phase 2 — `/generate` distribution parameter (backend) ✅
 
 - `distribution=uniform|preferential` on `BenchmarkController.CreateGraph`, default
   `uniform`; preferential attachment in `ScaleFreeNetwork` via a repeated-endpoint
@@ -48,59 +55,47 @@ Findings (pinned by `BulkImportExportTest`):
 - `pwsh scripts/update-openapi-snapshot.ps1`, review diff (additions only).
 - UI: Benchmark scale preset + (later) scale card send `distribution=preferential`.
 
-## Phase 3 — dataset pipeline + `karate-club`
+## Phase 3 — dataset pipeline + `karate-club` ✅
 
-- `fallen-8-web-ui/scripts/build-samples.ts` + `npm run build:samples`: sample registry,
-  jsonl emitter (phase-0 contract), manifest writer, `--verify` (re-import each file,
-  compare meta counts), `--only <id>`.
-- `karate-club` first: hardcoded Zachary edge list, `faction` ground truth, no
-  embeddings, no network — pins the whole pipeline cheaply.
-- Commit `public/samples/karate-club.jsonl` + `index.json`; `.gitattributes`
-  `linguist-generated` for `public/samples/*.jsonl`.
-- Tests (vitest): emitter output line shapes; manifest schema guard.
+- `scripts/build-samples.ts` + `npm run build:samples`: registry, shared jsonl emitter
+  (`src/lib/jsonlGraph.ts`), manifest writer, `--verify` (re-import + bind indices),
+  `--only <id>` (preserves other manifest entries from the existing index.json).
+- `karate-club`: hardcoded Zachary edge list, `faction` ground truth, no embeddings/
+  network — pins the pipeline. Output to top-level `samples/`; `.gitattributes`
+  `linguist-generated`.
+- Tests (vitest): emitter line shapes + version stamping (`tests/jsonl-graph.test.ts`).
 
-## Phase 4 — curated datasets
+## Phase 4 — curated datasets ✅
 
-- `attack-surface`: seeded generator (departments, machines, groups, edge
-  `exploitCost`, per-node `description`); embeddings via `POST /embedding/text`
-  (compose env required; batch = provider `MaxBatchSize`; write vector + model stamp
-  properties).
-- `movie-night`: curated ~120-movie list (title/year/genres/plot in the script),
-  posters resolved once via the Wikipedia REST summary API; seeded viewers/ratings.
-- `air-routes`: download OpenFlights airports/routes, top ~250 by route degree,
-  haversine `km`, country→ISO-code map for flagcdn icons, `emoji` fallback property.
-- `fallen8-deps`: fetch the repo SBOM, transform via the new shared
-  `src/lib/sbomGraph.ts` (script + browser share this module).
-- Commit all artifacts; `--verify` green; spot-check semantic search quality on a
-  compose env (queries from the spec's "try" lists) and tune description texts once.
-- Tests (vitest): `sbomGraph` transform against a small SBOM fixture (root node,
-  ecosystems, DEPENDS_ON edges, license property); deterministic-generator snapshots
-  (counts, first lines) for attack-surface/movie-night.
+- `attack-surface`: seeded AD estate (departments, machines, groups, `exploitCost`,
+  per-node `description`); embeddings via `POST /embedding/text` (small batches — the CPU
+  provider times out on a 64-batch), vector + `$embeddingModel` stamp baked in.
+- `movie-night`: curated ~40-film list (title/year/genres/plot in the script), posters
+  resolved once via the Wikipedia REST summary API (🎬 fallback), seeded viewers/ratings.
+- `air-routes`: OpenFlights airports/routes, top ~250 by route degree, haversine `km`,
+  **flag-emoji** icons from a committed OpenFlights country→ISO map (✈️ fallback).
+- `fallen8-deps`: the **stored** SBOM → shared `src/lib/sbomGraph.ts` (script + browser).
+- Tests (vitest): `sbomGraph` transform against a fixture (`tests/sbom-graph.test.ts`).
 
-## Phase 5 — Sample graphs section (Dashboard)
+## Phase 5 — Sample graphs section (Dashboard) ✅
 
-- Replace the Playground section with the manifest-driven card grid; loading contract
-  per spec (confirm+tabularasa when non-empty → fetch asset → import → index recipes →
-  re-read elements → `mergeIntoCanvas` + style config → suggested steps message).
-- Embedding gating note from `/status.embedding` vs. manifest metadata; scale card
-  (shared `generateGraph`, preferential, elapsed-time display, memory warning).
-- Tests: vitest for the loader's decision logic (empty vs. non-empty, provider
-  match/mismatch/off); e2e — load `karate-club` end-to-end into the canvas, card grid
-  renders from the manifest.
+- `SampleGraphsPanel` — manifest-driven card grid + loader (`src/lib/sampleLoader.ts`):
+  confirm+tabularasa when non-empty → fetch from the public URL → import → index recipes →
+  re-read → `mergeIntoCanvas` + style config → suggested steps. Embedding gate from
+  `/status.embedding` vs. manifest metadata. Scale card points at the Benchmark tab.
+- Tests (vitest): the embedding gate's four verdicts (`tests/sample-loader.test.ts`).
 
-## Phase 6 — GitHub card (dynamic dependency graphs)
+## Phase 6 — GitHub card (dynamic dependency graphs) ✅
 
-- Repo input → SBOM fetch in the browser (anonymous) → `sbomGraph` → the phase-5
-  loading contract; >5 000-package legibility note; honest 404/403-rate-limit/empty
-  handling per spec.
-- Tests: vitest with mocked fetch (success, 404, 403 with rate-limit headers, huge
-  SBOM note); e2e happy path only if the runner has network, otherwise mocked.
+- Repo input → SBOM fetch in the browser (anonymous) → `sbomToGraph` → the same loading
+  contract; honest 404 / 403-rate-limit / empty-SBOM handling; `normalizeRepo` accepts
+  owner/repo and URL forms.
+- Tests (vitest): `normalizeRepo` accept/reject (`tests/sample-loader.test.ts`).
 
-## Phase 7 — docs & sweep
+## Phase 7 — docs & sweep ✅ / in progress
 
-- Feature `README.md` (usage: loading samples, rebuilding datasets, adding a sample =
-  script registry entry + manifest, GitHub card limits).
-- One-line pointers: bulk-import-export README (datasets ship in this format);
-  root README stays untouched (readme-with-visuals follow-up noted in spec).
-- Re-run the spec's impact sweep; `features/open/sample-graphs` → `features/done/` on
-  merge.
+- Feature `README.md` written (surfaces, loading contract, rebuild, storage).
+- One-line pointers: bulk-import-export + element-embeddings READMEs point at the v2
+  encoding. Root README untouched (readme-with-visuals follow-up).
+- Impact sweep in the spec refreshed. `features/open/sample-graphs` → `features/done/`
+  on merge.

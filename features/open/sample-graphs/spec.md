@@ -97,16 +97,18 @@ writes the `$embeddingModel:default` stamp alongside each vector.
 ## The lineup
 
 Five curated samples (the ask: cyber security, recommendation, a university classic,
-scale, plus one more) and the dependency-graph showcase. All static datasets are
-`fallen8-jsonl` v1 files in `fallen-8-web-ui/public/samples/`, built by the script
-below, small enough to render fully on the canvas.
+scale, plus one more) and the dependency-graph showcase. Static datasets are
+`fallen8-jsonl` files built by the script below and committed to the repo's top-level
+`samples/`; the Studio fetches them from a **public GitHub raw URL** at ingest (decoupled
+from the Studio bundle — `VITE_F8_SAMPLES_BASE` overrides the base). Each is small enough
+to render fully on the canvas.
 
 | id | title | vertices | edges | shows off |
 |---|---|---|---|---|
 | `karate-club` | Zachary's Karate Club | 34 | 78 | analytics classics: label propagation vs. the real split, triangles, WCC |
 | `attack-surface` | AD Attack Surface | ~350 | ~900 | weighted attack paths (Dijkstra), semantic search, choke-point analytics |
 | `movie-night` | Movie Night | ~290 | ~2 000 | recommendation traversals, poster-image nodes, plot embeddings, PageRank |
-| `air-routes` | World Air Routes | ~250 | ~2 500 | distance-weighted shortest paths, SpatialIndex, hub analysis, flag nodes |
+| `air-routes` | World Air Routes | ~250 | ~2 500 | distance-weighted shortest paths, hub analysis, flag-emoji nodes |
 | *(generated)* | Scale: 100k × 1M | 100 000 | ~1 000 000 | ingest speed, memory footprint, analytics at scale, benchmark pairing |
 | `fallen8-deps` | Fallen-8 Dependencies | ~395 | ~520 | multi-ecosystem dependency graph; the static twin of the dynamic GitHub card |
 
@@ -134,22 +136,27 @@ the financial documents live"; DEGREE/PAGERANK to find lateral-movement choke po
 
 ### `movie-night` — recommendation
 
-~120 well-known movies + ~20 genres 🏷️ + ~150 synthetic viewers 👤 (seeded taste
-profiles → real community structure). Edges: `belongsTo`, `rated` (`rating` Double →
-edge width). Movies carry `title`, `year`, a short `plot` (embedded), and `icon` = the
-Wikipedia poster thumbnail URL (resolved once at build time; hotlinked from
-`upload.wikimedia.org`). Try: semantic search "mind-bending sci-fi about dreams";
-a 2-hop viewer→movie→viewer→movie recommendation path; PAGERANK for the canon;
-color by genre, size by degree.
+~40 iconic movies + genre nodes 🏷️ + ~140 synthetic viewers 👤 (seeded taste profiles →
+real community structure). Edges: `belongsTo`, `rated` (`rating` Double → edge width).
+Movies carry `title`, `year`, a short `plot` (embedded), and `icon` = the Wikipedia
+poster thumbnail URL (resolved once at build time from a pinned page title; hotlinked from
+`upload.wikimedia.org`, with 🎬 fallback when a poster is missing). Try: semantic search
+"mind-bending sci-fi about dreams"; a 2-hop viewer→movie→viewer→movie recommendation path;
+PAGERANK for the canon; color by label, size by degree, edge width by rating.
 
 ### `air-routes` — the fifth graph
 
-OpenFlights data (top ~250 airports by route count, routes deduped per pair): `iata`,
+OpenFlights data (top ~250 airports by route degree, routes deduped per pair): `iata`,
 `city`, `country`, `lat`/`lon` (Doubles), route `km` (haversine, Double) as Dijkstra
-cost, `icon` = country-flag image (flagcdn.com) with ✈️ as the offline-friendly `emoji`
-alternative property. A one-line description per airport is embedded. Try: farthest-
-reasonable route (JFK → PER by cheapest km); a SpatialIndex on lat/lon and
-nearest-airport scans; hubs by degree/PageRank.
+cost, `icon` = the country's **flag emoji** (offline-friendly, from an OpenFlights
+country→ISO-3166 map committed once), ✈️ where a country has no code. A one-line
+description per airport is embedded. Try: a cheapest-km route between two airports;
+semantic search ("major airports in Japan"); hubs by degree/PageRank.
+
+**No SpatialIndex** (deferred — future work). The REST `/index` recipe only carries typed
+*literal* plugin options; a SpatialIndex needs `IMetric` and an `IEnumerable<IDimension>`
+that literals can't express, so it is not declaratively creatable over REST. `lat`/`lon`
+ship as Double properties regardless, ready for the day that lands.
 
 ### Scale card — 100k vertices, ~1M edges
 
@@ -186,27 +193,35 @@ finding: format v1 could not encode a `float[]` at all — an embedded graph was
 comma-joined `"R"`-float typed pair; the reader accepts 1–2, the writer stamps 2 only
 when an array is present (embedding-free files stay v1 byte-identical).
 
-**Manifest:** `fallen-8-web-ui/public/samples/index.json` — per sample: id, title,
-emoji, pitch, counts, demo badges, suggested next steps, style config, index recipes,
-embedding metadata (`model`, `dimension`, `metric`). The card grid renders purely from
-the manifest; adding a sixth static sample is a data change, not a UI change.
+**Manifest:** `samples/index.json` — per sample: id, title, emoji, pitch, counts, demo
+badges, suggested next steps, style config, index recipes, embedding metadata (`model`,
+`dimension`, `metric`). The card grid renders purely from the manifest; adding a sixth
+static sample is a data change, not a UI change.
 
-**Build script:** `fallen-8-web-ui/scripts/build-samples.ts` (run via the package's
-existing TS tooling, `npm run build:samples`; TS so it can share `sbomGraph.ts` and the
-jsonl emitter with app code — no duplicated transform). Inputs per sample: hardcoded
-edge list (karate), seeded PRNG (attack-surface, viewers), curated movie list with
-posters resolved via the Wikipedia REST summary API, OpenFlights CSVs (downloaded at
-build time), the GitHub SBOM. Embeddings via **`POST /embedding/text`** against a
-running compose environment (the same provider path Fallen-8 itself uses — bge-m3
-1024-dim Cosine via the Ollama sidecar), batched at the provider's `MaxBatchSize`.
-Deterministic output: fixed seeds, fixed `creationDate`, vectors rounded to 5 decimals
-(≈ 10⁻⁵ cosine error, ~25 % smaller files). `--verify` re-imports every produced file
-into a live instance and checks the meta-line counts round-trip.
+**Delivery:** the client fetches `${VITE_F8_SAMPLES_BASE}/index.json` then
+`${base}/<file>` (default: this repo's `samples/` on `main` via GitHub raw, CORS-open and
+anonymous) and POSTs the file to `/bulk/import`. **No embedding generation at ingest** —
+the vectors are baked into the file; a bound `VectorIndex` recipe projects them.
 
-**Artifacts are committed** (~8–10 MB total across the four embedded/curated files;
-karate is ~20 KB): users get working demos without Ollama or network access at build
-time. Marked `linguist-generated` in `.gitattributes` so diffs stay quiet. Regeneration
-is only needed when a dataset definition or the embedding model changes.
+**Build script:** `fallen-8-web-ui/scripts/build-samples.ts` (`npm run build:samples`; TS
+so it shares `sbomGraph.ts` and the jsonl emitter with app code — no duplicated
+transform). One generator per sample in `scripts/samples/`. Inputs: hardcoded edge list
+(karate), seeded PRNG (attack-surface, movie viewers), a curated movie list with posters
+resolved via the Wikipedia REST summary API, OpenFlights CSVs (downloaded at build time;
+country→ISO map committed once), the **stored** GitHub SBOM. Embeddings via **`POST
+/embedding/text`** against a running instance whose provider is on (compose, or a local
+instance wired to Ollama bge-m3) — the same provider path Fallen-8 uses; small batches
+(the CPU provider's HttpClient times out at 100s on a 64-batch). Deterministic where it
+can be: fixed seeds and `creationDate`, vectors rounded to 5 decimals (≈ 10⁻⁵ cosine
+error, smaller files). `--verify` re-imports every produced file AND binds its index
+recipes against a live empty instance.
+
+**Artifacts are committed** to `samples/` (embedded files are a few MB each; karate is
+~16 KB): the Studio serves working demos with no build-time Ollama or network. Marked
+`linguist-generated` in `.gitattributes`. Regeneration is needed only when a dataset
+definition or the embedding model changes. The Fallen-8 SBOM is fetched once and stored
+(`scripts/samples/data/fallen8-sbom.json`); CI (`.github/workflows/refresh-sbom.yml`)
+refreshes it only when a dependency manifest changes.
 
 ## Backend changes (small, one honest fix)
 

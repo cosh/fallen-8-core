@@ -18,7 +18,7 @@
  * Ollama bge-m3) — embedding happens HERE, at build time, via POST /embedding/text.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SampleManifestEntry, SamplesManifest } from "../src/lib/samples";
@@ -119,12 +119,24 @@ async function main(): Promise<void> {
     }
   }
 
-  // The manifest always describes the full registry in build order. With --only, the
-  // other entries are rebuilt in memory (cheap for the deterministic generators; the
-  // network-sourced ones re-fetch, which --only on a single id is expected to tolerate).
+  // The manifest always describes the full registry in build order. Entries NOT built
+  // this run (the --only case) are preserved from the existing index.json — never rebuilt
+  // (rebuilding would re-embed/re-fetch every other sample, defeating --only).
+  const previous = new Map<string, SampleManifestEntry>();
+  if (only) {
+    try {
+      const existing = JSON.parse(readFileSync(join(OUT_DIR, "index.json"), "utf8")) as SamplesManifest;
+      for (const entry of existing.samples) previous.set(entry.id, entry);
+    } catch {
+      console.warn("  (no existing index.json — the manifest will omit un-built samples)");
+    }
+  }
+
   const entries: SampleManifestEntry[] = [];
   for (const id of Object.keys(REGISTRY)) {
-    entries.push(built.get(id) ?? (await REGISTRY[id]()).entry);
+    const entry = built.get(id) ?? previous.get(id);
+    if (entry) entries.push(entry);
+    else console.warn(`  manifest omits '${id}' (not built this run and absent from index.json)`);
   }
 
   const manifest: SamplesManifest = { version: 1, samples: entries };
