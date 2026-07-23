@@ -17,7 +17,8 @@ async function registerSecuredInstance(page: Page, name = "e2e") {
   await page.getByLabel(/api key/i).fill(API_KEY);
   await page.getByTestId("instance-save").click();
   await page.getByRole("radio", { name: `activate ${name}` }).check();
-  await expect(page.getByTestId("active-endpoint")).toHaveText("same origin");
+  // The endpoint hint carries the namespace prefix (feature graph-namespaces).
+  await expect(page.getByTestId("active-endpoint")).toContainText("same origin");
 }
 
 /**
@@ -228,7 +229,7 @@ test("save games: save now registers a row; load and delete demand typed confirm
   await expect(confirmLoad).toBeDisabled();
   await page.getByTestId("confirm-typed").fill("savegametest");
   await confirmLoad.click();
-  await expect(page.getByTestId("savegame-message")).toContainText("Loaded", { timeout: 20_000 });
+  await expect(page.getByTestId("savegame-message")).toContainText("Restored", { timeout: 20_000 });
 
   // Delete demands the typed instance name; the files checkbox is available.
   await page.locator('[data-testid^="savegame-row-"]').first().getByRole("button", { name: "Delete…" }).click();
@@ -238,16 +239,17 @@ test("save games: save now registers a row; load and delete demand typed confirm
   await expect(page.getByTestId("savegame-message")).toContainText("deleted", { timeout: 20_000 });
 });
 
-test("scenario 8: tabula rasa demands the typed instance name", async ({ page }) => {
+test("scenario 8: erasing a namespace demands its typed NAME (feature graph-namespaces)", async ({ page }) => {
   await registerSecuredInstance(page, "erasable");
   await page.goto("/dashboard");
   await page.getByTestId("tabularasa").click();
 
+  // The erase is namespace-scoped now: the gate is the NAMESPACE name, not the instance's.
   const confirm = page.getByTestId("confirm-action");
   await expect(confirm).toBeDisabled();
-  await page.getByTestId("confirm-typed").fill("wrong-name");
-  await expect(confirm).toBeDisabled();
   await page.getByTestId("confirm-typed").fill("erasable");
+  await expect(confirm).toBeDisabled();
+  await page.getByTestId("confirm-typed").fill("default");
   await confirm.click();
 
   await expect(page.getByTestId("admin-message")).toContainText("erased", {
@@ -293,6 +295,71 @@ test("scenario 10 (builtin default): assist is usable with zero config; editor f
   await page.keyboard.press("Control+a");
   await page.keyboard.type("return (v) => true;", { delay: 10 });
   await expect(page.getByTestId("validation-valid")).toBeVisible({ timeout: 15_000 });
+});
+
+test("scenario 12 (graph-namespaces): create, populate, isolate, save all, drop, restore one", async ({
+  page,
+}) => {
+  await registerSecuredInstance(page, "nstest");
+
+  // Create "flights" through the Connect panel; the live URL preview names the call.
+  await page.getByTestId("namespace-create-name").fill("flights");
+  await expect(page.getByTestId("namespace-url-preview")).toHaveText("PUT /ns/flights");
+  await page.getByTestId("namespace-create").click();
+  await expect(page.getByTestId("namespace-row-flights")).toBeVisible({ timeout: 20_000 });
+
+  // Switch to it: the namespace lands in the app URL and in the endpoint hint.
+  await page.getByTestId("namespace-switch-flights").click();
+  await expect(page).toHaveURL(/\/q\/flights\/dashboard/);
+  await expect(page.getByTestId("active-endpoint")).toContainText("/ns/flights/*");
+
+  // Populate flights with a uniquely-labelled vertex (createVertex navigates to the
+  // browser, which redirects into the ACTIVE namespace's screen).
+  const label = `plane-${Date.now().toString(36)}`;
+  await page.goto("/browser");
+  await expect(page).toHaveURL(/\/q\/flights\/browser/);
+  await page.getByTestId("new-vertex-label").fill(label);
+  await page.getByTestId("create-vertex").click();
+  await expect(page.getByTestId("mutation-message")).toContainText(label);
+
+  // Isolation: the vertex is invisible from "default" (same screen, other namespace).
+  await page.getByTestId("namespace-switcher").selectOption("default");
+  await expect(page).toHaveURL(/\/q\/default\/browser/);
+  await page.locator("#max-elements").fill("5000");
+  await page.getByRole("button", { name: "Load", exact: true }).click();
+  await page.getByTestId("bulk-filter").fill(label);
+  await expect(page.locator("tr", { hasText: label })).toHaveCount(0);
+
+  // Save ALL namespaces into one spanning entry; its manifest lists flights.
+  await page.goto("/save-games");
+  await page.getByTestId("save-now").click();
+  await expect(page.getByTestId("savegame-message")).toContainText("Saved", { timeout: 20_000 });
+  const entry = page.locator('[data-testid^="savegame-row-"]').first();
+  await expect(entry.locator('[data-testid^="savegame-namespaces-"]')).toContainText("flights");
+
+  // Drop flights (typed NAMESPACE name), then restore ONLY it out of the entry.
+  await page.goto("/");
+  await page.getByTestId("namespace-drop-flights").click();
+  await expect(page.getByTestId("confirm-action")).toBeDisabled();
+  await page.getByTestId("confirm-typed").fill("flights");
+  await page.getByTestId("confirm-action").click();
+  await expect(page.getByTestId("namespace-row-flights")).not.toBeVisible({ timeout: 20_000 });
+
+  await page.goto("/save-games");
+  await page.locator('[data-testid^="savegame-row-"]').first().getByRole("button", { name: "Load…" }).click();
+  await page.getByTestId("load-namespace-select").locator("select").selectOption("flights");
+  await page.getByTestId("confirm-typed").fill("nstest");
+  await page.getByTestId("confirm-action").click();
+  await expect(page.getByTestId("savegame-message")).toContainText("flights", { timeout: 20_000 });
+
+  // The dropped namespace is back, with its saved content.
+  await page.getByTestId("namespace-switcher").selectOption("flights");
+  await page.goto("/browser");
+  await expect(page).toHaveURL(/\/q\/flights\/browser/);
+  await page.locator("#max-elements").fill("5000");
+  await page.getByRole("button", { name: "Load", exact: true }).click();
+  await page.getByTestId("bulk-filter").fill(label);
+  await expect(page.locator("tr", { hasText: label }).first()).toBeVisible({ timeout: 20_000 });
 });
 
 test("scenario 11: nav stays locked until the active instance is connected AND authorized", async ({
