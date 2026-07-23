@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "samples": [
+    {
+      "id": "karate-club",
+      "title": "Zachary's Karate Club",
+      "emoji": "🥋",
+      "pitch": "The most famous graph in community detection: 34 club members, 78 friendships, one legendary split (Zachary, 1977).",
+      "vertexCount": 34,
+      "edgeCount": 78,
+      "badges": [
+        "canvas",
+        "analytics",
+        "path"
+      ],
+      "trySteps": [
+        "Analytics → LABELPROPAGATION with a write-back property, then color the canvas by it — the computed communities reproduce the club's real 1977 split (compare with color by 'faction').",
+        "Analytics → TRIANGLECOUNT and WCC on the textbook graph.",
+        "Path → route from Mr. Hi to the Officer (look their ids up on the Browser screen)."
+      ],
+      "file": "samples/karate-club.jsonl",
+      "styleConfig": {
+        "nodeColorMode": "property",
+        "nodeColorProperty": "faction",
+        "nodeSizeMode": "degree",
+        "nodeImageProperty": "icon",
+        "edgeArrows": false
+      },
+      "indexRecipes": [],
+      "embedding": null
+    }
+  ]
+}
