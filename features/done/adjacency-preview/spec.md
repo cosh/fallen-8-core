@@ -45,6 +45,21 @@ Arrows show each edge's direction; parallel edges render curved so the bundle is
 readable. A caption states the parallel-edge count. Clicking either endpoint vertex or a
 sibling edge navigates to it.
 
+### Hops are seamless
+
+Traversing element to element must feel like moving through the graph, not like page
+loads:
+
+- The shown element is screen state set on lookup success, NOT the mutation's `data`
+  (which resets while pending) — so the detail and adjacency panels stay mounted while
+  the next element loads; nothing below the lookup form flickers or shifts.
+- The neighborhood query keeps the previous graph as placeholder data
+  (`keepPreviousData`): the canvas instance persists across hops and morphs to the new
+  neighborhood when it lands; the caption shows `…` while the placeholder is up. One
+  `AdjacencyPanel` serves both kinds so vertex↔edge hops reuse the same preview instance.
+- Clicking the element already on screen (focus vertex, current edge, its own endpoint
+  chip) is a no-op — no refetch, no re-render.
+
 ### Navigation: one mechanism
 
 `InspectLink` drops the dead router navigation and becomes a pure callback
@@ -94,7 +109,12 @@ edge neighborhood panel. Endpoint/edge-id links therefore *work* now.
   pinned visuals unchanged); `GraphCanvas` gains the optional `emphasis` prop;
   `Canvas2D` renders parallel edges curved (main-canvas visual improvement, arrows and
   labels unchanged); the expand-neighbors mutation now delegates to
-  `fetchVertexNeighborhood` (behavior-preserving refactor, same caps).
+  `fetchVertexNeighborhood` (behavior-preserving refactor, same caps). Two latent
+  canvas bugs are fixed in passing: Sigma v3 ships with edge events DISABLED, so the
+  canvas's `clickEdge` handler (edge selection → detail panel) had never fired —
+  `enableEdgeEvents: true` turns it on; and `minEdgeThickness: 2.5` floors the rendered
+  (= clickable) edge geometry so width-1 edges are an actually hittable target. Resolved
+  style widths are untouched.
 - **web-ui (Browser screen)**: `InspectLink` changes contract from router navigation to
   callback — its two call sites are both on this screen; endpoint and edge-id links go
   from dead to functional.

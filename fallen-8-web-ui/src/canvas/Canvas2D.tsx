@@ -59,6 +59,12 @@ export function Canvas2D({
     const graph = graphRef.current;
     const sigma = new Sigma(graph, container, {
       allowInvalidContainer: true,
+      // Off by default in Sigma v3 - without it clickEdge never fires, breaking edge
+      // selection on the canvas and edge hops in the adjacency preview.
+      enableEdgeEvents: true,
+      // Width-1 edges render ~1px and the click hit area equals the rendered geometry -
+      // a floor keeps them clickable without touching the resolved style widths.
+      minEdgeThickness: 2.5,
       renderEdgeLabels: true,
       labelColor: { color: "#cdd6e4" },
       labelFont: "JetBrains Mono, monospace",

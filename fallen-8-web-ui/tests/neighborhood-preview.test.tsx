@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { InstanceConfig } from "../src/instances/types";
@@ -158,6 +158,42 @@ describe("vertex mode", () => {
     renderPreview(VERTEX);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("boom");
+  });
+
+  it("keeps the previous graph mounted while the next hop's neighborhood loads", async () => {
+    fetchVertexNeighborhoodMock.mockResolvedValue(
+      neighborhood({ edges: [{ ...EDGE, sourceVertex: 42, targetVertex: 7 }] }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={client}>
+        <NeighborhoodPreview element={VERTEX} onInspect={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("mock-canvas");
+
+    let resolveNext!: (n: Neighborhood) => void;
+    fetchVertexNeighborhoodMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveNext = resolve;
+        }),
+    );
+    rerender(
+      <QueryClientProvider client={client}>
+        <NeighborhoodPreview element={{ ...VERTEX, id: 7 }} onInspect={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    // The old graph stays (no spinner remount); the caption signals the load honestly.
+    expect(screen.getByTestId("mock-canvas")).toBeInTheDocument();
+    expect(screen.queryByText("loading neighborhood…")).not.toBeInTheDocument();
+    expect(screen.getByTestId("preview-caption")).toHaveTextContent("…");
+
+    resolveNext(neighborhood({ edges: [] }));
+    await waitFor(() =>
+      expect(screen.getByTestId("preview-caption")).toHaveTextContent("0 edges"),
+    );
   });
 });
 

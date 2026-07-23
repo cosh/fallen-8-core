@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
 import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
@@ -41,6 +41,9 @@ export function NeighborhoodPreview({
             // The focus vertex is already hydrated by the lookup - seed, don't re-fetch.
             skipNeighborIds: new Set([element.id]),
           }),
+    // A hop keeps the previous graph mounted and morphs it when the new neighborhood
+    // lands - remount-and-spinner would flicker on every traversal step.
+    placeholderData: keepPreviousData,
   });
 
   const model = useMemo(() => {
@@ -75,11 +78,13 @@ export function NeighborhoodPreview({
     <div className="space-y-2 p-3">
       <div className="flex items-center gap-2 text-[12px]">
         <span className="text-fg-dim" data-testid="preview-caption">
-          {edge
-            ? `${edges.length} edge${edges.length === 1 ? "" : "s"} between #${edge.sourceVertex} and #${edge.targetVertex}`
-            : `${edges.length} edge${edges.length === 1 ? "" : "s"} · click an element to inspect it`}
+          {neighborhood.isPlaceholderData
+            ? "…"
+            : edge
+              ? `${edges.length} edge${edges.length === 1 ? "" : "s"} between #${edge.sourceVertex} and #${edge.targetVertex}`
+              : `${edges.length} edge${edges.length === 1 ? "" : "s"} · click an element to inspect it`}
         </span>
-        {truncated && (
+        {!neighborhood.isPlaceholderData && truncated && (
           <span
             data-testid="preview-truncation"
             className="border-warn/50 text-warn rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase"

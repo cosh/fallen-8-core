@@ -17,8 +17,8 @@ export function ElementDetail({
   providerEnabled: boolean | null;
   onRefresh: () => void;
   onInspect: (id: number) => void;
-  /** Owned by the screen: a refresh unmounts this panel while the lookup is pending, so
-   *  local state would snap back to "properties" right after every embedding write. */
+  /** Owned by the screen so the chosen tab survives the unmount a missing-element
+   *  lookup causes (hops and refreshes keep this panel mounted since adjacency-preview). */
   tab: "properties" | "embeddings";
   onTabChange: (tab: "properties" | "embeddings") => void;
 }) {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { getEdge, getGraph, getGraphElement, getVertex } from "../api/endpoints";
+import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
 import { isTruncated } from "../lib/truncation";
 import { AdjacencyPanel } from "../components/AdjacencyPanel";
@@ -11,7 +12,6 @@ import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 import { MutationsPanel } from "../components/MutationsPanel";
-import { NeighborhoodPreview } from "../components/NeighborhoodPreview";
 import { useEmbeddingProvider } from "../state/graphShape";
 
 /**
@@ -30,6 +30,9 @@ export function BrowserScreen() {
   const [bulkFilter, setBulkFilter] = useState("");
   const [detailTab, setDetailTab] = useState<"properties" | "embeddings">("properties");
 
+  // The shown element is state, not lookup.data: a mutation resets its data while
+  // pending, which would unmount everything below the lookup form on every hop.
+  const [element, setElement] = useState<VertexREST | EdgeREST | null>(null);
   const lookup = useMutation({
     mutationFn: async ({
       kind,
@@ -43,6 +46,7 @@ export function BrowserScreen() {
       if (kind === "edge") return await getEdge(instance, id);
       return await getGraphElement(instance, id);
     },
+    onSuccess: (data) => setElement(data),
   });
 
   const bulk = useQuery({
@@ -54,11 +58,11 @@ export function BrowserScreen() {
   const provider = useEmbeddingProvider(instance);
   const providerEnabled = provider ? provider.enabled : null;
 
-  const element = lookup.data ?? null;
-
   // The one navigation mechanism on this screen: endpoint links, edge-id chips, the
   // bulk table, and the neighborhood preview all land here (feature adjacency-preview).
   const inspect = (id: number) => {
+    // Clicking the element already on screen must not reload anything.
+    if (element?.id === id) return;
     setIdInput(String(id));
     setLookupKind("graphelement");
     lookup.mutate({ kind: "graphelement", id });
@@ -132,14 +136,7 @@ export function BrowserScreen() {
             tab={detailTab}
             onTabChange={setDetailTab}
           />
-          {isEdge(element) ? (
-            <section className="panel">
-              <div className="panel-title">neighborhood</div>
-              <NeighborhoodPreview element={element} onInspect={inspect} />
-            </section>
-          ) : (
-            <AdjacencyPanel vertex={element} onInspect={inspect} />
-          )}
+          <AdjacencyPanel element={element} onInspect={inspect} />
         </div>
       )}
 

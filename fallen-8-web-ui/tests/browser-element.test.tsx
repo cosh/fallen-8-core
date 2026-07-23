@@ -270,6 +270,45 @@ describe("adjacency panel", () => {
     expect(screen.getByTestId("lookup-id")).toHaveValue("2");
   });
 
+  it("keeps the current element and preview mounted while a hop is in flight", async () => {
+    const user = userEvent.setup();
+    getOutEdgePropertiesMock.mockResolvedValue(["knows"]);
+    getOutEdgesMock.mockResolvedValue([7]);
+    renderScreen();
+    await lookUp(user, "42");
+    await screen.findByRole("button", { name: "node-2" });
+
+    let resolveHop!: (v: VertexREST) => void;
+    getGraphElementMock.mockImplementation((_i, id) =>
+      id === 2
+        ? new Promise((resolve) => {
+            resolveHop = resolve;
+          })
+        : Promise.resolve(VERTEX),
+    );
+    await user.click(screen.getByRole("button", { name: "node-2" }));
+
+    // No unmount, no flicker: the previous element and its preview stay visible.
+    expect(screen.getByText("vertex #42")).toBeInTheDocument();
+    expect(screen.getByTestId("mock-canvas")).toBeInTheDocument();
+
+    resolveHop({ ...VERTEX, id: 2 });
+    await waitFor(() => expect(screen.getByText("vertex #2")).toBeInTheDocument());
+  });
+
+  it("does not reload anything when the shown element is clicked again", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await lookUp(user, "42");
+    const focusNode = await screen.findByRole("button", { name: "node-42" });
+
+    const lookupsBefore = getGraphElementMock.mock.calls.length;
+    await user.click(focusNode);
+
+    expect(getGraphElementMock.mock.calls.length).toBe(lookupsBefore);
+    expect(screen.getByText("vertex #42")).toBeInTheDocument();
+  });
+
   it("switches between the graph and stats views", async () => {
     const user = userEvent.setup();
     getOutEdgePropertiesMock.mockResolvedValue(["knows"]);
