@@ -445,8 +445,10 @@ namespace NoSQL.GraphDB.Core.App.Helper
         /// every producer of a definition - the /subgraph endpoint, the persisted-recipe
         /// compiler, the stored-query compiler - binds it identically: the traversal context is
         /// built ONCE and closed over by the compiled delegates at registration time
-        /// (recalculation and WAL replay never embed anything), and a declarative
-        /// <c>minScore</c> becomes the vertex pre-filter.
+        /// (recalculation and WAL replay never embed anything), a declarative
+        /// <c>minScore</c> becomes the vertex pre-filter, and a pattern step's
+        /// <c>semanticMinScore</c> (feature subgraph-semantic-thresholds) becomes that step's
+        /// vertex filter.
         /// </remarks>
         public static String TryGenerateSubGraphDefinition(SubGraphSpecification specification, out SubGraphDefinition definition)
         {
@@ -494,9 +496,9 @@ namespace NoSQL.GraphDB.Core.App.Helper
             {
                 def.Pattern = new List<APattern>();
 
-                foreach (var patternSpec in specification.Patterns)
+                for (var i = 0; i < specification.Patterns.Count; i++)
                 {
-                    var error = BuildPattern(patternSpec, def.Pattern, slots);
+                    var error = BuildPattern(specification.Patterns[i], i, def.Pattern, slots, semantic);
                     if (error != null)
                     {
                         return error;
@@ -520,7 +522,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
             return null;
         }
 
-        private static String BuildPattern(PatternSpecification patternSpec, List<APattern> patterns, List<GeneratedDelegateSlot> slots)
+        private static String BuildPattern(PatternSpecification patternSpec, Int32 index, List<APattern> patterns,
+            List<GeneratedDelegateSlot> slots, SemanticTraversal semantic)
         {
             if (patternSpec == null)
             {
@@ -529,13 +532,47 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             var type = (patternSpec.Type ?? String.Empty).Trim().ToLowerInvariant();
 
+            // The declarative per-pattern threshold (feature subgraph-semantic-thresholds) is a
+            // vertex concept; rejected explicitly on edge patterns rather than silently ignored.
+            if (patternSpec.SemanticMinScore.HasValue && type != "vertex")
+            {
+                return String.Format("patterns[{0}]: semanticMinScore applies to Vertex patterns only.", index);
+            }
+
             switch (type)
             {
                 case "vertex":
                     {
                         var vertexPattern = new VertexPattern { PatternName = patternSpec.PatternName };
-                        RegisterSlot(slots, "Delegates.VertexFilter", patternSpec.VertexFilter,
-                            d => vertexPattern.Vertex = (Delegates.VertexFilter)d);
+
+                        if (patternSpec.SemanticMinScore.HasValue)
+                        {
+                            if (!Double.IsFinite(patternSpec.SemanticMinScore.Value))
+                            {
+                                return String.Format("patterns[{0}]: semanticMinScore must be a finite number.", index);
+                            }
+
+                            if (!semantic.Context.HasQueryVector)
+                            {
+                                return String.Format("patterns[{0}]: semanticMinScore requires a 'semantic' block with a query vector.", index);
+                            }
+
+                            if (!String.IsNullOrWhiteSpace(patternSpec.VertexFilter))
+                            {
+                                return String.Format("patterns[{0}]: semanticMinScore and a vertexFilter fragment own the same slot; use one.", index);
+                            }
+
+                            // A native closure over the registration-bound context - no code is
+                            // compiled for this slot.
+                            vertexPattern.Vertex = SemanticTraversalHelper.BuildThresholdFilter(
+                                semantic.Context, patternSpec.SemanticMinScore.Value);
+                        }
+                        else
+                        {
+                            RegisterSlot(slots, "Delegates.VertexFilter", patternSpec.VertexFilter,
+                                d => vertexPattern.Vertex = (Delegates.VertexFilter)d);
+                        }
+
                         patterns.Add(vertexPattern);
                         return null;
                     }

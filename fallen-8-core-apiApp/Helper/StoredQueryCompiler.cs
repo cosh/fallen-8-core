@@ -133,6 +133,24 @@ namespace NoSQL.GraphDB.App.Helper
                 return false;
             }
 
+            // Pattern-level semantic thresholds cannot ride a template (feature
+            // subgraph-semantic-thresholds): the template's delegates bind at ITS registration,
+            // where no semantic query exists, so a threshold would close over the empty context
+            // and match nothing - rejected loudly, mirroring the semantic-on-invocation 400.
+            if (block.Patterns != null)
+            {
+                foreach (var pattern in block.Patterns)
+                {
+                    if (pattern != null && pattern.SemanticMinScore.HasValue)
+                    {
+                        error = String.Format(
+                            "Stored query '{0}': 'semanticMinScore' is not available in a stored SubGraph template; inline the filters instead.",
+                            definition.Name);
+                        return false;
+                    }
+                }
+            }
+
             // The template compiles under the stored query's own name as a placeholder; an
             // invocation instantiates it under the per-request subgraph instance name.
             var subGraphSpecification = new SubGraphSpecification

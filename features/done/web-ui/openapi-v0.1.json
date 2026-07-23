@@ -7722,6 +7722,17 @@
             "description": "Vertex-specific filter. Only meaningful when string PatternSpecification.Type is\r\n`Vertex`. The lambda receives a `VertexModel`.",
             "example": "return (v) =&gt; v.TryGetProperty(out var age, \"age\") &amp;&amp; (int)age &gt;= 18;"
           },
+          "semanticMinScore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "Declarative semantic membership threshold for a `Vertex` pattern (feature\r\nsubgraph-semantic-thresholds): the vertex matches when its named embedding scores\r\npast this against the request's `semantic` query - the same scoring rules as\r\n`semantic.minScore` (at least, under Cosine/DotProduct; at most, under L2;\r\nvertices without the embedding never match). Owns the step's filter slot - setting\r\nit together with string PatternSpecification.VertexFilter is a 400, as is setting it on an edge\r\npattern or without a request-level `semantic` block. Pure data: it compiles\r\nno code and works with dynamic code execution disabled.",
+            "format": "double",
+            "example": 0.7
+          },
           "direction": {
             "type": [
               "null",

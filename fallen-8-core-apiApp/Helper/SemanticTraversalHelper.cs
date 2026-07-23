@@ -189,16 +189,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             if (specification.MinScore.HasValue)
             {
-                var minScore = specification.MinScore.Value;
-                var higherIsBetter = metric != VectorDistanceMetric.L2;
-
-                Boolean Passes(AGraphElementModel element)
-                {
-                    return context.TrySimilarity(element, out var score) &&
-                           (higherIsBetter ? score >= minScore : score <= minScore);
-                }
-
-                result.VertexFilter = vertex => Passes(vertex);
+                result.VertexFilter = BuildThresholdFilter(context, specification.MinScore.Value);
             }
             else if (specification.CostBySimilarity)
             {
@@ -217,6 +208,20 @@ namespace NoSQL.GraphDB.Core.App.Helper
             }
 
             return null;
+        }
+
+        /// <summary>
+        ///   The one threshold-closure builder: an element passes when its embedding scores at
+        ///   least <paramref name="minScore" /> (Cosine/DotProduct) or at most (L2, where lower
+        ///   is closer); elements without a comparable embedding never pass. Shared by the
+        ///   request-level <c>minScore</c> filter and the per-pattern vertex thresholds
+        ///   (feature subgraph-semantic-thresholds) so there is exactly one scoring path.
+        /// </summary>
+        internal static Delegates.VertexFilter BuildThresholdFilter(TraversalContext context, Double minScore)
+        {
+            var higherIsBetter = context.Metric != VectorDistanceMetric.L2;
+            return vertex => context.TrySimilarity(vertex, out var score) &&
+                             (higherIsBetter ? score >= minScore : score <= minScore);
         }
     }
 }

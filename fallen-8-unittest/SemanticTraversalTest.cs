@@ -36,7 +36,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App;
+using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.App.Helper;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
@@ -45,7 +47,8 @@ namespace NoSQL.GraphDB.Tests
     ///   Feature element-embeddings, Phase 2: the traversal context and the declarative
     ///   semantic block - code-free semantic filter/cost with dynamic code OFF, context-aware
     ///   fragments and stored queries with it ON, one-owner-per-slot conflicts, and the
-    ///   subgraph registration-time binding.
+    ///   subgraph registration-time binding. Plus feature subgraph-semantic-thresholds: the
+    ///   declarative per-pattern vertex thresholds (own region below).
     /// </summary>
     [TestClass]
     public class SemanticTraversalTest
@@ -395,6 +398,228 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.IsTrue(engine.SubGraphFactory.TryGetSubGraph(out var subGraph, "close"));
             CollectionAssert.AreEqual(new List<string> { "a", "b", "d", "e" }, VertexNames(subGraph.SubGraph));
+        }
+
+        #endregion
+
+        #region pattern thresholds (feature subgraph-semantic-thresholds)
+
+        [TestMethod]
+        public async Task SubGraph_PatternThreshold_AppliesAtItsStep_WithDynamicCodeOff()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: false);
+            var engine = EngineOf(factory);
+            Diamond(engine);
+            using var client = factory.CreateClient();
+
+            // Threshold on the SECOND vertex step only: c (orthogonal to [1,0]) may still START
+            // a match (c -> d) but never END one (a -> c is pruned). Distinguishes a step-level
+            // filter from the top-level pre-filter, which would drop c entirely.
+            using var created = await PutJson(client, "/subgraph",
+                "{ \"name\": \"steps\", \"semantic\": { \"queryVector\": [1, 0] }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\" }, { \"type\": \"Edge\" }, " +
+                "                  { \"type\": \"Vertex\", \"semanticMinScore\": 0.5 } ] }");
+            Assert.AreEqual(HttpStatusCode.Created, created.StatusCode, await created.Content.ReadAsStringAsync());
+
+            Assert.IsTrue(engine.SubGraphFactory.TryGetSubGraph(out var subGraph, "steps"));
+            CollectionAssert.AreEqual(new List<string> { "a", "b", "c", "d" }, VertexNames(subGraph.SubGraph),
+                "c starts the c->d match and must survive");
+            Assert.AreEqual(3, subGraph.SubGraph.GetAllEdges().Count,
+                "a->c must be pruned (its target fails the step threshold); a->b, b->d, c->d remain");
+        }
+
+        [TestMethod]
+        public async Task SubGraph_PatternThreshold_MatchesContextFragmentParity()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: true);
+            var engine = EngineOf(factory);
+            Diamond(engine);
+            using var client = factory.CreateClient();
+
+            const string fragment = "return (v) => context.TrySimilarity(v, out var s) && s >= 0.5f;";
+            using var viaFragment = await PutJson(client, "/subgraph",
+                "{ \"name\": \"frag\", \"semantic\": { \"queryVector\": [1, 0] }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\", \"vertexFilter\": \"" + fragment + "\" }, " +
+                "                  { \"type\": \"Edge\" }, " +
+                "                  { \"type\": \"Vertex\", \"vertexFilter\": \"" + fragment + "\" } ] }");
+            Assert.AreEqual(HttpStatusCode.Created, viaFragment.StatusCode, await viaFragment.Content.ReadAsStringAsync());
+
+            using var viaThreshold = await PutJson(client, "/subgraph",
+                "{ \"name\": \"decl\", \"semantic\": { \"queryVector\": [1, 0] }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\", \"semanticMinScore\": 0.5 }, " +
+                "                  { \"type\": \"Edge\" }, " +
+                "                  { \"type\": \"Vertex\", \"semanticMinScore\": 0.5 } ] }");
+            Assert.AreEqual(HttpStatusCode.Created, viaThreshold.StatusCode, await viaThreshold.Content.ReadAsStringAsync());
+
+            Assert.IsTrue(engine.SubGraphFactory.TryGetSubGraph(out var fromFragment, "frag"));
+            Assert.IsTrue(engine.SubGraphFactory.TryGetSubGraph(out var fromThreshold, "decl"));
+            CollectionAssert.AreEqual(new List<string> { "a", "b", "d" }, VertexNames(fromFragment.SubGraph));
+            CollectionAssert.AreEqual(VertexNames(fromFragment.SubGraph), VertexNames(fromThreshold.SubGraph),
+                "the declarative threshold and the hand-rolled context fragment must select the same vertices");
+            Assert.AreEqual(fromFragment.SubGraph.GetAllEdges().Count, fromThreshold.SubGraph.GetAllEdges().Count);
+        }
+
+        [TestMethod]
+        public async Task SubGraph_PatternThreshold_400Table()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: true);
+            Diamond(EngineOf(factory));
+            using var client = factory.CreateClient();
+
+            // A threshold is a vertex concept: explicit 400 on an edge step, not silently ignored.
+            using var onEdge = await PutJson(client, "/subgraph",
+                "{ \"name\": \"x1\", \"semantic\": { \"queryVector\": [1, 0] }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\" }, { \"type\": \"Edge\", \"semanticMinScore\": 0.5 }, { \"type\": \"Vertex\" } ] }");
+            Assert.AreEqual(HttpStatusCode.BadRequest, onEdge.StatusCode);
+            StringAssert.Contains(await onEdge.Content.ReadAsStringAsync(), "Vertex patterns only");
+
+            // The threshold scores against the request's semantic query - required.
+            using var noQuery = await PutJson(client, "/subgraph",
+                "{ \"name\": \"x2\", " +
+                "  \"patterns\": [ { \"type\": \"Vertex\", \"semanticMinScore\": 0.5 }, { \"type\": \"Edge\" }, { \"type\": \"Vertex\" } ] }");
+            Assert.AreEqual(HttpStatusCode.BadRequest, noQuery.StatusCode);
+            StringAssert.Contains(await noQuery.Content.ReadAsStringAsync(), "requires a 'semantic' block");
+
+            // One owner per slot, per step.
+            using var clash = await PutJson(client, "/subgraph",
+                "{ \"name\": \"x3\", \"semantic\": { \"queryVector\": [1, 0] }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\", \"vertexFilter\": \"return (v) => true;\", \"semanticMinScore\": 0.5 } ] }");
+            Assert.AreEqual(HttpStatusCode.BadRequest, clash.StatusCode);
+            StringAssert.Contains(await clash.Content.ReadAsStringAsync(), "own the same slot");
+
+            // A stored template binds its delegates at ITS registration, where no semantic query
+            // exists - a threshold would close over the empty context and match nothing.
+            using var template = await PostJson(client, "/storedquery",
+                "{ \"name\": \"tplthr\", \"kind\": \"SubGraph\", " +
+                "  \"subGraph\": { \"patterns\": [ { \"type\": \"Vertex\", \"semanticMinScore\": 0.5 } ] } }");
+            Assert.AreEqual(HttpStatusCode.BadRequest, template.StatusCode);
+            StringAssert.Contains(await template.Content.ReadAsStringAsync(), "stored SubGraph template");
+        }
+
+        [TestMethod]
+        public void SubGraph_PatternThreshold_NonFinite_IsRejected()
+        {
+            // NaN cannot arrive over JSON; this pins the defensive validation for direct callers
+            // (recipes, embedded engine use) below the HTTP layer.
+            var specification = new SubGraphSpecification
+            {
+                Name = "nan",
+                Semantic = new SemanticTraversalSpecification { QueryVector = new[] { 1f, 0f } },
+                Patterns = new List<PatternSpecification>
+                {
+                    new PatternSpecification { Type = "Vertex", SemanticMinScore = Double.NaN }
+                }
+            };
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(specification, out var definition);
+
+            Assert.IsNull(definition);
+            StringAssert.Contains(error, "finite");
+        }
+
+        [TestMethod]
+        public async Task SubGraph_PatternThreshold_BindingSurvivesRecalculation_WithoutReEmbedding()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: false);
+            var engine = EngineOf(factory);
+            var (a, b, c, d) = Diamond(engine);
+            using var client = factory.CreateClient();
+
+            using var created = await PutJson(client, "/subgraph",
+                "{ \"name\": \"steps\", \"semantic\": { \"queryVector\": [1, 0] }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\", \"semanticMinScore\": 0.5 }, " +
+                "                  { \"type\": \"Edge\" }, " +
+                "                  { \"type\": \"Vertex\", \"semanticMinScore\": 0.5 } ] }");
+            Assert.AreEqual(HttpStatusCode.Created, created.StatusCode, await created.Content.ReadAsStringAsync());
+
+            // A close vertex and an edge to it join AFTER registration...
+            var vtx = new CreateVertexTransaction { Definition = new Core.Model.VertexDefinition { CreationDate = 1u, Label = "node" } };
+            engine.EnqueueTransaction(vtx).WaitUntilFinished();
+            var e = vtx.VertexCreated.Id;
+            engine.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(e, "default", new[] { 1f, 0.1f }))
+                .WaitUntilFinished();
+            engine.EnqueueTransaction(new AddPropertiesTransaction().AddProperty(e, "name", "e")).WaitUntilFinished();
+            var edge = new CreateEdgesTransaction();
+            edge.AddEdge(d, "knows", e, 1u, "knows");
+            engine.EnqueueTransaction(edge).WaitUntilFinished();
+
+            // ...and recalculation - the registration-bound context, no inference - matches d -> e.
+            using var recalc = await PostJson(client, "/subgraph/steps/recalculate", "{}");
+            Assert.AreEqual(HttpStatusCode.OK, recalc.StatusCode, await recalc.Content.ReadAsStringAsync());
+
+            Assert.IsTrue(engine.SubGraphFactory.TryGetSubGraph(out var subGraph, "steps"));
+            CollectionAssert.AreEqual(new List<string> { "a", "b", "d", "e" }, VertexNames(subGraph.SubGraph));
+        }
+
+        [TestMethod]
+        public async Task SubGraph_PatternThreshold_UnderL2_IsADistanceCeiling()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: false);
+            var engine = EngineOf(factory);
+            Diamond(engine);
+            using var client = factory.CreateClient();
+
+            // Under L2 the threshold is a distance CEILING: were the comparison direction wrong,
+            // only the far pair (a -> c) would match and the set would collapse to { a, c }.
+            using var created = await PutJson(client, "/subgraph",
+                "{ \"name\": \"near\", \"semantic\": { \"queryVector\": [1, 0], \"metric\": \"L2\" }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\" }, { \"type\": \"Edge\" }, " +
+                "                  { \"type\": \"Vertex\", \"semanticMinScore\": 0.5 } ] }");
+            Assert.AreEqual(HttpStatusCode.Created, created.StatusCode, await created.Content.ReadAsStringAsync());
+
+            Assert.IsTrue(engine.SubGraphFactory.TryGetSubGraph(out var subGraph, "near"));
+            CollectionAssert.AreEqual(new List<string> { "a", "b", "c", "d" }, VertexNames(subGraph.SubGraph));
+            Assert.AreEqual(3, subGraph.SubGraph.GetAllEdges().Count, "a->c must be pruned: c is ~1.41 from [1,0]");
+        }
+
+        [TestMethod]
+        public async Task SubGraph_PatternThreshold_MissingEmbedding_NeverMatches()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: false);
+            var engine = EngineOf(factory);
+            var (a, b, c, d) = Diamond(engine);
+            using var client = factory.CreateClient();
+
+            // f has NO embedding; b -> f exists. Threshold -1 admits EVERY embedded vertex under
+            // Cosine, so f's exclusion can only come from the missing embedding.
+            var vtx = new CreateVertexTransaction { Definition = new Core.Model.VertexDefinition { CreationDate = 1u, Label = "node" } };
+            engine.EnqueueTransaction(vtx).WaitUntilFinished();
+            var f = vtx.VertexCreated.Id;
+            engine.EnqueueTransaction(new AddPropertiesTransaction().AddProperty(f, "name", "f")).WaitUntilFinished();
+            var edge = new CreateEdgesTransaction();
+            edge.AddEdge(b, "knows", f, 1u, "knows");
+            engine.EnqueueTransaction(edge).WaitUntilFinished();
+
+            using var created = await PutJson(client, "/subgraph",
+                "{ \"name\": \"embedded\", \"semantic\": { \"queryVector\": [1, 0] }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\" }, { \"type\": \"Edge\" }, " +
+                "                  { \"type\": \"Vertex\", \"semanticMinScore\": -1 } ] }");
+            Assert.AreEqual(HttpStatusCode.Created, created.StatusCode, await created.Content.ReadAsStringAsync());
+
+            Assert.IsTrue(engine.SubGraphFactory.TryGetSubGraph(out var subGraph, "embedded"));
+            CollectionAssert.AreEqual(new List<string> { "a", "b", "c", "d" }, VertexNames(subGraph.SubGraph),
+                "the unembedded vertex must never match a semantic threshold");
+        }
+
+        [TestMethod]
+        public async Task SubGraph_PatternThreshold_MixedOwnershipAcrossSteps()
+        {
+            using var factory = new SemanticFactory(enableDynamicCode: true);
+            var engine = EngineOf(factory);
+            Diamond(engine);
+            using var client = factory.CreateClient();
+
+            // Ownership is per STEP: a declarative threshold on step 1 and a compiled context
+            // fragment on step 3 coexist in one request.
+            using var created = await PutJson(client, "/subgraph",
+                "{ \"name\": \"mixed\", \"semantic\": { \"queryVector\": [1, 0] }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\", \"semanticMinScore\": 0.5 }, " +
+                "                  { \"type\": \"Edge\" }, " +
+                "                  { \"type\": \"Vertex\", \"vertexFilter\": \"return (v) => context.TrySimilarity(v, out var s) && s >= 0.5f;\" } ] }");
+            Assert.AreEqual(HttpStatusCode.Created, created.StatusCode, await created.Content.ReadAsStringAsync());
+
+            Assert.IsTrue(engine.SubGraphFactory.TryGetSubGraph(out var subGraph, "mixed"));
+            CollectionAssert.AreEqual(new List<string> { "a", "b", "d" }, VertexNames(subGraph.SubGraph));
         }
 
         #endregion
