@@ -159,6 +159,12 @@ export const FIELD_HELP = {
   analyticsWriteBackKey:
     "Property key the per-vertex scores are written to, e.g. 'analytics.pagerank'.",
 
+  // ---- benchmark ----
+  benchNodeCount: "Vertices to create. The scale preset (100k × 10) builds ~1M edges — expect seconds of server work and real memory.",
+  benchEdgesPerVertex: "Out-edges added PER VERTEX (total edges ≈ nodes × this).",
+  benchIterations:
+    "Timed passes over the generated graph's edges; more iterations tighten the median/stddev.",
+
   // ---- dashboard ----
   loadPath:
     "Server-side path of the save game to load — resolved on the machine the instance runs on, not in this browser.",

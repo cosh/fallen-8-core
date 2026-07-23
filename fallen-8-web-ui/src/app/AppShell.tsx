@@ -18,6 +18,7 @@ const NAV = [
   { to: "/subgraphs", label: "Subgraph", icon: "◫" },
   { to: "/analytics", label: "Analytics", icon: "∑" },
   { to: "/canvas", label: "Canvas", icon: "❉" },
+  { to: "/benchmarks", label: "Benchmark", icon: "◔" },
 ] as const;
 
 /**
