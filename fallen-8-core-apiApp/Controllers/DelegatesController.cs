@@ -28,6 +28,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Diagnostics;
@@ -41,6 +42,7 @@ namespace NoSQL.GraphDB.App.Controllers
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]
     [ApiVersion("0.1")]
+    [Fallen8Level]
     public class DelegatesController : ControllerBase
     {
         /// <summary>

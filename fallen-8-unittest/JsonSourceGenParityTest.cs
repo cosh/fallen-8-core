@@ -464,6 +464,23 @@ namespace NoSQL.GraphDB.Tests
                     AvailableServicePlugins = new List<string>()
                 }, "StatusREST"),
                 (new SampleStats { VertexCount = 3, EdgeCount = 7 }, "SampleStats"),
+                (new NamespaceREST
+                {
+                    Name = "flights",
+                    State = "ready",
+                    VertexCount = 191,
+                    EdgeCount = 1697,
+                    CreatedAt = "2026-07-23T10:15:02.412Z"
+                }, "NamespaceREST"),
+                (new NamespacesREST
+                {
+                    Namespaces = new List<NamespaceREST>
+                    {
+                        new NamespaceREST { Name = "default", State = "ready", VertexCount = 0, EdgeCount = 0, CreatedAt = "2026-07-23T10:15:02.412Z" }
+                    },
+                    MaxNamespaces = 10000
+                }, "NamespacesREST"),
+                (new NamespaceRenameSpecification { Name = "fl-eu" }, "NamespaceRenameSpecification"),
                 (SampleSpecification(), "SubGraphSpecification"),
                 (new SubGraphSummary
                 {

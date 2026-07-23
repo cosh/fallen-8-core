@@ -36,6 +36,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
@@ -435,6 +436,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Fallen8:Security:EnableDynamicPluginLoading=true. The DLL is written to the configured,
         /// isolated plugin directory, never next to the server binaries.
         /// </remarks>
+        [Fallen8Level]
         [HttpPut("/plugin")]
         [Authorize(Policy = Fallen8SecurityOptions.DynamicPluginPolicy)]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]

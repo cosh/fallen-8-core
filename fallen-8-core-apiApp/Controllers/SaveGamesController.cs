@@ -29,6 +29,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Services;
 using NoSQL.GraphDB.Core;
@@ -43,6 +44,7 @@ namespace NoSQL.GraphDB.App.Controllers
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]
     [ApiVersion("0.1")]
+    [Fallen8Level]
     public class SaveGamesController : ControllerBase
     {
         private readonly IFallen8 _fallen8;

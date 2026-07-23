@@ -92,6 +92,17 @@ namespace NoSQL.GraphDB.App
                 // (feature structural-decomposition, target 0).
                 options.AddDocumentTransformer((document, _, _) =>
                 {
+                    // The ONE home for the namespace URL scheme (feature graph-namespaces):
+                    // explained here at the document level instead of on every operation.
+                    document.Info.Description =
+                        "A Fallen-8 hosts isolated graph namespaces. Every namespace-scoped path " +
+                        "exists twice: bare, aliasing the reserved \"default\" namespace, and " +
+                        "prefixed with /ns/{ns} to address a named namespace. A request naming an " +
+                        "unknown namespace answers 404 application/problem+json with a " +
+                        "\"namespace\" extension member. Fallen-8-level paths (the /ns management " +
+                        "routes, save games, benchmark, delegate validation, plugin upload) exist " +
+                        "once and concern the whole collection of namespaces.";
+
                     var sorted = new Microsoft.OpenApi.OpenApiPaths();
                     foreach (var path in document.Paths.OrderBy(p => p.Key, StringComparer.Ordinal))
                     {
@@ -323,7 +334,14 @@ namespace NoSQL.GraphDB.App
             // uploaded DLL (written there, never next to the app binaries) is still discoverable.
             PluginFactory.AddPluginSearchDirectory(security.ResolvePluginDirectory());
 
-            builder.Services.AddControllers().AddJsonOptions(options =>
+            builder.Services.AddControllers(options =>
+            {
+                // Route twins (feature graph-namespaces): every namespace-scoped action also
+                // answers under /ns/{ns}/... (a real second attribute route, no path rewriting);
+                // the filter answers 404 problem+json for unknown namespaces before any action runs.
+                options.Conventions.Add(new NamespaceRouteConvention());
+                options.Filters.Add(typeof(NamespaceValidationFilter));
+            }).AddJsonOptions(options =>
             {
                 // Serve the REST DTOs through source-generated metadata instead of runtime
                 // reflection. The context uses the same camelCase Web defaults as MVC, and is

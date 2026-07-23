@@ -2,6 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "fallen-8-core-apiApp | v0.1",
+    "description": "A Fallen-8 hosts isolated graph namespaces. Every namespace-scoped path exists twice: bare, aliasing the reserved \"default\" namespace, and prefixed with /ns/{ns} to address a named namespace. A request naming an unknown namespace answers 404 application/problem+json with a \"namespace\" extension member. Fallen-8-level paths (the /ns management routes, save games, benchmark, delegate validation, plugin upload) exist once and concern the whole collection of namespaces.",
     "version": "1.0.0"
   },
   "servers": [
@@ -2875,6 +2876,6096 @@
           },
           "500": {
             "description": "The load transaction was rolled back and did not complete"
+          }
+        }
+      }
+    },
+    "/ns": {
+      "get": {
+        "tags": [
+          "Namespaces"
+        ],
+        "summary": "Lists all namespaces with their counts and the configured ceiling",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the namespace list (always includes \"default\")",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespacesREST"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{name}": {
+      "get": {
+        "tags": [
+          "Namespaces"
+        ],
+        "summary": "Gets one namespace",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The namespace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the namespace",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceREST"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No namespace with this name exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Namespaces"
+        ],
+        "summary": "Creates a new, empty namespace",
+        "description": "The namespace is immediately ready: it owns a fresh Fallen-8 engine with its own\r\nvertices, edges, indices, subgraphs, stored queries, and change feed. Its routes live\r\nunder /ns/{name}/… . The 422 body carries the configured limit as the \"maxNamespaces\"\r\nextension member.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The namespace name, matching ^[a-z0-9-]{1,63}$",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The namespace was created",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceREST"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The name does not match ^[a-z0-9-]{1,63}$",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A namespace with this name already exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The configured Fallen8:Namespaces:MaxNamespaces ceiling is reached",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Namespaces"
+        ],
+        "summary": "Renames a namespace",
+        "description": "Rename is a pure metadata operation: the engine, its data, and its on-disk locations\r\n(keyed by the immutable namespace id) are untouched — only the URL address changes.\r\nThe reserved \"default\" namespace cannot be renamed.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The current namespace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The new name",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/NamespaceRenameSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/NamespaceRenameSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The namespace was renamed",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceREST"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The new name is missing or does not match ^[a-z0-9-]{1,63}$",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No namespace with this name exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The new name is already in use, or the namespace is \"default\"",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Namespaces"
+        ],
+        "summary": "Drops a namespace irreversibly",
+        "description": "The namespace's graph, indices, stored queries, and on-disk data are deleted — there is\r\nno undo. Save-game entries that contain the namespace remain valid restore points. The\r\nreserved \"default\" namespace cannot be dropped.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The namespace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The namespace was dropped"
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No namespace with this name exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The namespace is \"default\"",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/analytics/algorithms": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Lists the discovered analytics algorithm plugins",
+        "description": "The five built-ins are PAGERANK, WCC, LABELPROPAGATION, DEGREE and TRIANGLECOUNT;\r\nthird-party IGraphAnalyticsAlgorithm plugins from assimilated assemblies appear here\r\ntoo (the same discovery as path and subgraph algorithms).",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The available algorithms with their descriptions",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/analytics/{algorithmName}": {
+      "post": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Runs an analytics algorithm over the graph",
+        "description": "Runs synchronously under the wall-clock budget (default 30 s). Score algorithms\r\nreturn the top-K vertices by score (descending, ascending id tie-break); partition\r\nalgorithms return partition summaries (largest first). The FULL per-vertex result's\r\ndelivery vehicle is the opt-in property write-back (\"writeBack\": true), which lands\r\nthrough chunked plugin write transactions; write-back durability is SNAPSHOT-ONLY -\r\na WAL-only replay with no intervening save loses the written properties (re-run to\r\nrestore, overwrite is idempotent).\r\n\r\nReaching the iteration cap is a NORMAL 200 (converged=false, values usable), as is\r\nbudget exhaustion after at least one completed pass (budgetExhausted=true).\r\n\r\nSample request:\r\n\r\n    POST /analytics/PAGERANK\r\n    {\r\n       \"vertexLabel\": \"person\",\r\n       \"maxResults\": 10,\r\n       \"parameters\": { \"DampingFactor\": 0.85 }\r\n    }",
+        "parameters": [
+          {
+            "name": "algorithmName",
+            "in": "path",
+            "description": "The plugin name (e.g. PAGERANK, WCC, LABELPROPAGATION, DEGREE, TRIANGLECOUNT)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Scoping, budgets, algorithm parameters, result bound and the optional write-back",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The run's result (including converged=false / budgetExhausted=true partials that carry usable values)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsResultREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsResultREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsResultREST"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown direction/parameter values, out-of-ceiling maxIterations/maxResults/timeBudgetSeconds, or a bad write-back property key",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown algorithm name",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "The wall-clock budget exhausted with no usable result",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "All concurrent-run slots are taken",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/analytics/{algorithmName}/partition/{partitionId}": {
+      "post": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Returns one partition's membership page from a fresh run of a partition algorithm",
+        "description": "Analytics runs are one-shot (no job store), so the page comes from a FRESH run with\r\nthe same specification - deterministic for a quiescent graph. Use offset+maxResults\r\nto page; the page ceiling is 10000 rows.",
+        "parameters": [
+          {
+            "name": "algorithmName",
+            "in": "path",
+            "description": "A partition algorithm (WCC or LABELPROPAGATION)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "partitionId",
+            "in": "path",
+            "description": "The partition id from a previous run's summaries",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The same run specification, plus the page offset",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The membership page",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartitionMembersREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartitionMembersREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartitionMembersREST"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid specification, a negative offset, writeBack (not supported here), or a score algorithm",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown algorithm or a partition id the run did not produce (including an empty scope)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "The wall-clock budget exhausted with no usable result",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "All concurrent-run slots are taken",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/bulk/export": {
+      "get": {
+        "tags": [
+          "Bulk"
+        ],
+        "summary": "Streams the graph (or a label-filtered subset) as newline-delimited JSON.",
+        "description": "The stream is fallen8-jsonl version 2: one meta line (format version + exact counts),\r\nthen vertex lines, then edge lines. Edges whose endpoints are not both in the exported\r\nvertex set are omitted, so EVERY exported file is internally consistent and importable\r\nby construction. Element embeddings export as their reserved System.Single[]\r\nproperties (the version-2 type).\r\n\r\nCONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads\r\nare lock-free; a write committed during the export may or may not appear. The\r\nguarantee is internal consistency plus \"everything committed before the export began\r\nis present\" (subject to the label filters). For a point-in-time backup, quiesce writes\r\nor use the save-game machinery. The same contract covers a property that an\r\nembedded/plugin writer adds DURING the stream: if it is not exportable it is omitted\r\nfrom its element rather than aborting the response (the REST write path cannot create\r\nsuch properties; the pre-stream 422 covers everything present at capture).",
+        "parameters": [
+          {
+            "name": "vertexLabel",
+            "in": "query",
+            "description": "Optional: export only vertices with exactly this label",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edgeLabel",
+            "in": "query",
+            "description": "Optional: export only edges with exactly this label",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The NDJSON stream (application/x-ndjson)",
+            "content": {
+              "application/x-ndjson": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/x-ndjson; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/x-ndjson": { }
+            }
+          },
+          "422": {
+            "description": "An element carries a property outside the exportable type\r\n     allow-list (or a null value); the body names the element and property. Sent BEFORE any\r\n     streaming, so a failed export is never a half-written file",
+            "content": {
+              "application/x-ndjson; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/x-ndjson": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/bulk/import": {
+      "post": {
+        "tags": [
+          "Bulk"
+        ],
+        "summary": "Imports a fallen8-jsonl stream into an EMPTY graph, assigning fresh engine ids.",
+        "description": "The body is read as a stream and processed line by line; lines batch into large\r\ncreate transactions (Fallen8:BulkIO:ImportBatchSize per transaction = one WAL entry +\r\none fsync each). File ids are remapped unconditionally: they are references within the\r\nfile, resolved for edge endpoints, never preserved as engine ids. A leading meta line\r\nis optional (grep-filtered subset files stay valid); when present, its counts act as a\r\ntruncation guard.\r\n\r\nFAIL-FAST (honest): the first invalid line aborts the import with its exact line\r\nnumber. Batches committed before the failure STAY COMMITTED (each batch is atomic and\r\nWAL-logged; the file is not one transaction) - the error body reports the committed\r\ncounts, and because import requires an empty graph, recovery is always \"/tabularasa,\r\nfix the line, retry\".\r\n\r\nNOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real\r\nKestrel host may enforce it at the transport layer and answer 413 before this action's\r\nown check runs - the status is the same, but the problem body with committed counts is\r\nonly guaranteed when the application-level check fires first.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The import completed; the body carries created counts",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkImportResultREST"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkImportResultREST"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkImportResultREST"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A line was invalid (malformed JSON, unknown fields, bad property\r\n     type/value, duplicate file id, unresolved edge endpoint, over-long line, meta-count\r\n     mismatch) - the problem body carries lineNumber and the committed counts",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The graph is not empty (import requires an empty target; use\r\n     /tabularasa or a fresh instance)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body exceeds the configured Fallen8:BulkIO:MaxImportRequestBytes",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "A batch transaction faulted internally; committed counts are reported"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/changefeed": {
+      "get": {
+        "tags": [
+          "ChangeFeed"
+        ],
+        "summary": "Streams committed graph mutations as Server-Sent Events, with declarative server-side filtering and catch-up.",
+        "description": "The stream format per event:\r\n\r\n    id: &lt;epoch-guid&gt;:&lt;seq&gt;\r\n    event: &lt;kind&gt;\r\n    data: {\"seq\":4712,\"ts\":\"2026-07-15T12:34:56.789Z\",\"kind\":\"propertySet\",\"element\":\"vertex\",\"id\":42,\"label\":\"person\",\"key\":\"name\"}\r\n\r\nDelivery: events arrive in commit order (ascending seq), at most once per connection.\r\nA comment line (\": keepalive\") is written every KeepAliveSeconds so proxies do not idle\r\nthe stream out. Filters combine with AND across dimensions and OR within one dimension;\r\nresync events bypass every filter (continuity loss must always reach the client). On\r\nany resync, re-fetch the state you display; for reason trim/tabulaRasa/load, treat all\r\nheld element ids as invalid.\r\n\r\nThe feed is fully functional with dynamic code execution disabled - filters are\r\ndeclarative parameters, never compiled code. Payloads never contain property values;\r\nre-fetch the element when the value is needed.",
+        "parameters": [
+          {
+            "name": "kinds",
+            "in": "query",
+            "description": "Event kinds to include (repeatable or comma-separated): vertexCreated, vertexRemoved, edgeCreated, edgeRemoved, propertySet, propertyRemoved. Unset = all kinds. resync events always pass.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "elements",
+            "in": "query",
+            "description": "Element types to include: vertex, edge. Unset = both.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "labels",
+            "in": "query",
+            "description": "Element labels to include (exact, case-sensitive). Unset = any label. An unlabeled element never matches a labels filter.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "keys",
+            "in": "query",
+            "description": "Property keys to include (exact, case-sensitive). Only property events carry a key, so setting this excludes create/remove events.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Catch-up position: the last seen SSE id (\"&lt;epoch&gt;:&lt;seq&gt;\") or a bare sequence number. Buffered missed events replay first; a position outside the buffered window (or from another process epoch) starts the stream with resync(seekOutOfRange). The Last-Event-ID header (native EventSource reconnect) is honoured when this parameter is unset.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The SSE stream (text/event-stream); it stays open until the client disconnects",
+            "content": {
+              "text/event-stream": { }
+            }
+          },
+          "400": {
+            "description": "An unknown kind/element value or a malformed since position",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "503": {
+            "description": "The change feed is disabled (Fallen8:ChangeFeed:Enabled=false) or the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached",
+            "content": {
+              "text/event-stream": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/edge": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates a new edge between two vertices in the graph",
+        "description": "Sample request:\r\n\r\n    PUT /edge\r\n    {\r\n       \"label\": \"knows\",\r\n       \"creationDate\": \"2025-04-22T00:00:00\",\r\n       \"sourceVertex\": 1,\r\n       \"targetVertex\": 2,\r\n       \"edgePropertyId\": \"friendship\",\r\n       \"properties\": {\r\n         \"since\": {\r\n           \"propertyValue\": \"2024-01-01\",\r\n           \"fullQualifiedTypeName\": \"System.DateTime\"\r\n         }\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The edge specification containing source, target and property information",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EdgeSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EdgeSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Edge creation accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid edge specification",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "A referenced source or target vertex does not exist (only when waitForCompletion is true)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/edge/count": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Gets the total number of edges in the database",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the number of edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/edge/{edgeIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Retrieves an edge from the graph by its identifier",
+        "parameters": [
+          {
+            "name": "edgeIdentifier",
+            "in": "path",
+            "description": "The ID of the edge to retrieve",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the edge object",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/Edge"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Edge with the specified ID was not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/edge/{edgeIdentifier}/source": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the source vertex ID for a specific edge",
+        "parameters": [
+          {
+            "name": "edgeIdentifier",
+            "in": "path",
+            "description": "The ID of the edge",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the source vertex ID",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Edge with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/edge/{edgeIdentifier}/target": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the target vertex ID for a specific edge",
+        "parameters": [
+          {
+            "name": "edgeIdentifier",
+            "in": "path",
+            "description": "The ID of the edge",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the target vertex ID",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Edge with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/embedding/element": {
+      "post": {
+        "tags": [
+          "Embedding"
+        ],
+        "summary": "Embeds a text and stores it as the element's named embedding",
+        "description": "The generated vector is written through the element-embeddings surface together\r\nwith the provider's model-identity stamp (one atomic transaction); a vector index\r\nbound to the name updates its projection on commit.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the provider call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedElementSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedElementSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The embedding was generated and committed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Missing/oversized text or an invalid embedding name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The embedding provider is disabled (Fallen8:Embedding:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The provider's dimension or model identity conflicts with a vector index bound to this embedding name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable (failed to load, or the Ollama sidecar is down)",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/embedding/elements": {
+      "post": {
+        "tags": [
+          "Embedding"
+        ],
+        "summary": "Embeds a batch of texts onto elements - one provider batch, one transaction",
+        "description": "The bulk-ingestion path: every vector plus its model stamp commits atomically.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the provider call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedElementsSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedElementsSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The batch was generated and committed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Empty/oversized batch, missing text, or an invalid embedding name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The embedding provider is disabled (Fallen8:Embedding:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "A referenced graph element does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The provider's dimension or model identity conflicts with a bound vector index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/embedding/search": {
+      "post": {
+        "tags": [
+          "Embedding"
+        ],
+        "summary": "Semantic search: embeds a query text and runs kNN against a vector index",
+        "description": "The text is embedded ONCE (with the configured query prefix); scores and ordering\r\nare exactly those of POST /scan/index/vector for the same vector.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the provider call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingSearchSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingSearchSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hits, best first, with raw scores",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSearchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Missing text, invalid k/kind, or the index is not a vector index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The embedding provider is disabled (Fallen8:Embedding:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No index with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The index's dimension or declared model identity conflicts with the active provider",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/embedding/text": {
+      "post": {
+        "tags": [
+          "Embedding"
+        ],
+        "summary": "Embeds raw texts and returns the vectors",
+        "description": "For clients driving the raw vector surfaces themselves (external pipelines,\r\n    semantic path queries with a client-held vector, debugging).",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the provider call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedTextSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbedTextSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The vectors, in input order, plus the model identity",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbeddingVectorsREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Empty/oversized batch or a missing text",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The embedding provider is disabled (Fallen8:Embedding:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/graph": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Retrieves the complete graph data including vertices and edges",
+        "parameters": [
+          {
+            "name": "maxElements",
+            "in": "query",
+            "description": "Maximum number of elements to return (default: 1000)",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 1000
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the graph data with vertices and edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/Graph"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/graphelement/{graphElementIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Retrieves a graph element (vertex or edge) by its identifier",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element to retrieve",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the graph element object",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/AGraphElement"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Graph element with the specified ID was not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a graph element (vertex or edge) from the graph",
+        "description": "Sample request:\r\n\r\n    DELETE /graphelement/123",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element to remove",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Graph element removal accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Malformed request (e.g. a non-integer element id). (A non-existent graph element is NOT a 400: an out-of-range id → 500, an in-range/absent id is a no-op → 202.)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/graphelement/{graphElementIdentifier}/embedding/{embeddingName}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Sets (or replaces) a named embedding on a graph element",
+        "description": "The element is the source of truth for its embedding (feature element-embeddings):\r\nthe write is WAL-durable element state, and every vector index BOUND to this\r\nembedding name updates its projection on commit - no separate index add. Replace\r\nsemantics: one current vector per name.\r\n\r\nSample request:\r\n\r\n    PUT /graphelement/42/embedding/default\r\n    { \"vector\": [0.12, -0.5, 0.33] }",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "embeddingName",
+            "in": "path",
+            "description": "The embedding name (letters, digits, '_', '-'; max 64 chars)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The embedding vector",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingWriteSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingWriteSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Embedding write accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid embedding name, missing/empty vector, non-finite components, a dimension conflicting with a vector index bound to this name, or a zero-norm vector while a bound Cosine index exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a named embedding from a graph element",
+        "description": "Bound vector indices purge the element's projection on commit. Removing an absent\r\nembedding is a committed no-op, matching the property surface.",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "embeddingName",
+            "in": "path",
+            "description": "The embedding name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Embedding removal accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid embedding name",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets a named embedding of a graph element",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "embeddingName",
+            "in": "path",
+            "description": "The embedding name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored embedding",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ElementEmbeddingREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid embedding name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The graph element does not exist or carries no embedding of that name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/graphelement/{graphElementIdentifier}/{propertyIdString}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Adds or updates a property on a graph element (vertex or edge)",
+        "description": "Sample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "propertyIdString",
+            "in": "path",
+            "description": "The ID/key of the property",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Property value specification",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Property addition accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Malformed request body / invalid property specification. (A non-existent graph element is NOT a 400: an out-of-range id rolls back with an internal error → 500, and an in-range/absent id is a no-op → 202.)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a property from a graph element (vertex or edge)",
+        "description": "Sample request:\r\n\r\n    DELETE /graphelement/123/age",
+        "parameters": [
+          {
+            "name": "graphElementIdentifier",
+            "in": "path",
+            "description": "The ID of the graph element",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "propertyIdString",
+            "in": "path",
+            "description": "The ID/key of the property to remove",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Property removal accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Malformed request (e.g. a non-integer element id). (A non-existent element/property is NOT a 400: an out-of-range id → 500, an in-range/absent id is a no-op → 202.)",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/index": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates a new index for the graph",
+        "description": "Sample request:\r\n\r\n    POST /index\r\n    {\r\n       \"uniqueId\": \"nameIndex\",\r\n       \"pluginType\": \"DictionaryIndex\",\r\n       \"pluginOptions\": {\r\n          \"propertyId\": \"name\",\r\n          \"type\": \"System.String\"\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Plugin specification with index type and configuration options",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns true if the index was created successfully",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid index specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/index/vector/{indexId}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Adds (or replaces) an element's embedding vector in a vector index",
+        "description": "One vector per element: adding again replaces. The generic PUT /index/{indexId} add\r\npath cannot express a float[] key, which is why the vector family has this typed\r\nendpoint (like fulltext and spatial have theirs).\r\n\r\nSample request (explicit mode):\r\n\r\n    PUT /index/vector/myEmbeddings\r\n    {\r\n       \"graphElementId\": 42,\r\n       \"vector\": [0.12, -0.5, 0.33]\r\n    }\r\n\r\nSample request (property mode - reads the element's float[] property):\r\n\r\n    PUT /index/vector/myEmbeddings\r\n    {\r\n       \"graphElementId\": 42,\r\n       \"propertyId\": \"embedding\"\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the vector index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The element and its vector - explicit (\"vector\") or read from a float[] property (\"propertyId\")",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexAddSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexAddSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The vector was indexed (add-again replaced the previous vector)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Not a vector index, neither/both modes supplied, wrong dimension, NaN/Infinity components, zero-norm vector under Cosine, or the named property is missing / not a float[]",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The index or the graph element does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/index/{indexId}": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Adds a graph element to an existing index",
+        "description": "Sample request:\r\n\r\n    PUT /index/nameIndex\r\n    {\r\n       \"graphElementId\": 123,\r\n       \"key\": {\r\n         \"propertyValue\": \"John Smith\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Specification containing graph element ID and key information",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexAddToSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexAddToSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns true if the element was successfully added to the index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid specification, index not found, or graph element not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Deletes an index from the system",
+        "description": "Sample request:\r\n\r\n    DELETE /index/nameIndex",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index to delete",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns true if the index was successfully deleted",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/index/{indexId}/propertyValue": {
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a key from an index",
+        "description": "Sample request:\r\n\r\n    DELETE /index/nameIndex/propertyValue\r\n    {\r\n       \"propertyValue\": \"John Smith\",\r\n       \"fullQualifiedTypeName\": \"System.String\"\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The property specification representing the key to remove",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns true if the key was successfully removed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid property specification or index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/index/{indexId}/{graphElementId}": {
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes a graph element from an index",
+        "description": "Sample request:\r\n\r\n    DELETE /index/nameIndex/123",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "graphElementId",
+            "in": "path",
+            "description": "The ID of the graph element to remove",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns true if the element was successfully removed from the index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Index not found or graph element not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/load": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Loads a Fallen-8 database from a saved file",
+        "description": "Sample request:\r\n\r\n    PUT /load\r\n    {\r\n       \"startServices\": true,\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\"\r\n    }",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Load specification including file path and service start options",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Database loaded successfully"
+          },
+          "400": {
+            "description": "Invalid load specification or file not found",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The load transaction was rolled back and did not complete"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/path/{from}/to/{to}": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Calculates the shortest path between two vertices in the graph",
+        "description": "The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.\r\n\r\nSelect the algorithm via \"pathAlgorithmName\". \"BLS\" is a hop-count (unweighted) shortest\r\npath that ignores the \"cost\" block (\"totalWeight\" is 0), whereas \"DIJKSTRA\" is a weighted\r\nshortest path that honours the \"cost\" block and \"maxPathWeight\" (and returns the K\r\nleast-weight loop-free paths when \"maxResults\" &gt; 1).\r\n\r\nIMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a \"return\" statement.\r\nThese are compiled at runtime into delegate methods.\r\n\r\nCorrect format for filter expressions:\r\n- \"return (parameter) =&gt; boolean_expression;\"\r\n\r\nCorrect format for cost expressions:\r\n- \"return (parameter) =&gt; numeric_expression;\"\r\n\r\nSample request:\r\n\r\n    POST /path/1/to/5\r\n    {\r\n       \"pathAlgorithmName\": \"BLS\",\r\n       \"maxDepth\": 5,\r\n       \"maxPathWeight\": 100.0,\r\n       \"maxResults\": 10,\r\n       \"filter\": {\r\n         \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"Person\\\";\",\r\n         \"edgeFilter\": \"return (e) =&gt; e.Label == \\\"friendship\\\";\",\r\n         \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\"\r\n       },\r\n       \"cost\": {\r\n         \"vertexCost\": \"return (v) =&gt; v.TryGetProperty(out var age, \\\"age\\\") ? (double)age : 1.0;\",\r\n         \"edgeCost\": \"return (e) =&gt; e.TryGetProperty(out var weight, \\\"weight\\\") ? (double)weight : 1.0;\"\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "path",
+            "description": "The ID of the source vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "description": "The ID of the target vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Path specification with algorithm, depth, filters and other constraints",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PathSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PathSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the found paths between the vertices",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PathREST"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The request carries inline filter/cost fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery - or carrying no fragments at all - are NOT gated by that switch.",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Source or target vertex not found, or no stored query with the referenced name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name})",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/save": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Saves the current database state to a file",
+        "description": "Sample request:\r\n\r\n    PUT /save\r\n    {\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\",\r\n       \"savePartitions\": 8\r\n    }\r\n\r\nBoth parameters are optional. If not provided, defaults to the base directory with filename \"Temp.f8s\" and optimal partition count.\r\nThe save is recorded in the save-game registry (feature save-games); the response is the\r\ncreated entry, whose \"location\" field is the path the database was saved to.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Save specification including file path and partition options (both optional)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the created save-game registry entry",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveGameREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid save specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The save transaction was rolled back and did not complete",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/scan/graph/property/{propertyId}": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Scans the graph for elements with a specific property value",
+        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "parameters": [
+          {
+            "name": "propertyId",
+            "in": "path",
+            "description": "The property ID to scan for",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Scan specification with comparison operator and value",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanSpecification"
+              }
+            },
+            "text/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the matching element IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid scan specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/scan/index/all": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Performs a scan operation on an index with a specific value and operator",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/all\r\n    {\r\n       \"indexId\": \"userNameIndex\",\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"Jane\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Index scan specification with index ID, operator and value",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the matching element IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid scan specification or index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/scan/index/fulltext": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Performs a fulltext search on an indexed property",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/fulltext\r\n    {\r\n       \"indexId\": \"documentIndex\",\r\n       \"requestString\": \"graph database nosql\"\r\n    }",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Fulltext search specification with index ID and search terms",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FulltextIndexScanSpecification"
+              }
+            },
+            "text/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FulltextIndexScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FulltextIndexScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the search results with highlighting",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/FulltextSearchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid search specification or index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Index not found or is not a fulltext index",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/scan/index/range": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Performs a range-based scan on an index between two values",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/range\r\n    {\r\n       \"indexId\": \"ageIndex\",\r\n       \"leftLimit\": 18,\r\n       \"rightLimit\": 30,\r\n       \"includeLeft\": true,\r\n       \"includeRight\": false,\r\n       \"fullQualifiedTypeName\": \"System.Int32\",\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Range scan specification with index ID, limits and include/exclude options",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/RangeIndexScanSpecification"
+              }
+            },
+            "text/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/RangeIndexScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/RangeIndexScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the matching element IDs within the range",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid range specification or index not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/scan/index/spatial": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Performs a spatial distance search using a spatial index",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/spatial\r\n    {\r\n       \"indexId\": \"locationIndex\",\r\n       \"graphElementId\": 123,\r\n       \"distance\": 5.0\r\n    }",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Spatial search specification with index ID, reference element and distance",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchDistanceSpecification"
+              }
+            },
+            "text/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchDistanceSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchDistanceSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the element IDs within the specified distance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid search specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Index not found, is not a spatial index, or reference element not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/scan/index/vector": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Finds the k nearest neighbours of a query vector in a vector index",
+        "description": "Exact brute-force kNN (SIMD): deterministic ordering - best score first, ties broken\r\nby ascending element id. Constraints are applied BEFORE scoring, so the returned k are\r\nk MATCHING elements. Removed elements never appear. The GraphRAG recipe: feed the\r\nreturned element ids into the existing traversal surface (POST /path, PUT /subgraph,\r\nproperty reads) - similarity search lands ON the graph.\r\n\r\nSample request:\r\n\r\n    POST /scan/index/vector\r\n    {\r\n       \"indexId\": \"myEmbeddings\",\r\n       \"query\": [0.1, 0.2, 0.3],\r\n       \"k\": 10,\r\n       \"kind\": \"vertex\",\r\n       \"label\": \"person\"\r\n    }",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The kNN query: index, query vector, k, optional kind/label constraints",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexScanSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorIndexScanSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the k best-scoring matching elements (fewer when the corpus is smaller)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSearchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Not a vector index, wrong query dimension, NaN/Infinity components, k outside [1, 1024], zero-norm query under Cosine, or an unknown kind value",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The index does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/service": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Creates a new service based on the specified plugin",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Plugin specification including type, ID and options",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns whether the service was successfully created",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid plugin specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/service/{key}": {
+      "delete": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Deletes a service with the specified key",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "description": "The unique identifier of the service to delete",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns whether the service was successfully deleted",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/statistics": {
+      "get": {
+        "tags": [
+          "Statistics"
+        ],
+        "summary": "Returns a graph-shape snapshot: counts, cardinalities, degrees, indices, memory",
+        "description": "The result is an ADVISORY snapshot, not transactionally consistent: reads are\r\nlock-free over the volatile element snapshot, so a write committed during the pass\r\nmay or may not appear.\r\n\r\nCOST (honest): counts and memory are O(1); labels and property keys are one pass\r\nover the element snapshot; degrees are O(1) adjacency-count reads per vertex. When\r\nV+E exceeds the configured element budget (Fallen8:Observability:StatisticsElementBudget,\r\ndefault 1,000,000) the pass samples with a uniform stride and the response says so:\r\nsampled=true, sampleStride, per-name counts as counted IN THE SAMPLE (multiply by\r\nthe stride to extrapolate), distinctTotal = distinct within the sample (sampling\r\nhonestly undercounts distinct values). Degree percentiles from a strided sample are\r\nstatistically sound. Memory numbers never force a GC.\r\n\r\nThis endpoint exposes SCHEMA-SHAPED data (label names, property keys, index names),\r\nso it sits behind the normal API-key policy - unlike /metrics, whose inventory is\r\naggregate numbers only - and under the sensitive rate limiter so a misconfigured\r\nscrape loop cannot turn an O(V+E) pass into a DoS.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The snapshot",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphStatisticsREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "Rate limited (the sensitive fixed-window limiter)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/status": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Gets the current status of the Fallen-8 database",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the database status information",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusREST"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/storedquery": {
+      "post": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Registers a stored query: validates and compiles the specification, then publishes it under a unique name.",
+        "description": "Exactly one of \"path\" / \"subGraph\" must be present and must match \"kind\". The code\r\nfragments are compiled ONCE here, with the same bounds as the inline endpoints; a\r\ncompile failure rejects the registration with the compiler diagnostics. Entries are\r\nimmutable: to change one, delete and re-register.\r\n\r\nSample request:\r\n\r\n    POST /storedquery\r\n    {\r\n       \"name\": \"adults-shortest\",\r\n       \"kind\": \"Path\",\r\n       \"description\": \"age&gt;30 vertices, weight-by-distance\",\r\n       \"path\": {\r\n         \"filter\": { \"vertexFilter\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\" },\r\n         \"cost\":   { \"edgeCost\": \"return (e) =&gt; 1.0;\" }\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The stored query specification (name, kind, and the matching path/subGraph block)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/StoredQuerySpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/StoredQuerySpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The stored query was compiled and registered",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredQuerySummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The specification was malformed (name/kind/block), or a fragment failed to compile (the body carries the compiler diagnostics)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) - registration introduces code and is always gated",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A stored query with the same name already exists, or the library quota (Fallen8:StoredQueries:MaxCount) was reached",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The registration transaction faulted with an internal error",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Lists all registered stored queries.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the stored query summaries",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StoredQuerySummaryREST"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/storedquery/{name}": {
+      "get": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Gets the full definition of a stored query, including its source specification.",
+        "description": "The response includes the stored specification JSON (the registration request's\r\npath/subGraph block), which also covers manual migration between instances, and - for\r\na Failed entry - the recompile diagnostics.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The stored query name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the stored query detail",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredQueryDetailREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No stored query with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "StoredQueries"
+        ],
+        "summary": "Deletes (deregisters) a stored query.",
+        "description": "Deletion drops the pinned compiled artifact so its collectible load context can unload\r\nonce in-flight invocations finish. NOT gated by the dynamic-code switch: removal\r\ncompiles nothing and must stay possible while the switch is off.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The stored query name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The stored query was deleted"
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No stored query with the given name exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The removal transaction was rolled back and did not complete"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/subgraph": {
+      "put": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Creates and registers a new subgraph from a specification.",
+        "description": "Filter and pattern predicates are C# code fragments prefixed with \"return\", compiled\r\nat runtime. A null/empty fragment matches everything.\r\n\r\nSample request:\r\n\r\n    PUT /subgraph\r\n    {\r\n       \"name\": \"friends-of-alice\",\r\n       \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\",\r\n       \"patterns\": [\r\n         { \"type\": \"Vertex\", \"patternName\": \"start\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" },\r\n         { \"type\": \"Edge\", \"patternName\": \"rel\", \"direction\": \"OutgoingEdge\", \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\" },\r\n         { \"type\": \"Vertex\", \"patternName\": \"end\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" }\r\n       ]\r\n    }",
+        "parameters": [
+          {
+            "name": "fromSubGraph",
+            "in": "query",
+            "description": "Optional name of an existing subgraph to source this one from (creates a nested subgraph). When omitted, the subgraph is sourced from the whole graph.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The subgraph specification (name, filters, patterns)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SubGraphSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/SubGraphSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The subgraph was created and registered. A syntactically-valid pattern that matches nothing yields a registered EMPTY subgraph (201), identically whether the source graph is empty or populated.",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubGraphSummary"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The request carries inline filter/pattern fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery are NOT gated by that switch.",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The source subgraph named by fromSubGraph does not exist, or no stored query with the referenced name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A subgraph with the same name already exists, a resource quota (subgraph count or materialized-element ceiling) was exceeded, or the referenced stored query is not invocable (its recompile on load failed)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The create transaction faulted with an internal error",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Lists the names of all registered subgraphs.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of subgraph names",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/subgraph/{name}": {
+      "get": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Gets a summary (metadata and element counts) of a registered subgraph.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The subgraph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the subgraph summary",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubGraphSummary"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No subgraph with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Deregisters (deletes) a subgraph.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The subgraph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The subgraph was deleted"
+          },
+          "404": {
+            "description": "No subgraph with the given name exists",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The removal transaction was rolled back and did not complete"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/subgraph/{name}/graph": {
+      "get": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Gets the extracted contents (vertices and edges) of a registered subgraph.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The subgraph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "maxElements",
+            "in": "query",
+            "description": "Maximum number of vertices and edges to return (default 1000)",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 1000
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the subgraph contents",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/Graph"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No subgraph with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/subgraph/{name}/recalculate": {
+      "post": {
+        "tags": [
+          "SubGraph"
+        ],
+        "summary": "Recalculates a subgraph against the current state of its source graph.",
+        "description": "Only subgraphs created by an algorithm (with a stored source and plugin name)\r\ncan be recalculated; manually registered subgraphs cannot.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The subgraph name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the recalculated subgraph summary",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubGraphSummary"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No subgraph with the given name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The subgraph exists but cannot be recalculated",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/tabularasa": {
+      "head": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Clears all data from the database (resets to empty state)",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Database successfully cleared"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/trim": {
+      "head": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Trims the database, releasing unused memory",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Trim operation successfully initiated"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/unittest": {
+      "put": {
+        "tags": [
+          "SampleGraph"
+        ],
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates a new vertex in the graph",
+        "description": "Sample request:\r\n\r\n    PUT /vertex\r\n    {\r\n       \"label\": \"person\",\r\n       \"creationDate\": \"2025-04-22T00:00:00\",\r\n       \"properties\": {\r\n         \"name\": {\r\n           \"propertyValue\": \"John Doe\",\r\n           \"fullQualifiedTypeName\": \"System.String\"\r\n         }\r\n       }\r\n    }",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The vertex specification containing label and property information",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VertexSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/VertexSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Vertex creation accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "Invalid vertex specification",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/count": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Gets the total number of vertices in the database",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the number of vertices",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/{vertexIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Retrieves a vertex from the graph by its identifier",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex to retrieve",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the vertex object",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vertex"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/{vertexIdentifier}/edges/in": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets all available incoming edge property IDs for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of incoming edge property IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Vertex has no incoming edges or vertex not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets incoming edges of a specific type to a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "edgePropertyIdentifier",
+            "in": "path",
+            "description": "The edge property identifier/type to filter by",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of matching incoming edge IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "No matching edges found or vertex not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/{vertexIdentifier}/edges/in/{edgePropertyIdentifier}/degree": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the count of incoming edges of a specific type for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "edgePropertyIdentifier",
+            "in": "path",
+            "description": "The edge property identifier/type to count",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the count of matching incoming edges (0 if the vertex has no such edge group)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/{vertexIdentifier}/edges/indegree": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the total count of incoming edges for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the count of incoming edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/{vertexIdentifier}/edges/out": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets all available outgoing edge property IDs for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of outgoing edge property IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "Vertex has no outgoing edges or vertex not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets outgoing edges of a specific type from a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "edgePropertyIdentifier",
+            "in": "path",
+            "description": "The edge property identifier/type to filter by",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the list of matching outgoing edge IDs",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "204": {
+            "description": "No matching edges found or vertex not found",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/{vertexIdentifier}/edges/out/{edgePropertyIdentifier}/degree": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the count of outgoing edges of a specific type from a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "edgePropertyIdentifier",
+            "in": "path",
+            "description": "The edge property identifier/type to count",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the count of matching outgoing edges (0 if the vertex has no such edge group)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/vertex/{vertexIdentifier}/edges/outdegree": {
+      "get": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Gets the total count of outgoing edges for a vertex",
+        "parameters": [
+          {
+            "name": "vertexIdentifier",
+            "in": "path",
+            "description": "The ID of the vertex",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the count of outgoing edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "uint32"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "Vertex with the specified ID was not found",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
           }
         }
       }
@@ -7323,6 +13414,89 @@
         },
         "description": "One label (or property key) with its element count. When the response is\r\n    sampled, counts are AS COUNTED IN THE SAMPLE (multiply by sampleStride to extrapolate)."
       },
+      "NamespaceRenameSpecification": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The new name (`^[a-z0-9-]{1,63}$`)."
+          }
+        },
+        "description": "Request body for renaming a namespace."
+      },
+      "NamespaceREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The unique, URL-addressable name."
+          },
+          "state": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Lifecycle state: `ready` or `creating` (always `ready` in v1)."
+          },
+          "vertexCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The namespace's vertex count.",
+            "format": "int32"
+          },
+          "edgeCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The namespace's edge count.",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "When the namespace was created (UTC, ISO 8601)."
+          }
+        },
+        "description": "One namespace as the REST surface reports it (feature graph-namespaces). No memory\r\nfigure by design: engines share one GC heap, so a per-namespace byte count would be\r\nfiction (spec §5.3)."
+      },
+      "NamespacesREST": {
+        "type": "object",
+        "properties": {
+          "namespaces": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/NamespaceREST"
+            },
+            "description": "All namespaces, name-ordered (always includes `default`)."
+          },
+          "maxNamespaces": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The configured `Fallen8:Namespaces:MaxNamespaces` ceiling.",
+            "format": "int32"
+          }
+        },
+        "description": "The namespace list with its configured ceiling."
+      },
       "PartitionMembersREST": {
         "type": "object",
         "properties": {
@@ -9402,6 +15576,9 @@
     },
     {
       "name": "Graph"
+    },
+    {
+      "name": "Namespaces"
     },
     {
       "name": "SampleGraph"

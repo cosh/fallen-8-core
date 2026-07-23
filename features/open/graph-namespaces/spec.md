@@ -63,8 +63,12 @@ change `fallen-8-core`, that is the signal the concern is in the wrong layer.
   NamespaceState State }`. Each engine is constructed exactly the way the factory builds the one
   engine today (volatile vs durable branch, stored-query compiler, change-feed options,
   `StoredQueries.MaxCount`).
-- **`IFallen8` becomes request-scoped**, resolved from the `ns` route value (absent ⇒ `default`).
-  Controllers are untouched — they keep injecting `IFallen8`.
+- **`IFallen8` becomes the addressed engine**: a non-disposable singleton dispatcher
+  (`AddressedFallen8`) delegates every member to the engine named by the ambient request's `ns`
+  route value (absent ⇒ `default`). Controllers are untouched — they keep injecting `IFallen8`.
+  (Not a scoped DI factory registration: the container disposes `IDisposable` instances its
+  factories return, which would tear an engine down at the end of every request. Engine lifetime
+  belongs to `Fallen8Namespaces` alone.)
 - **Reserved `default` namespace.** Always exists, cannot be renamed or dropped, owns all
   pre-namespace data, and is what bare URLs address.
 - **Names** match `^[a-z0-9-]{1,63}$` and are unique per Fallen-8. Names are display/address keys
