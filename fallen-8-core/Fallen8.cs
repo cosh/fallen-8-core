@@ -303,9 +303,13 @@ namespace NoSQL.GraphDB.Core
         #region Constructor
 
         /// <summary>
-        ///   Initializes a new instance of the Fallen-8 class.
+        ///   Initializes a new instance of the Fallen-8 class. The optional
+        ///   <paramref name="metricsScopeId"/> is an opaque, HOST-ASSIGNED (never user-supplied)
+        ///   identifier attached to this engine's meter as the <c>fallen8.scope.id</c> tag, so
+        ///   several engines in one process (feature graph-namespaces: one engine per namespace)
+        ///   report distinguishable instruments instead of colliding on the shared meter name.
         /// </summary>
-        public Fallen8(ILoggerFactory loggerfactory)
+        public Fallen8(ILoggerFactory loggerfactory, String metricsScopeId = null)
         {
             LoggerFactory = loggerfactory;
             _logger = loggerfactory.CreateLogger<Fallen8>();
@@ -327,7 +331,7 @@ namespace NoSQL.GraphDB.Core
 
             // Per-engine metric instruments (feature observability): created AFTER the
             // transaction manager (the queue-depth gauge reads it), disposed BEFORE it.
-            Metrics = new Diagnostics.Fallen8Metrics(this);
+            Metrics = new Diagnostics.Fallen8Metrics(this, metricsScopeId);
         }
 
         /// <summary>
@@ -345,8 +349,9 @@ namespace NoSQL.GraphDB.Core
         ///   committed mutations become an in-order event stream with catch-up and per-subscriber
         ///   backpressure. Without options the engine carries no feed.
         /// </summary>
-        public Fallen8(ILoggerFactory loggerfactory, ChangeFeedOptions changeFeedOptions)
-            : this(loggerfactory)
+        public Fallen8(ILoggerFactory loggerfactory, ChangeFeedOptions changeFeedOptions,
+            String metricsScopeId = null)
+            : this(loggerfactory, metricsScopeId)
         {
             if (changeFeedOptions != null)
             {
@@ -376,8 +381,9 @@ namespace NoSQL.GraphDB.Core
         public Fallen8(ILoggerFactory loggerfactory, WriteAheadLogOptions writeAheadLogOptions,
             ISubGraphRecipeCompiler subGraphRecipeCompiler = null,
             IStoredQueryCompiler storedQueryCompiler = null,
-            ChangeFeedOptions changeFeedOptions = null)
-            : this(loggerfactory)
+            ChangeFeedOptions changeFeedOptions = null,
+            String metricsScopeId = null)
+            : this(loggerfactory, metricsScopeId)
         {
             if (changeFeedOptions != null)
             {

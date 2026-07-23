@@ -17,6 +17,13 @@ export interface InstanceConfig {
   /** Base URL without a trailing slash; "" means the origin the app is served from. */
   baseUrl: string;
   auth: InstanceAuth;
+  /**
+   * The ADDRESSED namespace (feature graph-namespaces): when set, every namespace-scoped
+   * request goes to /ns/{namespace}/… — explicitly, "default" included. Never persisted on
+   * the registry record; useInstanceStore() binds it from the active-namespace state, so a
+   * bound view of the instance flows to the screens' API calls.
+   */
+  namespace?: string;
 }
 
 export function normalizeBaseUrl(url: string): string {

@@ -142,18 +142,89 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         } = new SaveGameKpisREST();
+
+        /// <summary>
+        ///   The namespaces this save game contains (feature graph-namespaces, registry schema v2).
+        ///   Null on pre-namespace (v1) entries, which are read forever as "a default-only save"
+        ///   whose checkpoint is <see cref="Location"/>. On single-namespace entries the top-level
+        ///   location/kpis mirror the one member (v1-shaped); on multi-namespace entries the
+        ///   top-level location is null and fileCount/totalBytes are sums across the members.
+        /// </summary>
+        [JsonPropertyName("namespaces")]
+        public List<SaveGameNamespaceREST> Namespaces
+        {
+            get; set;
+        }
+    }
+
+    /// <summary>
+    ///   One namespace inside a save game: its own checkpoint location, file facts, and KPIs
+    ///   (feature graph-namespaces, registry schema v2).
+    /// </summary>
+    public sealed class SaveGameNamespaceREST
+    {
+        /// <summary>The namespace name at save time (restores under this name).</summary>
+        [JsonPropertyName("name")]
+        public String Name
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The namespace's IMMUTABLE id at save time — what the boot chain matches on, so a
+        ///   rename never orphans a namespace's newest save and a drop+recreate (fresh id) never
+        ///   resurrects the dropped one's checkpoints. Null on pre-namespace (v1) entries, which
+        ///   normalize to the default namespace's stable id.
+        /// </summary>
+        [JsonPropertyName("id")]
+        public String Id
+        {
+            get; set;
+        }
+
+        /// <summary>Absolute path of this namespace's primary checkpoint file.</summary>
+        [JsonPropertyName("location")]
+        public String Location
+        {
+            get; set;
+        }
+
+        /// <summary>Number of files belonging to this namespace's checkpoint.</summary>
+        [JsonPropertyName("fileCount")]
+        public Int32 FileCount
+        {
+            get; set;
+        }
+
+        /// <summary>Total size of those files in bytes at registration time.</summary>
+        [JsonPropertyName("totalBytes")]
+        public Int64 TotalBytes
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("kpis")]
+        public SaveGameKpisREST Kpis
+        {
+            get; set;
+        } = new SaveGameKpisREST();
     }
 
     /// <summary>
     ///   The persisted registry document: a schema version plus the save games, newest first.
+    ///   Schema v2 (feature graph-namespaces) adds the per-entry namespaces manifest; v1 documents
+    ///   and entries are read forever (default-only interpretation, see SaveGameREST.Namespaces).
     /// </summary>
     public sealed class SaveGameRegistryDocument
     {
+        /// <summary>The schema version this build writes.</summary>
+        public const Int32 CurrentSchemaVersion = 2;
+
         [JsonPropertyName("schemaVersion")]
         public Int32 SchemaVersion
         {
             get; set;
-        } = 1;
+        } = CurrentSchemaVersion;
 
         [JsonPropertyName("saveGames")]
         public List<SaveGameREST> SaveGames

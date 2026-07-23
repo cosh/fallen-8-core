@@ -63,9 +63,11 @@ function stats(embedding: EmbeddingProviderStatsREST): GraphStatisticsREST {
 
 function renderDashboard(statusRest: StatusREST, statistics?: GraphStatisticsREST) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["local", "status"], statusRest);
+  // The dashboard reads through the NAMESPACE-BOUND instance view, whose id is
+  // "<instance-id>/<namespace>" (feature graph-namespaces) - seed the bound keys.
+  client.setQueryData(["local/default", "status"], statusRest);
   if (statistics) {
-    client.setQueryData(["local", "statistics"], statistics);
+    client.setQueryData(["local/default", "statistics"], statistics);
   }
   return render(
     <QueryClientProvider client={client}>

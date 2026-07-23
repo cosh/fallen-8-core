@@ -29,6 +29,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App;
 
@@ -113,8 +114,8 @@ namespace NoSQL.GraphDB.Tests
                 $"/generate?nodeCount={nodes}&edgeCount={edgesPerVertex}&distribution=preferential");
             Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode, await generate.Content.ReadAsStringAsync());
 
-            var engine = (NoSQL.GraphDB.Core.Fallen8)factory.Services
-                .GetService(typeof(NoSQL.GraphDB.Core.IFallen8));
+            var engine = factory.Services
+                .GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
             Assert.AreEqual(nodes, engine.VertexCount);
 
             // Vertex i gets min(edgesPerVertex, i) out-edges - an exact, seed-independent count.
@@ -151,8 +152,8 @@ namespace NoSQL.GraphDB.Tests
             var generate = await client.GetAsync("/generate?nodeCount=3&edgeCount=10");
             Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode);
 
-            var engine = (NoSQL.GraphDB.Core.Fallen8)factory.Services
-                .GetService(typeof(NoSQL.GraphDB.Core.IFallen8));
+            var engine = factory.Services
+                .GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
             Assert.AreEqual(3, engine.VertexCount);
             // Each vertex gets at most nodeCount distinct targets (3), so at most 9 edges total.
             Assert.IsTrue(engine.EdgeCount <= 9, $"expected <= 9 capped edges, got {engine.EdgeCount}");
@@ -168,8 +169,8 @@ namespace NoSQL.GraphDB.Tests
 
             var generate = await client.GetAsync("/generate?nodeCount=0&edgeCount=5");
             Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode);
-            var engine = (NoSQL.GraphDB.Core.Fallen8)factory.Services
-                .GetService(typeof(NoSQL.GraphDB.Core.IFallen8));
+            var engine = factory.Services
+                .GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
             Assert.AreEqual(0, engine.VertexCount);
             Assert.AreEqual(0, engine.EdgeCount);
         }
@@ -191,8 +192,8 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(HttpStatusCode.BadRequest, negativeEdges.StatusCode);
 
             // Nothing was created by the rejected calls.
-            var engine = (NoSQL.GraphDB.Core.Fallen8)factory.Services
-                .GetService(typeof(NoSQL.GraphDB.Core.IFallen8));
+            var engine = factory.Services
+                .GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
             Assert.AreEqual(0, engine.VertexCount);
         }
     }

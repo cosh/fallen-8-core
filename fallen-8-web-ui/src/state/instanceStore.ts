@@ -479,14 +479,74 @@ type WorkspaceStore = UseBoundStore<StoreApi<WorkspaceState>>;
 
 const stores = new Map<string, WorkspaceStore>();
 
-/** Returns the one store belonging to this instance id (memoized). */
-export function getInstanceStore(instanceId: string): WorkspaceStore {
-  let store = stores.get(instanceId);
+/**
+ * Returns the one store belonging to this instance id + namespace (memoized). The
+ * "default" namespace keeps the pre-namespace key (`f8.workspace.<id>`) so an existing
+ * workspace is adopted as default's with no migration; other namespaces persist under
+ * `f8.workspace.<id>/<ns>` (feature graph-namespaces). Also accepts a pre-bound
+ * "<id>/<namespace>" compound as the first argument (the bound instance view's id, see
+ * useInstanceStore) — both call shapes resolve to the same canonical key. Registry ids
+ * never contain "/".
+ */
+export function getInstanceStore(instanceId: string, namespace?: string): WorkspaceStore {
+  const compound = namespace === undefined ? instanceId : `${instanceId}/${namespace}`;
+  const key = compound.endsWith("/default") ? compound.slice(0, -"/default".length) : compound;
+  let store = stores.get(key);
   if (!store) {
-    store = createWorkspaceStore(instanceId);
-    stores.set(instanceId, store);
+    store = createWorkspaceStore(key);
+    stores.set(key, store);
   }
   return store;
+}
+
+function storeKey(instanceId: string, namespace?: string): string {
+  const compound = namespace === undefined ? instanceId : `${instanceId}/${namespace}`;
+  return compound.endsWith("/default") ? compound.slice(0, -"/default".length) : compound;
+}
+
+/**
+ * Drops a namespace's memoized store AND its persisted state (feature graph-namespaces):
+ * after a drop, a recreate, or a factory reset the old canvas/results would reference
+ * elements that no longer exist (or worse, ids now naming different elements).
+ */
+export function purgeInstanceStore(instanceId: string, namespace?: string): void {
+  const key = storeKey(instanceId, namespace);
+  stores.delete(key);
+  localStorage.removeItem(`f8.workspace.${key}`);
+}
+
+/** Purges EVERY namespace's workspace of one instance (the factory-reset blast radius). */
+export function purgeAllInstanceStores(instanceId: string): void {
+  for (const key of [...stores.keys()]) {
+    if (key === instanceId || key.startsWith(`${instanceId}/`)) stores.delete(key);
+  }
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const name = localStorage.key(i);
+    if (
+      name === `f8.workspace.${instanceId}` ||
+      name?.startsWith(`f8.workspace.${instanceId}/`)
+    ) {
+      localStorage.removeItem(name);
+    }
+  }
+}
+
+/**
+ * Moves a namespace's persisted workspace to its new name — rename is a pure address
+ * change, so canvas/drafts must follow. Both memoized stores are dropped (a store's
+ * persist key is baked in at creation), so the next access rehydrates from the moved state.
+ */
+export function migrateInstanceStore(instanceId: string, from: string, to: string): void {
+  const fromKey = storeKey(instanceId, from);
+  const toKey = storeKey(instanceId, to);
+  if (fromKey === toKey) return;
+  const persisted = localStorage.getItem(`f8.workspace.${fromKey}`);
+  if (persisted !== null) {
+    localStorage.setItem(`f8.workspace.${toKey}`, persisted);
+    localStorage.removeItem(`f8.workspace.${fromKey}`);
+  }
+  stores.delete(fromKey);
+  stores.delete(toKey);
 }
 
 /** Test hook: drop all memoized stores (does not clear persisted state). */

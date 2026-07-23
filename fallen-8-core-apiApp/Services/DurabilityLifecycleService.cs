@@ -24,7 +24,9 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -32,6 +34,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Helper;
+using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -39,14 +42,16 @@ namespace NoSQL.GraphDB.App.Services
 {
     /// <summary>
     ///   Owns the load-on-start / save-on-stop durability lifecycle of the hosted API (feature
-    ///   hosted-durability-lifecycle): on boot it discovers and loads the latest checkpoint (which
-    ///   replays the paired write-ahead log), and on a clean shutdown it saves so the next boot is up
-    ///   to date and the WAL is reset. It reuses the existing Save/Load transactions on the single
-    ///   writer thread - it introduces no new mutation path. In volatile mode it does nothing.
+    ///   hosted-durability-lifecycle, generalized per namespace by feature graph-namespaces): on
+    ///   boot every namespace loads its newest registered save game (which replays the paired
+    ///   write-ahead log), and on a clean shutdown every namespace is checkpointed into ONE
+    ///   Fallen-8-level save-game entry so the next boot is up to date and the WALs are reset. It
+    ///   reuses the existing Save/Load transactions on each engine's single writer thread - it
+    ///   introduces no new mutation path. In volatile mode it does nothing.
     /// </summary>
     public sealed class DurabilityLifecycleService : IHostedService
     {
-        private readonly IFallen8 _fallen8;
+        private readonly Fallen8Namespaces _namespaces;
         private readonly Fallen8DurabilityOptions _options;
         private readonly SaveGameRegistry _saveGames;
         private readonly ILogger<DurabilityLifecycleService> _logger;
@@ -60,11 +65,11 @@ namespace NoSQL.GraphDB.App.Services
         /// direct test construction stays unchanged.</summary>
         private readonly StartupState _startupState;
 
-        public DurabilityLifecycleService(IFallen8 fallen8, IOptions<Fallen8DurabilityOptions> options,
+        public DurabilityLifecycleService(Fallen8Namespaces namespaces, IOptions<Fallen8DurabilityOptions> options,
             SaveGameRegistry saveGames, ILogger<DurabilityLifecycleService> logger,
             StartupState startupState = null)
         {
-            _fallen8 = fallen8;
+            _namespaces = namespaces;
             _options = options.Value;
             _saveGames = saveGames;
             _logger = logger;
@@ -83,57 +88,72 @@ namespace NoSQL.GraphDB.App.Services
                 return Task.CompletedTask;
             }
 
-            var storageDir = _options.ResolveStorageDirectory();
-
-            // Registry-driven boot (feature save-games FR-8): the save-game registry - NOT directory
-            // discovery - decides what loads. An empty registry starts empty even if checkpoint files
-            // sit in the storage directory; otherwise the newest registered save game loads.
-            var newest = _saveGames.Newest();
-
-            if (newest == null)
+            // Per-namespace registry-driven boot (save-games FR-8 generalized): each namespace
+            // loads the newest entry CONTAINING it; a namespace no entry contains starts from its
+            // WAL-replayed construction state. The registry - never directory discovery - decides.
+            foreach (var ns in _namespaces.Snapshot())
             {
-                // Migration hint (FR-11): pre-registry deployments have checkpoint files but no metadata.
-                if (CheckpointDiscovery.TryFindLatestCheckpoint(storageDir, _options.CheckpointBaseName, out var orphan))
+                StartNamespace(ns);
+            }
+
+            // Load-at-startup completed for every namespace: the server is ready (feature
+            // observability). The throwing failure paths deliberately never mark ready.
+            _startupState?.MarkReady();
+            return Task.CompletedTask;
+        }
+
+        private void StartNamespace(Namespace ns)
+        {
+            var directory = _namespaces.DirectoryFor(ns);
+            // Matched by the IMMUTABLE id: a rename keeps the boot chain; a recreated namesake
+            // (fresh id) never loads the dropped predecessor's checkpoints.
+            var newest = _saveGames.NewestContaining(ns.Id);
+            var member = newest == null
+                ? null
+                : SaveGameRegistry.EffectiveNamespaces(newest).First(m => SaveGameRegistry.EffectiveId(m) == ns.Id);
+
+            if (member == null)
+            {
+                // Migration hint (FR-11): checkpoint files without a registry entry are not loaded.
+                if (CheckpointDiscovery.TryFindLatestCheckpoint(directory, _options.CheckpointBaseName, out var orphan))
                 {
-                    _logger.LogWarning("Fallen-8 found checkpoint files (e.g. \"{Checkpoint}\") but the save-game registry " +
-                        "is empty, so startup begins EMPTY (registry-driven boot). To adopt an existing checkpoint, load it " +
-                        "once via PUT /load (or the Save games screen) - it is then registered permanently.", orphan);
+                    _logger.LogWarning("Fallen-8 found checkpoint files (e.g. \"{Checkpoint}\") for namespace \"{Namespace}\" " +
+                        "but no registered save game contains it, so it starts EMPTY (registry-driven boot). To adopt an " +
+                        "existing checkpoint, load it once via PUT /load - it is then registered permanently.",
+                        orphan, ns.Name);
                 }
                 else
                 {
-                    _logger.LogInformation("No registered save games; starting with the current in-memory state " +
-                        "({VertexCount} vertices, {EdgeCount} edges) - any unanchored WAL was replayed at construction.",
-                        _fallen8.VertexCount, _fallen8.EdgeCount);
+                    _logger.LogInformation("No registered save game contains namespace \"{Namespace}\"; it starts with its " +
+                        "current in-memory state ({VertexCount} vertices, {EdgeCount} edges) - any unanchored WAL was " +
+                        "replayed at construction.", ns.Name, ns.Engine.VertexCount, ns.Engine.EdgeCount);
                 }
 
-                _startupState?.MarkReady();
-                return Task.CompletedTask;
+                return;
             }
 
             // Crash-window reconciliation (FR-10): a save completes and becomes durable on disk (the WAL
             // is re-anchored to it inside the save transaction) and only THEN is its registry entry
             // written. A crash in that window leaves a complete checkpoint on disk that the registry does
-            // not know. If discovery finds a checkpoint strictly newer than the newest REGISTERED entry,
+            // not know. If discovery finds a checkpoint strictly newer than the newest REGISTERED member,
             // it is exactly such an orphan - adopt it (load + register) so a crash never silently reverts
-            // to an older save. The margin absorbs the normal case (the file is written a moment before
-            // its savedAt is stamped, so a registered checkpoint is never mistaken for an orphan).
-            var loadTarget = newest.Location;
+            // to an older save.
+            var loadTarget = member.Location;
             var adoptOrphan = false;
-            if (CheckpointDiscovery.TryFindLatestCheckpoint(storageDir, _options.CheckpointBaseName, out var diskCheckpoint))
+            if (CheckpointDiscovery.TryFindLatestCheckpoint(directory, _options.CheckpointBaseName, out var diskCheckpoint))
             {
-                var diskRegistered = _saveGames.GetAll().Exists(e => PathsEqual(e.Location, diskCheckpoint));
-                var newestFileExists = File.Exists(newest.Location);
-                // The discovered checkpoint is newer when the newest registered entry's own file is gone,
-                // or when the on-disk file's mtime is strictly newer (comparing actual file times avoids
-                // any skew between a file's write time and its savedAt stamp).
+                var diskRegistered = _saveGames.GetAll()
+                    .SelectMany(SaveGameRegistry.EffectiveNamespaces)
+                    .Any(m => PathsEqual(m.Location, diskCheckpoint));
+                var newestFileExists = File.Exists(member.Location);
                 var diskNewer = !newestFileExists
-                    || File.GetLastWriteTimeUtc(diskCheckpoint) > File.GetLastWriteTimeUtc(newest.Location);
+                    || File.GetLastWriteTimeUtc(diskCheckpoint) > File.GetLastWriteTimeUtc(member.Location);
                 if (!diskRegistered && diskNewer)
                 {
-                    _logger.LogWarning("A checkpoint on disk (\"{Disk}\") is newer than the newest registered save game " +
-                        "{Id} (saved {SavedAt}) and is not in the registry; adopting it - it is a durable save whose " +
-                        "registration did not complete (crash window). It will be registered after loading.",
-                        diskCheckpoint, newest.Id, newest.SavedAt);
+                    _logger.LogWarning("A checkpoint on disk (\"{Disk}\") for namespace \"{Namespace}\" is newer than the " +
+                        "newest registered save game {Id} (saved {SavedAt}) and is not in the registry; adopting it - it " +
+                        "is a durable save whose registration did not complete (crash window).",
+                        diskCheckpoint, ns.Name, newest.Id, newest.SavedAt);
                     loadTarget = diskCheckpoint;
                     adoptOrphan = true;
                 }
@@ -141,8 +161,8 @@ namespace NoSQL.GraphDB.App.Services
 
             if (!adoptOrphan)
             {
-                _logger.LogInformation("Loading the newest registered save game {Id} from \"{Location}\" (saved {SavedAt}).",
-                    newest.Id, newest.Location, newest.SavedAt);
+                _logger.LogInformation("Loading namespace \"{Namespace}\" from save game {Id} at \"{Location}\" (saved {SavedAt}).",
+                    ns.Name, newest.Id, loadTarget, newest.SavedAt);
             }
 
             // A missing primary checkpoint file does NOT roll the load back (the engine's Load treats
@@ -151,21 +171,18 @@ namespace NoSQL.GraphDB.App.Services
             if (!File.Exists(loadTarget))
             {
                 throw new InvalidOperationException(
-                    "The newest registered save game \"" + newest.Id + "\" points at \"" + loadTarget +
-                    "\", which does not exist; startup is aborted so a missing save is never masked by an empty " +
-                    "graph. Restore its files, or remove the entry (DELETE /savegames/" + newest.Id + ") and restart.");
+                    "The newest save game containing namespace \"" + ns.Name + "\" (\"" + newest.Id + "\") points at \"" +
+                    loadTarget + "\", which does not exist; startup is aborted so a missing save is never masked by an " +
+                    "empty graph. Restore its files, or remove the entry (DELETE /savegames/" + newest.Id + ") and restart.");
             }
 
-            var loadInfo = _fallen8.EnqueueTransaction(new LoadTransaction { Path = loadTarget });
+            var loadInfo = ns.Engine.EnqueueTransaction(new LoadTransaction { Path = loadTarget });
             loadInfo.WaitUntilFinished();
 
             if (loadInfo.TransactionState == TransactionState.RolledBack)
             {
-                // Fail startup loudly (FR-9): a missing/corrupt newest save game is never masked by an
-                // empty graph, and we never silently fall back to an older entry (that would resurrect
-                // stale data). The operator restores the files or removes the entry (DELETE /savegames/{id}).
                 throw new InvalidOperationException(
-                    "Fallen-8 failed to load the save game at \"" + loadTarget +
+                    "Fallen-8 failed to load namespace \"" + ns.Name + "\" from \"" + loadTarget +
                     "\"; startup is aborted. Restore its files, or remove the entry (DELETE /savegames/" + newest.Id +
                     ") and restart to use the next-newest (or start empty).", loadInfo.Error);
             }
@@ -175,22 +192,17 @@ namespace NoSQL.GraphDB.App.Services
                 // Register the adopted orphan now that the graph is loaded (so its KPIs are correct).
                 try
                 {
-                    _saveGames.RegisterImportIfUnknown(_fallen8, loadTarget);
+                    _saveGames.RegisterImportIfUnknown(ns.Name, ns.Id, ns.Engine, loadTarget);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Adopted the orphan checkpoint \"{Disk}\" but could not register it; it will be " +
-                        "re-adopted on the next boot.", loadTarget);
+                    _logger.LogError(ex, "Adopted the orphan checkpoint \"{Disk}\" for namespace \"{Namespace}\" but could " +
+                        "not register it; it will be re-adopted on the next boot.", loadTarget, ns.Name);
                 }
             }
 
-            _logger.LogInformation("Fallen-8 save game loaded: {VertexCount} vertices, {EdgeCount} edges.",
-                _fallen8.VertexCount, _fallen8.EdgeCount);
-
-            // Load-at-startup completed: the server is ready (feature observability). The
-            // throwing failure paths above deliberately never mark ready.
-            _startupState?.MarkReady();
-            return Task.CompletedTask;
+            _logger.LogInformation("Namespace \"{Namespace}\" loaded: {VertexCount} vertices, {EdgeCount} edges.",
+                ns.Name, ns.Engine.VertexCount, ns.Engine.EdgeCount);
         }
 
         private static bool PathsEqual(string a, string b)
@@ -220,44 +232,68 @@ namespace NoSQL.GraphDB.App.Services
                 return Task.CompletedTask;
             }
 
-            var checkpointPath = _options.ResolveCheckpointPath();
-
-            try
+            // Save every namespace and register ONE spanning entry - the same shape as PUT /save/all,
+            // so the next boot restores the whole namespace set from a single restore point. The
+            // whole loop runs under the collection's dispose gate: container disposal of the engines
+            // can race this StopAsync during host teardown, and the saves must win that race.
+            var ranBeforeDispose = _namespaces.TryRunBeforeDispose(() =>
             {
-                _logger.LogInformation("Saving the Fallen-8 checkpoint to \"{CheckpointPath}\" on shutdown.", checkpointPath);
-
-                var saveTx = new SaveTransaction { Path = checkpointPath };
-                var saveInfo = _fallen8.EnqueueTransaction(saveTx);
-                saveInfo.WaitUntilFinished();
-
-                if (saveInfo.TransactionState == TransactionState.RolledBack)
+                var members = new List<(String Name, String Id, IFallen8 Engine, String Location)>();
+                foreach (var ns in _namespaces.Snapshot())
                 {
-                    // A failed shutdown save is NOT data loss: the atomic temp+rename means a truncated
-                    // save never becomes the loadable checkpoint, and committed work is already durable
-                    // in the WAL. Log loudly and let shutdown proceed.
-                    _logger.LogError(saveInfo.Error, "The Fallen-8 shutdown save rolled back; committed transactions remain " +
-                        "durable in the write-ahead log and will be replayed on the next boot.");
-                }
-                else
-                {
-                    // Register the shutdown checkpoint so the next boot loads it (feature save-games FR-4).
-                    var actualPath = saveTx.ActualPath ?? checkpointPath;
+                    var checkpointPath = ReferenceEquals(ns, _namespaces.Default)
+                        ? _options.ResolveCheckpointPath()
+                        : Path.Combine(_namespaces.DirectoryFor(ns), _options.CheckpointBaseName);
+
                     try
                     {
-                        _saveGames.Register(_fallen8, actualPath, "shutdown");
+                        _logger.LogInformation("Saving namespace \"{Namespace}\" to \"{CheckpointPath}\" on shutdown.",
+                            ns.Name, checkpointPath);
+
+                        var saveTx = new SaveTransaction { Path = checkpointPath };
+                        var saveInfo = ns.Engine.EnqueueTransaction(saveTx);
+                        saveInfo.WaitUntilFinished();
+
+                        if (saveInfo.TransactionState == TransactionState.RolledBack)
+                        {
+                            // A failed shutdown save is NOT data loss: the atomic temp+rename means a truncated
+                            // save never becomes the loadable checkpoint, and committed work is already durable
+                            // in the WAL. Log loudly and keep saving the other namespaces.
+                            _logger.LogError(saveInfo.Error, "The shutdown save of namespace \"{Namespace}\" rolled back; its " +
+                                "committed transactions remain durable in the write-ahead log and will be replayed on the " +
+                                "next boot.", ns.Name);
+                        }
+                        else
+                        {
+                            members.Add((ns.Name, ns.Id, ns.Engine, saveTx.ActualPath ?? checkpointPath));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Never let a shutdown-save failure prevent the host from stopping; WAL durability holds.
+                        _logger.LogError(ex, "The shutdown save of namespace \"{Namespace}\" threw; its committed transactions " +
+                            "remain durable in the write-ahead log and will be replayed on the next boot.", ns.Name);
+                    }
+                }
+
+                if (members.Count > 0)
+                {
+                    try
+                    {
+                        _saveGames.RegisterAll(members, "shutdown");
+                        _logger.LogInformation("Fallen-8 shutdown save complete ({Count} namespaces).", members.Count);
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "The Fallen-8 shutdown save completed but could not be registered in the save-game registry.");
                     }
-                    _logger.LogInformation("Fallen-8 shutdown save complete.");
                 }
-            }
-            catch (Exception ex)
+            });
+
+            if (!ranBeforeDispose)
             {
-                // Never let a shutdown-save failure prevent the host from stopping; WAL durability holds.
-                _logger.LogError(ex, "The Fallen-8 shutdown save threw; committed transactions remain durable in the " +
-                    "write-ahead log and will be replayed on the next boot.");
+                _logger.LogWarning("The Fallen-8 engines were already disposed when the shutdown save ran; no checkpoint was " +
+                    "written. Committed transactions remain durable in the write-ahead logs and will be replayed on the next boot.");
             }
 
             return Task.CompletedTask;

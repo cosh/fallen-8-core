@@ -39,6 +39,7 @@ using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Embedding;
 using NoSQL.GraphDB.App.Helper;
+using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.App.Security;
 using NoSQL.GraphDB.App.Services;
 using NoSQL.GraphDB.Core;
@@ -91,6 +92,17 @@ namespace NoSQL.GraphDB.App
                 // (feature structural-decomposition, target 0).
                 options.AddDocumentTransformer((document, _, _) =>
                 {
+                    // The ONE home for the namespace URL scheme (feature graph-namespaces):
+                    // explained here at the document level instead of on every operation.
+                    document.Info.Description =
+                        "A Fallen-8 hosts isolated graph namespaces. Every namespace-scoped path " +
+                        "exists twice: bare, aliasing the reserved \"default\" namespace, and " +
+                        "prefixed with /ns/{ns} to address a named namespace. A request naming an " +
+                        "unknown namespace answers 404 application/problem+json with a " +
+                        "\"namespace\" extension member. Fallen-8-level paths (the /ns management " +
+                        "routes, save games, benchmark, delegate validation, plugin upload) exist " +
+                        "once and concern the whole collection of namespaces.";
+
                     var sorted = new Microsoft.OpenApi.OpenApiPaths();
                     foreach (var path in document.Paths.OrderBy(p => p.Key, StringComparer.Ordinal))
                     {
@@ -128,6 +140,10 @@ namespace NoSQL.GraphDB.App
             // Stored query library configuration (feature stored-query-library).
             builder.Services.Configure<Fallen8StoredQueryOptions>(
                 builder.Configuration.GetSection(Fallen8StoredQueryOptions.SectionName));
+
+            // Namespace collection configuration (feature graph-namespaces).
+            builder.Services.Configure<Fallen8NamespacesOptions>(
+                builder.Configuration.GetSection(Fallen8NamespacesOptions.SectionName));
 
             // Change feed configuration (feature change-feed): hosted default ON - a read-only
             // surface with a small idle cost, and what makes F8 Studio live out of the box.
@@ -195,47 +211,17 @@ namespace NoSQL.GraphDB.App
                 }
             }
 
-            // Register the engine singleton through a factory so durable mode constructs the
-            // WAL-enabling overload with the recipe compiler supplied AT CONSTRUCTION - an unanchored
-            // WAL replays during construction, so only a compiler present then can recover its
-            // subgraph entries. Volatile mode constructs the plain in-memory engine.
-            builder.Services.AddSingleton<IFallen8>(sp =>
-            {
-                var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-                var durability = sp.GetRequiredService<IOptions<Fallen8DurabilityOptions>>().Value;
-                var storedQueryOptions = sp.GetRequiredService<IOptions<Fallen8StoredQueryOptions>>().Value;
-                var changeFeedOptions = sp.GetRequiredService<IOptions<Fallen8ChangeFeedOptions>>().Value.ToEngineOptions();
+            // The namespace collection IS the Fallen-8 (feature graph-namespaces): one engine per
+            // namespace, booted holding the reserved "default" namespace on the legacy storage
+            // paths. Construction semantics (WAL replay at construction, compilers, ceilings) live
+            // on Fallen8Namespaces.
+            builder.Services.AddSingleton<Fallen8Namespaces>();
 
-                Fallen8 engine;
-                if (durability.Volatile)
-                {
-                    engine = new Fallen8(loggerFactory, changeFeedOptions)
-                    {
-                        StoredQueryCompiler = new StoredQueryCompiler()
-                    };
-                }
-                else
-                {
-                    // Ensure the storage directory exists BEFORE the engine opens the WAL there; a missing
-                    // or unwritable directory must fail loudly at startup, never silently degrade to volatile.
-                    var storageDirectory = durability.ResolveStorageDirectory();
-                    Directory.CreateDirectory(storageDirectory);
-
-                    // Both compilers are supplied AT CONSTRUCTION: an unanchored WAL replays during
-                    // construction, so only compilers present then can recompile its CreateSubGraph /
-                    // RegisterStoredQuery entries.
-                    engine = new Fallen8(loggerFactory,
-                        new WriteAheadLogOptions(durability.ResolveWalPath()),
-                        new RecipeSubGraphCompiler(),
-                        new StoredQueryCompiler(),
-                        changeFeedOptions);
-                }
-
-                // Stored query library: apply the configured registration ceiling.
-                engine.StoredQueries.MaxCount = storedQueryOptions.MaxCount;
-
-                return engine;
-            });
+            // IFallen8 is the ADDRESSED namespace's engine: a non-disposable singleton dispatcher
+            // that resolves per call from the ambient "ns" route value (see AddressedFallen8 for
+            // why it must never be the raw engine - DI disposes what its factories return).
+            builder.Services.AddHttpContextAccessor();
+            builder.Services.AddSingleton<IFallen8, AddressedFallen8>();
 
             // Save-game metadata registry (feature save-games): the persistent historical record of
             // checkpoints and the startup load authority.
@@ -348,7 +334,15 @@ namespace NoSQL.GraphDB.App
             // uploaded DLL (written there, never next to the app binaries) is still discoverable.
             PluginFactory.AddPluginSearchDirectory(security.ResolvePluginDirectory());
 
-            builder.Services.AddControllers().AddJsonOptions(options =>
+            builder.Services.AddControllers(options =>
+            {
+                // Route twins (feature graph-namespaces): every namespace-scoped action also
+                // answers under /ns/{ns}/... (a real second attribute route, no path rewriting);
+                // the filter answers 404 problem+json for unknown namespaces before any action runs.
+                options.Conventions.Add(new NamespaceRouteConvention());
+                options.Filters.Add(typeof(NamespaceValidationFilter));
+                options.Filters.Add(typeof(UnknownNamespaceExceptionFilter));
+            }).AddJsonOptions(options =>
             {
                 // Serve the REST DTOs through source-generated metadata instead of runtime
                 // reflection. The context uses the same camelCase Web defaults as MVC, and is
@@ -365,11 +359,11 @@ namespace NoSQL.GraphDB.App
 
             var app = builder.Build();
 
-            // Force the engine singleton to construct now (before the host starts) so an unanchored
-            // WAL replays and the DurabilityLifecycleService's StartAsync can load over a live engine.
-            // The recipe compiler is supplied to the constructor (see the factory above), so persisted
-            // AND WAL-replayed subgraphs rehydrate.
-            _ = app.Services.GetRequiredService<IFallen8>();
+            // Force the namespace collection to construct now (before the host starts) so unanchored
+            // WALs replay and the DurabilityLifecycleService's StartAsync can load over live engines.
+            // The recipe compiler is supplied at engine construction (see Fallen8Namespaces), so
+            // persisted AND WAL-replayed subgraphs rehydrate.
+            _ = app.Services.GetRequiredService<Fallen8Namespaces>();
 
             var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Fallen8.Security");
             if (string.IsNullOrWhiteSpace(security.ApiKey))

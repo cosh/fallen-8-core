@@ -33,6 +33,11 @@ dotnet run --project fallen-8-core-apiApp
 
 ## Architecture notes
 
+- **A Fallen-8 is a collection of namespaces.** Each namespace is one isolated graph owning
+  one `Fallen8` engine; the apiApp's `Namespaces/Fallen8Namespaces.cs` is the collection, and
+  every namespace-scoped route also answers under `/ns/{ns}/…` (bare URLs alias the reserved
+  `default` namespace). Terminology and the full story:
+  [features/done/graph-namespaces/](features/done/graph-namespaces/).
 - **Mutation goes through transactions.** To change a graph, build a transaction
   (`CreateVerticesTransaction`, `CreateEdgesTransaction`, `RemoveGraphElementsTransaction`,
   `CreateSubGraphTransaction`, …), `EnqueueTransaction(tx)`, then

@@ -455,7 +455,7 @@ namespace NoSQL.GraphDB.Tests
             // A spatial index is NOT creatable over REST (its Initialize needs live IMetric/Space
             // objects - pinned by StatusIndexInventoryTest), so seed it against the hosted engine
             // singleton; the HTTP request below still exercises the real route + body binding.
-            var engine = (Fallen8)factory.Services.GetRequiredService<IFallen8>();
+            var engine = factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
             Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out var spatialIndex, "geo", "SpatialIndex",
                 new Dictionary<string, object>
                 {

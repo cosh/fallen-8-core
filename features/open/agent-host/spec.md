@@ -10,6 +10,11 @@
 > can be primed with) and [nl-assist-finetune](../nl-assist-finetune/spec.md) (a specialized
 > local model an operator may point agents at). Neither blocks this feature.
 
+> **Namespaces (feature graph-namespaces, 2026-07-23):** the REST surface this spec
+> consumes is namespace-scoped — every data route also answers under `/ns/{ns}/…`, bare
+> routes alias the reserved `default` namespace. Tools/agents should carry a namespace
+> parameter (defaulting to `default`); see [graph-namespaces](../../done/graph-namespaces/).
+
 ## 1. Overview & requirements
 
 Fallen-8 gains a way to **run AI agents against the graph as a first-class, observable

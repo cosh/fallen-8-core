@@ -2,9 +2,12 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  redirect,
   Outlet,
 } from "@tanstack/react-router";
 import { AppShell } from "./AppShell";
+import { NamespaceScope } from "./NamespaceScope";
+import { useRegistry, DEFAULT_NAMESPACE } from "../instances/registry";
 import { ConnectScreen } from "../screens/ConnectScreen";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { SaveGamesScreen } from "../screens/SaveGamesScreen";
@@ -31,90 +34,132 @@ const connectRoute = createRoute({
   component: ConnectScreen,
 });
 
-const dashboardRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/dashboard",
-  component: DashboardScreen,
-});
-
 // NOTE: "/save-games" (hyphen) - the un-hyphenated path is the real GET /savegames API
 // route, which would win over the SPA fallback on a full-page load (same reason /subgraphs
-// is plural).
+// is plural). Save games are Fallen-8-level (entries can span namespaces), so the route
+// stays OUTSIDE /q/$ns - like /benchmarks and Connect.
 const saveGamesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/save-games",
   component: SaveGamesScreen,
 });
 
-const browserRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/browser",
-  component: BrowserScreen,
-});
-
-const queryRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/query",
-  component: QueryScreen,
-});
-
-// NOTE: "/indexes" (plural) - the singular path is the real POST /index API route, which
-// would win over the SPA fallback on a full-page load (same reason /subgraphs is plural).
-const indexesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/indexes",
-  component: IndexesScreen,
-});
-
-const pathRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/path",
-  component: PathScreen,
-});
-
-// NOTE: "/subgraphs" (plural) - the singular path is the real GET /subgraph API route,
-// which would win over the SPA fallback on a full-page load.
-const subgraphRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/subgraphs",
-  component: SubgraphScreen,
-});
-
-// NOTE: bare "/analytics" is safe - the API only has /analytics/algorithms and
-// /analytics/{name} (both deeper), so the SPA fallback wins on a full-page load.
-const analyticsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/analytics",
-  component: AnalyticsScreen,
-});
-
-const canvasRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/canvas",
-  component: CanvasScreen,
-});
-
 // NOTE: "/benchmarks" (plural) - the singular path is the real GET /benchmark API route,
-// which would win over the SPA fallback on a full-page load (same reason /subgraphs is
-// plural).
+// which would win over the SPA fallback on a full-page load. Benchmark is Fallen-8-level.
 const benchmarkRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/benchmarks",
   component: BenchmarkScreen,
 });
 
+/**
+ * Namespace-scoped screens live under /q/{ns}/… (feature graph-namespaces): the namespace
+ * is IN the app URL, so a pasted link restores it. "/q" collides with no API route, so the
+ * SPA fallback serves full-page loads. NamespaceScope syncs the param into the registry and
+ * renders the recover state for unknown namespaces.
+ */
+const namespaceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/q/$ns",
+  component: NamespaceScope,
+});
+
+const dashboardRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "dashboard",
+  component: DashboardScreen,
+});
+
+const browserRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "browser",
+  component: BrowserScreen,
+});
+
+const queryRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "query",
+  component: QueryScreen,
+});
+
+// NOTE: "indexes" (plural) - the singular path is the real POST /index API route (same
+// reason "subgraphs" is plural below; kept although /q/… never collides, for consistency).
+const indexesRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "indexes",
+  component: IndexesScreen,
+});
+
+const pathRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "path",
+  component: PathScreen,
+});
+
+const subgraphRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "subgraphs",
+  component: SubgraphScreen,
+});
+
+const analyticsRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "analytics",
+  component: AnalyticsScreen,
+});
+
+const canvasRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "canvas",
+  component: CanvasScreen,
+});
+
+/** The active namespace read OUTSIDE React (redirects run before any component mounts). */
+function activeNamespace(): string {
+  const s = useRegistry.getState();
+  return (s.activeId && s.activeNamespaces[s.activeId]) || DEFAULT_NAMESPACE;
+}
+
+/**
+ * Pre-namespace bookmarks (/dashboard, /canvas, …) redirect to the active namespace's
+ * equivalent, so old links keep working.
+ */
+const LEGACY_SCOPED_PATHS = [
+  "/dashboard",
+  "/browser",
+  "/query",
+  "/indexes",
+  "/path",
+  "/subgraphs",
+  "/analytics",
+  "/canvas",
+] as const;
+
+const legacyRedirectRoutes = LEGACY_SCOPED_PATHS.map((path) =>
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path,
+    beforeLoad: () => {
+      throw redirect({ to: `/q/$ns${path}`, params: { ns: activeNamespace() } });
+    },
+  }),
+);
+
 const routeTree = rootRoute.addChildren([
   connectRoute,
-  dashboardRoute,
   saveGamesRoute,
-  browserRoute,
-  queryRoute,
-  indexesRoute,
-  pathRoute,
-  subgraphRoute,
-  analyticsRoute,
-  canvasRoute,
   benchmarkRoute,
+  namespaceRoute.addChildren([
+    dashboardRoute,
+    browserRoute,
+    queryRoute,
+    indexesRoute,
+    pathRoute,
+    subgraphRoute,
+    analyticsRoute,
+    canvasRoute,
+  ]),
+  ...legacyRedirectRoutes,
 ]);
 
 export const router = createRouter({ routeTree });

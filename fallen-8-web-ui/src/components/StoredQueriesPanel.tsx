@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import { deleteStoredQuery, getStoredQuery, listStoredQueries } from "../api/endpoints";
 import { getInstanceStore } from "../state/instanceStore";
@@ -17,7 +17,7 @@ import { ErrorBox } from "./ErrorBox";
  * fragments can be tested before they are captured.
  */
 export function StoredQueriesPanel() {
-  const instance = useActiveInstance()!;
+  const { instance } = useInstanceStore();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState<string | null>(null);

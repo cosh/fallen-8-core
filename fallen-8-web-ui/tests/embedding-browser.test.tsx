@@ -106,7 +106,9 @@ function statusWithProvider(enabled: boolean): StatusREST {
 function renderScreen(providerEnabled: boolean | null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (providerEnabled !== null) {
-    client.setQueryData(["local", "status"], statusWithProvider(providerEnabled));
+    // The screen reads through the namespace-bound instance view, whose id is
+    // "<instance-id>/<namespace>" (feature graph-namespaces) - seed the bound key.
+    client.setQueryData(["local/default", "status"], statusWithProvider(providerEnabled));
   }
   return render(
     <QueryClientProvider client={client}>

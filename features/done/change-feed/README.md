@@ -100,7 +100,7 @@ declarative — the feed is fully functional with `EnableDynamicCodeExecution=fa
     "Enabled": true,             // false ⇒ endpoint answers 503, engine pays a null check
     "BufferSize": 8192,          // catch-up ring capacity (events)
     "SubscriberQueueSize": 1024, // per-subscriber bounded queue
-    "MaxSubscribers": 32,        // beyond ⇒ 503
+    "MaxSubscribers": 32,        // beyond ⇒ 503 (per namespace — each has its own feed, see graph-namespaces)
     "KeepAliveSeconds": 15       // SSE comment heartbeat
   }
 }

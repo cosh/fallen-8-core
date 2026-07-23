@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import {
   createEdge,
   createVertex,
@@ -48,7 +48,7 @@ const isElementId = (text: string) => /^\d+$/.test(text.trim()) && Number(text) 
 type Status = { kind: "success"; text: string } | { kind: "error"; error: unknown };
 
 export function MutationsPanel() {
-  const instance = useActiveInstance()!;
+  const { instance } = useInstanceStore();
   const [tab, setTab] = useState<TabId>("vertex");
   const [status, setStatus] = useState<Status | null>(null);
 

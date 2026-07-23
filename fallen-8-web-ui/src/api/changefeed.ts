@@ -1,4 +1,4 @@
-import { ApiError, authHeaders, buildUrl } from "./client";
+import { ApiError, authHeaders, buildUrl, scopedPath } from "./client";
 import type { InstanceConfig } from "../instances/types";
 
 /**
@@ -243,7 +243,7 @@ export async function streamChanges(
   while (!signal.aborted) {
     const url = buildUrl(
       instance.baseUrl,
-      "/changefeed",
+      scopedPath(instance, "/changefeed"),
       buildChangeFeedQuery(options.filter, lastId),
     );
 

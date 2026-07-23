@@ -29,10 +29,28 @@ export class ApiError extends Error {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE" | "HEAD";
+  method?: "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "PATCH";
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
   signal?: AbortSignal;
+  /**
+   * Namespace scoping (feature graph-namespaces). "namespace" (the default) prefixes the
+   * path with /ns/{namespace} when the instance is namespace-bound - the namespace is
+   * ALWAYS explicit on the wire, "default" included. "fallen8" pins Fallen-8-level
+   * endpoints (save games, benchmark, delegate validation, the /ns management routes)
+   * to their bare form regardless of binding.
+   */
+  scope?: "namespace" | "fallen8";
+}
+
+/**
+ * The /ns/{namespace} prefix for a namespace-bound instance; the bare path for an unbound
+ * one (pre-namespace servers and Fallen-8-level callers).
+ */
+export function scopedPath(instance: InstanceConfig, path: string): string {
+  return instance.namespace
+    ? `/ns/${encodeURIComponent(instance.namespace)}${path}`
+    : path;
 }
 
 export function buildUrl(
@@ -75,6 +93,23 @@ export async function throwIfNotOk(response: Response, url: string): Promise<voi
     } catch {
       // keep the status-only error
     }
+
+    // The server marks a missing namespace with a "namespace" extension on its 404
+    // problem+json (feature graph-namespaces); announce it so the recover state renders
+    // immediately instead of waiting for the next inventory poll.
+    if (response.status === 404 && typeof window !== "undefined") {
+      try {
+        const problem = JSON.parse(body) as { namespace?: unknown };
+        if (typeof problem.namespace === "string") {
+          window.dispatchEvent(
+            new CustomEvent("f8:namespace-missing", { detail: { namespace: problem.namespace } }),
+          );
+        }
+      } catch {
+        // not a problem+json body
+      }
+    }
+
     throw new ApiError(response.status, url, body);
   }
 }
@@ -84,7 +119,8 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T | null> {
-  const url = buildUrl(instance.baseUrl, path, options.query);
+  const effectivePath = options.scope === "fallen8" ? path : scopedPath(instance, path);
+  const url = buildUrl(instance.baseUrl, effectivePath, options.query);
   const headers: Record<string, string> = { ...authHeaders(instance) };
   const init: RequestInit = {
     method: options.method ?? "GET",

@@ -66,7 +66,7 @@ namespace NoSQL.GraphDB.Tests
 
         private static Fallen8 EngineOf(AnalyticsFactory factory)
         {
-            return (Fallen8)factory.Services.GetRequiredService<IFallen8>();
+            return factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
         }
 
         private static Int32 SeedVertex(AnalyticsFactory factory, string label = "person")

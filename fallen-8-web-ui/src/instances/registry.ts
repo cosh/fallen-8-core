@@ -10,13 +10,25 @@ import { getInstanceStore } from "../state/instanceStore";
  * (state/instanceStore.ts) keyed by instance id (FR-1c).
  */
 
+export const DEFAULT_NAMESPACE = "default";
+
 export interface RegistryState {
   instances: InstanceConfig[];
   activeId: string | null;
+  /** The active namespace per instance id (feature graph-namespaces); absent = "default". */
+  activeNamespaces: Record<string, string>;
+  /**
+   * Whether an instance's server supports namespaces (probed via GET /ns): true/false once
+   * known, absent while unknown. A pre-namespace server (false) gets UNBOUND instances —
+   * bare paths — so the previous release keeps working instead of 404ing on /ns/default.
+   */
+  namespaceSupport: Record<string, boolean>;
   addInstance: (instance: Omit<InstanceConfig, "id">) => InstanceConfig;
   updateInstance: (id: string, patch: Partial<Omit<InstanceConfig, "id">>) => void;
   removeInstance: (id: string) => void;
   setActive: (id: string) => void;
+  setActiveNamespace: (instanceId: string, namespace: string) => void;
+  setNamespaceSupport: (instanceId: string, supported: boolean) => void;
 }
 
 function newId(): string {
@@ -36,6 +48,8 @@ export const useRegistry = create<RegistryState>()(
     (set) => ({
       instances: [SAME_ORIGIN_INSTANCE],
       activeId: SAME_ORIGIN_INSTANCE.id,
+      activeNamespaces: {},
+      namespaceSupport: {},
 
       addInstance: (instance) => {
         const created: InstanceConfig = {
@@ -73,20 +87,61 @@ export const useRegistry = create<RegistryState>()(
 
       setActive: (id) =>
         set((s) => (s.instances.some((instance) => instance.id === id) ? { activeId: id } : s)),
+
+      setActiveNamespace: (instanceId, namespace) =>
+        set((s) => ({
+          activeNamespaces: { ...s.activeNamespaces, [instanceId]: namespace },
+        })),
+
+      setNamespaceSupport: (instanceId, supported) =>
+        set((s) =>
+          s.namespaceSupport[instanceId] === supported
+            ? s
+            : { namespaceSupport: { ...s.namespaceSupport, [instanceId]: supported } },
+        ),
     }),
     { name: "f8.instances" },
   ),
 );
+
+/** The active instance's active namespace (feature graph-namespaces); "default" until set. */
+export function useActiveNamespace(): string {
+  return useRegistry(
+    (s) => (s.activeId && s.activeNamespaces[s.activeId]) || DEFAULT_NAMESPACE,
+  );
+}
 
 export function useActiveInstance(): InstanceConfig | null {
   return useRegistry((s) => s.instances.find((instance) => instance.id === s.activeId) ?? null);
 }
 
 /**
- * The active instance plus its per-instance workspace store - the preamble every connected
+ * The active instance plus its per-namespace workspace store - the preamble every connected
  * screen needs (the AppShell connection gate guarantees an active instance, hence the non-null).
+ * The returned instance is NAMESPACE-BOUND (feature graph-namespaces): its API calls address
+ * /ns/{activeNamespace}/… explicitly, and the workspace store is keyed per namespace so
+ * results, drafts and canvas state never cross namespaces.
  */
 export function useInstanceStore() {
   const instance = useActiveInstance()!;
-  return { instance, store: getInstanceStore(instance.id) };
+  const namespace = useActiveNamespace();
+  const supported = useRegistry((s) => s.namespaceSupport[instance.id]);
+
+  // A server known to predate namespaces gets the UNBOUND view: bare paths (which are the
+  // whole graph there) and the legacy workspace store — full graceful degradation.
+  if (supported === false) {
+    return { instance, store: getInstanceStore(instance.id) };
+  }
+
+  return {
+    instance: {
+      ...instance,
+      // The bound view's id is "<instance-id>/<namespace>" ON PURPOSE: every react-query
+      // key and cache derived from `instance.id` becomes per-namespace at once, so no
+      // screen can serve another namespace's cached results. The registry keeps the raw id.
+      id: `${instance.id}/${namespace}`,
+      namespace,
+    },
+    store: getInstanceStore(instance.id, namespace),
+  };
 }

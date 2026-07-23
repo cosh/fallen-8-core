@@ -15,6 +15,7 @@ import {
 import { buildJsonlGraph } from "../lib/jsonlGraph";
 import { sbomToGraph, type SpdxSbom } from "../lib/sbomGraph";
 import { importBulk, tabulaRasa, getGraph } from "../api/endpoints";
+import { invalidateInstanceQueries } from "../api/queries";
 import { DEFAULT_STYLE_CONFIG } from "../canvas/styleConfig";
 import { ErrorBox } from "./ErrorBox";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -70,7 +71,7 @@ export function SampleGraphsPanel() {
   const afterLoad = (title: string, steps: string[], vertices: number, edges: number) => {
     setMessage(`Loaded ${title}: ${vertices.toLocaleString()} vertices, ${edges.toLocaleString()} edges.`);
     setTrySteps({ title, steps });
-    queryClient.invalidateQueries({ queryKey: [instance.id] });
+    invalidateInstanceQueries(queryClient, instance.id);
   };
 
   const sampleMutation = useMutation({

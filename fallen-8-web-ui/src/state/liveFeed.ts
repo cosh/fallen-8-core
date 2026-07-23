@@ -159,10 +159,36 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
  * shell can surface a quiet "live" / "live updates unavailable" chip - a 503 (feed
  * disabled) degrades to today's polling behaviour without console error spam.
  */
+/**
+ * Bumped when a namespace is recreated in place (feature graph-namespaces): the stream for
+ * that namespace died "fatal" on the 404 and its effect key (the compound instance id) did
+ * not change, so a generation counter is what forces the resubscribe.
+ */
+let feedGeneration = 0;
+const feedGenerationListeners = new Set<() => void>();
+
+export function bumpFeedGeneration(): void {
+  feedGeneration++;
+  for (const listener of feedGenerationListeners) listener();
+}
+
+function useFeedGeneration(): number {
+  const [generation, setGeneration] = useState(feedGeneration);
+  useEffect(() => {
+    const listener = () => setGeneration(feedGeneration);
+    feedGenerationListeners.add(listener);
+    return () => {
+      feedGenerationListeners.delete(listener);
+    };
+  }, []);
+  return generation;
+}
+
 export function useLiveChangeFeed(instance: InstanceConfig | null): LiveFeedStatus {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<LiveFeedStatus>("off");
   const instanceId = instance?.id ?? null;
+  const generation = useFeedGeneration();
 
   useEffect(() => {
     if (!instance) {
@@ -194,8 +220,9 @@ export function useLiveChangeFeed(instance: InstanceConfig | null): LiveFeedStat
       controller.abort();
       handlers.dispose();
     };
-    // Keyed by instance ID, not object identity: one stream per active instance (FR-1c).
-  }, [instanceId, queryClient]);
+    // Keyed by instance ID, not object identity: one stream per active instance (FR-1c);
+    // the generation forces a resubscribe after an in-place namespace recreate.
+  }, [instanceId, queryClient, generation]);
 
   return status;
 }

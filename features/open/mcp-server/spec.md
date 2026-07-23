@@ -8,6 +8,11 @@
 > Fallen-8 well; this feature gives them the *tools* to do it. Neither blocks the other; the
 > skill library gains an MCP-alignment phase once this lands.
 
+> **Namespaces (feature graph-namespaces, 2026-07-23):** the REST surface this spec
+> consumes is namespace-scoped — every data route also answers under `/ns/{ns}/…`, bare
+> routes alias the reserved `default` namespace. Tools/agents should carry a namespace
+> parameter (defaulting to `default`); see [graph-namespaces](../../done/graph-namespaces/).
+
 ## 1. Overview & requirements
 
 Fallen-8 today speaks to programs (REST + OpenAPI) and to humans (F8 Studio). It has no

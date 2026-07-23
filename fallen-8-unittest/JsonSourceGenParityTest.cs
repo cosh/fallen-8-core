@@ -464,6 +464,49 @@ namespace NoSQL.GraphDB.Tests
                     AvailableServicePlugins = new List<string>()
                 }, "StatusREST"),
                 (new SampleStats { VertexCount = 3, EdgeCount = 7 }, "SampleStats"),
+                (new NamespaceREST
+                {
+                    Name = "flights",
+                    State = "ready",
+                    VertexCount = 191,
+                    EdgeCount = 1697,
+                    CreatedAt = "2026-07-23T10:15:02.412Z"
+                }, "NamespaceREST"),
+                (new NamespacesREST
+                {
+                    Namespaces = new List<NamespaceREST>
+                    {
+                        new NamespaceREST { Name = "default", State = "ready", VertexCount = 0, EdgeCount = 0, CreatedAt = "2026-07-23T10:15:02.412Z" }
+                    },
+                    MaxNamespaces = 10000
+                }, "NamespacesREST"),
+                (new NamespaceRenameSpecification { Name = "fl-eu" }, "NamespaceRenameSpecification"),
+                (new SaveGameNamespaceREST
+                {
+                    Name = "flights",
+                    Location = "C:/Fallen8/namespaces/ns-20260723-101502-3f2a/Temp.f8s",
+                    FileCount = 9,
+                    TotalBytes = 73400320L,
+                    Kpis = new SaveGameKpisREST { VertexCount = 191, EdgeCount = 1697 }
+                }, "SaveGameNamespaceREST"),
+                (new NoSQL.GraphDB.App.Namespaces.NamespaceCatalogDocument
+                {
+                    Namespaces = new List<NoSQL.GraphDB.App.Namespaces.NamespaceCatalogEntry>
+                    {
+                        new NoSQL.GraphDB.App.Namespaces.NamespaceCatalogEntry
+                        {
+                            Id = "ns-20260723-101502-3f2a",
+                            Name = "flights",
+                            CreatedAt = "2026-07-23T10:15:02.412Z"
+                        }
+                    }
+                }, "NamespaceCatalogDocument"),
+                (new NoSQL.GraphDB.App.Namespaces.NamespaceCatalogEntry
+                {
+                    Id = "ns-20260723-101502-3f2a",
+                    Name = "flights",
+                    CreatedAt = "2026-07-23T10:15:02.412Z"
+                }, "NamespaceCatalogEntry"),
                 (SampleSpecification(), "SubGraphSpecification"),
                 (new SubGraphSummary
                 {
