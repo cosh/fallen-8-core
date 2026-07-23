@@ -7,7 +7,8 @@ import type {
   StoredPathQueryBlock,
   StoredSubGraphQueryBlock,
 } from "../api/types";
-import type { PathDraft } from "../state/instanceStore";
+import type { PathDraft, SubgraphPatternDraft } from "../state/instanceStore";
+import { parseThreshold } from "./semantic";
 
 /**
  * Pure stored-query logic (concept spec §5): spec builders that make the server's
@@ -90,18 +91,27 @@ export function hasAnyPathFragment(draft: PathDraft): boolean {
 
 /**
  * Strips builder-only keys and normalizes per-type fields the way the create form
- * always has (shared by PUT /subgraph and stored-query registration).
+ * always has (shared by PUT /subgraph and stored-query registration). A vertex step's
+ * filter slot sends exactly what its MODE says (feature subgraph-semantic-thresholds):
+ * the fragment, the parsed threshold, or nothing — the other representation stays in the
+ * draft, so switching modes never loses input.
  */
-export function normalizePatterns(
-  patterns: (PatternSpecification & { key?: string })[],
-): PatternSpecification[] {
-  return patterns.map(({ key: _key, ...pattern }) => ({
-    ...pattern,
-    patternName: pattern.patternName || undefined,
-    minLength: pattern.type === "VariableLengthEdge" ? pattern.minLength : undefined,
-    maxLength: pattern.type === "VariableLengthEdge" ? pattern.maxLength : undefined,
-    direction: pattern.type === "Vertex" ? undefined : pattern.direction,
-  }));
+export function normalizePatterns(patterns: SubgraphPatternDraft[]): PatternSpecification[] {
+  return patterns.map(({ key: _key, filterMode, semanticMinScore, ...pattern }) => {
+    const isVertex = pattern.type === "Vertex";
+    return {
+      ...pattern,
+      patternName: pattern.patternName || undefined,
+      minLength: pattern.type === "VariableLengthEdge" ? pattern.minLength : undefined,
+      maxLength: pattern.type === "VariableLengthEdge" ? pattern.maxLength : undefined,
+      direction: isVertex ? undefined : pattern.direction,
+      vertexFilter:
+        isVertex && filterMode === "fragment" ? pattern.vertexFilter || undefined : undefined,
+      ...(isVertex && filterMode === "semantic"
+        ? { semanticMinScore: parseThreshold(semanticMinScore) }
+        : {}),
+    };
+  });
 }
 
 export function subGraphBlock(

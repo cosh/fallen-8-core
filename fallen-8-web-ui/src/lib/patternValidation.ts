@@ -13,7 +13,10 @@ function isEdgeStep(type: PatternSpecification["type"]): boolean {
   return type === "Edge" || type === "VariableLengthEdge";
 }
 
-export function validatePatternSequence(patterns: PatternSpecification[]): string | null {
+/** Structural subset so both wire specs and builder drafts validate with one function. */
+type PatternStep = Pick<PatternSpecification, "type" | "minLength" | "maxLength">;
+
+export function validatePatternSequence(patterns: PatternStep[]): string | null {
   for (let i = 0; i < patterns.length; i++) {
     const step = patterns[i];
 

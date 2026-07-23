@@ -13,10 +13,12 @@ import type {
 import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 
 /**
- * Subgraph screen semantic wiring (feature element-embeddings / studio-semantics): the
- * inline path attaches the semantic block; stored mode disables the block and NEVER builds
- * or validates it (so a valid stored-template create is not blocked by a greyed-out block).
- * Monaco is mocked (the delegate slots pull it in transitively).
+ * Subgraph screen semantic slots (feature subgraph-semantic-thresholds): a semantic
+ * threshold is a MODE of a vertex-filter slot (top level and per vertex pattern step);
+ * the request-level semantic query exists exactly while some slot consumes it, so the
+ * inert enabled-but-unused block of the old UI is unrepresentable. Stored mode has no
+ * slots; save-as-stored is blocked while a threshold is active (templates have no query
+ * to bind). Monaco is mocked (the delegate slots pull it in transitively).
  */
 
 vi.mock("../src/delegate/monacoSetup", () => ({ setupMonaco: () => {}, monaco: {} }));
@@ -26,12 +28,13 @@ vi.mock("@monaco-editor/react", () => ({
 
 const createSubGraphMock =
   vi.fn<(i: InstanceConfig, spec: SubGraphSpecification, from?: string) => Promise<SubGraphSummary | null>>();
+let subGraphList: SubGraphSummary[] = [];
 
 vi.mock("../src/api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/api/endpoints")>();
   return {
     ...original,
-    listSubGraphSummaries: async () => [] as SubGraphSummary[],
+    listSubGraphSummaries: async () => subGraphList,
     createSubGraph: (i: InstanceConfig, spec: SubGraphSpecification, from?: string) =>
       createSubGraphMock(i, spec, from),
     listStoredQueries: async () =>
@@ -89,20 +92,29 @@ function renderScreen(providerEnabled = true) {
 beforeEach(() => {
   resetInstanceStoresForTests();
   localStorage.clear();
+  subGraphList = [];
   createSubGraphMock.mockReset().mockResolvedValue({ name: "s", vertexCount: 0, edgeCount: 0 });
 });
 
-describe("subgraph semantic block", () => {
-  it("attaches the semantic spec in inline mode and owns the vertex pre-filter slot", async () => {
+describe("subgraph semantic slots", () => {
+  it("the semantic query section exists exactly while a slot consumes it", async () => {
+    const user = userEvent.setup();
+    renderScreen(true);
+    expect(screen.queryByTestId("sg-semantic-query")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "semantic");
+    expect(screen.getByTestId("sg-semantic-query")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "everything");
+    expect(screen.queryByTestId("sg-semantic-query")).not.toBeInTheDocument();
+  });
+
+  it("top-level semantic mode sends the query with minScore and no fragment", async () => {
     const user = userEvent.setup();
     renderScreen(true);
     await user.type(screen.getByTestId("sg-name"), "close");
-    await user.click(screen.getByTestId("sg-semantic-enable"));
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "semantic");
     await user.type(screen.getByTestId("sg-sem-vector"), "1, 0");
-    await user.click(screen.getByTestId("sg-sem-minscore-enable"));
-
-    // The top-level vertexFilter slot is now owned by minScore (rendered inert w/ reason).
-    expect(screen.getByText(/owned by semantic minScore/)).toBeInTheDocument();
 
     await user.click(screen.getByTestId("sg-create"));
     await waitFor(() => expect(createSubGraphMock).toHaveBeenCalledTimes(1));
@@ -116,31 +128,92 @@ describe("subgraph semantic block", () => {
     expect(spec.vertexFilter).toBeUndefined();
   });
 
-  it("costBySimilarity is not offered on the subgraph screen (path-only)", async () => {
+  it("a vertex pattern step in semantic mode sends its own threshold", async () => {
     const user = userEvent.setup();
     renderScreen(true);
-    await user.click(screen.getByTestId("sg-semantic-enable"));
-    expect(screen.queryByTestId("sg-sem-cost")).not.toBeInTheDocument();
+    await user.type(screen.getByTestId("sg-name"), "steps");
+    await user.click(screen.getByTestId("add-vertex-step"));
+    await user.selectOptions(screen.getByTestId("sg-p0-vf-mode"), "semantic");
+    await user.type(screen.getByTestId("sg-sem-vector"), "1, 0");
+    const threshold = screen.getByTestId("sg-p0-vf-minscore");
+    await user.clear(threshold);
+    await user.type(threshold, "0.6");
+
+    await user.click(screen.getByTestId("sg-create"));
+    await waitFor(() => expect(createSubGraphMock).toHaveBeenCalledTimes(1));
+    const spec = createSubGraphMock.mock.calls[0][1];
+    expect(spec.patterns?.[0].semanticMinScore).toBe(0.6);
+    expect(spec.patterns?.[0].vertexFilter).toBeUndefined();
+    // The top-level slot stayed on "match everything": a query travels, but no pre-filter.
+    expect(spec.semantic?.queryVector).toEqual([1, 0]);
+    expect(spec.semantic?.minScore).toBeUndefined();
+    expect(spec.vertexFilter).toBeUndefined();
   });
 
-  it("disables the block in stored mode and never builds/validates it (a valid stored create still works)", async () => {
+  it("a non-finite threshold blocks submit with an inline error", async () => {
+    const user = userEvent.setup();
+    renderScreen(true);
+    await user.type(screen.getByTestId("sg-name"), "bad");
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "semantic");
+    await user.type(screen.getByTestId("sg-sem-vector"), "1, 0");
+    await user.clear(screen.getByTestId("sg-vf-minscore"));
+
+    expect(screen.getByTestId("sg-vf-minscore-error")).toBeInTheDocument();
+    expect(screen.getByTestId("sg-create")).toBeDisabled();
+  });
+
+  it("save-as-stored is blocked with a reason while a semantic slot is active", async () => {
+    const user = userEvent.setup();
+    renderScreen(true);
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "semantic");
+
+    const save = screen.getByTestId("save-as-stored-query");
+    expect(save).toBeDisabled();
+    expect(save).toHaveAttribute("title", expect.stringContaining("stored template"));
+  });
+
+  it("stored mode has no slots and a stale semantic slot never blocks a stored create", async () => {
     const user = userEvent.setup();
     renderScreen(true);
     await user.type(screen.getByTestId("sg-name"), "fromTpl");
 
-    // Enable the block and leave it INVALID (empty vector) in inline mode...
-    await user.click(screen.getByTestId("sg-semantic-enable"));
+    // Put the top-level slot in semantic mode and leave the query INVALID (empty vector)...
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "semantic");
 
-    // ...then switch to a stored template: the block goes inert.
+    // ...then switch to a stored template: no slots, no semantic query section.
     await user.click(screen.getByTestId("filter-source-stored"));
-    expect(screen.getByTestId("sg-semantic-disabled")).toBeInTheDocument();
+    expect(screen.queryByTestId("sg-semantic-query")).not.toBeInTheDocument();
     await user.selectOptions(screen.getByTestId("stored-query-select"), "tpl");
 
     await user.click(screen.getByTestId("sg-create"));
-    // No throw from the stale invalid semantic block — stored mode ignores it entirely.
     await waitFor(() => expect(createSubGraphMock).toHaveBeenCalledTimes(1));
     const spec = createSubGraphMock.mock.calls[0][1];
     expect(spec.storedQuery).toBe("tpl");
     expect(spec.semantic).toBeUndefined();
+  });
+
+  it("a registered semantic subgraph shows the badge with its binding", async () => {
+    subGraphList = [
+      {
+        name: "close",
+        vertexCount: 3,
+        edgeCount: 2,
+        semantic: {
+          embeddingName: "default",
+          metric: "Cosine",
+          dimension: 2,
+          minScore: 0.5,
+          patternThresholds: [{ pattern: "start", minScore: 0.6 }],
+        },
+      },
+      { name: "plain", vertexCount: 1, edgeCount: 0 },
+    ];
+    renderScreen(true);
+
+    const badge = await screen.findByTestId("sg-semantic-badge-close");
+    expect(badge).toHaveAttribute("title", expect.stringContaining("Cosine over 'default' (d=2)"));
+    expect(badge).toHaveAttribute("title", expect.stringContaining("step start ≥ 0.6"));
+    expect(badge).toHaveAttribute("title", expect.stringContaining("bound at creation"));
+    expect(screen.queryByTestId("sg-semantic-badge-plain")).not.toBeInTheDocument();
   });
 });

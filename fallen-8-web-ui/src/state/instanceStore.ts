@@ -9,7 +9,13 @@ import type {
   VertexREST,
 } from "../api/types";
 import { DEFAULT_STYLE_CONFIG, type StyleConfig } from "../canvas/styleConfig";
-import { DEFAULT_SEMANTIC_DRAFT, type SemanticDraft } from "../lib/semantic";
+import {
+  DEFAULT_SEMANTIC_DRAFT,
+  DEFAULT_SEMANTIC_QUERY_DRAFT,
+  type SemanticDraft,
+  type SemanticQueryDraft,
+  type SlotMode,
+} from "../lib/semantic";
 import type { TypedValue } from "../lib/literals";
 import type { IndexCapability } from "../lib/indexCapabilities";
 
@@ -195,30 +201,48 @@ export const DEFAULT_QUERY_DRAFT: QueryDraft = {
   vectorSearchText: "",
 };
 
-/** One pattern row of the subgraph builder (a pattern spec plus a stable list key). */
-export type SubgraphPatternDraft = PatternSpecification & { key: string };
+/**
+ * One pattern row of the subgraph builder: a pattern spec plus a stable list key and the
+ * step's vertex-slot state (feature subgraph-semantic-thresholds) — the slot MODE and the
+ * threshold as editable text (the wire `semanticMinScore` number is derived on build).
+ */
+export type SubgraphPatternDraft = Omit<PatternSpecification, "semanticMinScore"> & {
+  key: string;
+  /** Vertex steps only; edge steps ignore it. */
+  filterMode: SlotMode;
+  /** Threshold text for the semantic mode (parsed on build). */
+  semanticMinScore: string;
+};
 
 /** The Subgraph "create" form, persisted per instance so navigation never wipes it. */
 export interface SubgraphDraft {
   name: string;
   fromSubGraph: string;
+  /** The top-level vertex pre-filter slot's mode (one owner per slot, structural). */
+  vertexFilterMode: SlotMode;
+  /** The slot's fragment text — kept across mode switches so nothing is lost. */
   vertexFilter: string;
+  /** The slot's threshold text for the semantic mode (parsed on build). */
+  vertexMinScore: string;
   edgeFilter: string;
   patterns: SubgraphPatternDraft[];
   filterSource: FilterSource;
   storedQuery: string;
-  semantic: SemanticDraft;
+  /** The ONE semantic query per request every semantic threshold scores against. */
+  semanticQuery: SemanticQueryDraft;
 }
 
 export const DEFAULT_SUBGRAPH_DRAFT: SubgraphDraft = {
   name: "",
   fromSubGraph: "",
+  vertexFilterMode: "everything",
   vertexFilter: "",
+  vertexMinScore: "0.7",
   edgeFilter: "",
   patterns: [],
   filterSource: "inline",
   storedQuery: "",
-  semantic: { ...DEFAULT_SEMANTIC_DRAFT },
+  semanticQuery: { ...DEFAULT_SEMANTIC_QUERY_DRAFT },
 };
 
 /** The Browser screen's lookup + bulk inputs, persisted per instance. */
@@ -426,11 +450,21 @@ function createWorkspaceStore(instanceId: string) {
               semantic: { ...DEFAULT_SEMANTIC_DRAFT, ...(p.pathDraft?.semantic ?? {}) },
             },
             queryDraft: { ...DEFAULT_QUERY_DRAFT, ...(p.queryDraft ?? {}) },
-            subgraphDraft: {
-              ...DEFAULT_SUBGRAPH_DRAFT,
-              ...(p.subgraphDraft ?? {}),
-              semantic: { ...DEFAULT_SEMANTIC_DRAFT, ...(p.subgraphDraft?.semantic ?? {}) },
-            },
+            // A subgraph draft persisted before the slot-mode restructure (feature
+            // subgraph-semantic-thresholds) carried a block-local `semantic` object and no
+            // slot modes; it is RESET rather than migrated - a draft is a session
+            // convenience, not data.
+            subgraphDraft:
+              p.subgraphDraft && !("semanticQuery" in p.subgraphDraft)
+                ? { ...DEFAULT_SUBGRAPH_DRAFT }
+                : {
+                    ...DEFAULT_SUBGRAPH_DRAFT,
+                    ...(p.subgraphDraft ?? {}),
+                    semanticQuery: {
+                      ...DEFAULT_SEMANTIC_QUERY_DRAFT,
+                      ...(p.subgraphDraft?.semanticQuery ?? {}),
+                    },
+                  },
             browserDraft: { ...DEFAULT_BROWSER_DRAFT, ...(p.browserDraft ?? {}) },
             analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT, ...(p.analyticsDraft ?? {}) },
             styleConfig: { ...DEFAULT_STYLE_CONFIG, ...(p.styleConfig ?? {}) },

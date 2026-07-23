@@ -1,23 +1,19 @@
-import { Field } from "./Field";
 import { help } from "../lib/fieldHelp";
-import { parseVector } from "../lib/vector";
-import {
-  buildSemanticSpec,
-  type SemanticDraft,
-  type SemanticMetric,
-  type SemanticSource,
-} from "../lib/semantic";
+import { Field } from "./Field";
+import { SemanticQueryEditor } from "./SemanticQueryEditor";
+import { buildSemanticSpec, type SemanticDraft } from "../lib/semantic";
 
 /**
- * The declarative semantic-traversal block editor (feature element-embeddings), shared by
- * the Path and Subgraph screens. It carries the query source (a pasted vector, or text the
- * embedding provider embeds once), the embedding name / metric, and the code-free minScore
- * filter / costBySimilarity cost. The block is pure data — it works with dynamic code
- * execution OFF, which is the whole point, so it stays enabled even where the C# fragment
- * editors are 403-disabled. Full rules: features/done/element-embeddings README.
+ * The Path screen's declarative semantic block (feature element-embeddings): the shared
+ * query core (SemanticQueryEditor) plus the block-local minScore filter and
+ * costBySimilarity cost. Pure data — it works with dynamic code execution OFF, which is
+ * the whole point, so it stays enabled even where the C# fragment editors are
+ * 403-disabled. The Subgraph screen does not use this block: there the thresholds live on
+ * the vertex-filter slots themselves (feature subgraph-semantic-thresholds).
+ * Full rules: features/done/element-embeddings README.
  *
- * Controlled: the parent owns the SemanticDraft (persisted for Path, local for Subgraph)
- * and derives which delegate slots to disable from semanticOwnsVertex{Filter,Cost}.
+ * Controlled: the parent owns the SemanticDraft and derives which delegate slots to
+ * disable from semanticOwnsVertex{Filter,Cost}.
  */
 export function SemanticBlockEditor({
   draft,
@@ -32,7 +28,7 @@ export function SemanticBlockEditor({
 }: {
   draft: SemanticDraft;
   onChange: (patch: Partial<SemanticDraft>) => void;
-  /** costBySimilarity is a path concept; false on the subgraph screen. */
+  /** costBySimilarity is a path concept; false disables the cost slot entirely. */
   allowCost: boolean;
   /** When set (e.g. algorithm is BLS, which ignores costs), the cost checkbox is disabled
    *  with this reason — distinct from the internal DotProduct rule. */
@@ -45,13 +41,7 @@ export function SemanticBlockEditor({
   disabled?: boolean;
   disabledReason?: string;
 }) {
-  const namesListId = `${idPrefix}-embedding-names`;
-  const textUnavailable = providerEnabled !== true;
   const build = buildSemanticSpec(draft, { allowCost, providerEnabled });
-  const parsedVector =
-    draft.enabled && draft.source === "vector" && draft.vectorText.trim()
-      ? parseVector(draft.vectorText)
-      : null;
 
   if (disabled) {
     return (
@@ -85,111 +75,19 @@ export function SemanticBlockEditor({
 
       {draft.enabled && (
         <div className="space-y-2 p-2">
-          <div className="flex flex-wrap items-end gap-3">
-            <Field
-              helpKey="semanticQuerySource"
-              label="query source"
-              htmlFor={`${idPrefix}-sem-source`}
-            >
-              <select
-                id={`${idPrefix}-sem-source`}
-                data-testid={`${idPrefix}-sem-source`}
-                className="input w-auto"
-                value={draft.source}
-                onChange={(e) => onChange({ source: e.target.value as SemanticSource })}
-              >
-                <option value="vector">pasted vector</option>
-                <option value="text">query text (provider)</option>
-              </select>
-            </Field>
-            <Field
-              helpKey="semanticEmbeddingName"
-              label="embedding name"
-              htmlFor={`${idPrefix}-sem-name`}
-            >
-              <input
-                id={`${idPrefix}-sem-name`}
-                className="input w-32"
-                list={namesListId}
-                value={draft.embeddingName}
-                onChange={(e) => onChange({ embeddingName: e.target.value })}
-                placeholder="default"
-              />
-            </Field>
-            <Field helpKey="semanticMetric" label="metric" htmlFor={`${idPrefix}-sem-metric`}>
-              <select
-                id={`${idPrefix}-sem-metric`}
-                data-testid={`${idPrefix}-sem-metric`}
-                className="input w-auto"
-                value={draft.metric}
-                onChange={(e) => {
-                  const metric = e.target.value as SemanticMetric;
-                  // DotProduct has no cost mapping; clear a stale checked cost so it can't
-                  // strand the (now-disabled) checkbox in a checked state that blocks submit.
-                  onChange(
-                    metric === "DotProduct"
-                      ? { metric, costBySimilarity: false }
-                      : { metric },
-                  );
-                }}
-              >
-                <option>Cosine</option>
-                <option>DotProduct</option>
-                <option>L2</option>
-              </select>
-            </Field>
-          </div>
-
-          {draft.source === "vector" ? (
-            <Field
-              helpKey="semanticQueryVector"
-              label="query vector (JSON array or comma-separated floats)"
-              htmlFor={`${idPrefix}-sem-vector`}
-            >
-              <textarea
-                id={`${idPrefix}-sem-vector`}
-                data-testid={`${idPrefix}-sem-vector`}
-                className="input h-14 w-full font-mono"
-                value={draft.vectorText}
-                onChange={(e) => onChange({ vectorText: e.target.value })}
-                placeholder="[0.12, -0.5, 0.33]"
-              />
-              {parsedVector && (
-                <div className="text-fg-faint text-[11px]">
-                  {parsedVector.ok
-                    ? `d=${parsedVector.vector.length} — must match the embedding dimension`
-                    : parsedVector.error}
-                </div>
-              )}
-            </Field>
-          ) : (
-            <Field
-              helpKey="semanticQueryText"
-              label="query text"
-              htmlFor={`${idPrefix}-sem-text`}
-              className="grow"
-            >
-              <input
-                id={`${idPrefix}-sem-text`}
-                data-testid={`${idPrefix}-sem-text`}
-                className="input w-full"
-                value={draft.queryText}
-                disabled={textUnavailable}
-                onChange={(e) => onChange({ queryText: e.target.value })}
-                placeholder="red bicycles"
-              />
-              {textUnavailable && (
-                <div
-                  className="text-warn text-[11px]"
-                  data-testid={`${idPrefix}-sem-text-unavailable`}
-                >
-                  {providerEnabled === null
-                    ? "provider status not reported by this server — paste a vector instead."
-                    : "the embedding provider is off on this instance — paste a vector instead."}
-                </div>
-              )}
-            </Field>
-          )}
+          <SemanticQueryEditor
+            query={draft}
+            onChange={(patch) =>
+              // DotProduct has no cost mapping; clear a stale checked cost so it can't
+              // strand the (now-disabled) checkbox in a checked state that blocks submit.
+              onChange(
+                patch.metric === "DotProduct" ? { ...patch, costBySimilarity: false } : patch,
+              )
+            }
+            providerEnabled={providerEnabled}
+            embeddingNames={embeddingNames}
+            idPrefix={idPrefix}
+          />
 
           <div className="flex flex-wrap items-end gap-3">
             <label
@@ -252,12 +150,6 @@ export function SemanticBlockEditor({
               {build.error}
             </p>
           )}
-
-          <datalist id={namesListId}>
-            {embeddingNames.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
         </div>
       )}
     </div>

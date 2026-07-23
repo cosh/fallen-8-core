@@ -111,6 +111,10 @@ export const FIELD_HELP = {
     "Similarity metric: Cosine/DotProduct (higher is closer) or L2 (lower is closer). Must suit the embeddings; bit-identical to the vector index's scoring.",
   semanticMinScore:
     "Declarative filter: keep only elements whose similarity is at least this (Cosine/DotProduct) or at most this (L2). No C# needed — runs with dynamic code execution off.",
+  vertexSlotMode:
+    "How this vertex slot filters: match everything, a compiled C# fragment (needs dynamic code execution), or a semantic threshold against the request's semantic query (pure data — runs with dynamic code off). One owner per slot.",
+  slotSemanticThreshold:
+    "Vertices pass this slot when their embedding scores at least this (Cosine/DotProduct) or at most this (L2) against the semantic query. Vertices without the embedding never pass.",
   semanticCostBySimilarity:
     "Declarative cost (DIJKSTRA paths only): weight each vertex by similarity so the search prefers close vertices (Cosine cost = 1 − score; L2 = distance). Not available under DotProduct.",
 

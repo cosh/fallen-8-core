@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSemanticQuery,
   buildSemanticSpec,
   DEFAULT_SEMANTIC_DRAFT,
+  DEFAULT_SEMANTIC_QUERY_DRAFT,
+  describeSemanticSummary,
+  parseThreshold,
   semanticOwnsVertexCost,
   semanticOwnsVertexFilter,
   type SemanticDraft,
@@ -110,5 +114,55 @@ describe("slot ownership", () => {
   it("costBySimilarity owns the vertex-cost slot only when enabled + active", () => {
     expect(semanticOwnsVertexCost(DEFAULT_SEMANTIC_DRAFT)).toBe(false);
     expect(semanticOwnsVertexCost(enabled({ costBySimilarity: true }))).toBe(true);
+  });
+});
+
+describe("parseThreshold", () => {
+  it("parses finite numbers and refuses everything else — empty is NOT zero", () => {
+    expect(parseThreshold("0.7")).toBe(0.7);
+    expect(parseThreshold(" -1 ")).toBe(-1);
+    expect(parseThreshold("")).toBeUndefined();
+    expect(parseThreshold("   ")).toBeUndefined();
+    expect(parseThreshold("abc")).toBeUndefined();
+    expect(parseThreshold("Infinity")).toBeUndefined();
+  });
+});
+
+describe("buildSemanticQuery", () => {
+  it("builds the bare query core (no minScore, no cost — those live on slots)", () => {
+    const result = buildSemanticQuery(
+      { ...DEFAULT_SEMANTIC_QUERY_DRAFT, vectorText: "[1, 0]", embeddingName: "title" },
+      { providerEnabled: null },
+    );
+    expect(result).toEqual({
+      ok: true,
+      spec: { embeddingName: "title", metric: "Cosine", queryVector: [1, 0] },
+    });
+  });
+
+  it("query text needs the provider", () => {
+    const result = buildSemanticQuery(
+      { ...DEFAULT_SEMANTIC_QUERY_DRAFT, source: "text", queryText: "red bicycles" },
+      { providerEnabled: false },
+    );
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("describeSemanticSummary", () => {
+  it("describes the binding with metric-aware comparison and the queryText when used", () => {
+    const line = describeSemanticSummary({
+      embeddingName: "default",
+      metric: "L2",
+      dimension: 384,
+      queryText: "red bicycles",
+      minScore: 0.5,
+      patternThresholds: [{ pattern: "start", minScore: 0.6 }],
+    });
+    expect(line).toContain("L2 over 'default' (d=384)");
+    expect(line).toContain("pre-filter ≤ 0.5");
+    expect(line).toContain("step start ≤ 0.6");
+    expect(line).toContain('from text "red bicycles"');
+    expect(line).toContain("bound at creation");
   });
 });

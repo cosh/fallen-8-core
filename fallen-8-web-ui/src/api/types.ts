@@ -420,6 +420,13 @@ export interface PatternSpecification {
   vertexFilter?: string;
   edgeFilter?: string;
   edgePropertyFilter?: string;
+  /**
+   * Declarative semantic threshold for a Vertex step (feature
+   * subgraph-semantic-thresholds) — scores against the request's semantic query. Owns the
+   * step's filter slot (400 together with vertexFilter); 400 on edge steps, without a
+   * semantic block, and in stored SubGraph templates.
+   */
+  semanticMinScore?: number;
 }
 
 // Nesting (fromSubGraph) is a QUERY parameter on PUT /subgraph, not a body field —
@@ -440,6 +447,22 @@ export interface SubGraphSpecification {
   semantic?: SemanticTraversalSpecification;
 }
 
+/**
+ * The bound semantic state echoed on a registered subgraph's summary (feature
+ * subgraph-semantic-thresholds) — never the raw vector, only its dimension.
+ */
+export interface SubGraphSemanticSummary {
+  embeddingName: string;
+  metric: string;
+  dimension: number;
+  /** The registration queryText, when one was used (the bound vector stays the truth). */
+  queryText?: string | null;
+  /** The top-level vertex pre-filter threshold, when set. */
+  minScore?: number | null;
+  /** Vertex pattern steps carrying a threshold (pattern = patternName or step index). */
+  patternThresholds?: { pattern: string; minScore: number }[] | null;
+}
+
 export interface SubGraphSummary {
   name: string;
   vertexCount: number;
@@ -448,6 +471,8 @@ export interface SubGraphSummary {
   sourceFallen8Id?: string | null;
   canRecalculate?: boolean;
   additionalInformation?: string | null;
+  /** Present only for semantic subgraphs. */
+  semantic?: SubGraphSemanticSummary | null;
 }
 
 /**
