@@ -4,3 +4,10 @@
 # the classic "works on my machine, breaks on the freshly-cloned one" trap.
 *.sh          text eol=lf
 Dockerfile*   text eol=lf
+
+# Generated sample-graph datasets (feature sample-graphs): built by
+# fallen-8-web-ui/scripts/build-samples.ts, served from a public raw URL, imported verbatim
+# as fallen8-jsonl. Mark generated so they stay out of diffs and language stats, and keep LF
+# so the byte counts (and any meta-line guards) match what the build produced.
+samples/*.jsonl              linguist-generated=true text eol=lf
+fallen-8-web-ui/scripts/samples/data/fallen8-sbom.json linguist-generated=true

@@ -1,0 +1,56 @@
+name: refresh-sbom
+
+# Keeps the committed Fallen-8 dependency SBOM (the fallen8-deps sample graph, feature
+# sample-graphs) in sync with the project's actual dependencies. The SBOM is fetched once
+# and reused on every dataset build; this job refreshes it ONLY when a dependency manifest
+# changes, so no build ever hits GitHub's rate-limited SBOM endpoint at runtime.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/*.csproj'
+      - 'nl-assist-finetune/train/requirements.txt'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    name: refresh committed SBOM + fallen8-deps dataset
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to commit the refreshed SBOM/dataset back
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install UI deps
+        working-directory: fallen-8-web-ui
+        run: npm ci
+
+      # The dependency graph is available to the repo's own GITHUB_TOKEN; F8_DEPS_REFETCH
+      # makes the generator re-pull and rewrite the committed SBOM, then rebuild the dataset.
+      - name: Rebuild fallen8-deps from a fresh SBOM
+        working-directory: fallen-8-web-ui
+        env:
+          F8_DEPS_REFETCH: '1'
+          F8_DEPS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build:samples -- --only fallen8-deps
+
+      - name: Commit if the SBOM or dataset changed
+        run: |
+          if [[ -n "$(git status --porcelain fallen-8-web-ui/scripts/samples/data/fallen8-sbom.json samples/)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add fallen-8-web-ui/scripts/samples/data/fallen8-sbom.json samples/
+            git commit -m "sample-graphs: refresh Fallen-8 dependency SBOM"
+            git push
+          else
+            echo "SBOM unchanged — nothing to commit."
+          fi

@@ -44,7 +44,8 @@ namespace NoSQL.GraphDB.App.Controllers
 {
     /// <summary>
     ///   Streaming bulk export/import of the graph as newline-delimited JSON
-    ///   (<c>fallen8-jsonl</c> version 1, feature bulk-import-export).
+    ///   (<c>fallen8-jsonl</c>, feature bulk-import-export; versioning and the version-2
+    ///   embedding encoding live on <see cref="JsonlGraphFormat"/>).
     /// </summary>
     /// <remarks>
     ///   The file carries graph ELEMENTS only (vertices, edges, properties) - indices, subgraph
@@ -88,10 +89,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="vertexLabel">Optional: export only vertices with exactly this label</param>
         /// <param name="edgeLabel">Optional: export only edges with exactly this label</param>
         /// <remarks>
-        /// The stream is fallen8-jsonl version 1: one meta line (format version + exact counts),
+        /// The stream is fallen8-jsonl version 2: one meta line (format version + exact counts),
         /// then vertex lines, then edge lines. Edges whose endpoints are not both in the exported
         /// vertex set are omitted, so EVERY exported file is internally consistent and importable
-        /// by construction.
+        /// by construction. Element embeddings export as their reserved System.Single[]
+        /// properties (the version-2 type).
         ///
         /// CONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads
         /// are lock-free; a write committed during the export may or may not appear. The

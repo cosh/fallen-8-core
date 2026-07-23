@@ -1,0 +1,113 @@
+{"type":"meta","format":"fallen8-jsonl","version":2,"vertexCount":34,"edgeCount":78}
+{"type":"vertex","id":1,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Mr. Hi"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🧑‍🏫"}}}
+{"type":"vertex","id":2,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 2"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":3,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 3"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":4,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 4"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":5,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 5"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":6,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 6"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":7,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 7"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":8,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 8"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":9,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 9"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":10,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 10"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":11,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 11"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":12,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 12"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":13,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 13"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":14,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 14"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":15,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 15"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":16,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 16"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":17,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 17"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":18,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 18"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":19,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 19"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":20,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 20"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":21,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 21"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":22,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 22"},"faction":{"type":"System.String","value":"mr-hi"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":23,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 23"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":24,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 24"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":25,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 25"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":26,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 26"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":27,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 27"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":28,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 28"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":29,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 29"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":30,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 30"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":31,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 31"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":32,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 32"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":33,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Member 33"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"🥋"}}}
+{"type":"vertex","id":34,"label":"member","creationDate":1767225600,"properties":{"name":{"type":"System.String","value":"Officer"},"faction":{"type":"System.String","value":"officer"},"icon":{"type":"System.String","value":"👔"}}}
+{"type":"edge","id":100,"edgePropertyId":"interactsWith","source":2,"target":1,"creationDate":1767225600}
+{"type":"edge","id":101,"edgePropertyId":"interactsWith","source":3,"target":1,"creationDate":1767225600}
+{"type":"edge","id":102,"edgePropertyId":"interactsWith","source":3,"target":2,"creationDate":1767225600}
+{"type":"edge","id":103,"edgePropertyId":"interactsWith","source":4,"target":1,"creationDate":1767225600}
+{"type":"edge","id":104,"edgePropertyId":"interactsWith","source":4,"target":2,"creationDate":1767225600}
+{"type":"edge","id":105,"edgePropertyId":"interactsWith","source":4,"target":3,"creationDate":1767225600}
+{"type":"edge","id":106,"edgePropertyId":"interactsWith","source":5,"target":1,"creationDate":1767225600}
+{"type":"edge","id":107,"edgePropertyId":"interactsWith","source":6,"target":1,"creationDate":1767225600}
+{"type":"edge","id":108,"edgePropertyId":"interactsWith","source":7,"target":1,"creationDate":1767225600}
+{"type":"edge","id":109,"edgePropertyId":"interactsWith","source":7,"target":5,"creationDate":1767225600}
+{"type":"edge","id":110,"edgePropertyId":"interactsWith","source":7,"target":6,"creationDate":1767225600}
+{"type":"edge","id":111,"edgePropertyId":"interactsWith","source":8,"target":1,"creationDate":1767225600}
+{"type":"edge","id":112,"edgePropertyId":"interactsWith","source":8,"target":2,"creationDate":1767225600}
+{"type":"edge","id":113,"edgePropertyId":"interactsWith","source":8,"target":3,"creationDate":1767225600}
+{"type":"edge","id":114,"edgePropertyId":"interactsWith","source":8,"target":4,"creationDate":1767225600}
+{"type":"edge","id":115,"edgePropertyId":"interactsWith","source":9,"target":1,"creationDate":1767225600}
+{"type":"edge","id":116,"edgePropertyId":"interactsWith","source":9,"target":3,"creationDate":1767225600}
+{"type":"edge","id":117,"edgePropertyId":"interactsWith","source":10,"target":3,"creationDate":1767225600}
+{"type":"edge","id":118,"edgePropertyId":"interactsWith","source":11,"target":1,"creationDate":1767225600}
+{"type":"edge","id":119,"edgePropertyId":"interactsWith","source":11,"target":5,"creationDate":1767225600}
+{"type":"edge","id":120,"edgePropertyId":"interactsWith","source":11,"target":6,"creationDate":1767225600}
+{"type":"edge","id":121,"edgePropertyId":"interactsWith","source":12,"target":1,"creationDate":1767225600}
+{"type":"edge","id":122,"edgePropertyId":"interactsWith","source":13,"target":1,"creationDate":1767225600}
+{"type":"edge","id":123,"edgePropertyId":"interactsWith","source":13,"target":4,"creationDate":1767225600}
+{"type":"edge","id":124,"edgePropertyId":"interactsWith","source":14,"target":1,"creationDate":1767225600}
+{"type":"edge","id":125,"edgePropertyId":"interactsWith","source":14,"target":2,"creationDate":1767225600}
+{"type":"edge","id":126,"edgePropertyId":"interactsWith","source":14,"target":3,"creationDate":1767225600}
+{"type":"edge","id":127,"edgePropertyId":"interactsWith","source":14,"target":4,"creationDate":1767225600}
+{"type":"edge","id":128,"edgePropertyId":"interactsWith","source":17,"target":6,"creationDate":1767225600}
+{"type":"edge","id":129,"edgePropertyId":"interactsWith","source":17,"target":7,"creationDate":1767225600}
+{"type":"edge","id":130,"edgePropertyId":"interactsWith","source":18,"target":1,"creationDate":1767225600}
+{"type":"edge","id":131,"edgePropertyId":"interactsWith","source":18,"target":2,"creationDate":1767225600}
+{"type":"edge","id":132,"edgePropertyId":"interactsWith","source":20,"target":1,"creationDate":1767225600}
+{"type":"edge","id":133,"edgePropertyId":"interactsWith","source":20,"target":2,"creationDate":1767225600}
+{"type":"edge","id":134,"edgePropertyId":"interactsWith","source":22,"target":1,"creationDate":1767225600}
+{"type":"edge","id":135,"edgePropertyId":"interactsWith","source":22,"target":2,"creationDate":1767225600}
+{"type":"edge","id":136,"edgePropertyId":"interactsWith","source":26,"target":24,"creationDate":1767225600}
+{"type":"edge","id":137,"edgePropertyId":"interactsWith","source":26,"target":25,"creationDate":1767225600}
+{"type":"edge","id":138,"edgePropertyId":"interactsWith","source":28,"target":3,"creationDate":1767225600}
+{"type":"edge","id":139,"edgePropertyId":"interactsWith","source":28,"target":24,"creationDate":1767225600}
+{"type":"edge","id":140,"edgePropertyId":"interactsWith","source":28,"target":25,"creationDate":1767225600}
+{"type":"edge","id":141,"edgePropertyId":"interactsWith","source":29,"target":3,"creationDate":1767225600}
+{"type":"edge","id":142,"edgePropertyId":"interactsWith","source":30,"target":24,"creationDate":1767225600}
+{"type":"edge","id":143,"edgePropertyId":"interactsWith","source":30,"target":27,"creationDate":1767225600}
+{"type":"edge","id":144,"edgePropertyId":"interactsWith","source":31,"target":2,"creationDate":1767225600}
+{"type":"edge","id":145,"edgePropertyId":"interactsWith","source":31,"target":9,"creationDate":1767225600}
+{"type":"edge","id":146,"edgePropertyId":"interactsWith","source":32,"target":1,"creationDate":1767225600}
+{"type":"edge","id":147,"edgePropertyId":"interactsWith","source":32,"target":25,"creationDate":1767225600}
+{"type":"edge","id":148,"edgePropertyId":"interactsWith","source":32,"target":26,"creationDate":1767225600}
+{"type":"edge","id":149,"edgePropertyId":"interactsWith","source":32,"target":29,"creationDate":1767225600}
+{"type":"edge","id":150,"edgePropertyId":"interactsWith","source":33,"target":3,"creationDate":1767225600}
+{"type":"edge","id":151,"edgePropertyId":"interactsWith","source":33,"target":9,"creationDate":1767225600}
+{"type":"edge","id":152,"edgePropertyId":"interactsWith","source":33,"target":15,"creationDate":1767225600}
+{"type":"edge","id":153,"edgePropertyId":"interactsWith","source":33,"target":16,"creationDate":1767225600}
+{"type":"edge","id":154,"edgePropertyId":"interactsWith","source":33,"target":19,"creationDate":1767225600}
+{"type":"edge","id":155,"edgePropertyId":"interactsWith","source":33,"target":21,"creationDate":1767225600}
+{"type":"edge","id":156,"edgePropertyId":"interactsWith","source":33,"target":23,"creationDate":1767225600}
+{"type":"edge","id":157,"edgePropertyId":"interactsWith","source":33,"target":24,"creationDate":1767225600}
+{"type":"edge","id":158,"edgePropertyId":"interactsWith","source":33,"target":30,"creationDate":1767225600}
+{"type":"edge","id":159,"edgePropertyId":"interactsWith","source":33,"target":31,"creationDate":1767225600}
+{"type":"edge","id":160,"edgePropertyId":"interactsWith","source":33,"target":32,"creationDate":1767225600}
+{"type":"edge","id":161,"edgePropertyId":"interactsWith","source":34,"target":9,"creationDate":1767225600}
+{"type":"edge","id":162,"edgePropertyId":"interactsWith","source":34,"target":10,"creationDate":1767225600}
+{"type":"edge","id":163,"edgePropertyId":"interactsWith","source":34,"target":14,"creationDate":1767225600}
+{"type":"edge","id":164,"edgePropertyId":"interactsWith","source":34,"target":15,"creationDate":1767225600}
+{"type":"edge","id":165,"edgePropertyId":"interactsWith","source":34,"target":16,"creationDate":1767225600}
+{"type":"edge","id":166,"edgePropertyId":"interactsWith","source":34,"target":19,"creationDate":1767225600}
+{"type":"edge","id":167,"edgePropertyId":"interactsWith","source":34,"target":20,"creationDate":1767225600}
+{"type":"edge","id":168,"edgePropertyId":"interactsWith","source":34,"target":21,"creationDate":1767225600}
+{"type":"edge","id":169,"edgePropertyId":"interactsWith","source":34,"target":23,"creationDate":1767225600}
+{"type":"edge","id":170,"edgePropertyId":"interactsWith","source":34,"target":24,"creationDate":1767225600}
+{"type":"edge","id":171,"edgePropertyId":"interactsWith","source":34,"target":27,"creationDate":1767225600}
+{"type":"edge","id":172,"edgePropertyId":"interactsWith","source":34,"target":28,"creationDate":1767225600}
+{"type":"edge","id":173,"edgePropertyId":"interactsWith","source":34,"target":29,"creationDate":1767225600}
+{"type":"edge","id":174,"edgePropertyId":"interactsWith","source":34,"target":30,"creationDate":1767225600}
+{"type":"edge","id":175,"edgePropertyId":"interactsWith","source":34,"target":31,"creationDate":1767225600}
+{"type":"edge","id":176,"edgePropertyId":"interactsWith","source":34,"target":32,"creationDate":1767225600}
+{"type":"edge","id":177,"edgePropertyId":"interactsWith","source":34,"target":33,"creationDate":1767225600}

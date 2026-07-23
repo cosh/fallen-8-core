@@ -157,7 +157,7 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     await endpoints.loadGraph(instance, "p");
     await endpoints.trimGraph(instance);
     await endpoints.tabulaRasa(instance);
-    await endpoints.generateSampleGraph(instance);
+    await endpoints.generateGraph(instance);
     await endpoints.runBenchmark(instance);
     await endpoints.getStatistics(instance);
     await endpoints.listStoredQueries(instance);

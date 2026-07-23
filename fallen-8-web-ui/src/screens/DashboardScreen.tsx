@@ -4,10 +4,8 @@ import { useActiveInstance } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import {
   exportBulk,
-  generateSampleGraph,
   importBulk,
   loadGraph,
-  runBenchmark,
   saveGraph,
   tabulaRasa,
   trimGraph,
@@ -20,13 +18,14 @@ import { Field } from "../components/Field";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Stat } from "../components/Stat";
 import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
-import { formatCompact, formatExact } from "../lib/format";
+import { SampleGraphsPanel } from "../components/SampleGraphsPanel";
 
 /**
  * Dashboard (FR-2/3/4): counts, memory, plugin lists from /status; admin actions with
  * typed confirmation for the destructive ones (load, tabula rasa) naming the instance
- * (FR-1d); demo-data playground (generate/benchmark). A 500 from save/load is a rolled
- * back transaction and renders as a real failure.
+ * (FR-1d). Graph generation and the benchmark live on the Benchmark tab (feature
+ * sample-graphs). A 500 from save/load is a rolled back transaction and renders as a
+ * real failure.
  */
 
 function PluginList({ title, plugins }: { title: string; plugins: string[] }) {
@@ -92,17 +91,6 @@ export function DashboardScreen() {
       refresh();
     },
   });
-  const generate = useMutation({
-    mutationFn: () => generateSampleGraph(instance),
-    onSuccess: () => {
-      setLastMessage("Sample graph generated.");
-      refresh();
-    },
-  });
-  const benchmark = useMutation({
-    mutationFn: () => runBenchmark(instance),
-  });
-
   const exportGraph = useMutation({
     mutationFn: () =>
       exportBulk(instance, {
@@ -139,9 +127,7 @@ export function DashboardScreen() {
     },
   });
 
-  const failed = [save, load, trim, erase, generate, exportGraph].find(
-    (m) => m.isError,
-  );
+  const failed = [save, load, trim, erase, exportGraph].find((m) => m.isError);
 
   if (status.isPending) {
     return <div className="text-fg-faint">Loading status…</div>;
@@ -216,55 +202,7 @@ export function DashboardScreen() {
         )}
       </section>
 
-      <section className="panel">
-        <div className="panel-title">Playground</div>
-        <div className="flex gap-2 p-3">
-          <button
-            type="button"
-            className="btn btn-accent"
-            data-testid="generate-sample"
-            disabled={generate.isPending}
-            onClick={() => generate.mutate()}
-          >
-            {generate.isPending ? "Generating…" : "Generate sample graph"}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            data-testid="run-benchmark"
-            disabled={benchmark.isPending}
-            onClick={() => benchmark.mutate()}
-          >
-            {benchmark.isPending ? "Running…" : "Run benchmark"}
-          </button>
-        </div>
-        {benchmark.data && (
-          <div
-            className="border-line grid grid-cols-2 gap-3 border-t p-3 md:grid-cols-4"
-            data-testid="benchmark-result"
-          >
-            <Stat
-              label="edges per run"
-              value={formatExact(benchmark.data.edgesTraversed)}
-            />
-            <Stat label="avg tps" value={formatCompact(benchmark.data.averageTps)} />
-            <Stat label="median tps" value={formatCompact(benchmark.data.medianTps)} />
-            <Stat
-              label="stddev tps"
-              value={formatCompact(benchmark.data.standardDeviationTps)}
-            />
-            <p className="text-fg-faint col-span-full text-[11px]">
-              {benchmark.data.iterations} iterations · exact average{" "}
-              {formatExact(benchmark.data.averageTps)} TPS
-            </p>
-          </div>
-        )}
-        {benchmark.isError && (
-          <div className="px-3 pb-3">
-            <ErrorBox error={benchmark.error} />
-          </div>
-        )}
-      </section>
+      <SampleGraphsPanel />
 
       <section className="panel">
         <div className="panel-title">Administration</div>

@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "build:samples": "vite-node scripts/build-samples.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

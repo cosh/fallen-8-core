@@ -15,6 +15,7 @@ import { PathScreen } from "../screens/PathScreen";
 import { SubgraphScreen } from "../screens/SubgraphScreen";
 import { AnalyticsScreen } from "../screens/AnalyticsScreen";
 import { CanvasScreen } from "../screens/CanvasScreen";
+import { BenchmarkScreen } from "../screens/BenchmarkScreen";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -93,6 +94,15 @@ const canvasRoute = createRoute({
   component: CanvasScreen,
 });
 
+// NOTE: "/benchmarks" (plural) - the singular path is the real GET /benchmark API route,
+// which would win over the SPA fallback on a full-page load (same reason /subgraphs is
+// plural).
+const benchmarkRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/benchmarks",
+  component: BenchmarkScreen,
+});
+
 const routeTree = rootRoute.addChildren([
   connectRoute,
   dashboardRoute,
@@ -104,6 +114,7 @@ const routeTree = rootRoute.addChildren([
   subgraphRoute,
   analyticsRoute,
   canvasRoute,
+  benchmarkRoute,
 ]);
 
 export const router = createRouter({ routeTree });

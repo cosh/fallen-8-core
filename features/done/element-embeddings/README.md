@@ -26,9 +26,11 @@ curl -sf -X DELETE "http://localhost:5000/graphelement/42/embedding/default?wait
 - 400 with reason: invalid name, empty/oversized (> 4096) vector, non-finite components,
   a dimension conflicting with a *bound* index of that name, zero-norm while a bound
   Cosine index exists. 404: unknown element.
-- Bulk import works too: the embedding **is** the reserved `float[]` property
+- Bulk import/export works too: the embedding **is** the reserved `float[]` property
   `$embedding:<name>` (v1 layout — an implementation detail behind the accessor, but the
-  import surface may write it directly; the engine projects those writes as well).
+  import surface may write it directly; the engine projects those writes as well). On the
+  jsonl wire it is the `System.Single[]` typed pair of format version 2 — see the
+  [bulk-import-export README](../bulk-import-export/README.md).
 - Embedded engine callers use `SetEmbeddingsTransaction` (batch, replace semantics).
 
 ## Bound vector indices (the projection)

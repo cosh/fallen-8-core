@@ -224,7 +224,7 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(Parse("{\"type\":\"edge\",\"id\":1,\"creationDate\":1,\"source\":0,\"target\":1}"), "edgePropertyId");
             StringAssert.Contains(Parse("{\"type\":\"vertex\",\"id\":1,\"creationDate\":1,\"properties\":{\"x\":{\"type\":\"System.Xml.XmlDocument\",\"value\":\"\"}}}"), "not an allow-listed");
             StringAssert.Contains(Parse("{\"type\":\"vertex\",\"id\":1,\"creationDate\":1,\"properties\":{\"x\":{\"type\":\"System.Int32\",\"value\":\"abc\"}}}"), "not a valid Int32");
-            StringAssert.Contains(Parse("{\"type\":\"meta\",\"format\":\"fallen8-jsonl\",\"version\":2}"), "unsupported format version");
+            StringAssert.Contains(Parse("{\"type\":\"meta\",\"format\":\"fallen8-jsonl\",\"version\":3}"), "unsupported format version");
             StringAssert.Contains(Parse("{\"type\":\"meta\",\"format\":\"other\",\"version\":1}"), "'format'");
 
             // Council findings: strictness holes that used to slip through.
@@ -240,6 +240,34 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(
                 Parse("{\"type\":\"vertex\",\"id\":1,\"creationDate\":1,\"properties\":{\"x\":{\"type\":\"System.Int32\",\"value\":\"1\"},\"x\":{\"type\":\"System.Int32\",\"value\":\"2\"}}}"),
                 "duplicate property key 'x'", "a duplicate property key is a 400, never a 500");
+        }
+
+        [TestMethod]
+        public void SingleArray_RoundTrips_AndPinsItsGrammar()
+        {
+            // The version-2 addition: System.Single[] as comma-joined "R" floats - the embedding
+            // carrier. The exact strings are pinned like every other type's.
+            var vector = new[] { 0.1f, -1.5f, float.NaN, float.PositiveInfinity, 3.4028235E+38f };
+            Assert.IsTrue(JsonlGraphFormat.TryFormatValue(vector, out var typeName, out var formatted));
+            Assert.AreEqual("System.Single[]", typeName);
+            Assert.AreEqual("0.1,-1.5,NaN,Infinity,3.4028235E+38", formatted);
+
+            var parseError = JsonlGraphFormat.TryParseValue(typeName, formatted, out var roundTripped);
+            Assert.IsNull(parseError, parseError);
+            CollectionAssert.AreEqual(vector, (float[])roundTripped);
+
+            // The empty array is the empty string, exactly, in both directions.
+            Assert.IsTrue(JsonlGraphFormat.TryFormatValue(Array.Empty<float>(), out _, out var empty));
+            Assert.AreEqual("", empty);
+            Assert.IsNull(JsonlGraphFormat.TryParseValue("System.Single[]", "", out var emptyValue));
+            Assert.AreEqual(0, ((float[])emptyValue).Length);
+
+            // A malformed component names its position.
+            StringAssert.Contains(JsonlGraphFormat.TryParseValue("System.Single[]", "1.0,,2.0", out _), "component 1");
+            StringAssert.Contains(JsonlGraphFormat.TryParseValue("System.Single[]", "abc", out _), "component 0");
+
+            // Single[] is the ONE array type; the others stay out.
+            Assert.IsFalse(JsonlGraphFormat.TryFormatValue(new double[] { 1d }, out _, out _));
         }
 
         #endregion
@@ -328,7 +356,7 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual("meta", lines[0].GetProperty("type").GetString());
             Assert.AreEqual("fallen8-jsonl", lines[0].GetProperty("format").GetString());
-            Assert.AreEqual(1, lines[0].GetProperty("version").GetInt32());
+            Assert.AreEqual(2, lines[0].GetProperty("version").GetInt32(), "the writer always stamps the current version");
             Assert.AreEqual(2, lines[0].GetProperty("vertexCount").GetInt32());
             Assert.AreEqual(1, lines[0].GetProperty("edgeCount").GetInt32());
 
@@ -387,6 +415,102 @@ namespace NoSQL.GraphDB.Tests
             using var import = await Import(targetClient, exported);
             Assert.AreEqual(HttpStatusCode.OK, import.StatusCode);
             Assert.AreEqual(1, EngineOf(target).EdgeCount);
+        }
+
+        [TestMethod]
+        public async Task Export_EmbeddedGraph_StampsVersion2_AndTheVectorRoundTrips()
+        {
+            using var source = new BulkFactory();
+            var engine = EngineOf(source);
+            var vector = new[] { 0.25f, -0.5f, 0.125f };
+            var vtx = new CreateVerticesTransaction();
+            vtx.AddVertex(1u, "doc", new Dictionary<string, object>
+            {
+                { "name", "embedded" },
+                { "$embedding:default", vector },
+                { "$embeddingModel:default", "test-model#3#Cosine" }
+            });
+            vtx.AddVertex(1u, "doc", new Dictionary<string, object> { { "name", "plain" } });
+            engine.EnqueueTransaction(vtx).WaitUntilFinished();
+
+            using var client = source.CreateClient();
+            using var response = await client.GetAsync("/bulk/export");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "an embedded graph must be exportable (the pre-version-2 422 gap)");
+
+            var exported = await response.Content.ReadAsStringAsync();
+            var lines = ParseNdjson(exported);
+            Assert.AreEqual(2, lines[0].GetProperty("version").GetInt32(), "arrays present -> version 2");
+
+            var embeddedLine = lines.Single(l =>
+                l.GetProperty("type").GetString() == "vertex" && l.TryGetProperty("properties", out var p) &&
+                p.TryGetProperty("$embedding:default", out _));
+            var pair = embeddedLine.GetProperty("properties").GetProperty("$embedding:default");
+            Assert.AreEqual("System.Single[]", pair.GetProperty("type").GetString());
+            Assert.AreEqual("0.25,-0.5,0.125", pair.GetProperty("value").GetString());
+
+            // The file imports into a fresh instance; the reserved property IS the embedding
+            // there (element-embeddings v1 layout), and the model stamp survives next to it.
+            using var target = new BulkFactory();
+            using var targetClient = target.CreateClient();
+            using var import = await Import(targetClient, exported);
+            Assert.AreEqual(HttpStatusCode.OK, import.StatusCode, await import.Content.ReadAsStringAsync());
+
+            var imported = EngineOf(target).GetAllVertices("doc").Single(v => v.GetPropertyCount() == 3);
+            Assert.IsTrue(imported.TryGetProperty<object>(out var importedVector, "$embedding:default"));
+            CollectionAssert.AreEqual(vector, (float[])importedVector, "the vector survives value-exactly");
+            Assert.IsTrue(imported.TryGetProperty<object>(out var stamp, "$embeddingModel:default"));
+            Assert.AreEqual("test-model#3#Cosine", stamp);
+        }
+
+        [TestMethod]
+        public async Task Export_AlwaysStampsTheCurrentVersion_EvenWithoutArrays()
+        {
+            // Standardized on version 2 (feature sample-graphs): the writer always stamps the
+            // current version - no lowest-sufficient escalation, no version-dependent behaviour.
+            using var factory = new BulkFactory();
+            SeedSmallGraph(EngineOf(factory));
+
+            using var client = factory.CreateClient();
+            var lines = ParseNdjson(await client.GetStringAsync("/bulk/export"));
+            Assert.AreEqual(JsonlGraphFormat.FormatVersion, lines[0].GetProperty("version").GetInt32());
+        }
+
+        [TestMethod]
+        public async Task Import_Version1StampedFileWithAnArray_IsAccepted()
+        {
+            // No backward-compat baggage: an older version-1 stamp is tolerated identically -
+            // System.Single[] is always available regardless of the declared version.
+            const string file =
+                "{\"type\":\"meta\",\"format\":\"fallen8-jsonl\",\"version\":1}\n" +
+                "{\"type\":\"vertex\",\"id\":1,\"label\":\"doc\",\"creationDate\":1,\"properties\":{\"$embedding:default\":{\"type\":\"System.Single[]\",\"value\":\"1,2\"}}}\n";
+
+            using var factory = new BulkFactory();
+            using var client = factory.CreateClient();
+            using var response = await Import(client, file);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+
+            var imported = EngineOf(factory).GetAllVertices("doc").Single();
+            Assert.IsTrue(imported.TryGetProperty<object>(out var vector, "$embedding:default"));
+            CollectionAssert.AreEqual(new[] { 1f, 2f }, (float[])vector);
+        }
+
+        [TestMethod]
+        public async Task Import_MetaLessFileWithAnArray_IsAccepted()
+        {
+            // Grep-filtered subsets drop the meta line; without a version stamp the reader offers
+            // the current build's full capability.
+            const string file =
+                "{\"type\":\"vertex\",\"id\":1,\"label\":\"doc\",\"creationDate\":1,\"properties\":{\"$embedding:default\":{\"type\":\"System.Single[]\",\"value\":\"0.5,1.5\"}}}\n";
+
+            using var factory = new BulkFactory();
+            using var client = factory.CreateClient();
+            using var response = await Import(client, file);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+
+            var imported = EngineOf(factory).GetAllVertices("doc").Single();
+            Assert.IsTrue(imported.TryGetProperty<object>(out var vector, "$embedding:default"));
+            CollectionAssert.AreEqual(new[] { 0.5f, 1.5f }, (float[])vector);
         }
 
         #endregion

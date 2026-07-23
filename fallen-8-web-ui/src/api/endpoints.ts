@@ -104,8 +104,13 @@ export const trimGraph = (i: InstanceConfig) =>
 export const tabulaRasa = (i: InstanceConfig) =>
   apiRequest<void>(i, "/tabularasa", { method: "HEAD", query: WAIT });
 
-export const generateSampleGraph = (i: InstanceConfig, nodeCount = 200, edgeCount = 5) =>
-  apiRequest<string>(i, "/generate", { query: { nodeCount, edgeCount } });
+/** Generates a random benchmark graph server-side (edgeCount = out-edges PER VERTEX). */
+export const generateGraph = (
+  i: InstanceConfig,
+  nodeCount = 200,
+  edgeCount = 5,
+  distribution: "uniform" | "preferential" = "uniform",
+) => apiRequest<string>(i, "/generate", { query: { nodeCount, edgeCount, distribution } });
 
 export const runBenchmark = (i: InstanceConfig, iterations = 1000) =>
   apiRequest<BenchmarkResult>(i, "/benchmark", { query: { iterations } });

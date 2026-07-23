@@ -33,7 +33,7 @@ using NoSQL.GraphDB.Core.Model;
 namespace NoSQL.GraphDB.App.Helper
 {
     /// <summary>
-    ///   The <c>fallen8-jsonl</c> version-1 line schema (feature bulk-import-export): one JSON
+    ///   The <c>fallen8-jsonl</c> line schema (feature bulk-import-export): one JSON
     ///   object per line - a leading <c>meta</c> line (format version + exact counts), then
     ///   <c>vertex</c> lines, then <c>edge</c> lines. Property values travel as
     ///   <c>{"type": &lt;allow-listed name&gt;, "value": &lt;invariant string&gt;}</c> pairs using
@@ -41,18 +41,33 @@ namespace NoSQL.GraphDB.App.Helper
     ///   DateTime/DateTimeOffset, <c>"c"</c> for TimeSpan, <c>"D"</c> for Guid, invariant
     ///   <c>ToString</c> otherwise), so every <see cref="AllowedLiteralTypes"/> type round-trips
     ///   value-exactly INCLUDING its CLR type. Types resolve ONLY through
-    ///   <see cref="AllowedLiteralTypes"/> (never <c>Type.GetType</c> on file input, preserving
-    ///   dynamic-code-resource-limits R3); value PARSING is this class's own per-type
-    ///   invariant-culture code because interchange must not inherit the server culture (and
-    ///   TimeSpan/Guid/DateTimeOffset are not IConvertible at all).
+    ///   <see cref="AllowedLiteralTypes"/> plus the one pinned array type below (never
+    ///   <c>Type.GetType</c> on file input, preserving dynamic-code-resource-limits R3); value
+    ///   PARSING is this class's own per-type invariant-culture code because interchange must
+    ///   not inherit the server culture (and TimeSpan/Guid/DateTimeOffset are not IConvertible
+    ///   at all).
     ///
-    ///   <para>Strict v1: unknown top-level fields are rejected; the <c>version</c> field is the
-    ///   only evolution mechanism.</para>
+    ///   <para>Strict: unknown top-level fields are rejected; the <c>version</c> field is the
+    ///   only evolution mechanism. The current format is <b>version 2</b> (feature
+    ///   sample-graphs): it adds <c>System.Single[]</c> - comma-joined <c>"R"</c> floats, the
+    ///   carrier of element embeddings (<c>$embedding:&lt;name&gt;</c> properties, feature
+    ///   element-embeddings) - over the original scalar set. The writer always stamps the
+    ///   current version and <c>System.Single[]</c> is always available; the reader tolerates
+    ///   an older <c>version 1</c> stamp identically (no version-dependent behaviour), and a
+    ///   missing meta line reads at full capability.</para>
     /// </summary>
     public static class JsonlGraphFormat
     {
         public const String FormatName = "fallen8-jsonl";
-        public const Int32 FormatVersion = 1;
+
+        /// <summary>The current format version; the writer always stamps it.</summary>
+        public const Int32 FormatVersion = 2;
+
+        /// <summary>The oldest version a meta line may declare (read tolerance only).</summary>
+        public const Int32 MinReadableVersion = 1;
+
+        /// <summary>The non-scalar type of the format: an embedding vector.</summary>
+        public const String SingleArrayTypeName = "System.Single[]";
 
         #region export - line writing
 
@@ -64,7 +79,7 @@ namespace NoSQL.GraphDB.App.Helper
 
         private static readonly byte[] _newline = { (byte)'\n' };
 
-        /// <summary>Writes the leading meta line.</summary>
+        /// <summary>Writes the leading meta line (always the current <see cref="FormatVersion"/>).</summary>
         public static void WriteMetaLine(IBufferWriter<byte> output, DateTime exportedAtUtc, int vertexCount, int edgeCount)
         {
             using (var json = new Utf8JsonWriter(output, _writerOptions))
@@ -162,6 +177,16 @@ namespace NoSQL.GraphDB.App.Helper
                 return false;
             }
 
+            // The one pinned array type (format version 2): comma-joined "R" floats. An empty
+            // array is the empty string - the parse side mirrors that exactly.
+            if (value is Single[] vector)
+            {
+                typeName = SingleArrayTypeName;
+                formatted = String.Join(",", Array.ConvertAll(vector,
+                    component => component.ToString("R", CultureInfo.InvariantCulture)));
+                return true;
+            }
+
             var type = value.GetType();
             if (!AllowedLiteralTypes.TryResolve(type.FullName, out var resolved) || resolved != type)
             {
@@ -196,6 +221,34 @@ namespace NoSQL.GraphDB.App.Helper
                 _ => value.ToString()
             };
             return true;
+        }
+
+        /// <summary>
+        ///   Parses the comma-joined "R"-format float encoding of <see cref="SingleArrayTypeName"/>.
+        ///   The empty string is the empty array (mirroring the format side exactly).
+        /// </summary>
+        private static String TryParseSingleArray(String raw, out Object value)
+        {
+            value = null;
+
+            if (raw.Length == 0)
+            {
+                value = Array.Empty<Single>();
+                return null;
+            }
+
+            var components = raw.Split(',');
+            var vector = new Single[components.Length];
+            for (var i = 0; i < components.Length; i++)
+            {
+                if (!Single.TryParse(components[i], NumberStyles.Float, CultureInfo.InvariantCulture, out vector[i]))
+                {
+                    return String.Format("component {0} ('{1}') is not a valid Single", i, components[i]);
+                }
+            }
+
+            value = vector;
+            return null;
         }
 
         /// <summary>Whether every surrogate in the string is part of a valid pair.</summary>
@@ -362,9 +415,9 @@ namespace NoSQL.GraphDB.App.Helper
                 return "meta 'version' must be an integer";
             }
 
-            if (versionValue != FormatVersion)
+            if (versionValue < MinReadableVersion || versionValue > FormatVersion)
             {
-                return String.Format("unsupported format version {0} (this build reads version {1})", versionValue, FormatVersion);
+                return String.Format("unsupported format version {0} (this build reads versions {1}..{2})", versionValue, MinReadableVersion, FormatVersion);
             }
 
             var result = new ParsedLine { Type = LineType.Meta, MetaVertexCount = -1, MetaEdgeCount = -1 };
@@ -516,12 +569,17 @@ namespace NoSQL.GraphDB.App.Helper
 
         /// <summary>
         ///   Converts a typed string pair back into its CLR value. The type resolves ONLY through
-        ///   <see cref="AllowedLiteralTypes"/>; parsing is invariant-culture with the pinned
-        ///   round-trip formats.
+        ///   <see cref="AllowedLiteralTypes"/> plus the pinned <see cref="SingleArrayTypeName"/>;
+        ///   parsing is invariant-culture with the pinned round-trip formats.
         /// </summary>
         public static String TryParseValue(String typeName, String raw, out Object value)
         {
             value = null;
+
+            if (String.Equals(typeName, SingleArrayTypeName, StringComparison.OrdinalIgnoreCase))
+            {
+                return TryParseSingleArray(raw, out value);
+            }
 
             if (!AllowedLiteralTypes.TryResolve(typeName, out var type))
             {
