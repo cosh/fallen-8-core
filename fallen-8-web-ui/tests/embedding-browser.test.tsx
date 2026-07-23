@@ -55,6 +55,7 @@ vi.mock("../src/canvas/GraphCanvas", () => ({
 }));
 
 import { BrowserScreen } from "../src/screens/BrowserScreen";
+import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 
 const ELEMENT: VertexREST = {
   id: 42,
@@ -121,6 +122,10 @@ async function lookUp42(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
+  // The lookup/bulk inputs now persist in the memoized per-instance store — drop it and
+  // its local-storage key first so a draft never leaks between tests.
+  resetInstanceStoresForTests();
+  localStorage.clear();
   getGraphElementMock.mockReset().mockResolvedValue(ELEMENT);
   putEmbeddingMock.mockReset().mockResolvedValue(undefined);
   deleteEmbeddingMock.mockReset().mockResolvedValue(undefined);

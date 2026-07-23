@@ -11,6 +11,7 @@ import type {
   VertexREST,
 } from "../src/api/types";
 import { ApiError } from "../src/api/client";
+import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 
 /**
  * Analytics screen (feature structural-decomposition, Phase 3 pinning): the AnalyticsRunner
@@ -133,6 +134,10 @@ async function pickAlgorithm(user: ReturnType<typeof userEvent.setup>, name: str
 }
 
 beforeEach(() => {
+  // AnalyticsRunner now persists its input draft in the memoized per-instance store; reset
+  // it so a prior test's algorithm/label/write-back can't leak into the next.
+  resetInstanceStoresForTests();
+  localStorage.clear();
   listAlgorithmsMock.mockReset().mockResolvedValue(ALGORITHMS);
   runAnalyticsMock.mockReset().mockResolvedValue(resultWith({}));
   partitionMembersMock.mockReset().mockResolvedValue(null);

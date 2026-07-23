@@ -203,3 +203,23 @@ describe("create outcome", () => {
     expect(message).toHaveTextContent(/Empty is a valid result/);
   });
 });
+
+describe("state persistence (studio state)", () => {
+  it("restores the create-subgraph form after leaving and returning, and Clear resets it", async () => {
+    const user = userEvent.setup();
+
+    const view = renderScreen();
+    await user.type(screen.getByTestId("sg-name"), "my-subgraph");
+
+    // Leave for another screen: the component unmounts.
+    view.unmount();
+
+    // Return: the persisted per-instance draft rehydrates the form exactly.
+    renderScreen();
+    expect(await screen.findByTestId("sg-name")).toHaveValue("my-subgraph");
+
+    // Clear resets every input to its default.
+    await user.click(screen.getByTestId("subgraph-clear"));
+    expect(screen.getByTestId("sg-name")).toHaveValue("");
+  });
+});

@@ -39,6 +39,7 @@ export function PathScreen() {
   const { instance, store } = useInstanceStore();
   const draft = store((s) => s.pathDraft);
   const setDraft = store((s) => s.setPathDraft);
+  const resetDraft = store((s) => s.resetPathDraft);
   const setPathOverlay = store((s) => s.setPathOverlay);
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
   const navigate = useNavigate();
@@ -116,7 +117,21 @@ export function PathScreen() {
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <section className="panel">
-        <div className="panel-title">Path query</div>
+        <div className="panel-title">
+          Path query
+          <button
+            type="button"
+            className="btn ml-auto"
+            data-testid="path-clear"
+            title="Reset every path input to its default"
+            onClick={() => {
+              resetDraft();
+              setShowAdvanced(false);
+            }}
+          >
+            Clear
+          </button>
+        </div>
         <form
           className="space-y-3 p-3"
           onSubmit={(e) => {

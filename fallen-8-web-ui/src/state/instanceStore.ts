@@ -4,6 +4,7 @@ import type {
   BinaryOperatorName,
   CanvasEdgeInput,
   PathREST,
+  PatternSpecification,
   PropertyREST,
   VertexREST,
 } from "../api/types";
@@ -194,6 +195,80 @@ export const DEFAULT_QUERY_DRAFT: QueryDraft = {
   vectorSearchText: "",
 };
 
+/** One pattern row of the subgraph builder (a pattern spec plus a stable list key). */
+export type SubgraphPatternDraft = PatternSpecification & { key: string };
+
+/** The Subgraph "create" form, persisted per instance so navigation never wipes it. */
+export interface SubgraphDraft {
+  name: string;
+  fromSubGraph: string;
+  vertexFilter: string;
+  edgeFilter: string;
+  patterns: SubgraphPatternDraft[];
+  filterSource: FilterSource;
+  storedQuery: string;
+  semantic: SemanticDraft;
+}
+
+export const DEFAULT_SUBGRAPH_DRAFT: SubgraphDraft = {
+  name: "",
+  fromSubGraph: "",
+  vertexFilter: "",
+  edgeFilter: "",
+  patterns: [],
+  filterSource: "inline",
+  storedQuery: "",
+  semantic: { ...DEFAULT_SEMANTIC_DRAFT },
+};
+
+/** The Browser screen's lookup + bulk inputs, persisted per instance. */
+export interface BrowserDraft {
+  idInput: string;
+  lookupKind: "graphelement" | "vertex" | "edge";
+  maxElements: number;
+  bulkFilter: string;
+  detailTab: "properties" | "embeddings";
+}
+
+export const DEFAULT_BROWSER_DRAFT: BrowserDraft = {
+  idInput: "",
+  lookupKind: "graphelement",
+  maxElements: 1000,
+  bulkFilter: "",
+  detailTab: "properties",
+};
+
+/** The Analytics runner's algorithm pick + tuning inputs, persisted per instance. */
+export interface AnalyticsDraft {
+  algorithm: string;
+  vertexLabel: string;
+  edgePropertyId: string;
+  direction: string;
+  maxResults: string;
+  maxIterations: string;
+  timeBudget: string;
+  damping: string;
+  epsilon: string;
+  showWriteBack: boolean;
+  writeBack: boolean;
+  writeBackKey: string;
+}
+
+export const DEFAULT_ANALYTICS_DRAFT: AnalyticsDraft = {
+  algorithm: "",
+  vertexLabel: "",
+  edgePropertyId: "",
+  direction: "",
+  maxResults: "100",
+  maxIterations: "",
+  timeBudget: "",
+  damping: "",
+  epsilon: "",
+  showWriteBack: false,
+  writeBack: false,
+  writeBackKey: "",
+};
+
 /** One-shot navigation intent: "open Query with this index preselected" (cleared on consume). */
 export interface ScanPrefill {
   indexId: string;
@@ -212,6 +287,9 @@ export interface WorkspaceState {
   resultSets: ResultSet[];
   pathDraft: PathDraft;
   queryDraft: QueryDraft;
+  subgraphDraft: SubgraphDraft;
+  browserDraft: BrowserDraft;
+  analyticsDraft: AnalyticsDraft;
   scanPrefill: ScanPrefill | null;
   subgraphPrefill: SubgraphPrefill | null;
 
@@ -223,8 +301,15 @@ export interface WorkspaceState {
   addResultSet: (title: string, elementIds: number[]) => void;
   removeResultSet: (id: string) => void;
   setPathDraft: (patch: Partial<PathDraft>) => void;
+  resetPathDraft: () => void;
   setQueryDraft: (patch: Partial<QueryDraft>) => void;
   resetQueryDraft: () => void;
+  setSubgraphDraft: (patch: Partial<SubgraphDraft>) => void;
+  resetSubgraphDraft: () => void;
+  setBrowserDraft: (patch: Partial<BrowserDraft>) => void;
+  resetBrowserDraft: () => void;
+  setAnalyticsDraft: (patch: Partial<AnalyticsDraft>) => void;
+  resetAnalyticsDraft: () => void;
   setScanPrefill: (prefill: ScanPrefill | null) => void;
   setSubgraphPrefill: (prefill: SubgraphPrefill | null) => void;
 }
@@ -240,6 +325,9 @@ function createWorkspaceStore(instanceId: string) {
         resultSets: [],
         pathDraft: { ...DEFAULT_PATH_DRAFT },
         queryDraft: { ...DEFAULT_QUERY_DRAFT },
+        subgraphDraft: { ...DEFAULT_SUBGRAPH_DRAFT },
+        browserDraft: { ...DEFAULT_BROWSER_DRAFT },
+        analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT },
         scanPrefill: null,
         subgraphPrefill: null,
 
@@ -295,10 +383,27 @@ function createWorkspaceStore(instanceId: string) {
         setPathDraft: (patch) =>
           set((s) => ({ pathDraft: { ...s.pathDraft, ...patch } })),
 
+        resetPathDraft: () => set({ pathDraft: { ...DEFAULT_PATH_DRAFT } }),
+
         setQueryDraft: (patch) =>
           set((s) => ({ queryDraft: { ...s.queryDraft, ...patch } })),
 
         resetQueryDraft: () => set({ queryDraft: { ...DEFAULT_QUERY_DRAFT } }),
+
+        setSubgraphDraft: (patch) =>
+          set((s) => ({ subgraphDraft: { ...s.subgraphDraft, ...patch } })),
+
+        resetSubgraphDraft: () => set({ subgraphDraft: { ...DEFAULT_SUBGRAPH_DRAFT } }),
+
+        setBrowserDraft: (patch) =>
+          set((s) => ({ browserDraft: { ...s.browserDraft, ...patch } })),
+
+        resetBrowserDraft: () => set({ browserDraft: { ...DEFAULT_BROWSER_DRAFT } }),
+
+        setAnalyticsDraft: (patch) =>
+          set((s) => ({ analyticsDraft: { ...s.analyticsDraft, ...patch } })),
+
+        resetAnalyticsDraft: () => set({ analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT } }),
 
         setScanPrefill: (scanPrefill) => set({ scanPrefill }),
 
@@ -321,6 +426,13 @@ function createWorkspaceStore(instanceId: string) {
               semantic: { ...DEFAULT_SEMANTIC_DRAFT, ...(p.pathDraft?.semantic ?? {}) },
             },
             queryDraft: { ...DEFAULT_QUERY_DRAFT, ...(p.queryDraft ?? {}) },
+            subgraphDraft: {
+              ...DEFAULT_SUBGRAPH_DRAFT,
+              ...(p.subgraphDraft ?? {}),
+              semantic: { ...DEFAULT_SEMANTIC_DRAFT, ...(p.subgraphDraft?.semantic ?? {}) },
+            },
+            browserDraft: { ...DEFAULT_BROWSER_DRAFT, ...(p.browserDraft ?? {}) },
+            analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT, ...(p.analyticsDraft ?? {}) },
             styleConfig: { ...DEFAULT_STYLE_CONFIG, ...(p.styleConfig ?? {}) },
           };
         },

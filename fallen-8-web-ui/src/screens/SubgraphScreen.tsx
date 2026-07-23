@@ -15,7 +15,6 @@ import { validatePatternSequence } from "../lib/patternValidation";
 import { normalizePatterns, subGraphBlock } from "../lib/storedQueries";
 import {
   buildSemanticSpec,
-  DEFAULT_SEMANTIC_DRAFT,
   semanticOwnsVertexFilter,
   type SemanticDraft,
 } from "../lib/semantic";
@@ -29,7 +28,7 @@ import {
 } from "../components/StoredQueryControls";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
-import { type FilterSource } from "../state/instanceStore";
+import { type SubgraphPatternDraft } from "../state/instanceStore";
 
 /**
  * Subgraph studio (FR-15/16/17): lifecycle + pattern builder. The builder enforces the
@@ -39,11 +38,7 @@ import { type FilterSource } from "../state/instanceStore";
  * kind SubGraph — the source toggle keeps the two mutually exclusive (concept spec §5.1).
  */
 
-interface PatternDraft extends PatternSpecification {
-  key: string;
-}
-
-function newPattern(type: PatternSpecification["type"]): PatternDraft {
+function newPattern(type: PatternSpecification["type"]): SubgraphPatternDraft {
   return {
     key: `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     type,
@@ -95,14 +90,14 @@ export function SubgraphScreen() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  const [name, setName] = useState("");
-  const [fromSubGraph, setFromSubGraph] = useState("");
-  const [vertexFilter, setVertexFilter] = useState("");
-  const [edgeFilter, setEdgeFilter] = useState("");
-  const [patterns, setPatterns] = useState<PatternDraft[]>([]);
-  const [filterSource, setFilterSource] = useState<FilterSource>("inline");
-  const [storedQuery, setStoredQuery] = useState("");
-  const [semantic, setSemantic] = useState<SemanticDraft>({ ...DEFAULT_SEMANTIC_DRAFT });
+  // The whole "Create subgraph" form lives in the persisted per-instance store, so leaving
+  // for the Canvas and returning restores it exactly (feature index-workspace / studio state
+  // persistence). Transient result messaging stays local (below).
+  const draft = store((s) => s.subgraphDraft);
+  const setSubgraphDraft = store((s) => s.setSubgraphDraft);
+  const resetSubgraphDraft = store((s) => s.resetSubgraphDraft);
+  const { name, fromSubGraph, vertexFilter, edgeFilter, patterns, filterSource, storedQuery, semantic } =
+    draft;
   const [message, setMessage] = useState<string | null>(null);
 
   const shape = useGraphShape(instance).data;
@@ -110,18 +105,17 @@ export function SubgraphScreen() {
   const provider = useEmbeddingProvider(instance);
   const providerEnabled = provider ? provider.enabled : null;
   const patchSemantic = (patch: Partial<SemanticDraft>) =>
-    setSemantic((previous) => ({ ...previous, ...patch }));
+    setSubgraphDraft({ semantic: { ...semantic, ...patch } });
 
   // Consume a one-shot prefill (Dashboard → Stored queries → "Open in Subgraph").
   const subgraphPrefill = store((s) => s.subgraphPrefill);
   const setSubgraphPrefill = store((s) => s.setSubgraphPrefill);
   useEffect(() => {
     if (subgraphPrefill) {
-      setFilterSource("stored");
-      setStoredQuery(subgraphPrefill.storedQuery);
+      setSubgraphDraft({ filterSource: "stored", storedQuery: subgraphPrefill.storedQuery });
       setSubgraphPrefill(null);
     }
-  }, [subgraphPrefill, setSubgraphPrefill]);
+  }, [subgraphPrefill, setSubgraphPrefill, setSubgraphDraft]);
 
   const sequenceError = filterSource === "inline" ? validatePatternSequence(patterns) : null;
 
@@ -204,10 +198,12 @@ export function SubgraphScreen() {
     },
   });
 
-  const updatePattern = (key: string, patch: Partial<PatternDraft>) =>
-    setPatterns((previous) =>
-      previous.map((pattern) => (pattern.key === key ? { ...pattern, ...patch } : pattern)),
-    );
+  const updatePattern = (key: string, patch: Partial<SubgraphPatternDraft>) =>
+    setSubgraphDraft({
+      patterns: patterns.map((pattern) =>
+        pattern.key === key ? { ...pattern, ...patch } : pattern,
+      ),
+    });
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -277,7 +273,21 @@ export function SubgraphScreen() {
       </section>
 
       <section className="panel">
-        <div className="panel-title">Create subgraph</div>
+        <div className="panel-title">
+          Create subgraph
+          <button
+            type="button"
+            className="btn ml-auto"
+            data-testid="subgraph-clear"
+            title="Reset every subgraph input to its default"
+            onClick={() => {
+              resetSubgraphDraft();
+              setMessage(null);
+            }}
+          >
+            Clear
+          </button>
+        </div>
         <form
           className="space-y-3 p-3"
           onSubmit={(e) => {
@@ -293,7 +303,7 @@ export function SubgraphScreen() {
                 data-testid="sg-name"
                 className="input w-48"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => setSubgraphDraft({ name: e.target.value })}
               />
             </Field>
             <Field
@@ -305,12 +315,15 @@ export function SubgraphScreen() {
                 id="sg-from"
                 className="input w-48"
                 value={fromSubGraph}
-                onChange={(e) => setFromSubGraph(e.target.value)}
+                onChange={(e) => setSubgraphDraft({ fromSubGraph: e.target.value })}
               />
             </Field>
           </div>
 
-          <FilterSourceToggle value={filterSource} onChange={setFilterSource} />
+          <FilterSourceToggle
+            value={filterSource}
+            onChange={(value) => setSubgraphDraft({ filterSource: value })}
+          />
 
           {/* Semantic scoring binds at registration; it cannot ride a stored template
               (server 400), so it is disabled with a reason in stored mode. */}
@@ -330,7 +343,7 @@ export function SubgraphScreen() {
               instance={instance}
               kind="SubGraph"
               value={storedQuery}
-              onChange={setStoredQuery}
+              onChange={(value) => setSubgraphDraft({ storedQuery: value })}
             />
           )}
 
@@ -343,7 +356,7 @@ export function SubgraphScreen() {
               label="vertexFilter (top level)"
               contextLabel={`Subgraph · ${name || "unnamed"}`}
               value={vertexFilter}
-              onChange={setVertexFilter}
+              onChange={(value) => setSubgraphDraft({ vertexFilter: value })}
               disabled={semanticOwnsVertexFilter(semantic)}
               disabledReason="owned by semantic minScore — clear it to write a fragment"
             />
@@ -353,7 +366,7 @@ export function SubgraphScreen() {
               label="edgeFilter (top level)"
               contextLabel={`Subgraph · ${name || "unnamed"}`}
               value={edgeFilter}
-              onChange={setEdgeFilter}
+              onChange={(value) => setSubgraphDraft({ edgeFilter: value })}
             />
           </div>
 
@@ -463,9 +476,9 @@ export function SubgraphScreen() {
                       type="button"
                       className="btn btn-danger ml-auto"
                       onClick={() =>
-                        setPatterns((previous) =>
-                          previous.filter((p) => p.key !== pattern.key),
-                        )
+                        setSubgraphDraft({
+                          patterns: patterns.filter((p) => p.key !== pattern.key),
+                        })
                       }
                     >
                       Remove
@@ -517,7 +530,9 @@ export function SubgraphScreen() {
                   type="button"
                   className="btn"
                   data-testid="add-vertex-step"
-                  onClick={() => setPatterns((p) => [...p, newPattern("Vertex")])}
+                  onClick={() =>
+                    setSubgraphDraft({ patterns: [...patterns, newPattern("Vertex")] })
+                  }
                 >
                   + Vertex step
                 </button>
@@ -525,14 +540,20 @@ export function SubgraphScreen() {
                   type="button"
                   className="btn"
                   data-testid="add-edge-step"
-                  onClick={() => setPatterns((p) => [...p, newPattern("Edge")])}
+                  onClick={() =>
+                    setSubgraphDraft({ patterns: [...patterns, newPattern("Edge")] })
+                  }
                 >
                   + Edge step
                 </button>
                 <button
                   type="button"
                   className="btn"
-                  onClick={() => setPatterns((p) => [...p, newPattern("VariableLengthEdge")])}
+                  onClick={() =>
+                    setSubgraphDraft({
+                      patterns: [...patterns, newPattern("VariableLengthEdge")],
+                    })
+                  }
                 >
                   + Variable-length edge
                 </button>
@@ -555,8 +576,7 @@ export function SubgraphScreen() {
             disabled={!vertexFilter && !edgeFilter && patterns.length === 0}
             disabledReason="add a filter or a pattern step first"
             onSaved={(savedName) => {
-              setFilterSource("stored");
-              setStoredQuery(savedName);
+              setSubgraphDraft({ filterSource: "stored", storedQuery: savedName });
             }}
           />
           </>
