@@ -23,13 +23,14 @@ import { useEmbeddingProvider } from "../state/graphShape";
 export function BrowserScreen() {
   const { instance, store } = useInstanceStore();
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
-  const [idInput, setIdInput] = useState("");
-  const [lookupKind, setLookupKind] = useState<"graphelement" | "vertex" | "edge">(
-    "graphelement",
-  );
-  const [maxElements, setMaxElements] = useState(1000);
-  const [bulkFilter, setBulkFilter] = useState("");
-  const [detailTab, setDetailTab] = useState<"properties" | "embeddings">("properties");
+
+  // The whole input form lives in the persisted per-instance store, so leaving for the
+  // Canvas and returning restores it exactly (feature index-workspace / studio state
+  // persistence). Fetched results are re-run on demand and stay local (below).
+  const draft = store((s) => s.browserDraft);
+  const setBrowserDraft = store((s) => s.setBrowserDraft);
+  const resetBrowserDraft = store((s) => s.resetBrowserDraft);
+  const { idInput, lookupKind, maxElements, bulkFilter, detailTab } = draft;
 
   // The shown element is state, not lookup.data: a mutation resets its data while
   // pending, which would unmount everything below the lookup form on every hop.
@@ -69,15 +70,28 @@ export function BrowserScreen() {
   const inspect = (id: number) => {
     // Clicking the element already on screen must not reload anything.
     if (element?.id === id) return;
-    setIdInput(String(id));
-    setLookupKind("graphelement");
+    setBrowserDraft({ idInput: String(id), lookupKind: "graphelement" });
     runLookup("graphelement", id);
   };
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <section className="panel">
-        <div className="panel-title">Element lookup</div>
+        <div className="panel-title">
+          Element lookup
+          <button
+            type="button"
+            className="btn ml-auto"
+            data-testid="browser-clear"
+            title="Reset the lookup inputs to their default"
+            onClick={() => {
+              resetBrowserDraft();
+              setElement(null);
+            }}
+          >
+            Clear
+          </button>
+        </div>
         <form
           className="flex items-end gap-2 p-3"
           onSubmit={(e) => {
@@ -90,7 +104,9 @@ export function BrowserScreen() {
               id="lookup-kind"
               className="input w-auto"
               value={lookupKind}
-              onChange={(e) => setLookupKind(e.target.value as typeof lookupKind)}
+              onChange={(e) =>
+                setBrowserDraft({ lookupKind: e.target.value as typeof lookupKind })
+              }
             >
               <option value="graphelement">graph element</option>
               <option value="vertex">vertex</option>
@@ -103,7 +119,7 @@ export function BrowserScreen() {
               data-testid="lookup-id"
               className="input w-32"
               value={idInput}
-              onChange={(e) => setIdInput(e.target.value)}
+              onChange={(e) => setBrowserDraft({ idInput: e.target.value })}
               placeholder="0"
             />
           </Field>
@@ -140,7 +156,7 @@ export function BrowserScreen() {
             onRefresh={() => runLookup(lookupKind, element.id)}
             onInspect={inspect}
             tab={detailTab}
-            onTabChange={setDetailTab}
+            onTabChange={(tab) => setBrowserDraft({ detailTab: tab })}
           />
           <AdjacencyPanel element={element} onInspect={inspect} />
         </div>
@@ -156,7 +172,9 @@ export function BrowserScreen() {
               type="number"
               min={1}
               value={maxElements}
-              onChange={(e) => setMaxElements(Number(e.target.value) || 1000)}
+              onChange={(e) =>
+                setBrowserDraft({ maxElements: Number(e.target.value) || 1000 })
+              }
             />
           </Field>
           <button type="button" className="btn" onClick={() => bulk.refetch()}>
@@ -196,7 +214,7 @@ export function BrowserScreen() {
                 data-testid="bulk-filter"
                 className="input w-72"
                 value={bulkFilter}
-                onChange={(e) => setBulkFilter(e.target.value)}
+                onChange={(e) => setBrowserDraft({ bulkFilter: e.target.value })}
                 placeholder="filter by label / id (first 200 shown)"
               />
             </div>

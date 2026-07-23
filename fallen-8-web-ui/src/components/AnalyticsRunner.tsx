@@ -46,18 +46,26 @@ export function AnalyticsRunner() {
   });
   const names = Object.keys(algorithms.data ?? {}).sort();
 
-  const [algorithm, setAlgorithm] = useState("");
-  const [vertexLabel, setVertexLabel] = useState("");
-  const [edgePropertyId, setEdgePropertyId] = useState("");
-  const [direction, setDirection] = useState("");
-  const [maxResults, setMaxResults] = useState("100");
-  const [maxIterations, setMaxIterations] = useState("");
-  const [timeBudget, setTimeBudget] = useState("");
-  const [damping, setDamping] = useState("");
-  const [epsilon, setEpsilon] = useState("");
-  const [showWriteBack, setShowWriteBack] = useState(false);
-  const [writeBack, setWriteBack] = useState(false);
-  const [writeBackKey, setWriteBackKey] = useState("");
+  // The whole input form lives in the persisted per-instance store, so leaving for the
+  // Canvas and returning restores it exactly (feature index-workspace / studio state
+  // persistence). Results/dialog state are re-run on demand and stay local (below).
+  const draft = store((s) => s.analyticsDraft);
+  const setAnalyticsDraft = store((s) => s.setAnalyticsDraft);
+  const resetAnalyticsDraft = store((s) => s.resetAnalyticsDraft);
+  const {
+    algorithm,
+    vertexLabel,
+    edgePropertyId,
+    direction,
+    maxResults,
+    maxIterations,
+    timeBudget,
+    damping,
+    epsilon,
+    showWriteBack,
+    writeBack,
+    writeBackKey,
+  } = draft;
   const [confirming, setConfirming] = useState(false);
 
   const [elements, setElements] = useState<(VertexREST | EdgeREST)[]>([]);
@@ -68,6 +76,15 @@ export function AnalyticsRunner() {
     size: number;
     nextOffset: number;
   } | null>(null);
+
+  // Results/dialog state are ephemeral (kept local, never persisted): the store holds the
+  // input draft only. Clear resets both.
+  const clearResults = () => {
+    setElements([]);
+    setScores(undefined);
+    setProgress(null);
+    setMemberView(null);
+  };
 
   const isPageRank = algorithm.toUpperCase().includes("PAGERANK");
 
@@ -142,7 +159,21 @@ export function AnalyticsRunner() {
   return (
     <>
       <section className="panel">
-        <div className="panel-title">Run</div>
+        <div className="panel-title">
+          Run
+          <button
+            type="button"
+            className="btn ml-auto"
+            data-testid="analytics-clear"
+            title="Reset the analytics inputs to their default"
+            onClick={() => {
+              resetAnalyticsDraft();
+              clearResults();
+            }}
+          >
+            Clear
+          </button>
+        </div>
         <form
           className="space-y-3 p-3"
           onSubmit={(e) => {
@@ -158,7 +189,7 @@ export function AnalyticsRunner() {
                 data-testid="algo-name"
                 className="input w-56"
                 value={algorithm}
-                onChange={(e) => setAlgorithm(e.target.value)}
+                onChange={(e) => setAnalyticsDraft({ algorithm: e.target.value })}
               >
                 <option value="">— pick an algorithm —</option>
                 {names.map((name) => (
@@ -178,7 +209,7 @@ export function AnalyticsRunner() {
                 className="input w-36"
                 list="analytics-vertex-labels"
                 value={vertexLabel}
-                onChange={(e) => setVertexLabel(e.target.value)}
+                onChange={(e) => setAnalyticsDraft({ vertexLabel: e.target.value })}
                 placeholder="empty = whole graph"
               />
             </Field>
@@ -191,7 +222,7 @@ export function AnalyticsRunner() {
                 id="algo-edge-property"
                 className="input w-32"
                 value={edgePropertyId}
-                onChange={(e) => setEdgePropertyId(e.target.value)}
+                onChange={(e) => setAnalyticsDraft({ edgePropertyId: e.target.value })}
                 placeholder="empty = all edges"
               />
             </Field>
@@ -200,7 +231,7 @@ export function AnalyticsRunner() {
                 id="algo-direction"
                 className="input w-auto"
                 value={direction}
-                onChange={(e) => setDirection(e.target.value)}
+                onChange={(e) => setAnalyticsDraft({ direction: e.target.value })}
               >
                 <option value="">algorithm default</option>
                 <option value="in">in</option>
@@ -220,7 +251,7 @@ export function AnalyticsRunner() {
                 min={1}
                 max={10000}
                 value={maxResults}
-                onChange={(e) => setMaxResults(e.target.value)}
+                onChange={(e) => setAnalyticsDraft({ maxResults: e.target.value })}
               />
             </Field>
             <Field
@@ -235,7 +266,7 @@ export function AnalyticsRunner() {
                 min={1}
                 max={10000}
                 value={maxIterations}
-                onChange={(e) => setMaxIterations(e.target.value)}
+                onChange={(e) => setAnalyticsDraft({ maxIterations: e.target.value })}
                 placeholder="default"
               />
             </Field>
@@ -246,7 +277,7 @@ export function AnalyticsRunner() {
                 type="number"
                 min={1}
                 value={timeBudget}
-                onChange={(e) => setTimeBudget(e.target.value)}
+                onChange={(e) => setAnalyticsDraft({ timeBudget: e.target.value })}
                 placeholder="default 30"
               />
             </Field>
@@ -265,7 +296,7 @@ export function AnalyticsRunner() {
                     min={0}
                     max={1}
                     value={damping}
-                    onChange={(e) => setDamping(e.target.value)}
+                    onChange={(e) => setAnalyticsDraft({ damping: e.target.value })}
                     placeholder="0.85"
                   />
                 </Field>
@@ -277,7 +308,7 @@ export function AnalyticsRunner() {
                     step="any"
                     min={0}
                     value={epsilon}
-                    onChange={(e) => setEpsilon(e.target.value)}
+                    onChange={(e) => setAnalyticsDraft({ epsilon: e.target.value })}
                     placeholder="1e-6"
                   />
                 </Field>
@@ -303,7 +334,7 @@ export function AnalyticsRunner() {
             type="button"
             className="btn"
             data-testid="toggle-write-back"
-            onClick={() => setShowWriteBack((s) => !s)}
+            onClick={() => setAnalyticsDraft({ showWriteBack: !showWriteBack })}
           >
             {showWriteBack ? "Hide" : "Show"} write-back
           </button>
@@ -317,7 +348,7 @@ export function AnalyticsRunner() {
                   type="checkbox"
                   data-testid="write-back-checkbox"
                   checked={writeBack}
-                  onChange={(e) => setWriteBack(e.target.checked)}
+                  onChange={(e) => setAnalyticsDraft({ writeBack: e.target.checked })}
                 />
                 write back to properties
               </label>
@@ -326,7 +357,7 @@ export function AnalyticsRunner() {
                   id="write-back-key"
                   className="input w-56"
                   value={writeBackKey}
-                  onChange={(e) => setWriteBackKey(e.target.value)}
+                  onChange={(e) => setAnalyticsDraft({ writeBackKey: e.target.value })}
                   placeholder={`analytics.${algorithm.toLowerCase() || "…"}`}
                 />
               </Field>
