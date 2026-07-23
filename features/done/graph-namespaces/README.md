@@ -86,7 +86,10 @@ distinguishable instruments. Map id → name via `GET /ns`.
 
 ## F8 Studio
 
-The top bar shows the `instance / namespace` pair; scoped screens live under `/q/{ns}/…`
+The top bar shows the `instance / namespace` pair — the switcher is a rich dropdown (per
+the approved mock): filter, per-namespace rows with counts and active / bare-URL-alias /
+not-ready tags, an inline "+ New namespace" quick-create that switches to the newborn, a
+"Manage…" jump to Connect, and the quota footer. Scoped screens live under `/q/{ns}/…`
 (deep links restore the namespace; old flat paths redirect). Studio always sends the
 explicit `/ns/{ns}` prefix — `default` included — the bare alias exists for legacy clients,
 not for hiding the namespace. (One exception: when the `/ns` capability probe 404s, the

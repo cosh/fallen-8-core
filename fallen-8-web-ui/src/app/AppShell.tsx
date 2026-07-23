@@ -11,6 +11,7 @@ import { describeEndpoint, type InstanceConfig } from "../instances/types";
 import { ApiError } from "../api/client";
 import { getStatus, isAuthorized, listNamespaces } from "../api/endpoints";
 import { useLiveChangeFeed, type LiveFeedStatus } from "../state/liveFeed";
+import { NamespaceSwitcher } from "../components/NamespaceSwitcher";
 import { help } from "../lib/fieldHelp";
 
 /**
@@ -267,34 +268,19 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
           {active && namespaceSupported !== false && (
             <>
-              <label
-                htmlFor="namespace-switcher"
+              <span
                 className="text-fg-faint text-[11px] uppercase"
                 title="The active namespace: an isolated graph inside this Fallen-8. Manage namespaces on the Connect screen."
               >
                 namespace
-              </label>
-              <select
-                id="namespace-switcher"
-                data-testid="namespace-switcher"
-                className="input w-auto min-w-32"
-                value={ns}
-                onChange={(e) => switchNamespace(e.target.value)}
-                title={
-                  namespaces.data
-                    ? `${namespaces.data.namespaces.length} / ${namespaces.data.maxNamespaces} namespaces`
-                    : undefined
-                }
-              >
-                {namespaceEntries.map((entry) => (
-                  <option key={entry.name} value={entry.name}>
-                    {entry.name} ({entry.vertexCount} v · {entry.edgeCount} e)
-                  </option>
-                ))}
-                {!namespaceEntries.some((entry) => entry.name === ns) && (
-                  <option value={ns}>{ns}</option>
-                )}
-              </select>
+              </span>
+              <NamespaceSwitcher
+                instance={active}
+                entries={namespaceEntries}
+                maxNamespaces={namespaces.data?.maxNamespaces ?? null}
+                activeNamespace={ns}
+                onSwitch={switchNamespace}
+              />
               <span data-testid="active-endpoint" className="text-fg-dim truncate text-[12px]">
                 {describeEndpoint(active)} → /ns/{ns}/*
               </span>

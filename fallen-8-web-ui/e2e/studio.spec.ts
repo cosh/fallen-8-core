@@ -322,8 +322,12 @@ test("scenario 12 (graph-namespaces): create, populate, isolate, save all, drop,
   await page.getByTestId("create-vertex").click();
   await expect(page.getByTestId("mutation-message")).toContainText(label);
 
-  // Isolation: the vertex is invisible from "default" (same screen, other namespace).
-  await page.getByTestId("namespace-switcher").selectOption("default");
+  // Isolation: the vertex is invisible from "default" (same screen, other namespace). The
+  // switcher is the rich dropdown: filter, rows with counts, active/alias tags.
+  await page.getByTestId("namespace-switcher").click();
+  await page.getByTestId("namespace-filter").fill("def");
+  await expect(page.getByTestId("namespace-option-flights")).not.toBeVisible();
+  await page.getByTestId("namespace-option-default").click();
   await expect(page).toHaveURL(/\/q\/default\/browser/);
   await page.locator("#max-elements").fill("5000");
   await page.getByRole("button", { name: "Load", exact: true }).click();
@@ -353,7 +357,8 @@ test("scenario 12 (graph-namespaces): create, populate, isolate, save all, drop,
   await expect(page.getByTestId("savegame-message")).toContainText("flights", { timeout: 20_000 });
 
   // The dropped namespace is back, with its saved content.
-  await page.getByTestId("namespace-switcher").selectOption("flights");
+  await page.getByTestId("namespace-switcher").click();
+  await page.getByTestId("namespace-option-flights").click();
   await page.goto("/browser");
   await expect(page).toHaveURL(/\/q\/flights\/browser/);
   await page.locator("#max-elements").fill("5000");

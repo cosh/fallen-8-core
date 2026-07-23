@@ -47,6 +47,8 @@ import {
   useRegistry,
 } from "../src/instances/registry";
 import { NamespacesPanel } from "../src/components/NamespacesPanel";
+import { NamespaceSwitcher } from "../src/components/NamespaceSwitcher";
+import { ApiError } from "../src/api/client";
 import { renderHook } from "@testing-library/react";
 
 const INVENTORY: NamespacesResponse = {
@@ -164,6 +166,102 @@ describe("workspace store lifecycle on rename / drop", () => {
 
     expect(localStorage.getItem("f8.workspace.inst-a/flights")).toBeNull();
     expect(getInstanceStore("inst-a", "flights").getState().browserDraft.idInput).not.toBe("42");
+  });
+});
+
+describe("namespace switcher dropdown", () => {
+  const onSwitch = vi.fn();
+
+  function renderSwitcher(entries = INVENTORY.namespaces, activeNamespace = "flights") {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <NamespaceSwitcher
+          instance={SAME_ORIGIN_INSTANCE}
+          entries={entries}
+          maxNamespaces={INVENTORY.maxNamespaces}
+          activeNamespace={activeNamespace}
+          onSwitch={onSwitch}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(() => onSwitch.mockReset());
+
+  it("shows the active namespace with counts; the dropdown lists rows, tags, and the quota", async () => {
+    const user = userEvent.setup();
+    renderSwitcher();
+
+    expect(screen.getByTestId("namespace-switcher")).toHaveTextContent("flights");
+    await user.click(screen.getByTestId("namespace-switcher"));
+
+    const flights = screen.getByTestId("namespace-option-flights");
+    expect(flights).toHaveTextContent("active");
+    expect(flights).toHaveTextContent(/191/);
+    expect(screen.getByTestId("namespace-option-default")).toHaveTextContent("bare-URL alias");
+    expect(screen.getByTestId("namespace-dropdown-footer")).toHaveTextContent(/2 \/ 10[., ]000/);
+  });
+
+  it("filters rows and switches on click", async () => {
+    const user = userEvent.setup();
+    renderSwitcher();
+    await user.click(screen.getByTestId("namespace-switcher"));
+
+    await user.type(screen.getByTestId("namespace-filter"), "def");
+    expect(screen.queryByTestId("namespace-option-flights")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("namespace-option-default"));
+    expect(onSwitch).toHaveBeenCalledWith("default");
+    expect(screen.queryByTestId("namespace-dropdown")).not.toBeInTheDocument();
+  });
+
+  it("marks a non-ready namespace as not ready", async () => {
+    const user = userEvent.setup();
+    renderSwitcher([
+      ...INVENTORY.namespaces,
+      { name: "importing", state: "creating", vertexCount: 0, edgeCount: 0, createdAt: "" },
+    ]);
+    await user.click(screen.getByTestId("namespace-switcher"));
+
+    expect(screen.getByTestId("namespace-option-importing")).toHaveTextContent("not ready");
+  });
+
+  it("quick-creates a namespace inline (pattern-gated) and switches to the newborn", async () => {
+    createMock.mockResolvedValue({
+      name: "fraud-q3", state: "ready", vertexCount: 0, edgeCount: 0, createdAt: "",
+    });
+    const user = userEvent.setup();
+    renderSwitcher();
+    await user.click(screen.getByTestId("namespace-switcher"));
+    await user.click(screen.getByTestId("namespace-new"));
+
+    expect(screen.getByTestId("namespace-quick-create")).toBeDisabled();
+    await user.type(screen.getByTestId("namespace-quick-create-name"), "Fraud!");
+    expect(screen.getByTestId("namespace-quick-create")).toBeDisabled();
+
+    await user.clear(screen.getByTestId("namespace-quick-create-name"));
+    await user.type(screen.getByTestId("namespace-quick-create-name"), "fraud-q3");
+    await user.click(screen.getByTestId("namespace-quick-create"));
+
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
+    expect(createMock.mock.calls[0][1]).toBe("fraud-q3");
+    await waitFor(() => expect(onSwitch).toHaveBeenCalledWith("fraud-q3"));
+  });
+
+  it("surfaces a 409/422 on quick-create instead of closing", async () => {
+    createMock.mockRejectedValue(new ApiError(422, "/ns/x", "{}"));
+    const user = userEvent.setup();
+    renderSwitcher();
+    await user.click(screen.getByTestId("namespace-switcher"));
+    await user.click(screen.getByTestId("namespace-new"));
+    await user.type(screen.getByTestId("namespace-quick-create-name"), "x");
+    await user.click(screen.getByTestId("namespace-quick-create"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("namespace-quick-create-error")).toHaveTextContent("quota exceeded (422)"),
+    );
+    expect(screen.getByTestId("namespace-dropdown")).toBeInTheDocument();
   });
 });
 
