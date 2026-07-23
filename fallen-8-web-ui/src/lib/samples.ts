@@ -15,7 +15,11 @@ export type SampleBadge = "canvas" | "path" | "analytics" | "semantic" | "spatia
 export interface SampleIndexRecipe {
   uniqueId: string;
   pluginType: string;
-  pluginOptions: Record<string, { propertyValue: string; fullQualifiedTypeName: string }>;
+  // Values match PropertySpecification (propertyId repeats the key, as the REST surface expects).
+  pluginOptions: Record<
+    string,
+    { propertyId: string; propertyValue: string; fullQualifiedTypeName: string }
+  >;
 }
 
 /** Provenance of the dataset's precomputed vectors, compared against /status.embedding. */

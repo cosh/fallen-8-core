@@ -18,6 +18,7 @@ import { Field } from "../components/Field";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Stat } from "../components/Stat";
 import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
+import { SampleGraphsPanel } from "../components/SampleGraphsPanel";
 
 /**
  * Dashboard (FR-2/3/4): counts, memory, plugin lists from /status; admin actions with
@@ -200,6 +201,8 @@ export function DashboardScreen() {
           </div>
         )}
       </section>
+
+      <SampleGraphsPanel />
 
       <section className="panel">
         <div className="panel-title">Administration</div>
