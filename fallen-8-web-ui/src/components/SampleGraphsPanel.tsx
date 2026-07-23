@@ -15,6 +15,7 @@ import {
 import { buildJsonlGraph } from "../lib/jsonlGraph";
 import { sbomToGraph, type SpdxSbom } from "../lib/sbomGraph";
 import { importBulk, tabulaRasa, getGraph } from "../api/endpoints";
+import { DEFAULT_STYLE_CONFIG } from "../canvas/styleConfig";
 import { ErrorBox } from "./ErrorBox";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -56,8 +57,15 @@ export function SampleGraphsPanel() {
   const [trySteps, setTrySteps] = useState<{ title: string; steps: string[] } | null>(null);
   const [confirm, setConfirm] = useState<Pending | null>(null);
   const [repoInput, setRepoInput] = useState("");
+  const [githubInputError, setGithubInputError] = useState<string | null>(null);
 
-  const graphIsEmpty = (status.data?.vertexCount ?? 0) === 0 && (status.data?.edgeCount ?? 0) === 0;
+  // "Empty" for the no-wipe fast path means NOTHING to lose AND nothing that would clash:
+  // import 409s on any element, and a leftover index of the same id would fail createIndex
+  // after a successful import. Indices can outlive elements, so count them too.
+  const graphIsEmpty =
+    (status.data?.vertexCount ?? 0) === 0 &&
+    (status.data?.edgeCount ?? 0) === 0 &&
+    (status.data?.indices?.length ?? 0) === 0;
 
   const afterLoad = (title: string, steps: string[], vertices: number, edges: number) => {
     setMessage(`Loaded ${title}: ${vertices.toLocaleString()} vertices, ${edges.toLocaleString()} edges.`);
@@ -78,7 +86,9 @@ export function SampleGraphsPanel() {
     onSuccess: ({ entry, result }) => {
       clearCanvas();
       mergeIntoCanvas(result.graph.vertices, result.graph.edges);
-      setStyleConfig(entry.styleConfig);
+      // Reset to defaults first: setStyleConfig is a patch-merge, so a prior sample's keys
+      // (e.g. Movie Night's edge-width-by-rating) would otherwise leak onto this graph.
+      setStyleConfig({ ...DEFAULT_STYLE_CONFIG, ...entry.styleConfig });
       afterLoad(entry.title, entry.trySteps, result.verticesCreated, result.edgesCreated);
     },
     onSettled: () => setStep(null),
@@ -110,6 +120,7 @@ export function SampleGraphsPanel() {
       clearCanvas();
       mergeIntoCanvas(graph.vertices, graph.edges);
       setStyleConfig({
+        ...DEFAULT_STYLE_CONFIG,
         nodeColorMode: "property",
         nodeColorProperty: "ecosystem",
         nodeSizeMode: "in-degree",
@@ -137,7 +148,12 @@ export function SampleGraphsPanel() {
   };
   const startGithub = () => {
     const repo = normalizeRepo(repoInput);
-    if (!repo) return;
+    if (!repo) {
+      setMessage(null);
+      setGithubInputError("Enter a public repo as owner/repo (or a github.com URL).");
+      return;
+    }
+    setGithubInputError(null);
     if (graphIsEmpty) githubMutation.mutate({ repo, wipeFirst: false });
     else setConfirm({ kind: "github" });
   };
@@ -166,6 +182,7 @@ export function SampleGraphsPanel() {
               setRepoInput={setRepoInput}
               busy={busy}
               onLoad={startGithub}
+              inputError={githubInputError}
             />
           </div>
         )}
@@ -216,10 +233,6 @@ export function SampleGraphsPanel() {
   );
 }
 
-function badgeText(badge: string): string {
-  return badge;
-}
-
 function SampleCard({
   entry,
   gate,
@@ -244,7 +257,7 @@ function SampleCard({
       <div className="flex flex-wrap gap-1">
         {entry.badges.map((b) => (
           <span key={b} className="border-line text-fg-faint rounded border px-1.5 py-0.5 text-[10px] uppercase">
-            {badgeText(b)}
+            {b}
           </span>
         ))}
       </div>
@@ -301,11 +314,13 @@ function GithubCard({
   setRepoInput,
   busy,
   onLoad,
+  inputError,
 }: {
   repoInput: string;
   setRepoInput: (v: string) => void;
   busy: boolean;
   onLoad: () => void;
+  inputError: string | null;
 }) {
   return (
     <div className="border-line flex flex-col gap-2 rounded border p-3" data-testid="sample-card-github">
@@ -339,6 +354,11 @@ function GithubCard({
           Fetch
         </button>
       </div>
+      {inputError && (
+        <p className="text-warn text-[11px]" data-testid="github-input-error">
+          {inputError}
+        </p>
+      )}
     </div>
   );
 }
@@ -350,8 +370,8 @@ export function normalizeRepo(input: string): string | null {
     .replace(/^https?:\/\//i, "")
     .replace(/^www\./i, "")
     .replace(/^github\.com\//i, "")
-    .replace(/\.git$/, "")
-    .replace(/\/$/, "");
+    .replace(/\/$/, "") // strip a trailing slash BEFORE .git so "owner/repo.git/" resolves
+    .replace(/\.git$/, "");
   return /^[\w.-]+\/[\w.-]+$/.test(trimmed) ? trimmed : null;
 }
 
@@ -374,5 +394,8 @@ async function fetchRepoSbom(repo: string): Promise<SpdxSbom> {
   if (!response.ok) {
     throw new Error(`GitHub returned ${response.status} for '${repo}'.`);
   }
-  return ((await response.json()) as { sbom: SpdxSbom }).sbom;
+  const body = (await response.json()) as { sbom?: SpdxSbom };
+  // Untyped boundary: a 200 without an `sbom` object is treated as "no dependency data"
+  // by the caller (sbomToGraph tolerates {}), never an undefined-property crash.
+  return body.sbom ?? {};
 }

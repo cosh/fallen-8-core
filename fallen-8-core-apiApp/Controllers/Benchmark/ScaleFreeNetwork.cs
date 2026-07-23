@@ -97,7 +97,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
             var verticesCreates = vertexTx.GetCreatedVertices();
 
-            if (edgeCountPerVertex != 0)
+            if (edgeCountPerVertex != 0 && verticesCreates.Count > 0)
             {
                 if (preferentialAttachment)
                 {
@@ -133,14 +133,20 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
             var prng = new Random();
 
+            // Cap the distinct-target demand at the number of vertices: only that many
+            // distinct ids exist, so a larger edgesPerVertex would spin this loop forever
+            // (GET /generate?nodeCount=3&edgeCount=10). The preferential path bounds the
+            // same way via Math.Min(edgesPerVertex, i).
+            var targetCount = Math.Min(edgesPerVertex, allVertices.Count);
+
             foreach (var aVertex in partition)
             {
                 var targetVertices = new HashSet<Int32>();
 
-                do
+                while (targetVertices.Count < targetCount)
                 {
                     targetVertices.Add(allVertices[prng.Next(0, allVertices.Count)].Id);
-                } while (targetVertices.Count < edgesPerVertex);
+                }
 
                 foreach (var aTargetVertex in targetVertices)
                 {
@@ -171,7 +177,10 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             const int edgesPerTransaction = 50_000;
 
             var prng = new Random();
-            var pool = new List<Int32>(vertices.Count * (1 + edgesPerVertex));
+            // Capacity hint only: compute in Int64 and clamp so an adversarial
+            // nodeCount*edgesPerVertex can't wrap to a negative Int32 and throw.
+            var poolCapacityHint = (Int32)Math.Min(int.MaxValue, (Int64)vertices.Count * (1 + edgesPerVertex));
+            var pool = new List<Int32>(poolCapacityHint);
             var commits = new List<TransactionInformation>();
             var edgesCreateTx = new CreateEdgesTransaction();
             var edgesInTransaction = 0;

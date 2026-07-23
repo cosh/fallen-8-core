@@ -24,7 +24,11 @@ interface Node {
   name: string;
   icon: string;
   description: string;
+  department: string;
 }
+
+/** Domain-wide nodes (DCs, Domain Admins, service accounts) belong to no single team. */
+const DOMAIN = "Domain";
 
 export async function buildAttackSurface(): Promise<BuiltSample> {
   const rng = seededRandom(0x5eed_ad00);
@@ -33,8 +37,8 @@ export async function buildAttackSurface(): Promise<BuiltSample> {
   let nextId = 0;
   let nextEdgeId = 100_000;
 
-  const add = (label: string, name: string, icon: string, description: string): Node => {
-    const node: Node = { id: nextId++, label, name, icon, description };
+  const add = (label: string, name: string, icon: string, description: string, department: string): Node => {
+    const node: Node = { id: nextId++, label, name, icon, description, department };
     nodes.push(node);
     return node;
   };
@@ -54,9 +58,10 @@ export async function buildAttackSurface(): Promise<BuiltSample> {
     "DOMAIN ADMINS",
     "👑",
     "Domain Admins group — full control of the entire directory; the attacker's objective.",
+    DOMAIN,
   );
   const dcs = [0, 1].map((i) =>
-    add("domaincontroller", `DC0${i + 1}`, "🏰", `Domain controller DC0${i + 1} holding the directory database and every credential hash.`),
+    add("domaincontroller", `DC0${i + 1}`, "🏰", `Domain controller DC0${i + 1} holding the directory database and every credential hash.`, DOMAIN),
   );
   for (const dc of dcs) link(dc, domainAdmins, "memberOf", 0.5);
 
@@ -64,7 +69,7 @@ export async function buildAttackSurface(): Promise<BuiltSample> {
   const deptGroup = new Map<string, Node>();
   const deptServer = new Map<string, Node>();
   for (const dept of DEPARTMENTS) {
-    const group = add("group", `${dept.toUpperCase()} STAFF`, "👥", `${dept} department security group.`);
+    const group = add("group", `${dept.toUpperCase()} STAFF`, "👥", `${dept} department security group.`, dept);
     deptGroup.set(dept, group);
     const docTopic =
       dept === "Finance"
@@ -81,20 +86,20 @@ export async function buildAttackSurface(): Promise<BuiltSample> {
       `${dept.slice(0, 3).toUpperCase()}-FS01`,
       "🗄️",
       `${dept} file server storing ${docTopic}.`,
+      dept,
     );
     deptServer.set(dept, server);
     link(server, dcs[0], "runsAs", 3.5);
   }
 
   // Privileged service accounts (Kerberoastable = cheap once cracked).
-  const svcSql = add("serviceaccount", "svc_sql", "🤖", "SQL Server service account; Kerberoastable and over-privileged on the Finance file server.");
+  const svcSql = add("serviceaccount", "svc_sql", "🤖", "SQL Server service account; Kerberoastable and over-privileged on the Finance file server.", DOMAIN);
   link(svcSql, deptServer.get("Finance")!, "adminTo", 1.5);
-  const svcBackup = add("serviceaccount", "svc_backup", "🤖", "Backup service account with local admin on every server for nightly snapshots.");
+  const svcBackup = add("serviceaccount", "svc_backup", "🤖", "Backup service account with local admin on every server for nightly snapshots.", DOMAIN);
   for (const dept of DEPARTMENTS) link(svcBackup, deptServer.get(dept)!, "adminTo", 2.0);
   link(svcBackup, domainAdmins, "memberOf", 4.0);
 
   // Users + their primary workstation, per department. The Finance intern is the entry.
-  const workstations: Node[] = [];
   for (const dept of DEPARTMENTS) {
     const userCount = dept === "Finance" ? 10 : 8;
     for (let u = 0; u < userCount; u++) {
@@ -105,11 +110,10 @@ export async function buildAttackSurface(): Promise<BuiltSample> {
       const description = isPhishedIntern
         ? "Finance intern whose workstation was phished — the attacker's initial foothold in the estate."
         : `${role === "admin" ? "Departmental admin" : "Standard user"} in ${dept}.`;
-      const user = add("user", name, icon, description);
+      const user = add("user", name, icon, description, dept);
       link(user, deptGroup.get(dept)!, "memberOf", 0.5);
 
-      const ws = add("workstation", `WS-${dept.slice(0, 3).toUpperCase()}-${u}`, "💻", `Windows workstation used by ${name}.`);
-      workstations.push(ws);
+      const ws = add("workstation", `WS-${dept.slice(0, 3).toUpperCase()}-${u}`, "💻", `Windows workstation used by ${name}.`, dept);
       link(user, ws, "hasSession", 1.0);
       // Some users can RDP to their department server.
       if (rng() < 0.35) link(ws, deptServer.get(dept)!, "canRDP", 2.5);
@@ -132,7 +136,7 @@ export async function buildAttackSurface(): Promise<BuiltSample> {
     label: node.label,
     properties: {
       name: prop.string(node.name),
-      department: prop.string(departmentOf(node)),
+      department: prop.string(node.department),
       icon: prop.string(node.icon),
       description: prop.string(node.description),
       ...embeddingProperties(vectors[index], model),
@@ -154,7 +158,7 @@ export async function buildAttackSurface(): Promise<BuiltSample> {
         "Path → cheapest attack path from the phished 'finance.intern' workstation to the DOMAIN ADMINS group, using Dijkstra with cost property 'exploitCost' (look ids up on the Browser screen).",
         "Semantic search: 'where do the financial documents live' surfaces the Finance file server.",
         "Analytics → DEGREE or PAGERANK to spot the lateral-movement choke points (svc_backup, the DCs).",
-        "Canvas → color by 'label' to see users / servers / groups; the 'icon' emoji renders per node.",
+        "Canvas → color by 'label' to see users / servers / groups, or by 'department' to see the org; the 'icon' emoji renders per node.",
       ],
       file: "attack-surface.jsonl",
       styleConfig: {
@@ -167,12 +171,4 @@ export async function buildAttackSurface(): Promise<BuiltSample> {
       embedding: { name: "default", model, dimension, metric: "Cosine" },
     },
   };
-}
-
-function departmentOf(node: Node): string {
-  const match = /^(Finance|Engineering|Sales|HR|IT|Legal)/i.exec(node.name.replace(/^(\w{3})\./, "$1"));
-  if (match) return match[1];
-  const prefix = node.name.slice(0, 3).toLowerCase();
-  const dept = DEPARTMENTS.find((d) => d.slice(0, 3).toLowerCase() === prefix);
-  return dept ?? "Domain";
 }

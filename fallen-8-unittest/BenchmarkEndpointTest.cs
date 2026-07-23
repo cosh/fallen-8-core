@@ -141,6 +141,40 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Generate_EdgeCountExceedingNodeCount_IsCappedNotHung()
+        {
+            // Regression: uniform generation used to spin forever when edgeCount > nodeCount
+            // (only nodeCount distinct targets exist). It must complete and cap per-vertex edges.
+            using var factory = new VolatileFactory();
+            using var client = factory.CreateClient();
+
+            var generate = await client.GetAsync("/generate?nodeCount=3&edgeCount=10");
+            Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode);
+
+            var engine = (NoSQL.GraphDB.Core.Fallen8)factory.Services
+                .GetService(typeof(NoSQL.GraphDB.Core.IFallen8));
+            Assert.AreEqual(3, engine.VertexCount);
+            // Each vertex gets at most nodeCount distinct targets (3), so at most 9 edges total.
+            Assert.IsTrue(engine.EdgeCount <= 9, $"expected <= 9 capped edges, got {engine.EdgeCount}");
+        }
+
+        [TestMethod]
+        public async Task Generate_ZeroNodes_Succeeds()
+        {
+            // nodeCount=0 is accepted (only negatives are 400); it must not throw on the
+            // partitioner (Partitioner.Create(0,0) would). Empty graph, 200.
+            using var factory = new VolatileFactory();
+            using var client = factory.CreateClient();
+
+            var generate = await client.GetAsync("/generate?nodeCount=0&edgeCount=5");
+            Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode);
+            var engine = (NoSQL.GraphDB.Core.Fallen8)factory.Services
+                .GetService(typeof(NoSQL.GraphDB.Core.IFallen8));
+            Assert.AreEqual(0, engine.VertexCount);
+            Assert.AreEqual(0, engine.EdgeCount);
+        }
+
+        [TestMethod]
         public async Task Generate_ValidatesItsInputs_With400s()
         {
             using var factory = new VolatileFactory();

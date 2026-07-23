@@ -51,6 +51,8 @@ describe("normalizeRepo", () => {
     expect(normalizeRepo("https://github.com/cosh/fallen-8-core")).toBe("cosh/fallen-8-core");
     expect(normalizeRepo("https://github.com/cosh/fallen-8-core.git")).toBe("cosh/fallen-8-core");
     expect(normalizeRepo("github.com/facebook/react/")).toBe("facebook/react");
+    // Trailing slash is stripped BEFORE .git, so a .git/ suffix still resolves.
+    expect(normalizeRepo("https://github.com/cosh/fallen-8-core.git/")).toBe("cosh/fallen-8-core");
   });
 
   it("rejects garbage and partial input", () => {

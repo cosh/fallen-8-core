@@ -15,8 +15,11 @@ import {
 } from "./shared";
 import { COUNTRY_ISO2 } from "./data/countryIso2";
 
-const AIRPORTS_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat";
-const ROUTES_URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/routes.dat";
+// Pinned to a fixed OpenFlights commit (not a moving branch) so rebuilds are reproducible:
+// the top-250 selection and edge set depend on the exact source rows.
+const OPENFLIGHTS_REF = "e3bc6dedbcceb8b7b74248a00dcd6207254da6bd";
+const AIRPORTS_URL = `https://raw.githubusercontent.com/jpatokal/openflights/${OPENFLIGHTS_REF}/data/airports.dat`;
+const ROUTES_URL = `https://raw.githubusercontent.com/jpatokal/openflights/${OPENFLIGHTS_REF}/data/routes.dat`;
 const TOP_AIRPORTS = 250;
 
 interface Airport {

@@ -46,7 +46,7 @@
         "Path → cheapest attack path from the phished 'finance.intern' workstation to the DOMAIN ADMINS group, using Dijkstra with cost property 'exploitCost' (look ids up on the Browser screen).",
         "Semantic search: 'where do the financial documents live' surfaces the Finance file server.",
         "Analytics → DEGREE or PAGERANK to spot the lateral-movement choke points (svc_backup, the DCs).",
-        "Canvas → color by 'label' to see users / servers / groups; the 'icon' emoji renders per node."
+        "Canvas → color by 'label' to see users / servers / groups, or by 'department' to see the org; the 'icon' emoji renders per node."
       ],
       "file": "attack-surface.jsonl",
       "styleConfig": {
