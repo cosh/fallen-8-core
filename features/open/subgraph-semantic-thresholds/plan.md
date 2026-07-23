@@ -4,6 +4,10 @@ Phased implementation of [spec.md](spec.md). Each phase ends with a clean build
 (warnings-as-errors) and a green `dotnet test`; the OpenAPI snapshot is regenerated in the
 phase that changes the contract.
 
+Status: all four phases implemented on `feature/subgraph-semantic-thresholds`
+(phase 1 `923493c`, phase 2 `955f3ed`, phase 3 `6cf7587`, phase 4 docs). Phase-2 note
+verified: `queryText` survives in the recipe next to the resolved vector and is echoed.
+
 ## Phase 1 — contract + compiler (apiApp)
 
 - `PatternSpecification` gains `SemanticMinScore` (`Double?`) with XML docs (spec FR-1).

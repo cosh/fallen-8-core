@@ -59,7 +59,9 @@ The fragments are compiled **at registration** through the same Roslyn paths (an
 compile bounds) the inline endpoints use; a compile failure rejects the registration with a
 400 carrying the compiler diagnostics. `201` pins the compiled artifact for the query's
 registered lifetime. `409` = duplicate name or library quota
-(`Fallen8:StoredQueries:MaxCount`, default 256).
+(`Fallen8:StoredQueries:MaxCount`, default 256). A SubGraph template block cannot carry a
+pattern step's `semanticMinScore` (400): a template has no semantic query to bind — see the
+[element-embeddings README](../element-embeddings/README.md), "Semantic traversal".
 
 ## Invoking (switch on **or** off)
 

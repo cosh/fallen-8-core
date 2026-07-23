@@ -156,5 +156,5 @@ vertex steps can only do semantic filtering through compiled C# fragments
   thresholds are additive JSON; a *downgraded* build would deserialize-and-ignore the
   field, silently dropping thresholds on recalculation — accepted for the single-process
   self-hosted reality and stated here rather than engineered around.
-- **Samples**: check the Studio sample graphs/drafts for references to the old block shape
-  during implementation.
+- **Samples**: checked during implementation — the sample library only uses a `semantic`
+  badge label; no sample builds a subgraph draft. Unaffected.
