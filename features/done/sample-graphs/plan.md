@@ -97,5 +97,5 @@ Findings (pinned by `BulkImportExportTest`):
 - Feature `README.md` written (surfaces, loading contract, rebuild, storage).
 - One-line pointers: bulk-import-export + element-embeddings READMEs point at the v2
   encoding. Root README untouched (readme-with-visuals follow-up).
-- Impact sweep in the spec refreshed. `features/open/sample-graphs` → `features/done/`
-  on merge.
+- Impact sweep in the spec refreshed. Docs moved `features/open/sample-graphs` →
+  `features/done/sample-graphs` on merge.

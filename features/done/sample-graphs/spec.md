@@ -1,6 +1,6 @@
 # Sample graphs & benchmark tab — spec
 
-Status: **open** · Branch: `feature/sample-graphs` · Created: 2026-07-23
+Status: **done** · Branch: `feature/sample-graphs` · Created: 2026-07-23
 
 ## Motivation
 
