@@ -475,6 +475,15 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(HttpStatusCode.BadRequest, onEdge.StatusCode);
             StringAssert.Contains(await onEdge.Content.ReadAsStringAsync(), "Vertex patterns only");
 
+            // Same rule on the other edge kind.
+            using var onVariableEdge = await PutJson(client, "/subgraph",
+                "{ \"name\": \"x1b\", \"semantic\": { \"queryVector\": [1, 0] }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\" }, " +
+                "                  { \"type\": \"VariableLengthEdge\", \"minLength\": 1, \"maxLength\": 2, \"semanticMinScore\": 0.5 }, " +
+                "                  { \"type\": \"Vertex\" } ] }");
+            Assert.AreEqual(HttpStatusCode.BadRequest, onVariableEdge.StatusCode);
+            StringAssert.Contains(await onVariableEdge.Content.ReadAsStringAsync(), "Vertex patterns only");
+
             // The threshold scores against the request's semantic query - required.
             using var noQuery = await PutJson(client, "/subgraph",
                 "{ \"name\": \"x2\", " +
@@ -502,8 +511,8 @@ namespace NoSQL.GraphDB.Tests
         public void SubGraph_PatternThreshold_NonFinite_IsRejected()
         {
             // NaN cannot arrive over JSON; this pins the defensive validation for direct callers
-            // (recipes, embedded engine use) below the HTTP layer.
-            var specification = new SubGraphSpecification
+            // (recipes, embedded engine use) below the HTTP layer - for BOTH threshold fields.
+            var patternLevel = new SubGraphSpecification
             {
                 Name = "nan",
                 Semantic = new SemanticTraversalSpecification { QueryVector = new[] { 1f, 0f } },
@@ -513,10 +522,23 @@ namespace NoSQL.GraphDB.Tests
                 }
             };
 
-            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(specification, out var definition);
+            var patternError = CodeGenerationHelper.TryGenerateSubGraphDefinition(patternLevel, out var patternDefinition);
+            Assert.IsNull(patternDefinition);
+            StringAssert.Contains(patternError, "finite");
 
-            Assert.IsNull(definition);
-            StringAssert.Contains(error, "finite");
+            var topLevel = new SubGraphSpecification
+            {
+                Name = "nan",
+                Semantic = new SemanticTraversalSpecification
+                {
+                    QueryVector = new[] { 1f, 0f },
+                    MinScore = Double.PositiveInfinity
+                }
+            };
+
+            var topLevelError = CodeGenerationHelper.TryGenerateSubGraphDefinition(topLevel, out var topLevelDefinition);
+            Assert.IsNull(topLevelDefinition);
+            StringAssert.Contains(topLevelError, "finite");
         }
 
         [TestMethod]

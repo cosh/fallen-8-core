@@ -117,7 +117,8 @@ vertex steps can only do semantic filtering through compiled C# fragments
     cheaply detectable, and the accept-contract is unchanged.
   - "Save as stored query…" is blocked with a reason while any semantic mode is active
     (matches FR-6) instead of silently dropping it.
-  - The subgraph list/detail shows a semantic badge fed by the FR-7 echo.
+  - The subgraph list shows a semantic badge fed by the FR-7 echo (the list row is the
+    Studio's whole subgraph surface; there is no detail view).
   - The Path screen keeps its combined block (filter + cost genuinely share the vector
     there); the subheader text becomes per-screen instead of shared.
 

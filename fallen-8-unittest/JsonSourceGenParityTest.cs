@@ -473,7 +473,19 @@ namespace NoSQL.GraphDB.Tests
                     AlgorithmPluginName = "RecipeSubGraphAlgorithm",
                     SourceFallen8Id = Guid.Parse("33333333-3333-3333-3333-333333333333"),
                     CanRecalculate = true,
-                    AdditionalInformation = new Dictionary<string, string> { { "owner", "alice" } }
+                    AdditionalInformation = new Dictionary<string, string> { { "owner", "alice" } },
+                    Semantic = new SubGraphSemanticSummary
+                    {
+                        EmbeddingName = "default",
+                        Metric = "Cosine",
+                        Dimension = 384,
+                        QueryText = "red bicycles",
+                        MinScore = 0.7,
+                        PatternThresholds = new List<SubGraphPatternThresholdSummary>
+                        {
+                            new SubGraphPatternThresholdSummary { Pattern = "start", MinScore = 0.6 }
+                        }
+                    }
                 }, "SubGraphSummary"),
                 (new PatternSpecification
                 {
@@ -484,6 +496,12 @@ namespace NoSQL.GraphDB.Tests
                     MinLength = 1,
                     MaxLength = 3
                 }, "PatternSpecification"),
+                (new PatternSpecification
+                {
+                    Type = "Vertex",
+                    PatternName = "start",
+                    SemanticMinScore = 0.6
+                }, "PatternSpecification(semanticMinScore)"),
                 (new ScanSpecification
                 {
                     Operator = BinaryOperator.Equals,

@@ -184,6 +184,13 @@ namespace NoSQL.GraphDB.Core.App.Helper
                        "and sign-indefinite, so it has no honest non-negative cost mapping.";
             }
 
+            // JSON cannot carry NaN, but direct callers (recipes, embedded engine use) can -
+            // same defensive posture as the per-pattern threshold's finiteness check.
+            if (specification.MinScore.HasValue && !Double.IsFinite(specification.MinScore.Value))
+            {
+                return "semantic.minScore must be a finite number.";
+            }
+
             var context = new TraversalContext(specification.QueryVector, embeddingName, metric);
             result.Context = context;
 

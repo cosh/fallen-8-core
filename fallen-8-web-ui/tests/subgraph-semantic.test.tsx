@@ -10,7 +10,7 @@ import type {
   SubGraphSpecification,
   SubGraphSummary,
 } from "../src/api/types";
-import { resetInstanceStoresForTests } from "../src/state/instanceStore";
+import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/instanceStore";
 
 /**
  * Subgraph screen semantic slots (feature subgraph-semantic-thresholds): a semantic
@@ -148,6 +148,49 @@ describe("subgraph semantic slots", () => {
     expect(spec.semantic?.queryVector).toEqual([1, 0]);
     expect(spec.semantic?.minScore).toBeUndefined();
     expect(spec.vertexFilter).toBeUndefined();
+  });
+
+  it("an invalid semantic query disables create with an inline error, not a fake server 400", async () => {
+    const user = userEvent.setup();
+    renderScreen(true);
+    await user.type(screen.getByTestId("sg-name"), "x");
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "semantic");
+    // The vector is left empty: the query cannot build, so submit must be gated.
+    expect(screen.getByTestId("sg-sem-error")).toBeInTheDocument();
+    expect(screen.getByTestId("sg-create")).toBeDisabled();
+    expect(createSubGraphMock).not.toHaveBeenCalled();
+  });
+
+  it("a stale top-level fragment never travels once the slot is in semantic mode", async () => {
+    // The fragment was written in fragment mode and stays in the draft; the MODE decides
+    // what travels (regressing to `vertexFilter || undefined` must fail here).
+    getInstanceStore("local").getState().setSubgraphDraft({
+      vertexFilter: "return (v) => true;",
+      vertexFilterMode: "semantic",
+    });
+    const user = userEvent.setup();
+    renderScreen(true);
+    await user.type(screen.getByTestId("sg-name"), "close");
+    await user.type(screen.getByTestId("sg-sem-vector"), "1, 0");
+
+    await user.click(screen.getByTestId("sg-create"));
+    await waitFor(() => expect(createSubGraphMock).toHaveBeenCalledTimes(1));
+    const spec = createSubGraphMock.mock.calls[0][1];
+    expect(spec.vertexFilter).toBeUndefined();
+    expect(spec.semantic?.minScore).toBe(0.7);
+  });
+
+  it("the typed semantic query survives the last slot leaving semantic mode", async () => {
+    const user = userEvent.setup();
+    renderScreen(true);
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "semantic");
+    await user.type(screen.getByTestId("sg-sem-vector"), "1, 0");
+
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "everything");
+    expect(screen.queryByTestId("sg-semantic-query")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "semantic");
+    expect(screen.getByTestId("sg-sem-vector")).toHaveValue("1, 0");
   });
 
   it("a non-finite threshold blocks submit with an inline error", async () => {
