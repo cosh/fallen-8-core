@@ -1,6 +1,11 @@
 # Multi-instance host — one HTTP endpoint, many F8 instances, per-instance auth
 
-Status: open (spec/DRAFT — exploratory). Related: [api-security-boundary](../../done/api-security-boundary/),
+Status: **superseded** (2026-07-23) by [graph-namespaces](../graph-namespaces/). Namespaces deliver
+the hosting seam this spec designed — an engine registry, request-scoped `IFallen8` resolution, and
+namespace-addressed routes — keyed by **name** instead of GUID and without the auth layer. The OIDC /
+grant-store design below is kept as a historical reference only; if per-caller authorization is ever
+needed it will be re-specced from scratch on top of namespaces (revisit trigger: an untrusted caller
+or tenant appears). Original relations: [api-security-boundary](../../done/api-security-boundary/),
 [hosted-durability-lifecycle](../../done/hosted-durability-lifecycle/), [studio-embeddable](../studio-embeddable/),
 [agent-host](../agent-host/), [mcp-server](../mcp-server/).
 
