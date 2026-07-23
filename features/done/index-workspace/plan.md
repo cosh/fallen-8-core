@@ -58,4 +58,4 @@ Status: done
 - Full `dotnet test`, web-ui `npm test`, `npm run build`; move
   `features/open/index-workspace/` → `features/done/`.
 
-Status: pending
+Status: done
