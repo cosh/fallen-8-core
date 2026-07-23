@@ -29,8 +29,10 @@ const BUILTIN_CAPABILITIES: Record<string, IndexCapability[]> = {
 
 /**
  * The query forms to offer. Unknown index (free-form id, no inventory entry) or unknown
- * third-party plugin on an old server: every form stays available — the server answers
- * 400 for a family the index does not serve, which the error box surfaces honestly.
+ * third-party plugin on an old server: every form stays available. A mismatched form is
+ * NOT a server error — only the vector endpoint rejects; equality/range/fulltext/spatial
+ * answer EMPTY for an index they cannot serve — so the Query screen adds a hint next to
+ * an empty unknown-index result instead of pretending the server would have complained.
  */
 export function indexCapabilities(
   index: IndexDescription | undefined | null,

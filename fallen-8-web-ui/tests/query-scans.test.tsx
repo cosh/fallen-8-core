@@ -357,6 +357,9 @@ describe("spatial query", () => {
     await pickIndex(user, "geo");
     // Spatial is the index's only capability — its form is active without a toggle.
     expect(screen.getByTestId("form-single")).toHaveTextContent("spatial");
+    // A blank element id must not run: Number("") is 0, which would silently query the
+    // neighborhood of element 0.
+    expect(screen.getByTestId("scan-run")).toBeDisabled();
     await user.type(screen.getByLabelText("element id"), "42");
     await user.clear(screen.getByLabelText("distance"));
     await user.type(screen.getByLabelText("distance"), "5.5");
@@ -373,9 +376,9 @@ describe("spatial query", () => {
 });
 
 describe("free-form fallback", () => {
-  it("offers a free index input and every query form when no inventory is known", async () => {
+  it("offers a free index input and every query form when /status predates the inventory", async () => {
     const user = userEvent.setup();
-    getStatusMock.mockResolvedValue({ ...STATUS, indices: [] });
+    getStatusMock.mockResolvedValue({ ...STATUS, indices: null });
     renderScreen();
 
     await user.selectOptions(screen.getByTestId("query-mode"), "index");
@@ -392,6 +395,24 @@ describe("free-form fallback", () => {
       indexId: "adhoc",
       requestString: "needle",
     });
+
+    // An unknown index answering 0 ids is ambiguous (missing index / wrong form) — the
+    // non-vector endpoints answer empty rather than erroring, so the panel says so.
+    await waitFor(() =>
+      expect(screen.getByTestId("unknown-index-hint")).toHaveTextContent("'adhoc'"),
+    );
+  });
+
+  it("a known-but-empty inventory keeps the dropdown and points at the Indexes screen", async () => {
+    const user = userEvent.setup();
+    getStatusMock.mockResolvedValue({ ...STATUS, indices: [] });
+    renderScreen();
+
+    await user.selectOptions(screen.getByTestId("query-mode"), "index");
+    await waitFor(() => expect(screen.getByTestId("no-indexes-note")).toBeInTheDocument());
+    expect(screen.getByTestId("index-select")).toBeInTheDocument();
+    expect(screen.queryByTestId("index-free")).not.toBeInTheDocument();
+    expect(screen.getByTestId("scan-run")).toBeDisabled();
   });
 });
 

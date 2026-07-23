@@ -78,9 +78,17 @@ const STATUS: StatusREST = {
       values: 4,
     },
     {
+      indexId: "docs",
+      pluginType: "RegExIndex",
+      capabilities: ["equality", "fulltext"],
+      keys: 1,
+      values: 1,
+    },
+    {
       indexId: "boundIdx",
       pluginType: "VectorIndex",
       embeddingName: "default",
+      model: "bge-micro-v2#384#Cosine",
       capabilities: ["vector"],
       keys: 0,
       values: 0,
@@ -148,6 +156,10 @@ describe("inventory table", () => {
 
     expect(screen.getByTestId("index-bound-boundIdx")).toHaveTextContent("bound:default");
     expect(screen.queryByTestId("index-bound-nameIndex")).not.toBeInTheDocument();
+    // The declared model identity (embedding-provider contract) is shown, not swallowed.
+    expect(screen.getByTestId("index-model-boundIdx")).toHaveTextContent(
+      "bge-micro-v2#384#Cosine",
+    );
   });
 
   it("derives capabilities from the plugin type when the server reports none", async () => {
@@ -168,6 +180,21 @@ describe("inventory table", () => {
     await waitFor(() =>
       expect(screen.getByTestId("inventory-empty")).toHaveTextContent(/older \/status contract/),
     );
+  });
+
+  it("older servers keep a free-form delete path (no rows can ever render)", async () => {
+    getStatusMock.mockResolvedValue({ ...STATUS, indices: null });
+    const user = userEvent.setup();
+    renderScreen();
+    const fallback = await screen.findByTestId("fallback-delete");
+
+    await user.type(within(fallback).getByLabelText(/index id/i), "legacy");
+    await user.click(within(fallback).getByRole("button", { name: "Delete" }));
+    await user.type(screen.getByTestId("confirm-typed"), "local");
+    await user.click(screen.getByTestId("confirm-action"));
+
+    await waitFor(() => expect(deleteIndexMock).toHaveBeenCalledTimes(1));
+    expect(deleteIndexMock.mock.calls[0][1]).toBe("legacy");
   });
 });
 
@@ -326,6 +353,24 @@ describe("delete confirmation", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(deleteIndexMock).not.toHaveBeenCalled();
   });
+
+  it("a cancelled typed name never pre-arms the next delete target", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByTestId("index-delete-nameIndex")).toBeInTheDocument(),
+    );
+
+    // Type the instance name for target A, then cancel via the button (which bypasses
+    // Radix onOpenChange) — reopening for target B must start disarmed.
+    await user.click(screen.getByTestId("index-delete-nameIndex"));
+    await user.type(screen.getByTestId("confirm-typed"), "local");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getByTestId("index-delete-embeddings"));
+    expect(screen.getByTestId("confirm-typed")).toHaveValue("");
+    expect(screen.getByTestId("confirm-action")).toBeDisabled();
+  });
 });
 
 describe("content management", () => {
@@ -358,8 +403,12 @@ describe("content management", () => {
       propertyValue: "ghost",
       fullQualifiedTypeName: "System.String",
     });
+    // The server's false covers both a missing key and a concurrently deleted index —
+    // the message must not assert more than that.
     await waitFor(() =>
-      expect(screen.getByText("The key was not in the index.")).toBeInTheDocument(),
+      expect(
+        screen.getByText("Nothing removed — the key (or the index) was not found."),
+      ).toBeInTheDocument(),
     );
 
     await user.type(
@@ -389,6 +438,26 @@ describe("content management", () => {
     expect(addVectorToIndexMock.mock.calls[0][2]).toEqual({
       graphElementId: 3,
       propertyId: "embedding",
+    });
+  });
+
+  it("fulltext-family indexes lock keys to strings (other types are silent no-ops server-side)", async () => {
+    const user = await selectRow("docs");
+
+    // No type dropdown: RegExIndex.AddOrUpdate ignores every non-string key, so offering
+    // Int32 etc. would report success while indexing nothing.
+    expect(screen.queryByLabelText("key type")).not.toBeInTheDocument();
+    await user.type(
+      within(screen.getByTestId("content-add")).getByLabelText(/element id/i),
+      "5",
+    );
+    await user.type(screen.getByTestId("content-add-key-value"), "needle");
+    await user.click(screen.getByRole("button", { name: "Add element" }));
+
+    await waitFor(() => expect(addToIndexMock).toHaveBeenCalledTimes(1));
+    expect(addToIndexMock.mock.calls[0][2]).toEqual({
+      graphElementId: 5,
+      key: { propertyValue: "needle", fullQualifiedTypeName: "System.String" },
     });
   });
 

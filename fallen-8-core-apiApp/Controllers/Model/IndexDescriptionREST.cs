@@ -96,7 +96,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         /// <summary>
         ///   <c>CountOfKeys()</c> at snapshot time — live <c>/status</c> inventory only,
-        ///   <c>null</c> in save-game KPIs.
+        ///   <c>null</c> in save-game KPIs and when the index reports a negative
+        ///   "count not supported" sentinel (e.g. the spatial R-Tree).
         /// </summary>
         /// <example>1000</example>
         [JsonPropertyName("keys")]
@@ -108,7 +109,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   <c>CountOfValues()</c> at snapshot time (O(entries) on bucket indexes — fine for
         ///   the status poll at self-hosted scale) — live <c>/status</c> inventory only,
-        ///   <c>null</c> in save-game KPIs.
+        ///   <c>null</c> in save-game KPIs and for a negative sentinel (see <see cref="Keys"/>).
         /// </summary>
         /// <example>1200</example>
         [JsonPropertyName("values")]

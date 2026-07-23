@@ -38,9 +38,13 @@ export function IndexesScreen() {
 
   const status = useStatus(instance);
   const inventory = status.data?.indices ?? [];
+  // An older /status without the inventory field: the table cannot render, so delete
+  // falls back to a free-form id (create is unaffected).
+  const inventoryAbsent = Boolean(status.data) && status.data!.indices == null;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = inventory.find((i) => i.indexId === selectedId) ?? null;
   const [confirmTarget, setConfirmTarget] = useState<IndexDescription | null>(null);
+  const [fallbackDeleteId, setFallbackDeleteId] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
   const suggestions = shapeSuggestions(useGraphShape(instance).data);
@@ -64,11 +68,42 @@ export function IndexesScreen() {
           {message && <span className="text-accent normal-case">{message}</span>}
         </div>
         {inventory.length === 0 ? (
-          <p className="text-fg-faint p-3 text-[12px]" data-testid="inventory-empty">
-            {status.data && status.data.indices == null
-              ? "This server does not report an index inventory (older /status contract) — create and delete still work."
-              : "No indexes on this instance yet — create one below."}
-          </p>
+          <div>
+            <p className="text-fg-faint p-3 text-[12px]" data-testid="inventory-empty">
+              {inventoryAbsent
+                ? "This server does not report an index inventory (older /status contract) — create below; delete needs the id typed here."
+                : "No indexes on this instance yet — create one below."}
+            </p>
+            {inventoryAbsent && (
+              <div
+                className="flex flex-wrap items-end gap-2 px-3 pb-3"
+                data-testid="fallback-delete"
+              >
+                <Field helpKey="indexId" label="index id" htmlFor="fallback-delete-id">
+                  <input
+                    id="fallback-delete-id"
+                    className="input w-40"
+                    value={fallbackDeleteId}
+                    onChange={(e) => setFallbackDeleteId(e.target.value)}
+                    placeholder="myIndex"
+                  />
+                </Field>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  disabled={!fallbackDeleteId.trim() || remove.isPending}
+                  onClick={() =>
+                    setConfirmTarget({
+                      indexId: fallbackDeleteId.trim(),
+                      pluginType: null,
+                    })
+                  }
+                >
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[12px]" data-testid="index-inventory">
@@ -117,6 +152,15 @@ export function IndexesScreen() {
                         </span>
                       ) : (
                         <span className="text-fg-faint">—</span>
+                      )}
+                      {index.model && (
+                        <div
+                          className="text-fg-faint text-[10px]"
+                          data-testid={`index-model-${index.indexId}`}
+                          title="declared model identity — vectors from any other model are refused"
+                        >
+                          {index.model}
+                        </div>
                       )}
                     </td>
                     <td className="table-cell">
@@ -432,6 +476,9 @@ function ContentPanel({ index }: { index: IndexDescription }) {
   const isVector = capabilities.includes("vector");
   const isSpatial = capabilities.includes("spatial");
   const takesKeyLiterals = !isVector && !isSpatial;
+  // A fulltext index files only string keys — the server's AddOrUpdate silently ignores
+  // any other type (IndexHelper.CheckObject<String>), so the UI does not offer one.
+  const stringKeysOnly = capabilities.includes("fulltext");
   const bound = Boolean(index.embeddingName);
 
   const refreshCounts = () =>
@@ -456,7 +503,8 @@ function ContentPanel({ index }: { index: IndexDescription }) {
   const dropKey = useMutation({
     mutationFn: () => removeIndexKey(instance, index.indexId, toIndexKey(removeKey)),
     onSuccess: (ok) => {
-      setMessage(ok ? "Key removed." : "The key was not in the index.");
+      // The server's false covers both "key not in the index" and "index gone meanwhile".
+      setMessage(ok ? "Key removed." : "Nothing removed — the key (or the index) was not found.");
       if (ok) refreshCounts();
     },
   });
@@ -528,13 +576,25 @@ function ContentPanel({ index }: { index: IndexDescription }) {
                     onChange={(e) => setAddElementId(e.target.value)}
                   />
                 </Field>
-                <TypedLiteralEditor
-                  helpKey="indexContentKey"
-                  label="key"
-                  idPrefix="content-add-key"
-                  value={addKey}
-                  onChange={setAddKey}
-                />
+                {stringKeysOnly ? (
+                  <Field helpKey="indexContentKey" label="key (string)" htmlFor="content-add-key-value">
+                    <input
+                      id="content-add-key-value"
+                      data-testid="content-add-key-value"
+                      className="input w-40"
+                      value={addKey.raw}
+                      onChange={(e) => setAddKey({ type: "System.String", raw: e.target.value })}
+                    />
+                  </Field>
+                ) : (
+                  <TypedLiteralEditor
+                    helpKey="indexContentKey"
+                    label="key"
+                    idPrefix="content-add-key"
+                    value={addKey}
+                    onChange={setAddKey}
+                  />
+                )}
                 <button
                   type="button"
                   className="btn btn-accent"
@@ -545,13 +605,27 @@ function ContentPanel({ index }: { index: IndexDescription }) {
                 </button>
               </div>
               <div className="flex flex-wrap items-end gap-2" data-testid="content-remove-key">
-                <TypedLiteralEditor
-                  helpKey="indexContentKey"
-                  label="key"
-                  idPrefix="content-remove-key"
-                  value={removeKey}
-                  onChange={setRemoveKey}
-                />
+                {stringKeysOnly ? (
+                  <Field helpKey="indexContentKey" label="key (string)" htmlFor="content-remove-key-value">
+                    <input
+                      id="content-remove-key-value"
+                      data-testid="content-remove-key-value"
+                      className="input w-40"
+                      value={removeKey.raw}
+                      onChange={(e) =>
+                        setRemoveKey({ type: "System.String", raw: e.target.value })
+                      }
+                    />
+                  </Field>
+                ) : (
+                  <TypedLiteralEditor
+                    helpKey="indexContentKey"
+                    label="key"
+                    idPrefix="content-remove-key"
+                    value={removeKey}
+                    onChange={setRemoveKey}
+                  />
+                )}
                 <button
                   type="button"
                   className="btn btn-danger"

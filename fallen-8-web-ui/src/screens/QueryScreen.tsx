@@ -99,8 +99,13 @@ export function QueryScreen() {
   const providerEnabled = provider ? provider.enabled : null;
 
   // Index picks: the live /status inventory first, shape-snapshot ids as backup (the
-  // snapshot may know ids from before a reconnect; the union keeps both honest).
-  const inventory = useStatus(instance).data?.indices ?? [];
+  // snapshot may know ids from before a reconnect; the union keeps both honest). Only a
+  // server whose /status PREDATES the inventory field gets a free-form input — with a
+  // live inventory the dropdown is complete, and a possibly stale shape snapshot must
+  // not lock out an index created this session.
+  const statusData = useStatus(instance).data;
+  const inventory = statusData?.indices ?? [];
+  const inventoryKnown = !statusData || statusData.indices != null;
   const indexIdOptions = [
     ...new Set([
       ...inventory.map((i) => i.indexId).filter(Boolean),
@@ -109,7 +114,8 @@ export function QueryScreen() {
   ];
 
   // The query forms this index answers. An id the inventory does not know (free-form
-  // input, stale shape id) offers every form — the server 400s honestly on a mismatch.
+  // input, stale shape id) offers every form — a mismatched non-vector form is NOT a
+  // server error (those endpoints answer empty), so the result panel hints at it.
   const selectedIndex = inventory.find((i) => i.indexId === indexId);
   const capabilities = indexCapabilities(indexId ? selectedIndex : null);
   useEffect(() => {
@@ -269,7 +275,7 @@ export function QueryScreen() {
 
             {mode === "index" && (
               <Field helpKey="indexId" label="index" htmlFor="scan-index">
-                {indexIdOptions.length > 0 ? (
+                {inventoryKnown ? (
                   <select
                     id="scan-index"
                     data-testid="index-select"
@@ -289,12 +295,18 @@ export function QueryScreen() {
                     id="scan-index"
                     data-testid="index-free"
                     className="input w-44"
+                    list="query-index-ids"
                     value={indexId}
                     onChange={(e) => setIndexId(e.target.value)}
                     placeholder="myIndex"
                   />
                 )}
               </Field>
+            )}
+            {mode === "index" && inventoryKnown && indexIdOptions.length === 0 && (
+              <span className="text-fg-faint pb-2 text-[11px]" data-testid="no-indexes-note">
+                no indexes on this instance — create one on the Indexes screen
+              </span>
             )}
 
             {mode === "index" && indexId && capabilities.length > 1 && (
@@ -588,7 +600,12 @@ export function QueryScreen() {
               className="btn btn-accent"
               data-testid="scan-run"
               disabled={
-                scan.isPending || (mode === "index" && !indexId) || vectorNotReady
+                scan.isPending ||
+                (mode === "index" && !indexId) ||
+                // A blank element id would coerce to Number("") === 0 and silently query
+                // the neighborhood of element 0.
+                (mode === "index" && form === "spatial" && !spatialElementId.trim()) ||
+                vectorNotReady
               }
             >
               {scan.isPending ? "Running…" : "Run query"}
@@ -610,6 +627,15 @@ export function QueryScreen() {
 
       {idCount !== null && (
         <section className="panel">
+          {/* An index the inventory does not know cannot be validated up front, and the
+              non-vector scan endpoints answer EMPTY (not an error) for a missing index or
+              a form the index does not serve — say so instead of a bare 0. */}
+          {idCount === 0 && mode === "index" && indexId && !selectedIndex && (
+            <p className="text-warn px-3 pt-3 text-[11px]" data-testid="unknown-index-hint">
+              '{indexId}' is not in the live inventory — 0 ids can also mean the index does
+              not exist or does not answer this query form.
+            </p>
+          )}
           <div className="panel-title">
             results — {idCount} ids
             {vectorResult && (
@@ -660,6 +686,12 @@ export function QueryScreen() {
         </section>
       )}
 
+      {/* Suggestions for the old-server free-form index input (shape snapshot / stale ids). */}
+      <datalist id="query-index-ids">
+        {indexIdOptions.map((id) => (
+          <option key={id} value={id} />
+        ))}
+      </datalist>
       {/* Shared identifier suggestions from the Graph shape snapshot (empty until computed). */}
       <datalist id="shape-property-keys">
         {suggestions.propertyKeys.map((key) => (

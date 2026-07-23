@@ -182,6 +182,15 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void SpatialIndex_CountOfKeysSentinel_IsNegative()
+        {
+            // The R-Tree answers a negative "count not supported" sentinel; Status() maps
+            // negative counts to null on the wire (AdminController.NonNegativeCount) so no
+            // client ever renders "-1 keys". This pins the sentinel that mapping guards.
+            Assert.IsTrue(new RTree().CountOfKeys() < 0, "the R-Tree count sentinel must be negative");
+        }
+
+        [TestMethod]
         public async Task Status_ReportsCounts_ThatTrackIndexContent()
         {
             using var factory = new TestFactory();
