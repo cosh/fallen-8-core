@@ -1,7 +1,8 @@
 # Bulk Import/Export (JSONL) — Usage
 
-Streaming whole-graph interchange as newline-delimited JSON (`fallen8-jsonl` version 1).
-Companion docs: [spec.md](./spec.md) (contract) and [plan.md](./plan.md) (phases).
+Streaming whole-graph interchange as newline-delimited JSON (`fallen8-jsonl`, versions 1–2).
+Companion docs: [spec.md](./spec.md) (contract) and [plan.md](./plan.md) (phases). The
+Studio's sample graphs (feature sample-graphs) ship in exactly this format.
 
 ## Export
 
@@ -18,6 +19,15 @@ The stream is: one `meta` line (format version + exact counts), then `vertex` li
 `edge` lines. Property values travel as typed pairs, so `Int64` above 2^53, `Decimal` scale,
 and sub-second `DateTime` ticks all survive — every type the REST surface can create
 round-trips value- and CLR-type-exactly.
+
+**Embeddings (format version 2):** element embeddings are the reserved `$embedding:<name>`
+`float[]` properties (feature element-embeddings) and travel as
+`{"type": "System.Single[]", "value": "0.1,-0.5,…"}` — comma-joined `"R"` floats, the one
+non-scalar type of the format. The version stamp is the lowest sufficient one: a file
+containing any array is stamped `2`, everything else stays `1` and remains readable by
+older builds (a version-1 stamp that carries an array is rejected — the stamp is a promise,
+not a hint). Importing an embedded file and then creating a bound `VectorIndex` projects
+the vectors immediately.
 
 **Consistency (honest):** this is data interchange, not a crash-consistent backup. A write
 committed during the export may or may not appear; the guarantee is that the file is

@@ -44,7 +44,8 @@ namespace NoSQL.GraphDB.App.Controllers
 {
     /// <summary>
     ///   Streaming bulk export/import of the graph as newline-delimited JSON
-    ///   (<c>fallen8-jsonl</c> version 1, feature bulk-import-export).
+    ///   (<c>fallen8-jsonl</c>, feature bulk-import-export; versioning and the version-2
+    ///   embedding encoding live on <see cref="JsonlGraphFormat"/>).
     /// </summary>
     /// <remarks>
     ///   The file carries graph ELEMENTS only (vertices, edges, properties) - indices, subgraph
@@ -88,10 +89,12 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="vertexLabel">Optional: export only vertices with exactly this label</param>
         /// <param name="edgeLabel">Optional: export only edges with exactly this label</param>
         /// <remarks>
-        /// The stream is fallen8-jsonl version 1: one meta line (format version + exact counts),
-        /// then vertex lines, then edge lines. Edges whose endpoints are not both in the exported
+        /// The stream is fallen8-jsonl: one meta line (format version + exact counts), then
+        /// vertex lines, then edge lines. Edges whose endpoints are not both in the exported
         /// vertex set are omitted, so EVERY exported file is internally consistent and importable
-        /// by construction.
+        /// by construction. Element embeddings export as their reserved System.Single[]
+        /// properties; a file containing any is stamped format version 2, everything else stays
+        /// version 1 (readable by older builds).
         ///
         /// CONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads
         /// are lock-free; a write committed during the export may or may not appear. The
@@ -127,10 +130,14 @@ namespace NoSQL.GraphDB.App.Controllers
 
             // Pre-stream validation: every property must be exportable, BEFORE the 200 status
             // line goes out - a failed export is never a half-written file. The same pass counts
-            // the endpoint-filtered edges so the meta counts are exact.
+            // the endpoint-filtered edges so the meta counts are exact, and detects whether any
+            // Single[] (embedding) property is present - that decides the version stamp: 2 only
+            // when the file actually needs it, so embedding-free exports stay version-1 files
+            // older builds keep reading.
+            var hasArrayProperty = false;
             foreach (var vertex in vertices)
             {
-                var invalid = FindNonExportableProperty(vertex);
+                var invalid = FindNonExportableProperty(vertex, ref hasArrayProperty);
                 if (invalid != null)
                 {
                     return UnprocessableProperty(vertex.Id, invalid);
@@ -145,13 +152,15 @@ namespace NoSQL.GraphDB.App.Controllers
                     continue;
                 }
 
-                var invalid = FindNonExportableProperty(edge);
+                var invalid = FindNonExportableProperty(edge, ref hasArrayProperty);
                 if (invalid != null)
                 {
                     return UnprocessableProperty(edge.Id, invalid);
                 }
                 exportedEdgeCount++;
             }
+
+            var formatVersion = hasArrayProperty ? JsonlGraphFormat.SingleArrayMinVersion : 1;
 
             // Stream: meta, vertices, endpoint-filtered edges - never a whole-graph string.
             Response.StatusCode = StatusCodes.Status200OK;
@@ -161,11 +170,11 @@ namespace NoSQL.GraphDB.App.Controllers
             var linesSinceFlush = 0;
             var cancellation = HttpContext.RequestAborted;
 
-            JsonlGraphFormat.WriteMetaLine(buffer, DateTime.UtcNow, vertices.Count, exportedEdgeCount);
+            JsonlGraphFormat.WriteMetaLine(buffer, DateTime.UtcNow, vertices.Count, exportedEdgeCount, formatVersion);
 
             foreach (var vertex in vertices)
             {
-                JsonlGraphFormat.WriteVertexLine(buffer, vertex);
+                JsonlGraphFormat.WriteVertexLine(buffer, vertex, formatVersion);
                 if (++linesSinceFlush >= ExportFlushEveryLines || buffer.WrittenCount >= ExportFlushBytes)
                 {
                     await FlushBuffer(buffer, cancellation);
@@ -180,7 +189,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     continue;
                 }
 
-                JsonlGraphFormat.WriteEdgeLine(buffer, edge);
+                JsonlGraphFormat.WriteEdgeLine(buffer, edge, formatVersion);
                 if (++linesSinceFlush >= ExportFlushEveryLines || buffer.WrittenCount >= ExportFlushBytes)
                 {
                     await FlushBuffer(buffer, cancellation);
@@ -201,8 +210,10 @@ namespace NoSQL.GraphDB.App.Controllers
             }
         }
 
-        /// <summary>Returns the key of the first non-exportable property, or null when clean.</summary>
-        private static String FindNonExportableProperty(AGraphElementModel element)
+        /// <summary>Returns the key of the first non-exportable property, or null when clean.
+        /// Flips <paramref name="hasArrayProperty"/> when a Single[] (embedding) value is seen,
+        /// so the caller can stamp the lowest sufficient format version.</summary>
+        private static String FindNonExportableProperty(AGraphElementModel element, ref Boolean hasArrayProperty)
         {
             var properties = element.GetAllProperties();
             if (properties == null)
@@ -212,9 +223,13 @@ namespace NoSQL.GraphDB.App.Controllers
 
             foreach (var property in properties)
             {
-                if (!JsonlGraphFormat.TryFormatValue(property.Value, out _, out _))
+                if (!JsonlGraphFormat.TryFormatValue(property.Value, out var typeName, out _))
                 {
                     return property.Key;
+                }
+                if (typeName == JsonlGraphFormat.SingleArrayTypeName)
+                {
+                    hasArrayProperty = true;
                 }
             }
 
@@ -507,6 +522,11 @@ namespace NoSQL.GraphDB.App.Controllers
             private int _metaVertexCount = -1;
             private int _metaEdgeCount = -1;
 
+            /// <summary>The file's effective format version: the meta line's declared version once
+            /// seen (a version-1 stamp forbids Single[] properties), otherwise the current build's
+            /// full capability for meta-less (grep-filtered) files.</summary>
+            private int _formatVersion = JsonlGraphFormat.FormatVersion;
+
             internal long LinesRead;
             internal int VerticesCreated;
             internal int EdgesCreated;
@@ -531,7 +551,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     return null; // tolerated (trailing newline, hand-edited files)
                 }
 
-                var parseError = JsonlGraphFormat.TryParseLine(line, out var parsed);
+                var parseError = JsonlGraphFormat.TryParseLine(line, out var parsed, _formatVersion);
                 if (parseError != null)
                 {
                     return ImportError.Line(LinesRead, parseError);
@@ -544,6 +564,7 @@ namespace NoSQL.GraphDB.App.Controllers
                         {
                             return ImportError.Line(LinesRead, "a meta line is only valid as line 1");
                         }
+                        _formatVersion = parsed.MetaFormatVersion;
                         _metaVertexCount = parsed.MetaVertexCount;
                         _metaEdgeCount = parsed.MetaEdgeCount;
                         return null;

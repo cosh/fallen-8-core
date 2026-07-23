@@ -177,10 +177,14 @@ samples (wipe-confirm → import → canvas). Honest errors: 404 (no repo / priv
 
 ## Dataset format & build pipeline
 
-**Format:** exactly `fallen8-jsonl` v1 (bulk-import-export feature) — datasets are
+**Format:** exactly `fallen8-jsonl` (bulk-import-export feature) — datasets are
 ordinary interchange files, loadable by `curl` as much as by the Studio. Embeddings ride
 as the reserved `$embedding:default` float[] property with the `$embeddingModel:default`
-stamp (element-embeddings v1 layout; the engine projects them on import).
+stamp (element-embeddings v1 layout; the engine projects them on import). Implementation
+finding: format v1 could not encode a `float[]` at all — an embedded graph was not even
+*exportable* (422). This feature added **format version 2**: `System.Single[]` as a
+comma-joined `"R"`-float typed pair; the reader accepts 1–2, the writer stamps 2 only
+when an array is present (embedding-free files stay v1 byte-identical).
 
 **Manifest:** `fallen-8-web-ui/public/samples/index.json` — per sample: id, title,
 emoji, pitch, counts, demo badges, suggested next steps, style config, index recipes,
@@ -237,12 +241,15 @@ consumed as-is. (`SampleGraphController`'s `/unittest` fixed graph is untouched.
 
 ## Impact on existing features (mandatory sweep)
 
-- **bulk-import-export** — consumed unchanged; datasets are ordinary v1 interchange
-  files. One-line pointer added to its README ("the Studio's sample graphs are shipped
-  in this format").
+- **bulk-import-export** — **extended, not just consumed**: format version 2 adds
+  `System.Single[]` (see "Dataset format"), fixing the latent gap where an embedded
+  graph could not be exported (422 on `$embedding:*`). Reader accepts v1–v2; v1 output
+  is byte-identical for embedding-free graphs. Its README documents the encoding; the
+  historical spec is untouched.
 - **element-embeddings / embedding-provider / embedding-out-of-box** — consumed
-  unchanged (reserved-property import path, bound-index projection, `/embedding/text`,
-  `/status` gating). No contract changes.
+  (reserved-property import path, bound-index projection, `/embedding/text`,
+  `/status` gating); the element-embeddings README's "rides bulk import/export" claim
+  is now true over REST too and points at the v2 encoding.
 - **studio-canvas-viz** — consumed unchanged (icon/image property, palette, size/width
   mapping). Sample style configs are data, not new style-engine capability.
 - **index-workspace** — loader-created indices appear on the Indexes screen as normal;

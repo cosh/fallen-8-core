@@ -431,7 +431,7 @@
           "Bulk"
         ],
         "summary": "Streams the graph (or a label-filtered subset) as newline-delimited JSON.",
-        "description": "The stream is fallen8-jsonl version 1: one meta line (format version + exact counts),\r\nthen vertex lines, then edge lines. Edges whose endpoints are not both in the exported\r\nvertex set are omitted, so EVERY exported file is internally consistent and importable\r\nby construction.\r\n\r\nCONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads\r\nare lock-free; a write committed during the export may or may not appear. The\r\nguarantee is internal consistency plus \"everything committed before the export began\r\nis present\" (subject to the label filters). For a point-in-time backup, quiesce writes\r\nor use the save-game machinery. The same contract covers a property that an\r\nembedded/plugin writer adds DURING the stream: if it is not exportable it is omitted\r\nfrom its element rather than aborting the response (the REST write path cannot create\r\nsuch properties; the pre-stream 422 covers everything present at capture).",
+        "description": "The stream is fallen8-jsonl: one meta line (format version + exact counts), then\r\nvertex lines, then edge lines. Edges whose endpoints are not both in the exported\r\nvertex set are omitted, so EVERY exported file is internally consistent and importable\r\nby construction. Element embeddings export as their reserved System.Single[]\r\nproperties; a file containing any is stamped format version 2, everything else stays\r\nversion 1 (readable by older builds).\r\n\r\nCONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads\r\nare lock-free; a write committed during the export may or may not appear. The\r\nguarantee is internal consistency plus \"everything committed before the export began\r\nis present\" (subject to the label filters). For a point-in-time backup, quiesce writes\r\nor use the save-game machinery. The same contract covers a property that an\r\nembedded/plugin writer adds DURING the stream: if it is not exportable it is omitted\r\nfrom its element rather than aborting the response (the REST write path cannot create\r\nsuch properties; the pre-stream 422 covers everything present at capture).",
         "parameters": [
           {
             "name": "vertexLabel",
@@ -7054,7 +7054,7 @@
               "integer",
               "string"
             ],
-            "description": "`CountOfKeys()` at snapshot time — live `/status` inventory only,\r\n`null` in save-game KPIs.",
+            "description": "`CountOfKeys()` at snapshot time — live `/status` inventory only,\r\n`null` in save-game KPIs and when the index reports a negative\r\n\"count not supported\" sentinel (e.g. the spatial R-Tree).",
             "format": "int32",
             "example": 1000
           },
@@ -7065,7 +7065,7 @@
               "integer",
               "string"
             ],
-            "description": "`CountOfValues()` at snapshot time (O(entries) on bucket indexes — fine for\r\nthe status poll at self-hosted scale) — live `/status` inventory only,\r\n`null` in save-game KPIs.",
+            "description": "`CountOfValues()` at snapshot time (O(entries) on bucket indexes — fine for\r\nthe status poll at self-hosted scale) — live `/status` inventory only,\r\n`null` in save-game KPIs and for a negative sentinel (see int? IndexDescriptionREST.Keys).",
             "format": "int32",
             "example": 1200
           }
