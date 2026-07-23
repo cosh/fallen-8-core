@@ -16,11 +16,19 @@ import { formatCompact, formatExact } from "../lib/format";
  * generated-graph benchmark, not a measurement of whatever graph happens to be loaded.
  */
 
-const GENERATE_PRESETS = [
-  { label: "small", nodeCount: 200, edgesPerVertex: 5 },
-  { label: "medium", nodeCount: 10_000, edgesPerVertex: 10 },
-  { label: "scale (~1M edges)", nodeCount: 100_000, edgesPerVertex: 10 },
-] as const;
+type Distribution = "uniform" | "preferential";
+
+const GENERATE_PRESETS: ReadonlyArray<{
+  label: string;
+  nodeCount: number;
+  edgesPerVertex: number;
+  distribution: Distribution;
+}> = [
+  { label: "small", nodeCount: 200, edgesPerVertex: 5, distribution: "uniform" },
+  { label: "medium", nodeCount: 10_000, edgesPerVertex: 10, distribution: "uniform" },
+  // Preferential attachment so PageRank/degree on the big graph show real hubs.
+  { label: "scale (~1M edges)", nodeCount: 100_000, edgesPerVertex: 10, distribution: "preferential" },
+];
 
 interface BenchmarkRun {
   at: string;
@@ -36,13 +44,19 @@ export function BenchmarkScreen() {
   const status = useStatus(instance);
   const [nodeCount, setNodeCount] = useState("200");
   const [edgesPerVertex, setEdgesPerVertex] = useState("5");
+  const [distribution, setDistribution] = useState<Distribution>("uniform");
   const [iterations, setIterations] = useState("1000");
   const [generateMessage, setGenerateMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<BenchmarkRun[]>([]);
 
   const generate = useMutation({
     mutationFn: () =>
-      generateGraph(instance, Number(nodeCount) || 200, Number(edgesPerVertex) || 5),
+      generateGraph(
+        instance,
+        Number(nodeCount) || 200,
+        Number(edgesPerVertex) || 5,
+        distribution,
+      ),
     onSuccess: (serverMessage) => {
       setGenerateMessage(serverMessage ?? "Graph generated.");
       queryClient.invalidateQueries({ queryKey: [instance.id] });
@@ -106,6 +120,17 @@ export function BenchmarkScreen() {
                 onChange={(e) => setEdgesPerVertex(e.target.value)}
               />
             </Field>
+            <Field helpKey="benchDistribution" label="distribution" htmlFor="bench-distribution">
+              <select
+                id="bench-distribution"
+                className="input w-32"
+                value={distribution}
+                onChange={(e) => setDistribution(e.target.value as Distribution)}
+              >
+                <option value="uniform">uniform</option>
+                <option value="preferential">preferential</option>
+              </select>
+            </Field>
             <button
               type="button"
               className="btn btn-accent"
@@ -125,6 +150,7 @@ export function BenchmarkScreen() {
                   onClick={() => {
                     setNodeCount(String(preset.nodeCount));
                     setEdgesPerVertex(String(preset.edgesPerVertex));
+                    setDistribution(preset.distribution);
                   }}
                 >
                   {preset.label}

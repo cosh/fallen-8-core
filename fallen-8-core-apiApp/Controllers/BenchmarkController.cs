@@ -67,20 +67,61 @@ namespace NoSQL.GraphDB.App.Controllers
             _introProvider = new ScaleFreeNetwork(fallen8);
         }
 
+        /// <summary>
+        /// Generates a random benchmark graph on top of the current one
+        /// </summary>
+        /// <param name="nodeCount">Vertices to create (default 200)</param>
+        /// <param name="edgeCount">Out-edges added per vertex (default 5)</param>
+        /// <param name="distribution">Edge-target distribution: "uniform" (default) or
+        /// "preferential" (Barabási–Albert-style attachment — heavy-tailed in-degrees, so
+        /// PageRank/degree analytics at scale show real hubs)</param>
+        /// <remarks>
+        /// The generated vertices are unlabeled and the edges carry edge property "A" — exactly
+        /// what GET /benchmark traverses, so generate-then-benchmark is the intended pairing
+        /// regardless of the distribution.
+        /// </remarks>
+        /// <response code="200">A human-readable timing summary</response>
+        /// <response code="400">A non-numeric or negative count, or an unknown distribution</response>
         [HttpGet("/generate")]
         [Produces("application/json")]
-        public async Task<string> CreateGraph([FromQuery] string nodeCount, [FromQuery] string edgeCount)
+        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<string>> CreateGraph([FromQuery] string nodeCount, [FromQuery] string edgeCount, [FromQuery] string distribution = null)
         {
+            var nodes = 200;
+            if (!String.IsNullOrWhiteSpace(nodeCount) && (!Int32.TryParse(nodeCount, out nodes) || nodes < 0))
+            {
+                return BadRequest(String.Format("'{0}' is not a valid node count.", nodeCount));
+            }
+
+            var edgesPerVertex = 5;
+            if (!String.IsNullOrWhiteSpace(edgeCount) && (!Int32.TryParse(edgeCount, out edgesPerVertex) || edgesPerVertex < 0))
+            {
+                return BadRequest(String.Format("'{0}' is not a valid edge count.", edgeCount));
+            }
+
+            bool preferential;
+            if (String.IsNullOrWhiteSpace(distribution) || String.Equals(distribution, "uniform", StringComparison.OrdinalIgnoreCase))
+            {
+                preferential = false;
+            }
+            else if (String.Equals(distribution, "preferential", StringComparison.OrdinalIgnoreCase))
+            {
+                preferential = true;
+            }
+            else
+            {
+                return BadRequest(String.Format("'{0}' is not a valid distribution (expected uniform or preferential).", distribution));
+            }
 
             var sw = Stopwatch.StartNew();
 
-            await _introProvider.CreateScaleFreeNetworkAsync(Convert.ToInt32(nodeCount), Convert.ToInt32(edgeCount));
+            await _introProvider.CreateScaleFreeNetworkAsync(nodes, edgesPerVertex, preferential);
 
             sw.Stop();
 
-            //_fallen8.Trim();
-
-            return String.Format("It took {0}ms to create a Fallen-8 graph with {1} nodes and {2} edges per node.", sw.Elapsed.TotalMilliseconds, nodeCount, edgeCount);
+            return String.Format("It took {0}ms to create a Fallen-8 graph with {1} nodes and {2} edges per node{3}.",
+                sw.Elapsed.TotalMilliseconds, nodes, edgesPerVertex, preferential ? " (preferential attachment)" : "");
         }
 
         /// <summary>

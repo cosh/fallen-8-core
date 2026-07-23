@@ -55,11 +55,17 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         }
 
         /// <summary>
-        /// Creates a scale free network
+        /// Creates a benchmark graph. Despite the class name, the default edge distribution is
+        /// UNIFORM random (no hubs); pass <paramref name="preferentialAttachment"/> for a real
+        /// Barabási–Albert-style scale-free network whose analytics show structure at scale
+        /// (feature sample-graphs). Both distributions write edge property "A" — the exact
+        /// edges <see cref="TryBench"/> traverses.
         /// </summary>
         /// <param name="nodeCount">The number of nodes to create</param>
         /// <param name="edgeCountPerVertex">The number of edges per vertex</param>
-        public async Task CreateScaleFreeNetworkAsync(int nodeCount, int edgeCountPerVertex)
+        /// <param name="preferentialAttachment">Whether targets are drawn preferentially
+        /// (rich-get-richer) instead of uniformly</param>
+        public async Task CreateScaleFreeNetworkAsync(int nodeCount, int edgeCountPerVertex, bool preferentialAttachment = false)
         {
             // The shared local-clock stamp (feature code-quality): the clock convention lives
             // in DateHelper alone - see the comment on DateHelper.GetModificationDate.
@@ -93,20 +99,27 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
             if (edgeCountPerVertex != 0)
             {
-                var partitions = Partitioner.Create(0, verticesCreates.Count);
-
-                // The partitions build their edge transactions CPU-parallel and enqueue without
-                // blocking; the single await below covers all of them, so no pool thread is
-                // pinned while the writer drains the batch.
-                var edgeCommits = new ConcurrentBag<TransactionInformation>();
-
-                Parallel.ForEach(partitions, range =>
+                if (preferentialAttachment)
                 {
-                    var verticesInPartition = range.Item2 - range.Item1;
-                    edgeCommits.Add(CreateEdges(verticesCreates, verticesCreates.GetRange(range.Item1, verticesInPartition), edgeCountPerVertex, creationDate));
-                });
+                    await CreatePreferentialEdgesAsync(verticesCreates, edgeCountPerVertex, creationDate);
+                }
+                else
+                {
+                    var partitions = Partitioner.Create(0, verticesCreates.Count);
 
-                await Task.WhenAll(edgeCommits.Select(commit => commit.Completion));
+                    // The partitions build their edge transactions CPU-parallel and enqueue without
+                    // blocking; the single await below covers all of them, so no pool thread is
+                    // pinned while the writer drains the batch.
+                    var edgeCommits = new ConcurrentBag<TransactionInformation>();
+
+                    Parallel.ForEach(partitions, range =>
+                    {
+                        var verticesInPartition = range.Item2 - range.Item1;
+                        edgeCommits.Add(CreateEdges(verticesCreates, verticesCreates.GetRange(range.Item1, verticesInPartition), edgeCountPerVertex, creationDate));
+                    });
+
+                    await Task.WhenAll(edgeCommits.Select(commit => commit.Completion));
+                }
             }
 
             TrimTransaction tx = new TrimTransaction();
@@ -142,6 +155,61 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             }
 
             return _f8.EnqueueTransaction(edgesCreateTx);
+        }
+
+        /// <summary>
+        /// Barabási–Albert-style attachment: targets are drawn from a pool where every already-
+        /// processed vertex appears once (baseline) plus once per time it was chosen — the rich
+        /// get richer, so the in-degree distribution is heavy-tailed and PageRank/degree at
+        /// scale show real hubs. Sequential by nature (every pick reweights the pool); the picks
+        /// are index lookups, and the transactions are batched like the uniform path's
+        /// partitions. Vertex i gets min(edgesPerVertex, i) out-edges, all toward earlier
+        /// vertices, so the pool always holds enough distinct targets.
+        /// </summary>
+        private async Task CreatePreferentialEdgesAsync(ImmutableList<VertexModel> vertices, int edgesPerVertex, UInt32 creationDate)
+        {
+            const int edgesPerTransaction = 50_000;
+
+            var prng = new Random();
+            var pool = new List<Int32>(vertices.Count * (1 + edgesPerVertex));
+            var commits = new List<TransactionInformation>();
+            var edgesCreateTx = new CreateEdgesTransaction();
+            var edgesInTransaction = 0;
+
+            for (var i = 0; i < vertices.Count; i++)
+            {
+                var targetCount = Math.Min(edgesPerVertex, i);
+                if (targetCount > 0)
+                {
+                    var targets = new HashSet<Int32>();
+                    while (targets.Count < targetCount)
+                    {
+                        targets.Add(pool[prng.Next(0, pool.Count)]);
+                    }
+
+                    foreach (var target in targets)
+                    {
+                        edgesCreateTx.AddEdge(vertices[i].Id, edgeProperty, target, creationDate);
+                        pool.Add(target);
+
+                        if (++edgesInTransaction >= edgesPerTransaction)
+                        {
+                            commits.Add(_f8.EnqueueTransaction(edgesCreateTx));
+                            edgesCreateTx = new CreateEdgesTransaction();
+                            edgesInTransaction = 0;
+                        }
+                    }
+                }
+
+                pool.Add(vertices[i].Id);
+            }
+
+            if (edgesInTransaction > 0)
+            {
+                commits.Add(_f8.EnqueueTransaction(edgesCreateTx));
+            }
+
+            await Task.WhenAll(commits.Select(commit => commit.Completion));
         }
 
         /// <summary>

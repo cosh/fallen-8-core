@@ -162,6 +162,8 @@ export const FIELD_HELP = {
   // ---- benchmark ----
   benchNodeCount: "Vertices to create. The scale preset (100k × 10) builds ~1M edges — expect seconds of server work and real memory.",
   benchEdgesPerVertex: "Out-edges added PER VERTEX (total edges ≈ nodes × this).",
+  benchDistribution:
+    "How edge targets are drawn: uniform (flat, no hubs) or preferential (Barabási–Albert rich-get-richer — hubs emerge, analytics show structure).",
   benchIterations:
     "Timed passes over the generated graph's edges; more iterations tighten the median/stddev.",
 

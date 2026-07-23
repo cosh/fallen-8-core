@@ -1646,10 +1646,13 @@
         "tags": [
           "Benchmark"
         ],
+        "summary": "Generates a random benchmark graph on top of the current one",
+        "description": "The generated vertices are unlabeled and the edges carry edge property \"A\" — exactly\r\nwhat GET /benchmark traverses, so generate-then-benchmark is the intended pairing\r\nregardless of the distribution.",
         "parameters": [
           {
             "name": "nodeCount",
             "in": "query",
+            "description": "Vertices to create (default 200)",
             "schema": {
               "type": "string"
             }
@@ -1657,6 +1660,15 @@
           {
             "name": "edgeCount",
             "in": "query",
+            "description": "Out-edges added per vertex (default 5)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "distribution",
+            "in": "query",
+            "description": "Edge-target distribution: \"uniform\" (default) or\r\n    \"preferential\" (Barabási–Albert-style attachment — heavy-tailed in-degrees, so\r\n    PageRank/degree analytics at scale show real hubs)",
             "schema": {
               "type": "string"
             }
@@ -1678,11 +1690,22 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "A human-readable timing summary",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
                   "type": "string"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A non-numeric or negative count, or an unknown distribution",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
