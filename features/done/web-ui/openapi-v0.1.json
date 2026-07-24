@@ -6470,7 +6470,7 @@
           "Admin"
         ],
         "summary": "Saves the current database state to a file",
-        "description": "Sample request:\r\n\r\n    PUT /save\r\n    {\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\",\r\n       \"savePartitions\": 8\r\n    }\r\n\r\nBoth parameters are optional. If not provided, defaults to the base directory with filename \"Temp.f8s\" and optimal partition count.\r\nThe save is recorded in the save-game registry (feature save-games); the response is the\r\ncreated entry, whose \"location\" field is the path the database was saved to.",
+        "description": "Sample request:\r\n\r\n    PUT /save\r\n    {\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\",\r\n       \"savePartitions\": 8\r\n    }\r\n\r\nBoth parameters are optional. If not provided, the save goes to the configured durability\r\nstorage directory (Fallen8:Durability:StorageDirectory; the app base directory when unset)\r\nusing the CheckpointBaseName (\"Temp.f8s\" by default) and the optimal partition count.\r\nThe save is recorded in the save-game registry (feature save-games); the response is the\r\ncreated entry, whose \"location\" field is the path the database was saved to.",
         "parameters": [
           {
             "name": "ns",
@@ -9279,7 +9279,7 @@
           "Admin"
         ],
         "summary": "Saves the current database state to a file",
-        "description": "Sample request:\r\n\r\n    PUT /save\r\n    {\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\",\r\n       \"savePartitions\": 8\r\n    }\r\n\r\nBoth parameters are optional. If not provided, defaults to the base directory with filename \"Temp.f8s\" and optimal partition count.\r\nThe save is recorded in the save-game registry (feature save-games); the response is the\r\ncreated entry, whose \"location\" field is the path the database was saved to.",
+        "description": "Sample request:\r\n\r\n    PUT /save\r\n    {\r\n       \"saveGameLocation\": \"C:/Fallen8/database.f8s\",\r\n       \"savePartitions\": 8\r\n    }\r\n\r\nBoth parameters are optional. If not provided, the save goes to the configured durability\r\nstorage directory (Fallen8:Durability:StorageDirectory; the app base directory when unset)\r\nusing the CheckpointBaseName (\"Temp.f8s\" by default) and the optimal partition count.\r\nThe save is recorded in the save-game registry (feature save-games); the response is the\r\ncreated entry, whose \"location\" field is the path the database was saved to.",
         "parameters": [
           {
             "name": "api-version",
@@ -13625,7 +13625,7 @@
               "null",
               "string"
             ],
-            "description": "The new name (`^[a-z0-9-]{1,63}$`)."
+            "description": "The new namespace name. Permissive: 1-63 characters of any case, spaces, punctuation, or\r\nUnicode; only empty/whitespace-only, leading/trailing whitespace, \".\" / \"..\", \"/\", \"\\\", and\r\ncontrol characters are rejected. Case-sensitive."
           }
         },
         "description": "Request body for renaming a namespace."
