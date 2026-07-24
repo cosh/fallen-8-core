@@ -97,5 +97,52 @@ namespace NoSQL.GraphDB.Mcp.Tools
             }
             return null;
         }
+
+        /// <summary>The raw element for a named argument (for values whose native type the tool
+        /// interprets itself, e.g. a search literal via <see cref="Bridge.ValueMapping"/>).</summary>
+        public static Boolean TryGetElement(IReadOnlyDictionary<String, JsonElement> args, String name, out JsonElement value)
+        {
+            return args.TryGetValue(name, out value) && value.ValueKind != JsonValueKind.Null;
+        }
+
+        /// <summary>A string-array argument as a set (e.g. <c>include</c>/<c>fields</c>).</summary>
+        public static HashSet<String> GetStringSet(IReadOnlyDictionary<String, JsonElement> args, String name)
+        {
+            var set = new HashSet<String>(StringComparer.OrdinalIgnoreCase);
+            if (args.TryGetValue(name, out var value) && value.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in value.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String)
+                    {
+                        var s = item.GetString();
+                        if (!String.IsNullOrEmpty(s))
+                        {
+                            set.Add(s);
+                        }
+                    }
+                }
+            }
+            return set;
+        }
+
+        /// <summary>A number-array argument as a float vector (e.g. the vector-search query).</summary>
+        public static Single[]? GetSingleArray(IReadOnlyDictionary<String, JsonElement> args, String name)
+        {
+            if (!args.TryGetValue(name, out var value) || value.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+            var list = new List<Single>(value.GetArrayLength());
+            foreach (var item in value.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Number)
+                {
+                    return null;
+                }
+                list.Add(item.GetSingle());
+            }
+            return list.ToArray();
+        }
     }
 }

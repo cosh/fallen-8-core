@@ -159,7 +159,7 @@ Intent: ship it the way it will actually run.
 ## Progress
 
 - [x] Phase 0 — scaffold + schema-shape proof + walking-skeleton round-trip (MCP tool → bridge → real hosted apiApp). *Note: the round-trip is proven at the application layer (ToolCatalog.CallAsync → bridge → WAF apiApp); the last hop — an MCP SDK client over the real Streamable HTTP transport — is the one remaining Phase 0 item, deferred with the loopback-Kestrel test harness.*
-- [ ] Phase 1 — read tier (consolidated, namespace-aware, token-frugal, byte-bounded) + contract + errors
+- [x] Phase 1 — read tier (f8_get/f8_search/f8_paths/f8_analytics, consolidated, namespace-aware, token-frugal, byte-bounded) + OpenAPI contract test + three-rule error mapping. *Note: vector/semantic search modes are implemented and contract-pinned; their end-to-end tests (which need a vector-index + embedding-provider fixture) are deferred — the index/property/fulltext modes are covered E2E.*
 - [ ] Phase 2 — write/admin tiers + code capability + per-op honesty + enforcement matrix
 - [ ] Phase 3 — origin validation, fail-closed remote posture, rate limiter, static bearer (auth B) — v1 merge candidate
 - [ ] Phase 4 — OAuth 2.1 resource server + fail-closed scope→tier (auth C) — fast-follow

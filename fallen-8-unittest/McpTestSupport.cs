@@ -82,6 +82,19 @@ namespace NoSQL.GraphDB.Tests
             return new Fallen8RestClient(new SingleClientFactory(handler, new Uri(baseAddress)));
         }
 
+        /// <summary>The full read tier over a bridge (Phase 1).</summary>
+        internal static IMcpTool[] ReadTools(Fallen8RestClient bridge)
+        {
+            return new IMcpTool[]
+            {
+                new OverviewTool(bridge),
+                new GetTool(bridge),
+                new SearchTool(bridge),
+                new PathsTool(bridge),
+                new AnalyticsTool(bridge),
+            };
+        }
+
         internal static ToolCatalog Catalog(McpToolsOptions tools, IEnumerable<IMcpTool> registeredTools)
         {
             return new ToolCatalog(

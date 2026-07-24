@@ -96,6 +96,11 @@ namespace NoSQL.GraphDB.Mcp.Tools
             }
 
             var status = await _bridge.GetStatusAsync(@namespace, cancellationToken).ConfigureAwait(false);
+            if (status is null)
+            {
+                return ToolResults.Error(404, "Namespace not found", $"No status for namespace '{@namespace}'.");
+            }
+
             return ToolResults.Ok(
                 $"namespace '{@namespace}': {status.VertexCount} vertices, {status.EdgeCount} edges.",
                 BuildStatus(@namespace, status));

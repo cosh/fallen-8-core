@@ -96,7 +96,14 @@ namespace NoSQL.GraphDB.Mcp.Hosting
                 });
 
             services.AddSingleton<Fallen8RestClient>();
+
+            // Read tier (default on). Write/admin tools and the code capability land in Phase 2+.
             services.AddSingleton<IMcpTool, OverviewTool>();
+            services.AddSingleton<IMcpTool, GetTool>();
+            services.AddSingleton<IMcpTool, SearchTool>();
+            services.AddSingleton<IMcpTool, PathsTool>();
+            services.AddSingleton<IMcpTool, AnalyticsTool>();
+
             services.AddSingleton<ToolCatalog>();
 
             var holder = new ProviderHolder();

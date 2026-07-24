@@ -37,13 +37,12 @@ namespace NoSQL.GraphDB.Mcp.Bridge
     /// <summary>
     ///   The one home for talking to a downstream Fallen-8 over its REST API. It is a REST
     ///   bridge, not an engine embedding (spec §2) — it never references the engine or the
-    ///   apiApp, only their public HTTP contract. It owns two cross-cutting concerns so no tool
-    ///   re-implements them: <see cref="UrlSafety">URL-safe route construction</see> and the
-    ///   three-rule error mapping (problem+json → title/detail; other 4xx/5xx string body →
-    ///   detail; 204/200-null → soft-not-found) into <see cref="BridgeError"/> (spec §3.2).
-    ///   Obtains its <see cref="HttpClient"/> from the factory so the primary handler is
-    ///   overridable in tests (the walking-skeleton harness injects the apiApp's in-memory
-    ///   handler — spec §3.11).
+    ///   apiApp, only their public HTTP contract. It owns three cross-cutting concerns so no
+    ///   tool re-implements them: <see cref="UrlSafety">URL-safe route construction</see>,
+    ///   namespace scoping (<c>/ns/{ns}/…</c> vs the bare default route), and the three-rule
+    ///   error mapping (problem+json → title/detail; other 4xx/5xx string body → detail;
+    ///   204/200-null → soft-not-found) into <see cref="BridgeError"/> (spec §3.2). Obtains its
+    ///   <see cref="HttpClient"/> from the factory so the primary handler is overridable in tests.
     /// </summary>
     public sealed class Fallen8RestClient
     {
@@ -60,54 +59,103 @@ namespace NoSQL.GraphDB.Mcp.Bridge
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         }
 
-        /// <summary>The connection probe used at startup and by <c>/healthz</c>. Returns the
-        /// default namespace's status; throws <see cref="BridgeError"/> when unreachable.</summary>
-        public Task<StatusDto> GetStatusAsync(String? @namespace, CancellationToken cancellationToken)
-        {
-            var path = NamespaceScoped(@namespace, "status", out var error);
-            if (path is null)
-            {
-                throw new BridgeError(400, "Invalid namespace", error);
-            }
+        // --- Namespace-scoped, typed helpers -------------------------------------------------
 
-            return GetJsonAsync<StatusDto>(path, cancellationToken)!;
+        /// <summary>GET a namespace-scoped resource and deserialize it (null on soft-not-found).</summary>
+        public Task<T?> GetAsync<T>(String? @namespace, String suffix, CancellationToken cancellationToken)
+        {
+            return SendJsonAsync<T>(HttpMethod.Get, Scoped(@namespace, suffix), null, cancellationToken);
+        }
+
+        /// <summary>POST a JSON body to a namespace-scoped resource and deserialize the reply.</summary>
+        public Task<T?> PostAsync<T>(String? @namespace, String suffix, Object body, CancellationToken cancellationToken)
+        {
+            return SendJsonAsync<T>(HttpMethod.Post, Scoped(@namespace, suffix), body, cancellationToken);
+        }
+
+        /// <summary>The connection probe used by <c>f8_overview</c> and <c>/healthz</c>.</summary>
+        public Task<StatusDto?> GetStatusAsync(String? @namespace, CancellationToken cancellationToken)
+        {
+            return GetAsync<StatusDto>(@namespace, "status", cancellationToken);
         }
 
         /// <summary>Lists the target's namespaces (Fallen-8-level; always the bare route).</summary>
-        public Task<NamespacesDto> ListNamespacesAsync(CancellationToken cancellationToken)
+        public async Task<NamespacesDto> ListNamespacesAsync(CancellationToken cancellationToken)
         {
-            return GetJsonAsync<NamespacesDto>("ns", cancellationToken)!;
+            return await SendJsonAsync<NamespacesDto>(HttpMethod.Get, "ns", null, cancellationToken).ConfigureAwait(false)
+                   ?? new NamespacesDto();
+        }
+
+        /// <summary>Fetches one element's full JSON (the single getter already carries properties +
+        /// grouped adjacency), returning null for the getter's 204/200-null soft-not-found.</summary>
+        public Task<JsonElement?> GetElementAsync(String? @namespace, String kind, Int32 id, CancellationToken cancellationToken)
+        {
+            var suffix = String.Equals(kind, "edge", StringComparison.OrdinalIgnoreCase)
+                ? $"edge/{id}"
+                : $"vertex/{id}";
+            return SendRawAsync(HttpMethod.Get, Scoped(@namespace, suffix), null, cancellationToken);
+        }
+
+        /// <summary>Fetches an element by id without knowing its kind (<c>GET /graphelement/{id}</c>),
+        /// used to enrich search hits whose ids may be vertices or edges. Null on soft-not-found.</summary>
+        public Task<JsonElement?> GetGraphElementAsync(String? @namespace, Int32 id, CancellationToken cancellationToken)
+        {
+            return SendRawAsync(HttpMethod.Get, Scoped(@namespace, $"graphelement/{id}"), null, cancellationToken);
         }
 
         /// <summary>
         ///   Builds a namespace-scoped relative path: the bare <c>{suffix}</c> for the reserved
         ///   default, or <c>ns/{encoded}/{suffix}</c> otherwise, with the namespace validated and
-        ///   percent-encoded (spec §3.9). Returns null (with <paramref name="error"/>) for an
-        ///   invalid namespace so the caller can surface a clean tool error.
+        ///   percent-encoded (spec §3.9). Throws a clean <see cref="BridgeError"/> for an invalid
+        ///   namespace so the tool surfaces it as an error rather than issuing a bad request.
         /// </summary>
-        private static String? NamespaceScoped(String? @namespace, String suffix, out String error)
+        private static String Scoped(String? @namespace, String suffix)
         {
-            error = String.Empty;
             if (UrlSafety.IsDefault(@namespace))
             {
                 return suffix;
             }
 
-            if (!UrlSafety.TryEncodeNamespace(@namespace, out var encoded, out error))
+            if (!UrlSafety.TryEncodeNamespace(@namespace, out var encoded, out var error))
             {
-                return null;
+                throw new BridgeError(400, "Invalid namespace", error);
             }
 
             return $"ns/{encoded}/{suffix}";
         }
 
-        private async Task<T?> GetJsonAsync<T>(String relativePath, CancellationToken cancellationToken)
+        // --- Core send + error mapping -------------------------------------------------------
+
+        private async Task<T?> SendJsonAsync<T>(HttpMethod method, String relativePath, Object? body, CancellationToken cancellationToken)
+        {
+            var text = await SendAsync(method, relativePath, body, cancellationToken).ConfigureAwait(false);
+            return text is null ? default : JsonSerializer.Deserialize<T>(text, JsonOptions);
+        }
+
+        private async Task<JsonElement?> SendRawAsync(HttpMethod method, String relativePath, Object? body, CancellationToken cancellationToken)
+        {
+            var text = await SendAsync(method, relativePath, body, cancellationToken).ConfigureAwait(false);
+            return text is null ? null : JsonSerializer.Deserialize<JsonElement>(text, JsonOptions);
+        }
+
+        /// <summary>
+        ///   The single HTTP send + status handling. Returns the response body text, or null for
+        ///   the soft-not-found convention (204, or 200 with a literal <c>null</c> body); throws a
+        ///   mapped <see cref="BridgeError"/> for a 4xx/5xx or a transport failure.
+        /// </summary>
+        private async Task<String?> SendAsync(HttpMethod method, String relativePath, Object? body, CancellationToken cancellationToken)
         {
             using var client = _factory.CreateClient(HttpClientName);
+            using var request = new HttpRequestMessage(method, relativePath);
+            if (body is not null)
+            {
+                request.Content = JsonContent.Create(body, mediaType: null, JsonOptions);
+            }
+
             HttpResponseMessage response;
             try
             {
-                response = await client.GetAsync(relativePath, cancellationToken).ConfigureAwait(false);
+                response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
             }
             catch (HttpRequestException ex)
             {
@@ -125,19 +173,13 @@ namespace NoSQL.GraphDB.Mcp.Bridge
                     throw await MapErrorAsync(response, cancellationToken).ConfigureAwait(false);
                 }
 
-                // Soft-not-found: 204, or 200 with a literal null body (the getters' convention).
                 if (response.StatusCode == HttpStatusCode.NoContent)
                 {
-                    return default;
+                    return null;
                 }
 
-                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                if (String.IsNullOrWhiteSpace(body) || body.Trim() == "null")
-                {
-                    return default;
-                }
-
-                return JsonSerializer.Deserialize<T>(body, JsonOptions);
+                var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                return String.IsNullOrWhiteSpace(text) || text.Trim() == "null" ? null : text;
             }
         }
 
