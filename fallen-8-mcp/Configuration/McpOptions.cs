@@ -74,6 +74,21 @@ namespace NoSQL.GraphDB.Mcp.Configuration
         /// <summary>Allowed <c>Origin</c> values (DNS-rebinding protection). A missing/empty
         /// Origin is allowed (non-browser clients); loopback origins are allowed by default.</summary>
         public IList<String> Origins { get; set; } = new List<String>();
+
+        /// <summary>Fixed-window request throttle for the HTTP transport (right-sized backpressure
+        /// for the single-process downstream against a looping agent).</summary>
+        public McpRateLimitOptions RateLimit { get; set; } = new();
+    }
+
+    /// <summary>A lightweight fixed-window limiter (spec §3.3).</summary>
+    public sealed class McpRateLimitOptions
+    {
+        /// <summary>Requests permitted per window (0 disables the limiter).</summary>
+        public Int32 PermitPerWindow { get; set; } = 600;
+
+        public Int32 WindowSeconds { get; set; } = 60;
+
+        public Boolean Enabled => PermitPerWindow > 0;
     }
 
     /// <summary>Opt-in tool tiers (spec §3.6). All default off (least privilege).</summary>

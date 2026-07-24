@@ -24,10 +24,12 @@
 // SOFTWARE.
 
 using System;
+using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -77,26 +79,96 @@ namespace NoSQL.GraphDB.Mcp
             await host.RunAsync().ConfigureAwait(false);
         }
 
-        /// <summary>Remote: Streamable HTTP over Kestrel, loopback-bound by default (spec §3.3).</summary>
+        /// <summary>Remote: Streamable HTTP over Kestrel, loopback-bound by default, with origin
+        /// validation, a fixed-window rate limiter, and (mode-dependent) a static bearer — spec
+        /// §3.3/§3.8.</summary>
         private static async Task RunHttpAsync(String[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            var bind = builder.Configuration.GetSection(McpOptions.SectionName).Get<McpOptions>() ?? new McpOptions();
-            builder.WebHost.UseUrls($"http://{bind.Security.BindAddress}:{bind.Port}");
+            var mcp = builder.Configuration.GetSection(McpOptions.SectionName).Get<McpOptions>() ?? new McpOptions();
+            builder.WebHost.UseUrls($"http://{mcp.Security.BindAddress}:{mcp.Port}");
+
+            if (mcp.Security.RateLimit.Enabled)
+            {
+                builder.Services.AddRateLimiter(options =>
+                {
+                    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, String>(_ =>
+                        RateLimitPartition.GetFixedWindowLimiter("mcp", _ => new FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = mcp.Security.RateLimit.PermitPerWindow,
+                            Window = TimeSpan.FromSeconds(mcp.Security.RateLimit.WindowSeconds),
+                            QueueLimit = 0,
+                        }));
+                });
+            }
+
+            // Behind a TLS-terminating proxy the server sees http://; trust the forwarded scheme/host
+            // so Phase C metadata (and the cleartext-auth check) reflect the external identity.
+            builder.Services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                options.ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+                options.KnownIPNetworks.Clear();
+                options.KnownProxies.Clear();
+            });
 
             var holder = McpHost.AddFallen8Mcp(builder.Services, builder.Configuration, stdio: false);
 
             var app = builder.Build();
             holder.Provider = app.Services;
+            var logger = app.Services.GetRequiredService<ILogger<Program>>();
+
+            // Fail-closed: a non-loopback bind must not run anonymously (spec §3.3).
+            var refusal = TransportSecurity.EvaluateStartupRefusal(mcp);
+            if (refusal is not null)
+            {
+                logger.LogCritical("{Refusal}", refusal);
+                throw new InvalidOperationException(refusal);
+            }
+
+            app.UseForwardedHeaders();
+            if (mcp.Security.RateLimit.Enabled)
+            {
+                app.UseRateLimiter();
+            }
+
+            // Origin validation (DNS-rebinding) + static bearer (Phase B). /healthz stays anonymous.
+            app.Use(async (context, next) =>
+            {
+                if (!context.Request.Path.StartsWithSegments("/healthz"))
+                {
+                    if (!TransportSecurity.IsOriginAllowed(context.Request.Headers["Origin"].ToString(), mcp.Security))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        return;
+                    }
+
+                    if (String.Equals(mcp.Auth.Mode, "StaticToken", StringComparison.OrdinalIgnoreCase) &&
+                        !TransportSecurity.IsBearerValid(context.Request.Headers["Authorization"].ToString(), mcp.Auth.StaticToken))
+                    {
+                        context.Response.Headers["WWW-Authenticate"] = "Bearer";
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        return;
+                    }
+                }
+
+                await next().ConfigureAwait(false);
+            });
 
             app.MapMcp();
             app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 
             McpHost.LogStartupPosture(
-                app.Services.GetRequiredService<ILogger<Program>>(),
-                app.Services.GetRequiredService<IOptions<McpOptions>>().Value,
+                logger,
+                mcp,
                 app.Services.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value);
+
+            if (!mcp.Auth.IsAnonymous && !TransportSecurity.IsLoopbackHost(mcp.Security.BindAddress))
+            {
+                logger.LogWarning(
+                    "Auth is enabled on a non-loopback bind — ensure TLS terminates in front of this server so bearer tokens are not sent in cleartext (spec §3.3).");
+            }
 
             await app.RunAsync().ConfigureAwait(false);
         }
