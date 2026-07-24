@@ -43,43 +43,6 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class McpContractTest
     {
-        // Every (route template, method) the bridge issues. Bare routes; the /ns/{ns} twins are
-        // the same templates under a prefix and are covered by the namespace round-trip tests.
-        private static readonly (String Path, String Method)[] BridgedEndpoints =
-        {
-            ("/status", "get"),
-            ("/ns", "get"),
-            ("/statistics", "get"),
-            ("/vertex/{vertexIdentifier}", "get"),
-            ("/edge/{edgeIdentifier}", "get"),
-            ("/graphelement/{graphElementIdentifier}", "get"),
-            ("/scan/index/all", "post"),
-            ("/scan/graph/property/{propertyId}", "post"),
-            ("/scan/index/fulltext", "post"),
-            ("/scan/index/vector", "post"),
-            ("/embedding/search", "post"),
-            ("/path/{from}/to/{to}", "post"),
-            ("/analytics/algorithms", "get"),
-            ("/analytics/{algorithmName}", "post"),
-            // Write tier (Phase 2).
-            ("/vertex", "put"),
-            ("/edge", "put"),
-            ("/graphelement/{graphElementIdentifier}/{propertyIdString}", "put"),
-            ("/graphelement/{graphElementIdentifier}/{propertyIdString}", "delete"),
-            ("/graphelement/{graphElementIdentifier}", "delete"),
-            ("/graphelement/{graphElementIdentifier}/embedding/{embeddingName}", "put"),
-            ("/subgraph", "put"),
-            ("/ns/{name}", "put"),
-            ("/ns/{name}", "patch"),
-            ("/ns/{name}", "delete"),
-            // Admin tier (Phase 2).
-            ("/save", "put"),
-            ("/savegames", "get"),
-            ("/savegames/{id}/load", "put"),
-            ("/trim", "head"),
-            ("/tabularasa", "head"),
-        };
-
         private static JsonElement Paths()
         {
             var snapshot = Path.Combine(TestRepo.Root(), "features", "done", "web-ui", "openapi-v0.1.json");
@@ -94,12 +57,12 @@ namespace NoSQL.GraphDB.Tests
             var paths = Paths();
             var missing = new List<String>();
 
-            foreach (var (path, method) in BridgedEndpoints)
+            foreach (var (method, path) in McpBridgedEndpoints.All)
             {
                 if (!paths.TryGetProperty(path, out var operations) ||
-                    !operations.TryGetProperty(method, out _))
+                    !operations.TryGetProperty(method.ToLowerInvariant(), out _))
                 {
-                    missing.Add($"{method.ToUpperInvariant()} {path}");
+                    missing.Add($"{method} {path}");
                 }
             }
 

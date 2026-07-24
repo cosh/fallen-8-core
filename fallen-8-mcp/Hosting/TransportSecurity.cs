@@ -123,6 +123,15 @@ namespace NoSQL.GraphDB.Mcp.Hosting
         /// </summary>
         public static String? EvaluateStartupRefusal(McpOptions options)
         {
+            // StaticToken mode with no token is credential-less by mistake — fail closed
+            // regardless of bind, so an empty token can never silently 401 every request.
+            if (String.Equals(options.Auth.Mode, "StaticToken", StringComparison.OrdinalIgnoreCase) &&
+                String.IsNullOrEmpty(options.Auth.StaticToken))
+            {
+                return "Refusing to start: auth mode is 'StaticToken' but Mcp:Auth:StaticToken is empty. " +
+                       "Set a strong token (compose: F8_MCP_TOKEN), or use a different auth mode.";
+            }
+
             var bindsNonLoopback = !IsLoopbackHost(options.Security.BindAddress);
             if (!bindsNonLoopback || options.Security.AcceptAnonymousRemote)
             {

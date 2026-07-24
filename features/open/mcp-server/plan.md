@@ -163,7 +163,7 @@ Intent: ship it the way it will actually run.
 - [x] Phase 2 — write/admin tiers (f8_mutate/f8_subgraph/f8_namespace/f8_admin) + code capability (widens f8_paths/f8_subgraph) + per-op honesty + enforcement matrix
 - [x] Phase 3 — origin validation, fail-closed remote posture, rate limiter, static bearer (auth B), forwarded-headers + cleartext-auth guard — v1 merge candidate
 - [x] Phase 4 — OAuth 2.1 resource server (JWT validation, RFC 9728 PRM + challenge, mandatory audience binding, fail-closed scope→tier, no token passthrough)
-- [ ] Phase 5 — Dockerfile, credentialed compose profile + env-up integration, READMEs, docs
+- [x] Phase 5 — Dockerfile, credentialed compose profile (F8_MCP=1) + env-up integration, feature README + docs/mcp-server.md + root README; engine→REST→MCP governance gate (McpRestCoverageTest) + CLAUDE.md rule
 - [ ] Phase 6 — architect/council gate, merge + move to done/
 
 ## Decision / revisit conditions

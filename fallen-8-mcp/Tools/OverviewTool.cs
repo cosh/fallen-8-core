@@ -69,6 +69,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 InputSchema = SchemaBuilder.Create()
                     .Str("namespace",
                         "The namespace (graph) to inspect. Omit to list all namespaces. Defaults to 'default'.")
+                    .Str("detail", "'statistics' adds the full graph-shape snapshot (label/key cardinalities, " +
+                        "degree distribution, index inventory).", choices: new[] { "status", "statistics" })
                     .Build(),
                 Annotations = new ToolAnnotations
                 {
@@ -101,9 +103,20 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 return ToolResults.Error(404, "Namespace not found", $"No status for namespace '{@namespace}'.");
             }
 
+            var node = BuildStatus(@namespace, status);
+
+            if (String.Equals(ToolArgs.GetString(arguments, "detail"), "statistics", StringComparison.OrdinalIgnoreCase))
+            {
+                var statistics = await _bridge.GetAsync<JsonElement>(@namespace, "statistics", cancellationToken).ConfigureAwait(false);
+                if (statistics.ValueKind == JsonValueKind.Object)
+                {
+                    node["statistics"] = JsonNode.Parse(statistics.GetRawText());
+                }
+            }
+
             return ToolResults.Ok(
                 $"namespace '{@namespace}': {status.VertexCount} vertices, {status.EdgeCount} edges.",
-                BuildStatus(@namespace, status));
+                node);
         }
 
         private static JsonNode BuildNamespaceDirectory(NamespacesDto list)

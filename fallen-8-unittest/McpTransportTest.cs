@@ -89,7 +89,15 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNull(Refusal("127.0.0.1", "None", accept: false), "loopback + anonymous is fine");
             Assert.IsNotNull(Refusal("0.0.0.0", "None", accept: false), "non-loopback + anonymous is refused");
             Assert.IsNull(Refusal("0.0.0.0", "None", accept: true), "the explicit override permits anonymous remote");
-            Assert.IsNull(Refusal("0.0.0.0", "StaticToken", accept: false), "non-loopback with auth is fine");
+            Assert.IsNull(Refusal("0.0.0.0", "StaticToken", accept: false), "non-loopback with a real token is fine");
+
+            // StaticToken mode with an EMPTY token fails closed regardless of bind.
+            var emptyToken = TransportSecurity.EvaluateStartupRefusal(new McpOptions
+            {
+                Security = new McpSecurityOptions { BindAddress = "127.0.0.1" },
+                Auth = new McpAuthOptions { Mode = "StaticToken", StaticToken = "" },
+            });
+            Assert.IsNotNull(emptyToken, "StaticToken mode with no token is refused (credential-less by mistake)");
         }
 
         private static String Refusal(String bind, String authMode, Boolean accept)
@@ -97,7 +105,7 @@ namespace NoSQL.GraphDB.Tests
             return TransportSecurity.EvaluateStartupRefusal(new McpOptions
             {
                 Security = new McpSecurityOptions { BindAddress = bind, AcceptAnonymousRemote = accept },
-                Auth = new McpAuthOptions { Mode = authMode },
+                Auth = new McpAuthOptions { Mode = authMode, StaticToken = authMode == "StaticToken" ? "a-real-token" : null },
             });
         }
 

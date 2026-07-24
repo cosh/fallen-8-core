@@ -104,6 +104,49 @@ services:
     networks:
       - f8-net
 
+  # AI-agent surface (feature mcp-server): a SEPARATE deployable that bridges MCP to the
+  # fallen8 service over REST. OFF by default — it only starts under the "mcp" profile
+  # (F8_MCP=1 npm run env:up, or `docker compose --profile mcp up`), so a bare `up` is
+  # unchanged. Credentialed by construction: it binds 0.0.0.0 (a container must, to be
+  # reachable) and therefore REQUIRES a static bearer token (F8_MCP_TOKEN) — compose refuses
+  # to start the profile without one, matching the server's own fail-closed posture.
+  f8-mcp:
+    build:
+      context: .
+      dockerfile: fallen-8-mcp/Dockerfile
+    profiles: [mcp]
+    restart: unless-stopped
+    ports:
+      - "${F8_MCP_PORT:-8090}:8090"
+    environment:
+      # The downstream Fallen-8 this bridge points at (in-network) + its own single
+      # credential. The caller's token (below) is NEVER forwarded here.
+      - Fallen8Target__BaseUrl=http://fallen8:8080
+      - Fallen8Target__ApiKey=${F8_API_KEY:-}
+      # Caller auth: a static bearer. F8_MCP_TOKEN is REQUIRED — but enforced at the server
+      # (it fails closed when StaticToken mode has no token) rather than with compose's ":?"
+      # required-variable syntax, which interpolates even for this inactive-by-default profiled
+      # service and would break a bare `docker compose up`. npm run env:up (F8_MCP=1) also
+      # refuses without it.
+      - Mcp__Auth__Mode=StaticToken
+      - Mcp__Auth__StaticToken=${F8_MCP_TOKEN:-}
+      - Mcp__Security__AllowRemoteAccess=true
+      # Tool tiers are least-privilege by default; opt in per deployment.
+      - Mcp__Tools__EnableWrite=${F8_MCP_ENABLE_WRITE:-false}
+      - Mcp__Tools__EnableAdmin=${F8_MCP_ENABLE_ADMIN:-false}
+      - Mcp__Tools__EnableCode=${F8_MCP_ENABLE_CODE:-false}
+    depends_on:
+      fallen8:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8090/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - f8-net
+
 volumes:
   # Explicit names keep the volumes stable regardless of the compose project name (and
   # reuse an already-pulled model set from earlier setups).
