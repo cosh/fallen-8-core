@@ -64,7 +64,11 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// <summary>Request body for renaming a namespace.</summary>
     public sealed class NamespaceRenameSpecification
     {
-        /// <summary>The new name (<c>^[a-z0-9-]{1,63}$</c>).</summary>
+        /// <summary>
+        ///   The new namespace name. Permissive: 1-63 characters of any case, spaces, punctuation, or
+        ///   Unicode; only empty/whitespace-only, leading/trailing whitespace, "." / "..", "/", "\", and
+        ///   control characters are rejected. Case-sensitive.
+        /// </summary>
         public String Name { get; set; }
     }
 }

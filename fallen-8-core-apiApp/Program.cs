@@ -239,8 +239,9 @@ namespace NoSQL.GraphDB.App
             builder.Configuration.GetSection(Fallen8SecurityOptions.SectionName).Bind(security);
 
             // Authentication: an API-key scheme. When no key is configured it authenticates nobody
-            // (the server logs a warning below and runs unauthenticated, mitigated by the
-            // loopback-by-default bind and the off-by-default code/plugin gates).
+            // (the server logs a warning below and runs unauthenticated; the only out-of-the-box
+            // mitigation is the off-by-default code/plugin gates - the bind is whatever
+            // ASPNETCORE_URLS/Kestrel is configured to, not loopback-only).
             builder.Services.AddAuthentication(Fallen8SecurityOptions.ApiKeyScheme)
                 .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
                     Fallen8SecurityOptions.ApiKeyScheme, _ => { });
@@ -437,8 +438,9 @@ namespace NoSQL.GraphDB.App
 
             // The Prometheus scrape endpoint (feature observability). Anonymous BY DEFAULT - a
             // deliberate, documented call (spec §3.7): the inventory carries zero user-supplied
-            // strings, /status already exposes counts+memory anonymously, and the server binds
-            // loopback by default. Prometheus:RequireApiKey=true drops the exemption.
+            // strings and /status already exposes counts+memory anonymously. Set
+            // Prometheus:RequireApiKey=true (with an ApiKey) to require the key when /metrics is
+            // reachable off-box.
             if (observability.Prometheus.Enabled)
             {
                 var metricsEndpoint = app.MapPrometheusScrapingEndpoint("/metrics");

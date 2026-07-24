@@ -41,8 +41,9 @@ namespace NoSQL.GraphDB.App.Security
     ///   authenticated when it carries the configured header whose value matches
     ///   <see cref="Fallen8SecurityOptions.ApiKey"/> (compared in constant time). When no key is
     ///   configured the handler authenticates nobody (returns NoResult) - the server then runs
-    ///   unauthenticated, which is why the loopback-by-default bind and the off-by-default code/plugin
-    ///   gates are the out-of-the-box protections. The comparison never logs the key.
+    ///   unauthenticated, so the off-by-default code/plugin gates are the only out-of-the-box
+    ///   protection (the bind is whatever ASPNETCORE_URLS/Kestrel is configured to, not loopback-only).
+    ///   The comparison never logs the key.
     /// </summary>
     public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
     {
@@ -64,8 +65,8 @@ namespace NoSQL.GraphDB.App.Security
             if (String.IsNullOrEmpty(configuredKey))
             {
                 // No credential configured: authenticate nobody (do not fail - a missing scheme result
-                // lets an [AllowAnonymous] endpoint still serve, and the loopback/gate defaults protect
-                // the dangerous surface).
+                // lets an [AllowAnonymous] endpoint still serve; the off-by-default code/plugin gates
+                // protect the dangerous surface).
                 return Task.FromResult(AuthenticateResult.NoResult());
             }
 

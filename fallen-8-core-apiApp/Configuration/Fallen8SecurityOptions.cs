@@ -57,8 +57,8 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>
         ///   The API key required in the <see cref="ApiKeyHeader"/>. Supply from user-secrets or
         ///   environment - NEVER a checked-in default. When null/blank the API-key scheme authenticates
-        ///   nobody: the server logs a prominent warning and runs UNAUTHENTICATED (mitigated by the
-        ///   loopback-by-default bind and the code/plugin endpoints being off by default).
+        ///   nobody: the server logs a prominent warning and runs UNAUTHENTICATED (only mitigated by the
+        ///   code/plugin endpoints being off by default).
         /// </summary>
         public String ApiKey { get; set; }
 
@@ -107,9 +107,10 @@ namespace NoSQL.GraphDB.App.Configuration
         public Int32 RateLimitWindowSeconds { get; set; } = 10;
 
         /// <summary>
-        ///   When false (default) the app binds to loopback only, so the anonymous-by-default surface is
-        ///   not reachable off-box unless the operator opts in. When true the app honours the configured
-        ///   Kestrel/Urls binding.
+        ///   Reserved and currently NOT enforced: the app binds wherever ASPNETCORE_URLS / Kestrel is
+        ///   configured (0.0.0.0:8080 in the container image) regardless of this value. Do not rely on it
+        ///   to keep the surface loopback-only - control off-box reachability via the bind address and set
+        ///   an <see cref="ApiKey"/>.
         /// </summary>
         public Boolean AllowRemoteAccess { get; set; } = false;
 

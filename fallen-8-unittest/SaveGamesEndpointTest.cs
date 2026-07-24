@@ -149,6 +149,32 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Save_WithoutLocation_WritesIntoConfiguredStorageDirectory()
+        {
+            // A bare PUT /save (no saveGameLocation) must land in Fallen8:Durability:StorageDirectory -
+            // the same place the durability lifecycle saves and loads - not the app's binary directory,
+            // so an interactive save in a container is written to the mounted data volume and survives a
+            // container recreation (and stays consistent with registry-driven boot).
+            using var factory = new Factory(_storageDir, _metaDir, isVolatile: false);
+            using var client = factory.CreateClient();
+
+            await client.PutAsync("/vertex?waitForCompletion=true",
+                new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
+
+            var save = await client.PutAsync("/save?waitForCompletion=true",
+                new StringContent("{}", Encoding.UTF8, "application/json"));
+            Assert.AreEqual(HttpStatusCode.OK, save.StatusCode);
+
+            var entry = JsonSerializer.Deserialize<SaveGameDto>(await save.Content.ReadAsStringAsync(), _json);
+            Assert.IsFalse(String.IsNullOrWhiteSpace(entry.Location), "The save entry must report where it was written.");
+
+            var savedDir = Path.GetDirectoryName(Path.GetFullPath(entry.Location));
+            Assert.AreEqual(Path.GetFullPath(_storageDir), savedDir,
+                "A default save must be written into the configured StorageDirectory, not the app base directory.");
+            Assert.IsTrue(File.Exists(entry.Location), "The checkpoint file should exist at the reported location.");
+        }
+
+        [TestMethod]
         public async Task Load_AutoRegistersUnknownCheckpoint_Once()
         {
             // First host: create + save a checkpoint, capture its path.

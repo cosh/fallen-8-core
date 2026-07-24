@@ -82,7 +82,8 @@ namespace NoSQL.GraphDB.App.Configuration
 
             /// <summary>When true, /metrics requires the API key like any other endpoint instead
             /// of the documented anonymous default (spec §3.7 - the inventory carries zero
-            /// user-supplied strings, and the server binds loopback by default).</summary>
+            /// user-supplied strings). Set this (with an ApiKey) when /metrics is reachable
+            /// off-box.</summary>
             public Boolean RequireApiKey { get; set; }
         }
 

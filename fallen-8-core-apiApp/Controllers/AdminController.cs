@@ -113,7 +113,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
         public AdminController(ILogger<AdminController> logger, IFallen8 fallen8, IOptions<Fallen8SecurityOptions> security,
             Services.SaveGameRegistry saveGames, Embedding.Fallen8EmbeddingProvider embeddingProvider = null,
-            Fallen8Namespaces namespaces = null)
+            Fallen8Namespaces namespaces = null, IOptions<Fallen8DurabilityOptions> durability = null)
         {
             _embeddingProvider = embeddingProvider;
 
@@ -123,11 +123,14 @@ namespace NoSQL.GraphDB.App.Controllers
 
             _fallen8 = fallen8;
 
-            _saveFile = "Temp.f8s";
-
-            string currentAssemblyDirectoryName = AppContext.BaseDirectory;
-
-            _savePath = System.IO.Path.Combine(currentAssemblyDirectoryName, _saveFile);
+            // The default save location honours Fallen8:Durability (StorageDirectory + CheckpointBaseName),
+            // so an interactive PUT /save lands where the durability lifecycle saves and loads - on the
+            // mounted data volume in a container, not the app's binary directory (which does not survive a
+            // container recreation). Null under direct unit construction falls back to the historical
+            // base-directory default.
+            var durabilityOptions = durability?.Value ?? new Fallen8DurabilityOptions();
+            _savePath = durabilityOptions.ResolveCheckpointPath();
+            _saveFile = System.IO.Path.GetFileName(_savePath);
 
             _optimalNumberOfPartitions = Convert.ToInt32(Environment.ProcessorCount * 3 / 2);
 
@@ -342,7 +345,9 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        "savePartitions": 8
         ///     }
         ///
-        /// Both parameters are optional. If not provided, defaults to the base directory with filename "Temp.f8s" and optimal partition count.
+        /// Both parameters are optional. If not provided, the save goes to the configured durability
+        /// storage directory (Fallen8:Durability:StorageDirectory; the app base directory when unset)
+        /// using the CheckpointBaseName ("Temp.f8s" by default) and the optimal partition count.
         /// The save is recorded in the save-game registry (feature save-games); the response is the
         /// created entry, whose "location" field is the path the database was saved to.
         /// </remarks>
