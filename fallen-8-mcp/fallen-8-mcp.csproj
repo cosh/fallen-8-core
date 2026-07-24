@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NoSQL.GraphDB.Mcp</RootNamespace>
+    <AssemblyName>fallen-8-mcp</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Official MCP C# SDK. Stable 1.4.x line (pins the 2025-06-18 protocol revision the
+         server advertises). ModelContextProtocol.AspNetCore transitively brings the core +
+         hosting packages; version pinned exactly per the repo's exact-version gate. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.1" />
+  </ItemGroup>
+
+</Project>

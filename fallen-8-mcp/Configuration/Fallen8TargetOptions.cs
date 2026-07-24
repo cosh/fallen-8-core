@@ -1,0 +1,56 @@
+// MIT License
+//
+// Fallen8TargetOptions.cs
+//
+// Copyright (c) 2026 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+
+namespace NoSQL.GraphDB.Mcp.Configuration
+{
+    /// <summary>
+    ///   The downstream Fallen-8 the bridge points at (config section <c>Fallen8Target</c>).
+    ///   Named <c>Fallen8Target</c> — not a bare <c>F8</c> — because the repo's .NET config
+    ///   sections are all <c>Fallen8:*</c> and <c>F8_*</c> already means the compose shell
+    ///   variables; this section says "a remote Fallen-8 I point at" (spec §3.9).
+    /// </summary>
+    public sealed class Fallen8TargetOptions
+    {
+        public const String SectionName = "Fallen8Target";
+
+        /// <summary>The base URL, e.g. <c>http://fallen8:8080</c> in-network or an https URL
+        /// cross-host.</summary>
+        public String BaseUrl { get; set; } = "http://localhost:8080";
+
+        /// <summary>The API key this server presents to Fallen-8 (its own single downstream
+        /// identity — spec §3.9). Never surfaced to callers.</summary>
+        public String? ApiKey { get; set; }
+
+        /// <summary>The header the key is sent under (default <c>X-Api-Key</c>, mirroring
+        /// api-security-boundary; the apiApp also accepts <c>Authorization: Bearer</c>).</summary>
+        public String ApiKeyHeader { get; set; } = "X-Api-Key";
+
+        /// <summary>Lab-only escape hatch that disables downstream TLS validation for a
+        /// self-signed Fallen-8. Default false; loudly logged when on.</summary>
+        public Boolean TlsInsecure { get; set; }
+    }
+}
