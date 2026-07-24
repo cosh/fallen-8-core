@@ -8,6 +8,7 @@ import type {
 } from "../api/types";
 import { Stat } from "./Stat";
 import { ErrorBox } from "./ErrorBox";
+import { Truncated } from "./Truncated";
 
 function CardinalityColumn({
   title,
@@ -32,8 +33,9 @@ function CardinalityColumn({
             key={entry.name ?? "—"}
             className="text-fg-dim flex justify-between gap-2"
           >
-            <span className="truncate">{entry.name ?? "—"}</span>
-            <span className="text-fg-faint">{entry.count.toLocaleString()}</span>
+            {/* min-w-0 flex-1 is what makes the truncate actually bite in a flex row. */}
+            <Truncated text={entry.name ?? "—"} className="min-w-0 flex-1" />
+            <span className="text-fg-faint shrink-0">{entry.count.toLocaleString()}</span>
           </li>
         ))}
       </ul>

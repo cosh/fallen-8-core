@@ -26,6 +26,8 @@ import {
 } from "../components/StoredQueryControls";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
+import { Truncated } from "../components/Truncated";
+import { DISPLAY_CAP } from "../lib/truncate";
 
 /**
  * Path finder (FR-12/13/14): BLS vs Dijkstra with the explainer, defaults pre-filled,
@@ -398,11 +400,12 @@ export function PathScreen() {
                       Overlay on canvas
                     </button>
                   </div>
-                  <ol className="text-fg-dim mt-1 text-[11px]">
+                  <ol className="text-fg-dim mt-1 wrap-break-word text-[11px]">
                     {path.pathElements.map((el, i) => (
                       <li key={i}>
-                        {el.sourceVertexId} —{el.edgePropertyId ?? "?"} (edge {el.edgeId},
-                        w={el.weight})→ {el.targetVertexId}
+                        {el.sourceVertexId} —
+                        <Truncated text={el.edgePropertyId ?? "?"} max={DISPLAY_CAP.propertyKey} />{" "}
+                        (edge {el.edgeId}, w={el.weight})→ {el.targetVertexId}
                       </li>
                     ))}
                   </ol>

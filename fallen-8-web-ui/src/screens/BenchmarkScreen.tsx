@@ -8,6 +8,8 @@ import { useStatus } from "../state/status";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { Stat } from "../components/Stat";
+import { Truncated } from "../components/Truncated";
+import { DISPLAY_CAP } from "../lib/truncate";
 import { formatCompact, formatExact } from "../lib/format";
 
 /**
@@ -84,8 +86,9 @@ export function BenchmarkScreen() {
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex items-center gap-2">
-        <h1 className="text-fg text-sm font-bold tracking-wider uppercase">
-          Benchmark — {instance.name}
+        <h1 className="text-fg flex min-w-0 items-baseline gap-1 text-sm font-bold tracking-wider uppercase">
+          <span className="shrink-0">Benchmark —</span>
+          <Truncated text={instance.name} max={DISPLAY_CAP.name} />
         </h1>
         {status.data && (
           <span className="text-fg-faint ml-auto text-[11px]">

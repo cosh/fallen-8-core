@@ -13,6 +13,8 @@ import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
 import { InspectLink } from "./InspectLink";
 import { NeighborhoodPreview } from "./NeighborhoodPreview";
+import { Truncated } from "./Truncated";
+import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
 
 /** graph (default): rendered 1-hop preview; stats: degrees + per-property edge listing. */
 type AdjacencyView = "graph" | "stats";
@@ -116,10 +118,10 @@ export function AdjacencyPanel({
                     <button
                       key={prop}
                       type="button"
-                      className="btn mt-1 mr-1"
+                      className="btn mt-1 mr-1 max-w-full"
                       onClick={() => setExpanded({ dir, prop })}
                     >
-                      {prop}
+                      <Truncated text={prop} max={DISPLAY_CAP.propertyKey} />
                     </button>
                   ))
                 )}
@@ -128,8 +130,8 @@ export function AdjacencyPanel({
           })}
           {expanded && (
             <div>
-              <div className="text-fg-faint text-[10px] tracking-widest uppercase">
-                {expanded.dir} · {expanded.prop} edge ids
+              <div className="text-fg-faint wrap-break-word text-[10px] tracking-widest uppercase">
+                {expanded.dir} · {truncateChars(expanded.prop, DISPLAY_CAP.propertyKey)} edge ids
               </div>
               <div className="mt-1 flex flex-wrap gap-1">
                 {(expandedEdges.data ?? []).map((edgeId) => (

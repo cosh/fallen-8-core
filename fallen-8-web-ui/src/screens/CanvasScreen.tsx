@@ -7,8 +7,10 @@ import { buildLegend, knownPropertyKeys } from "../canvas/styleEngine";
 import { GRADIENT_HIGH, GRADIENT_LOW } from "../canvas/styling";
 import { getEdge, getGraphElement } from "../api/endpoints";
 import { EXPAND_EDGE_CAP, fetchVertexNeighborhood } from "../lib/neighborhood";
-import { formatPropertyValue } from "../lib/literals";
+import { previewVector } from "../lib/embeddingProperties";
+import { DISPLAY_CAP } from "../lib/truncate";
 import { ErrorBox } from "../components/ErrorBox";
+import { Truncated } from "../components/Truncated";
 
 /**
  * Graph canvas screen (FR-18/19/20 + studio-canvas-viz): renders the active instance's
@@ -114,9 +116,11 @@ export function CanvasScreen() {
                   className="inline-block h-2.5 w-2.5 rounded-full"
                   style={{ backgroundColor: color }}
                 />
-                <span className="text-fg-dim">
-                  {key} ({count})
-                </span>
+                <Truncated
+                  text={`${key} (${count})`}
+                  max={DISPLAY_CAP.chipName}
+                  className="text-fg-dim"
+                />
               </div>
             ))
           )}
@@ -149,16 +153,24 @@ export function CanvasScreen() {
                 <div className="text-fg font-semibold">
                   {selected.kind} #{selected.id}
                 </div>
-                <div>
-                  <span className="text-fg-faint">label </span>
-                  {detail.data.label ?? "—"}
+                <div className="flex gap-1">
+                  <span className="text-fg-faint shrink-0">label </span>
+                  <Truncated text={detail.data.label ?? "—"} max={DISPLAY_CAP.label} />
                 </div>
                 <table className="w-full">
                   <tbody>
                     {(detail.data.properties ?? []).map((p) => (
                       <tr key={p.propertyId}>
-                        <td className="table-cell text-fg-faint">{p.propertyId}</td>
-                        <td className="table-cell">{formatPropertyValue(p.propertyValue)}</td>
+                        <td className="table-cell text-fg-faint">
+                          <Truncated text={p.propertyId} max={DISPLAY_CAP.propertyKey} />
+                        </td>
+                        <td className="table-cell">
+                          {/* previewVector caps a vector even under a non-reserved key. */}
+                          <Truncated
+                            text={previewVector(p.propertyValue)}
+                            max={DISPLAY_CAP.propertyValue}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>

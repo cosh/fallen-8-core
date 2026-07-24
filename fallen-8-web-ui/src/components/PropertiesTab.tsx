@@ -1,8 +1,9 @@
 import { useState } from "react";
 import type { PropertyREST } from "../api/types";
-import { formatPropertyValue } from "../lib/literals";
 import { help } from "../lib/fieldHelp";
 import { isReservedEmbeddingProperty, previewVector } from "../lib/embeddingProperties";
+import { DISPLAY_CAP } from "../lib/truncate";
+import { Truncated } from "./Truncated";
 
 export function PropertiesTab({ properties }: { properties: PropertyREST[] }) {
   const [showReserved, setShowReserved] = useState(false);
@@ -12,7 +13,7 @@ export function PropertiesTab({ properties }: { properties: PropertyREST[] }) {
   const hasReserved = properties.some((p) => isReservedEmbeddingProperty(p.propertyId));
 
   return (
-    <div className="space-y-2" data-testid="properties-tab">
+    <div className="space-y-2 overflow-x-auto" data-testid="properties-tab">
       <table className="w-full">
         <thead>
           <tr className="text-fg-faint">
@@ -24,13 +25,17 @@ export function PropertiesTab({ properties }: { properties: PropertyREST[] }) {
         <tbody>
           {visible.map((p) => (
             <tr key={p.propertyId}>
-              <td className="table-cell">{p.propertyId}</td>
               <td className="table-cell">
-                {isReservedEmbeddingProperty(p.propertyId)
-                  ? previewVector(p.propertyValue)
-                  : formatPropertyValue(p.propertyValue)}
+                <Truncated text={p.propertyId} max={DISPLAY_CAP.propertyKey} />
               </td>
-              <td className="table-cell text-fg-dim">{p.fullQualifiedTypeName ?? "—"}</td>
+              <td className="table-cell">
+                {/* previewVector caps a vector value (even under a non-reserved key) to a
+                    short preview; Truncated then caps any other long text, full value in title. */}
+                <Truncated text={previewVector(p.propertyValue)} max={DISPLAY_CAP.propertyValue} />
+              </td>
+              <td className="table-cell text-fg-dim">
+                <Truncated text={p.fullQualifiedTypeName ?? "—"} max={DISPLAY_CAP.typeName} />
+              </td>
             </tr>
           ))}
           {visible.length === 0 && (

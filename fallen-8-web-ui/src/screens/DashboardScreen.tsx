@@ -21,6 +21,8 @@ import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Stat } from "../components/Stat";
+import { Truncated } from "../components/Truncated";
+import { DISPLAY_CAP } from "../lib/truncate";
 import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
 import { SampleGraphsPanel } from "../components/SampleGraphsPanel";
 
@@ -40,7 +42,7 @@ function PluginList({ title, plugins }: { title: string; plugins: string[] }) {
         {plugins.length === 0 && <li className="text-fg-faint">none</li>}
         {plugins.map((plugin) => (
           <li key={plugin} className="text-fg-dim">
-            {plugin}
+            <Truncated text={plugin} max={DISPLAY_CAP.name} />
           </li>
         ))}
       </ul>
@@ -172,10 +174,13 @@ export function DashboardScreen() {
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex items-center gap-2">
-        <h1 className="text-fg text-sm font-bold tracking-wider uppercase">
-          Dashboard — {instance.name} / {namespace}
+        <h1 className="text-fg flex min-w-0 items-baseline gap-1 text-sm font-bold tracking-wider uppercase">
+          <span className="shrink-0">Dashboard —</span>
+          <Truncated text={instance.name} max={24} />
+          <span className="shrink-0">/</span>
+          <Truncated text={namespace} max={32} />
         </h1>
-        <button type="button" className="btn ml-auto" onClick={() => status.refetch()}>
+        <button type="button" className="btn ml-auto shrink-0" onClick={() => status.refetch()}>
           Refresh
         </button>
       </div>
@@ -395,7 +400,7 @@ export function DashboardScreen() {
           </div>
 
           {lastMessage && (
-            <div className="text-accent text-[12px]" data-testid="admin-message">
+            <div className="text-accent wrap-break-word text-[12px]" data-testid="admin-message">
               {lastMessage}
             </div>
           )}

@@ -698,7 +698,7 @@ export function QueryScreen() {
                 highlights (max score {fulltextResult.maximumScore.toFixed(2)})
               </div>
               {fulltextResult.elements.slice(0, 20).map((el) => (
-                <div key={el.graphElementId} className="text-fg-dim">
+                <div key={el.graphElementId} className="text-fg-dim line-clamp-2 wrap-break-word">
                   #{el.graphElementId} ({el.score.toFixed(2)}): {el.highlights.join(" … ")}
                 </div>
               ))}

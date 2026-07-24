@@ -34,6 +34,8 @@ import {
 } from "../components/StoredQueryControls";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
+import { Truncated } from "../components/Truncated";
+import { DISPLAY_CAP } from "../lib/truncate";
 import { type SubgraphPatternDraft } from "../state/instanceStore";
 
 /**
@@ -273,7 +275,7 @@ export function SubgraphScreen() {
             {(list.data ?? []).map((subgraph) => (
               <tr key={subgraph.name}>
                 <td className="table-cell font-semibold">
-                  {subgraph.name}
+                  <Truncated text={subgraph.name} max={DISPLAY_CAP.name} />
                   {subgraph.semantic && (
                     <span
                       className="text-accent border-line ml-2 rounded border px-1 py-0.5 align-middle text-[10px] font-normal"
@@ -711,7 +713,7 @@ export function SubgraphScreen() {
               return (
                 <div className="border-danger/40 text-danger rounded border p-2 text-[12px]">
                   <div className="font-semibold">{title}</div>
-                  <pre className="mt-1 whitespace-pre-wrap">{body}</pre>
+                  <pre className="mt-1 wrap-break-word whitespace-pre-wrap">{body}</pre>
                 </div>
               );
             })()}

@@ -9,6 +9,8 @@ import type { EdgeREST, VertexREST } from "../api/types";
 import { formatPropertyValue } from "../lib/literals";
 import { parseVector } from "../lib/vector";
 import { isReservedEmbeddingProperty, previewVector } from "../lib/embeddingProperties";
+import { DISPLAY_CAP } from "../lib/truncate";
+import { Truncated } from "./Truncated";
 import { ErrorBox } from "./ErrorBox";
 import { Field } from "./Field";
 import {
@@ -125,10 +127,15 @@ export function EmbeddingsTab({
           <tbody>
             {embeddings.map((e) => (
               <tr key={e.name} data-testid={`embedding-row-${e.name}`}>
-                <td className="table-cell font-semibold">{e.name}</td>
+                <td className="table-cell font-semibold">
+                  <Truncated text={e.name} max={DISPLAY_CAP.name} />
+                </td>
                 <td className="table-cell font-mono">{previewVector(e.value)}</td>
                 <td className="table-cell text-fg-dim">
-                  {typeof e.model === "string" && e.model ? e.model : "—"}
+                  <Truncated
+                    text={typeof e.model === "string" && e.model ? e.model : "—"}
+                    max={DISPLAY_CAP.name}
+                  />
                 </td>
                 <td className="table-cell">
                   <button
