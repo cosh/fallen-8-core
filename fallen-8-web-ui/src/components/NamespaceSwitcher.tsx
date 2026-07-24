@@ -6,6 +6,7 @@ import type { NamespaceEntry } from "../api/types";
 import { createNamespace } from "../api/endpoints";
 import { ApiError } from "../api/client";
 import { DEFAULT_NAMESPACE } from "../instances/registry";
+import { isValidNamespaceName } from "../lib/namespaceName";
 import { Truncated } from "./Truncated";
 
 /**
@@ -16,7 +17,6 @@ import { Truncated } from "./Truncated";
  * Connect panel, and the quota footer. Full CRUD stays on the Connect screen.
  */
 
-const NAME_PATTERN = /^[a-z0-9-]{1,63}$/;
 
 function formatCount(value: number): string {
   return value.toLocaleString();
@@ -81,7 +81,7 @@ export function NamespaceSwitcher({
   const visible = entries.filter((entry) =>
     entry.name.toLowerCase().includes(filter.trim().toLowerCase()),
   );
-  const newNameValid = NAME_PATTERN.test(newName);
+  const newNameValid = isValidNamespaceName(newName);
   const createError =
     create.error instanceof ApiError
       ? create.error.status === 409
@@ -182,7 +182,7 @@ export function NamespaceSwitcher({
                 <input
                   data-testid="namespace-quick-create-name"
                   className="input w-full"
-                  placeholder="[a-z0-9-]{1,63} — becomes the URL segment"
+                  placeholder="name — becomes the URL segment"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   maxLength={63}

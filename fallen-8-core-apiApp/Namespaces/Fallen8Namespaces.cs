@@ -195,21 +195,38 @@ namespace NoSQL.GraphDB.App.Namespaces
         #region public methods
 
         /// <summary>
-        ///   Validates a namespace name: <c>^[a-z0-9-]{1,63}$</c>, compared ordinally. The
-        ///   restriction makes every name a safe URL path segment; on-disk locations use the
-        ///   immutable namespace id instead, so names never become filesystem paths.
+        ///   Validates a namespace name. Names are permissive by design — any case, digits,
+        ///   spaces, punctuation, and Unicode are allowed — because on-disk storage is keyed by
+        ///   the immutable namespace id, not the name, so a name is only ever a display label, a
+        ///   dictionary key, and a URL PATH SEGMENT (<c>/ns/{name}/…</c> and Studio's
+        ///   <c>/q/{name}/…</c>). That last role fixes the only hard limits:
+        ///   <list type="bullet">
+        ///     <item><c>/</c> and <c>\</c> break segment boundaries — an encoded slash
+        ///       (<c>%2F</c>) is rejected by Kestrel before routing, so it can never round-trip.</item>
+        ///     <item>Control characters are never valid in a URL.</item>
+        ///     <item><c>.</c> and <c>..</c> are path-traversal tokens: <c>/ns/..</c> normalizes to
+        ///       <c>/ns</c> and would misroute, so the whole-name forms are rejected.</item>
+        ///     <item>Leading/trailing whitespace is ambiguous (" x" vs "x") and is rejected;
+        ///       length is capped at <see cref="MaxNameLength"/>.</item>
+        ///   </list>
+        ///   Everything else is accepted; comparison is ordinal (so names are case-sensitive,
+        ///   matching URL-path semantics).
         /// </summary>
         public static Boolean IsValidName(String name)
         {
-            if (String.IsNullOrEmpty(name) || name.Length > MaxNameLength)
+            if (String.IsNullOrWhiteSpace(name) || name.Length > MaxNameLength)
+            {
+                return false;
+            }
+
+            if (name != name.Trim() || name == "." || name == "..")
             {
                 return false;
             }
 
             foreach (var c in name)
             {
-                var valid = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
-                if (!valid)
+                if (c == '/' || c == '\\' || Char.IsControl(c))
                 {
                     return false;
                 }
@@ -636,7 +653,7 @@ namespace NoSQL.GraphDB.App.Namespaces
         /// <summary>The operation succeeded.</summary>
         None,
 
-        /// <summary>The name does not match <c>^[a-z0-9-]{1,63}$</c> (400).</summary>
+        /// <summary>The name is empty/whitespace-padded, too long, "."/"..", or contains "/", "\", or a control char (400).</summary>
         InvalidName,
 
         /// <summary>The name is already in use (409).</summary>

@@ -35,12 +35,21 @@ member (Studio keys its "recreate or switch" recover state on it). Fallen-8-leve
 |---|---|
 | `GET /ns` | list (name-ordered, always includes `default`) + `maxNamespaces` |
 | `GET /ns/{name}` | one entry: `{ name, state, vertexCount, edgeCount, createdAt }` |
-| `PUT /ns/{name}` | 201 create · 400 invalid (`^[a-z0-9-]{1,63}$`) · 409 exists · 422 quota (limit in body) |
+| `PUT /ns/{name}` | 201 create · 400 invalid name · 409 exists · 422 quota (limit in body) |
 | `PATCH /ns/{name}` | rename — pure metadata, the id-keyed on-disk location never moves |
 | `DELETE /ns/{name}` | drop, irreversible · 409 for `default` |
 
 No per-namespace memory figure by design: engines share one GC heap, a per-namespace byte
 count would be fiction.
+
+**Names are permissive.** Storage is keyed by an internal id, not the name, so a name is only
+a display label, a map key, and a URL path segment — any case, spaces, punctuation, and
+Unicode are allowed (up to 63 chars). The rule (`Fallen8Namespaces.IsValidName`, mirrored
+client-side in `lib/namespaceName.ts`) rejects only what the URL-segment role can't survive:
+`/` and `\` (an encoded slash can't round-trip through Kestrel), control characters, the
+whole-name traversal tokens `.` and `..`, leading/trailing whitespace, and empty. Names are
+case-sensitive (URL-path semantics). Studio and the REST client percent-encode the name in
+every path, so a namespace like `Flights EU #2` addresses `/ns/Flights%20EU%20%232/…`.
 
 ## Save / load / tabula rasa
 

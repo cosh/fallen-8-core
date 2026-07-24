@@ -13,6 +13,7 @@ import type { NamespaceEntry } from "../api/types";
 import { ApiError } from "../api/client";
 import { migrateInstanceStore, purgeInstanceStore } from "../state/instanceStore";
 import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
+import { isValidNamespaceName } from "../lib/namespaceName";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
 import { Truncated } from "./Truncated";
@@ -25,7 +26,6 @@ import { Truncated } from "./Truncated";
  * demands the typed namespace name; save-game entries remain valid restore points.
  */
 
-const NAME_PATTERN = /^[a-z0-9-]{1,63}$/;
 
 export function NamespacesPanel() {
   const instance = useActiveInstance();
@@ -97,7 +97,7 @@ export function NamespacesPanel() {
 
   const entries = list.data?.namespaces ?? [];
   const failed = [create, rename, drop].find((m) => m.isError);
-  const newNameValid = NAME_PATTERN.test(newName);
+  const newNameValid = isValidNamespaceName(newName);
 
   const switchTo = (name: string) => {
     setActiveNamespace(instance.id, name);
@@ -169,7 +169,7 @@ export function NamespacesPanel() {
                         className="flex gap-1"
                         onSubmit={(e) => {
                           e.preventDefault();
-                          if (NAME_PATTERN.test(renameTo)) {
+                          if (isValidNamespaceName(renameTo)) {
                             rename.mutate({ from: entry.name, to: renameTo });
                           }
                         }}
@@ -186,7 +186,7 @@ export function NamespacesPanel() {
                         <button
                           type="submit"
                           className="btn"
-                          disabled={!NAME_PATTERN.test(renameTo) || rename.isPending}
+                          disabled={!isValidNamespaceName(renameTo) || rename.isPending}
                         >
                           OK
                         </button>
@@ -252,7 +252,7 @@ export function NamespacesPanel() {
               }}
             >
               <label htmlFor="namespace-create-name" className="text-fg-faint text-[11px] uppercase">
-                new namespace — [a-z0-9-]{"{1,63}"}, becomes the URL segment
+                new namespace — becomes the URL segment (any name up to 63 chars; not “/” or “\”)
               </label>
               {/* Input flexes to fill the row; the button is pinned right at a fixed position,
                   and the URL preview lives on its own line so a long name never shifts it. */}

@@ -96,7 +96,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>
         /// Creates a new, empty namespace
         /// </summary>
-        /// <param name="name">The namespace name, matching ^[a-z0-9-]{1,63}$</param>
+        /// <param name="name">The namespace name (permissive: up to 63 chars, any case/spaces/Unicode; not "."/".." or containing "/" "\" or control chars — it is a URL path segment)</param>
         /// <returns>The created namespace entry</returns>
         /// <remarks>
         /// The namespace is immediately ready: it owns a fresh Fallen-8 engine with its own
@@ -105,7 +105,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// extension member.
         /// </remarks>
         /// <response code="201">The namespace was created</response>
-        /// <response code="400">The name does not match ^[a-z0-9-]{1,63}$</response>
+        /// <response code="400">The name is empty/whitespace-padded, too long, "."/"..", or contains "/", "\", or a control character</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="409">A namespace with this name already exists</response>
         /// <response code="422">The configured Fallen8:Namespaces:MaxNamespaces ceiling is reached</response>
@@ -137,7 +137,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// The reserved "default" namespace cannot be renamed.
         /// </remarks>
         /// <response code="200">The namespace was renamed</response>
-        /// <response code="400">The new name is missing or does not match ^[a-z0-9-]{1,63}$</response>
+        /// <response code="400">The new name is missing, empty/whitespace-padded, too long, "."/"..", or contains "/", "\", or a control character</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="404">No namespace with this name exists</response>
         /// <response code="409">The new name is already in use, or the namespace is "default"</response>
@@ -221,8 +221,9 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 case NamespaceFailure.InvalidName:
                     return ProblemResults.Create(StatusCodes.Status400BadRequest, "Invalid namespace name",
-                        "\"" + (newName ?? name) + "\" is not a valid namespace name. Names must match ^[a-z0-9-]{1," +
-                        Fallen8Namespaces.MaxNameLength + "}$.");
+                        "\"" + (newName ?? name) + "\" is not a valid namespace name. A name may be up to " +
+                        Fallen8Namespaces.MaxNameLength + " characters and may not be \".\"/\"..\", have leading or " +
+                        "trailing whitespace, or contain \"/\", \"\\\", or control characters.");
                 case NamespaceFailure.Conflict:
                     return ProblemResults.Create(StatusCodes.Status409Conflict, "Namespace name in use",
                         "A namespace named \"" + (newName ?? name) + "\" already exists.");
