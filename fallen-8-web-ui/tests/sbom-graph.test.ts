@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sbomToGraph, type SpdxSbom } from "../src/lib/sbomGraph";
+import { describeGithubSbomFailure, sbomToGraph, type SpdxSbom } from "../src/lib/sbomGraph";
 
 /**
  * The SBOM → graph transform (feature sample-graphs) is shared by the build script's
@@ -73,5 +73,45 @@ describe("sbomToGraph", () => {
     const empty = sbomToGraph({});
     expect(empty.vertices).toHaveLength(0);
     expect(empty.edges).toHaveLength(0);
+  });
+});
+
+describe("describeGithubSbomFailure", () => {
+  const noLimit = { remaining: null, reset: null };
+  const now = 1_700_000_000_000;
+
+  it("leads with the actionable 'dependency graph is disabled' case, regardless of status", () => {
+    const msg404 = describeGithubSbomFailure("o/r", 404, "Dependency graph is disabled for this repository.", noLimit, now);
+    const msg403 = describeGithubSbomFailure("o/r", 403, "Dependency graph is disabled for this repository.", noLimit, now);
+    for (const m of [msg404, msg403]) {
+      expect(m).toContain("dependency graph is disabled for 'o/r'");
+      expect(m).toMatch(/enable it/i);
+    }
+  });
+
+  it("distinguishes a plain 404 (missing or private) and echoes GitHub's message", () => {
+    const m = describeGithubSbomFailure("o/r", 404, "Not Found", noLimit, now);
+    expect(m).toContain("was not found");
+    expect(m).toContain("PUBLIC");
+    expect(m).toContain("(GitHub: Not Found)");
+    expect(m).not.toMatch(/disabled/i);
+  });
+
+  it("names a retry time when the anonymous rate limit is exhausted", () => {
+    const reset = String(Math.floor(now / 1000) + 3 * 60); // 3 minutes out
+    const m = describeGithubSbomFailure("o/r", 403, "API rate limit exceeded", { remaining: "0", reset }, now);
+    expect(m).toMatch(/rate limit is exhausted/);
+    expect(m).toContain("~3 min");
+  });
+
+  it("reports a bare 403 refusal (not rate limited) with GitHub's message", () => {
+    const m = describeGithubSbomFailure("o/r", 403, "Must have push access", noLimit, now);
+    expect(m).toContain("refused the request (403)");
+    expect(m).toContain("Must have push access");
+  });
+
+  it("falls back to the status for anything else", () => {
+    const m = describeGithubSbomFailure("o/r", 500, "", noLimit, now);
+    expect(m).toContain("GitHub returned 500 for 'o/r'");
   });
 });

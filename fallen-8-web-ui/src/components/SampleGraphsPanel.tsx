@@ -13,7 +13,7 @@ import {
   type LoadStep,
 } from "../lib/sampleLoader";
 import { buildJsonlGraph } from "../lib/jsonlGraph";
-import { sbomToGraph, type SpdxSbom } from "../lib/sbomGraph";
+import { describeGithubSbomFailure, sbomToGraph, type SpdxSbom } from "../lib/sbomGraph";
 import { importBulk, tabulaRasa, getGraph } from "../api/endpoints";
 import { invalidateInstanceQueries } from "../api/queries";
 import { DEFAULT_STYLE_CONFIG } from "../canvas/styleConfig";
@@ -377,26 +377,50 @@ export function normalizeRepo(input: string): string | null {
 }
 
 async function fetchRepoSbom(repo: string): Promise<SpdxSbom> {
-  const response = await fetch(`https://api.github.com/repos/${repo}/dependency-graph/sbom`, {
-    headers: { Accept: "application/vnd.github+json" },
-  });
-  if (response.status === 404) {
-    throw new Error(`Repository '${repo}' not found (or private, or has no dependency graph).`);
+  let response: Response;
+  try {
+    response = await fetch(`https://api.github.com/repos/${repo}/dependency-graph/sbom`, {
+      headers: { Accept: "application/vnd.github+json" },
+    });
+  } catch {
+    // fetch only rejects on a NETWORK failure (offline, DNS, blocked) — never on an HTTP
+    // error status. Give that its own clear message instead of a raw "Failed to fetch".
+    throw new Error(
+      `Couldn't reach github.com to fetch '${repo}'. Check your internet connection (and any ` +
+        `proxy/ad-blocker) and try again.`,
+    );
   }
-  if (response.status === 403) {
-    const reset = response.headers.get("x-ratelimit-reset");
-    const remaining = response.headers.get("x-ratelimit-remaining");
-    if (remaining === "0" && reset) {
-      const mins = Math.max(1, Math.ceil((Number(reset) * 1000 - Date.now()) / 60_000));
-      throw new Error(`GitHub's anonymous rate limit is exhausted — try again in ~${mins} min.`);
-    }
-    throw new Error("GitHub refused the request (403).");
-  }
+
   if (!response.ok) {
-    throw new Error(`GitHub returned ${response.status} for '${repo}'.`);
+    // GitHub's error body carries a human "message" (e.g. "Dependency graph is disabled…")
+    // that distinguishes the three different 404 causes; surface it via the shared mapper.
+    const message = await githubErrorMessage(response);
+    throw new Error(
+      describeGithubSbomFailure(
+        repo,
+        response.status,
+        message,
+        {
+          remaining: response.headers.get("x-ratelimit-remaining"),
+          reset: response.headers.get("x-ratelimit-reset"),
+        },
+        Date.now(),
+      ),
+    );
   }
-  const body = (await response.json()) as { sbom?: SpdxSbom };
+
+  const body = (await response.json().catch(() => ({}))) as { sbom?: SpdxSbom };
   // Untyped boundary: a 200 without an `sbom` object is treated as "no dependency data"
   // by the caller (sbomToGraph tolerates {}), never an undefined-property crash.
   return body.sbom ?? {};
+}
+
+/** GitHub error responses are JSON with a `message`; return it, or "" if the body isn't that. */
+async function githubErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    return typeof body.message === "string" ? body.message : "";
+  } catch {
+    return "";
+  }
 }
