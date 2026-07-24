@@ -155,24 +155,26 @@ export function CanvasScreen() {
                 </div>
                 <div className="flex gap-1">
                   <span className="text-fg-faint shrink-0">label </span>
-                  <Truncated text={detail.data.label ?? "—"} max={DISPLAY_CAP.label} />
+                  <Truncated text={detail.data.label ?? "—"} className="min-w-0" />
                 </div>
-                <table className="w-full">
+                {/* table-fixed + per-cell truncate keeps every property on ONE line inside this
+                    narrow (w-80) panel — a long value/URL/vector can't widen the table and spill
+                    a horizontal scrollbar. The full value is in each cell's title tooltip. */}
+                <table className="w-full table-fixed">
                   <tbody>
-                    {(detail.data.properties ?? []).map((p) => (
-                      <tr key={p.propertyId}>
-                        <td className="table-cell text-fg-faint">
-                          <Truncated text={p.propertyId} max={DISPLAY_CAP.propertyKey} />
-                        </td>
-                        <td className="table-cell">
-                          {/* previewVector caps a vector even under a non-reserved key. */}
-                          <Truncated
-                            text={previewVector(p.propertyValue)}
-                            max={DISPLAY_CAP.propertyValue}
-                          />
-                        </td>
-                      </tr>
-                    ))}
+                    {(detail.data.properties ?? []).map((p) => {
+                      const value = previewVector(p.propertyValue); // caps a vector to a short preview
+                      return (
+                        <tr key={p.propertyId}>
+                          <td className="table-cell text-fg-faint w-2/5 truncate" title={p.propertyId}>
+                            {p.propertyId}
+                          </td>
+                          <td className="table-cell truncate" title={value}>
+                            {value}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
                 <div className="flex flex-wrap gap-1 pt-1">
