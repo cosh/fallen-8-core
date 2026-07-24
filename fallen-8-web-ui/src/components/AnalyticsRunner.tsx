@@ -16,6 +16,7 @@ import type {
 } from "../api/types";
 import { hydrateElements, isEdge, type HydrationProgress } from "../lib/hydrate";
 import { Stat } from "./Stat";
+import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
 import { ElementTable } from "./ElementTable";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
@@ -389,7 +390,7 @@ export function AnalyticsRunner() {
       {result && (
         <section className="panel" data-testid="analytics-result">
           <div className="panel-title">
-            Result — {result.algorithm}
+            Result — {truncateChars(result.algorithm ?? "—", DISPLAY_CAP.name)}
             <span
               className={`normal-case ${result.converged ? "text-accent" : "text-warn"}`}
             >

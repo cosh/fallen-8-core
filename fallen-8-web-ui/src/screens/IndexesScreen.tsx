@@ -21,6 +21,8 @@ import { TypedLiteralEditor } from "../components/TypedLiteralEditor";
 import { Field } from "../components/Field";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorBox } from "../components/ErrorBox";
+import { Truncated } from "../components/Truncated";
+import { DISPLAY_CAP } from "../lib/truncate";
 
 /**
  * Indexes workspace (feature index-workspace): the top-level home for index OBJECTS —
@@ -144,11 +146,11 @@ export function IndexesScreen() {
                     <td className="table-cell">
                       {index.embeddingName ? (
                         <span
-                          className="border-accent/50 text-accent rounded border px-1"
+                          className="border-accent/50 text-accent inline-flex max-w-full rounded border px-1"
                           data-testid={`index-bound-${index.indexId}`}
                           title={`self-maintained projection of the '${index.embeddingName}' element embedding — content manages itself`}
                         >
-                          bound:{index.embeddingName}
+                          bound:<Truncated text={index.embeddingName} max={DISPLAY_CAP.chipName} />
                         </span>
                       ) : (
                         <span className="text-fg-faint">—</span>
@@ -159,7 +161,7 @@ export function IndexesScreen() {
                           data-testid={`index-model-${index.indexId}`}
                           title="declared model identity — vectors from any other model are refused"
                         >
-                          {index.model}
+                          <Truncated text={index.model} max={DISPLAY_CAP.name} />
                         </div>
                       )}
                     </td>
@@ -548,7 +550,8 @@ function ContentPanel({ index }: { index: IndexDescription }) {
   return (
     <section className="panel" data-testid="index-content">
       <div className="panel-title">
-        content — {index.indexId}
+        <span className="shrink-0">content —</span>
+        <Truncated text={index.indexId} max={DISPLAY_CAP.name} />
         {message && <span className="text-accent normal-case">{message}</span>}
       </div>
 

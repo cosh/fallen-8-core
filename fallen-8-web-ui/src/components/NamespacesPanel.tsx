@@ -12,8 +12,10 @@ import {
 import type { NamespaceEntry } from "../api/types";
 import { ApiError } from "../api/client";
 import { migrateInstanceStore, purgeInstanceStore } from "../state/instanceStore";
+import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
+import { Truncated } from "./Truncated";
 
 /**
  * Namespace management on the Connect screen (feature graph-namespaces): the full CRUD
@@ -148,7 +150,7 @@ export function NamespacesPanel() {
                     </span>
                   </td>
                   <td className="table-cell font-semibold">
-                    {entry.name}
+                    <Truncated text={entry.name} max={DISPLAY_CAP.name} />
                     {entry.name === DEFAULT_NAMESPACE && (
                       <span className="text-fg-faint ml-2 font-normal">alias of bare URLs</span>
                     )}
@@ -158,7 +160,9 @@ export function NamespacesPanel() {
                   <td className="table-cell text-fg-dim">
                     {entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : "—"}
                   </td>
-                  <td className="table-cell text-fg-dim">/ns/{entry.name}/*</td>
+                  <td className="table-cell text-fg-dim">
+                    <Truncated text={`/ns/${entry.name}/*`} max={DISPLAY_CAP.path} middle />
+                  </td>
                   <td className="table-cell">
                     {renaming === entry.name ? (
                       <form
@@ -176,6 +180,7 @@ export function NamespacesPanel() {
                           value={renameTo}
                           onChange={(e) => setRenameTo(e.target.value)}
                           placeholder="new-name"
+                          maxLength={63}
                           autoFocus
                         />
                         <button
@@ -240,35 +245,43 @@ export function NamespacesPanel() {
 
           <div className="border-line space-y-2 border-t p-3">
             <form
-              className="flex items-end gap-2"
+              className="flex flex-col gap-1"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (newNameValid) create.mutate(newName);
               }}
             >
-              <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-fg-faint uppercase">
-                  new namespace — [a-z0-9-]{"{1,63}"}, becomes the URL segment
-                </span>
+              <label htmlFor="namespace-create-name" className="text-fg-faint text-[11px] uppercase">
+                new namespace — [a-z0-9-]{"{1,63}"}, becomes the URL segment
+              </label>
+              {/* Input flexes to fill the row; the button is pinned right at a fixed position,
+                  and the URL preview lives on its own line so a long name never shifts it. */}
+              <div className="flex items-center gap-2">
                 <input
-                  className="input w-64"
+                  id="namespace-create-name"
+                  className="input min-w-0 flex-1"
                   data-testid="namespace-create-name"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="e.g. fraud-q3"
+                  maxLength={63}
                 />
-              </label>
-              <span className="text-fg-faint pb-1 text-[11px]" data-testid="namespace-url-preview">
-                {newName ? `PUT /ns/${newName}` : ""}
-              </span>
-              <button
-                type="submit"
-                className="btn btn-accent"
-                data-testid="namespace-create"
-                disabled={!newNameValid || create.isPending}
+                <button
+                  type="submit"
+                  className="btn btn-accent shrink-0"
+                  data-testid="namespace-create"
+                  disabled={!newNameValid || create.isPending}
+                >
+                  Create namespace
+                </button>
+              </div>
+              <span
+                className="text-fg-faint h-4 truncate text-[11px]"
+                data-testid="namespace-url-preview"
+                title={newName ? `PUT /ns/${newName}` : undefined}
               >
-                Create namespace
-              </button>
+                {newName ? `PUT /ns/${truncateChars(newName, DISPLAY_CAP.path)}` : ""}
+              </span>
             </form>
             <p className="text-fg-faint text-[11px]">
               409 = name exists · 404 on /ns/{"{name}"}/* = namespace missing (dropped elsewhere —

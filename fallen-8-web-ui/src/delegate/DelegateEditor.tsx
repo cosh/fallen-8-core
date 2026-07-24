@@ -11,6 +11,7 @@ import { validateDelegate } from "../api/endpoints";
 import { ApiError } from "../api/client";
 import type { DelegateDiagnostic, DelegateKind, DelegateValidationResult } from "../api/types";
 import type { InstanceConfig } from "../instances/types";
+import { Truncated } from "../components/Truncated";
 import { NlAssistPanel } from "./nl/NlAssistPanel";
 
 setupMonaco();
@@ -162,8 +163,8 @@ export function DelegateEditor({
             <Dialog.Title className="contents">
               delegate editor — {delegateKind}
             </Dialog.Title>
-            <span className="text-fg-faint normal-case">{contextLabel}</span>
-            <span className="text-fg-faint ml-auto normal-case">{info.lambdaShape}</span>
+            <Truncated text={contextLabel} className="text-fg-faint min-w-0 normal-case" />
+            <span className="text-fg-faint ml-auto shrink-0 normal-case">{info.lambdaShape}</span>
           </div>
 
           <div className="flex min-h-0 flex-1">
@@ -288,12 +289,20 @@ function ValidationBadge({
       );
     case "gate":
       return (
-        <span className="text-warn text-[11px]" data-testid="validation-gate">
+        <span
+          className="text-warn min-w-0 truncate text-[11px]"
+          data-testid="validation-gate"
+          title={state.message}
+        >
           {state.message}
         </span>
       );
     case "error":
-      return <span className="text-danger text-[11px]">validation failed: {state.message}</span>;
+      return (
+        <span className="text-danger min-w-0 truncate text-[11px]" title={state.message}>
+          validation failed: {state.message}
+        </span>
+      );
   }
 }
 

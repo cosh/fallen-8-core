@@ -6,6 +6,8 @@ import { describeEndpoint } from "../instances/types";
 import { getStatus, isAuthorized } from "../api/endpoints";
 import { Field } from "../components/Field";
 import { NamespacesPanel } from "../components/NamespacesPanel";
+import { Truncated } from "../components/Truncated";
+import { DISPLAY_CAP } from "../lib/truncate";
 
 /**
  * Connect / Instances (FR-1a): registry with add/edit/remove, lazy health overview via
@@ -137,8 +139,12 @@ export function ConnectScreen() {
                     onChange={() => setActive(instance.id)}
                   />
                 </td>
-                <td className="table-cell font-semibold">{instance.name}</td>
-                <td className="table-cell text-fg-dim">{describeEndpoint(instance)}</td>
+                <td className="table-cell font-semibold">
+                  <Truncated text={instance.name} max={DISPLAY_CAP.name} />
+                </td>
+                <td className="table-cell text-fg-dim">
+                  <Truncated text={describeEndpoint(instance)} max={DISPLAY_CAP.path} middle />
+                </td>
                 <td className="table-cell text-fg-dim">
                   {instance.auth.kind === "apiKey" ? "api key" : "none"}
                 </td>

@@ -4,6 +4,8 @@ import { isEdge } from "../lib/hydrate";
 import { EmbeddingsTab } from "./EmbeddingsTab";
 import { InspectLink } from "./InspectLink";
 import { PropertiesTab } from "./PropertiesTab";
+import { Truncated } from "./Truncated";
+import { DISPLAY_CAP } from "../lib/truncate";
 
 export function ElementDetail({
   element,
@@ -31,9 +33,9 @@ export function ElementDetail({
         {edge ? "edge" : "vertex"} #{element.id}
       </div>
       <div className="space-y-2 p-3 text-[12px]">
-        <div>
-          <span className="text-fg-faint">label </span>
-          {element.label ?? "—"}
+        <div className="flex gap-1">
+          <span className="text-fg-faint shrink-0">label </span>
+          <Truncated text={element.label ?? "—"} max={DISPLAY_CAP.label} />
         </div>
         <div className="text-fg-dim">
           created {element.creationDate} · modified {element.modificationDate}

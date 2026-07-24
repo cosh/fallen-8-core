@@ -8,6 +8,8 @@ import { getInstanceStore } from "../state/instanceStore";
 import { describeStoredSpecification } from "../lib/storedQueries";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
+import { Truncated } from "./Truncated";
+import { DISPLAY_CAP } from "../lib/truncate";
 
 /**
  * Dashboard · Stored queries (concept spec §5.3): the library's ONE management home —
@@ -71,6 +73,7 @@ export function StoredQueriesPanel() {
           <ErrorBox error={list.error} onRetry={() => list.refetch()} />
         </div>
       )}
+      <div className="overflow-x-auto">
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-fg-faint">
@@ -84,7 +87,9 @@ export function StoredQueriesPanel() {
         <tbody>
           {entries.map((entry) => (
             <tr key={entry.name ?? "—"}>
-              <td className="table-cell font-semibold">{entry.name}</td>
+              <td className="table-cell font-semibold">
+                <Truncated text={entry.name ?? "—"} max={DISPLAY_CAP.name} />
+              </td>
               <td className="table-cell text-fg-dim">{entry.kind}</td>
               <td
                 className={`table-cell ${
@@ -145,12 +150,13 @@ export function StoredQueriesPanel() {
           )}
         </tbody>
       </table>
+      </div>
 
       {expanded && (
         <div className="border-line space-y-1 border-t p-3" data-testid="stored-query-source">
           {detail.isError && <ErrorBox error={detail.error} />}
           {detail.data?.description && (
-            <p className="text-fg-dim text-[12px]">{detail.data.description}</p>
+            <p className="text-fg-dim text-[12px] wrap-break-word">{detail.data.description}</p>
           )}
           {preview?.rows.map((row) => (
             <div key={row.label} className="flex items-center gap-2">
@@ -164,7 +170,7 @@ export function StoredQueriesPanel() {
           ))}
           {preview?.note && <p className="text-fg-faint text-[11px]">{preview.note}</p>}
           {detail.data?.compileDiagnostics && (
-            <pre className="border-danger/40 text-danger mt-2 rounded border p-2 text-[11px] whitespace-pre-wrap">
+            <pre className="border-danger/40 text-danger mt-2 rounded border p-2 text-[11px] wrap-break-word whitespace-pre-wrap">
               {detail.data.compileDiagnostics}
             </pre>
           )}

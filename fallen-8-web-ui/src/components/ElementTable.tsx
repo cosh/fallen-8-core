@@ -1,6 +1,8 @@
 import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
-import { formatPropertyValue } from "../lib/literals";
+import { previewVector } from "../lib/embeddingProperties";
+import { DISPLAY_CAP } from "../lib/truncate";
+import { Truncated } from "./Truncated";
 
 /**
  * Hydrated element list as a table (FR-11 "open as table"). `scores` adds the optional
@@ -56,16 +58,24 @@ export function ElementTable({
                 </td>
               )}
               <td className="table-cell">{isEdge(element) ? "edge" : "vertex"}</td>
-              <td className="table-cell">{element.label ?? "—"}</td>
+              <td className="table-cell">
+                <Truncated text={element.label ?? "—"} max={DISPLAY_CAP.label} />
+              </td>
               <td className="table-cell text-fg-dim">
                 {isEdge(element)
                   ? `${element.sourceVertex} → ${element.targetVertex}`
                   : "—"}
               </td>
               <td className="table-cell text-fg-dim">
-                {(element.properties ?? [])
-                  .map((p) => `${p.propertyId}=${formatPropertyValue(p.propertyValue)}`)
-                  .join(", ") || "—"}
+                {/* previewVector per value so an embedding never dumps into the join. */}
+                <Truncated
+                  text={
+                    (element.properties ?? [])
+                      .map((p) => `${p.propertyId}=${previewVector(p.propertyValue)}`)
+                      .join(", ") || "—"
+                  }
+                  max={DISPLAY_CAP.propertyValue}
+                />
               </td>
             </tr>
           ))}

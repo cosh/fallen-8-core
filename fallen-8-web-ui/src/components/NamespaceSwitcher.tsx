@@ -6,6 +6,7 @@ import type { NamespaceEntry } from "../api/types";
 import { createNamespace } from "../api/endpoints";
 import { ApiError } from "../api/client";
 import { DEFAULT_NAMESPACE } from "../instances/registry";
+import { Truncated } from "./Truncated";
 
 /**
  * The top-bar namespace switcher (feature graph-namespaces, per the approved mock): a
@@ -99,17 +100,17 @@ export function NamespaceSwitcher({
         data-testid="namespace-switcher"
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="input flex w-auto min-w-44 cursor-pointer items-center gap-2 text-left"
+        className="input flex w-auto max-w-[20rem] min-w-44 cursor-pointer items-center gap-2 text-left"
         onClick={() => (open ? close() : setOpen(true))}
       >
-        <span aria-hidden className="text-accent">●</span>
-        <span className="font-semibold">{activeNamespace}</span>
+        <span aria-hidden className="text-accent shrink-0">●</span>
+        <Truncated text={activeNamespace} className="min-w-0 font-semibold" />
         {active && (
-          <span className="text-fg-faint text-[11px]">
+          <span className="text-fg-faint shrink-0 text-[11px]">
             {formatCount(active.vertexCount)} v · {formatCount(active.edgeCount)} e
           </span>
         )}
-        <span aria-hidden className="text-fg-faint ml-auto">▾</span>
+        <span aria-hidden className="text-fg-faint ml-auto shrink-0">▾</span>
       </button>
 
       {open && (
@@ -145,15 +146,15 @@ export function NamespaceSwitcher({
               >
                 <span
                   aria-hidden
-                  className={entry.state === "ready" ? "text-accent" : "text-fg-faint"}
+                  className={`shrink-0 ${entry.state === "ready" ? "text-accent" : "text-fg-faint"}`}
                 >
                   {entry.state === "ready" ? "●" : "◐"}
                 </span>
-                <span className="text-fg font-semibold">{entry.name}</span>
-                <span className="text-fg-faint">
+                <Truncated text={entry.name} className="text-fg min-w-0 font-semibold" />
+                <span className="text-fg-faint shrink-0">
                   {formatCount(entry.vertexCount)} v · {formatCount(entry.edgeCount)} e
                 </span>
-                <span className="text-fg-faint ml-auto text-[10px] tracking-wider uppercase">
+                <span className="text-fg-faint ml-auto shrink-0 text-[10px] tracking-wider uppercase">
                   {entry.name === activeNamespace
                     ? "active"
                     : entry.state !== "ready"
@@ -184,6 +185,7 @@ export function NamespaceSwitcher({
                   placeholder="[a-z0-9-]{1,63} — becomes the URL segment"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
+                  maxLength={63}
                   autoFocus
                 />
                 <button
