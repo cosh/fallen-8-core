@@ -30,6 +30,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using ModelContextProtocol.Protocol;
 using NoSQL.GraphDB.Mcp.Bridge;
 using NoSQL.GraphDB.Mcp.Configuration;
 using NoSQL.GraphDB.Mcp.Tools;
@@ -95,12 +97,44 @@ namespace NoSQL.GraphDB.Tests
             };
         }
 
+        /// <summary>Every tool across every tier (Phase 2), for tier-gating matrix tests.</summary>
+        internal static IMcpTool[] AllTools(Fallen8RestClient bridge)
+        {
+            return new IMcpTool[]
+            {
+                new OverviewTool(bridge),
+                new GetTool(bridge),
+                new SearchTool(bridge),
+                new PathsTool(bridge),
+                new AnalyticsTool(bridge),
+                new MutateTool(bridge),
+                new SubgraphTool(bridge),
+                new NamespaceTool(bridge),
+                new AdminTool(bridge),
+            };
+        }
+
         internal static ToolCatalog Catalog(McpToolsOptions tools, IEnumerable<IMcpTool> registeredTools)
         {
             return new ToolCatalog(
                 registeredTools,
                 Options.Create(new McpOptions { Tools = tools }),
                 TestLoggerFactory.Create().CreateLogger<ToolCatalog>());
+        }
+
+        /// <summary>Parses a JSON literal into the tool argument map.</summary>
+        internal static IReadOnlyDictionary<String, System.Text.Json.JsonElement> Args(String json)
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<String, System.Text.Json.JsonElement>>(json)!;
+        }
+
+        /// <summary>Asserts the call succeeded and returns its structured content.</summary>
+        internal static System.Text.Json.JsonElement Structured(CallToolResult result)
+        {
+            var detail = result.Content.Count > 0 && result.Content[0] is TextContentBlock text ? text.Text : "(no content)";
+            Assert.IsFalse(result.IsError, "tool returned an error: " + detail);
+            Assert.IsNotNull(result.StructuredContent);
+            return result.StructuredContent!.Value;
         }
     }
 }

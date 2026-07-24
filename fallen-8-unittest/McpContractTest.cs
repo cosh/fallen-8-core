@@ -61,6 +61,23 @@ namespace NoSQL.GraphDB.Tests
             ("/path/{from}/to/{to}", "post"),
             ("/analytics/algorithms", "get"),
             ("/analytics/{algorithmName}", "post"),
+            // Write tier (Phase 2).
+            ("/vertex", "put"),
+            ("/edge", "put"),
+            ("/graphelement/{graphElementIdentifier}/{propertyIdString}", "put"),
+            ("/graphelement/{graphElementIdentifier}/{propertyIdString}", "delete"),
+            ("/graphelement/{graphElementIdentifier}", "delete"),
+            ("/graphelement/{graphElementIdentifier}/embedding/{embeddingName}", "put"),
+            ("/subgraph", "put"),
+            ("/ns/{name}", "put"),
+            ("/ns/{name}", "patch"),
+            ("/ns/{name}", "delete"),
+            // Admin tier (Phase 2).
+            ("/save", "put"),
+            ("/savegames", "get"),
+            ("/savegames/{id}/load", "put"),
+            ("/trim", "head"),
+            ("/tabularasa", "head"),
         };
 
         private static JsonElement Paths()

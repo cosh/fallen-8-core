@@ -103,6 +103,22 @@ namespace NoSQL.GraphDB.Mcp.Bridge
             return SendRawAsync(HttpMethod.Get, Scoped(@namespace, $"graphelement/{id}"), null, cancellationToken);
         }
 
+        /// <summary>A namespace-scoped request that returns the raw JSON reply (or null on
+        /// soft-not-found) — for write endpoints whose response is a rich, forward-compatible
+        /// document the bridge passes through rather than re-models (save-game, subgraph summary,
+        /// namespace entry).</summary>
+        public Task<JsonElement?> RequestRawAsync(HttpMethod method, String? @namespace, String suffix, Object? body, CancellationToken cancellationToken)
+        {
+            return SendRawAsync(method, Scoped(@namespace, suffix), body, cancellationToken);
+        }
+
+        /// <summary>A namespace-scoped request that expects a 2xx and no meaningful body (the
+        /// write endpoints' 202/204). Throws a mapped <see cref="BridgeError"/> on failure.</summary>
+        public async Task RequestVoidAsync(HttpMethod method, String? @namespace, String suffix, Object? body, CancellationToken cancellationToken)
+        {
+            await SendAsync(method, Scoped(@namespace, suffix), body, cancellationToken).ConfigureAwait(false);
+        }
+
         /// <summary>
         ///   Builds a namespace-scoped relative path: the bare <c>{suffix}</c> for the reserved
         ///   default, or <c>ns/{encoded}/{suffix}</c> otherwise, with the namespace validated and

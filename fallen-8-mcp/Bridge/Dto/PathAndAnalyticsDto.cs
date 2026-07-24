@@ -25,12 +25,14 @@
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace NoSQL.GraphDB.Mcp.Bridge.Dto
 {
-    /// <summary>Request body for <c>POST /path/{from}/to/{to}</c> — the filterless / stored-query
-    /// form only (inline C# fragments are the code capability, added in Phase 2). MaxDepth defaults
-    /// to 7 because a serialized 0 makes the endpoint short-circuit to an empty result.</summary>
+    /// <summary>Request body for <c>POST /path/{from}/to/{to}</c>. The filterless / stored-query
+    /// form is read-tier; the inline <c>Filter</c>/<c>Cost</c> fragments are the code capability
+    /// (present only when enabled). MaxDepth defaults to 7 because a serialized 0 makes the
+    /// endpoint short-circuit to an empty result.</summary>
     public sealed class PathRequest
     {
         public String PathAlgorithmName { get; set; } = "BLS";
@@ -39,7 +41,14 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
 
         public Int32 MaxResults { get; set; } = 65535;
 
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public String? StoredQuery { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public PathFilterDto? Filter { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public PathCostDto? Cost { get; set; }
     }
 
     /// <summary>One element of a <c>PathREST</c> (an edge hop). <c>Direction</c> is the numeric

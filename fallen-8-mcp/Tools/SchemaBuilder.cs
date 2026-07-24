@@ -70,6 +70,36 @@ namespace NoSQL.GraphDB.Mcp.Tools
             return Add(name, new JsonObject { ["type"] = "boolean", ["description"] = description }, required);
         }
 
+        /// <summary>A JSON-native scalar of any type (string/number/bool) — no <c>type</c>
+        /// constraint, so it stays a flat property, not a <c>oneOf</c>. The bridge infers the
+        /// Fallen-8 type from the JSON kind.</summary>
+        public SchemaBuilder Any(String name, String description, Boolean required = false)
+        {
+            return Add(name, new JsonObject { ["description"] = description }, required);
+        }
+
+        /// <summary>A free-form object map (e.g. properties: {key: value}).</summary>
+        public SchemaBuilder Obj(String name, String description, Boolean required = false)
+        {
+            return Add(name, new JsonObject
+            {
+                ["type"] = "object",
+                ["description"] = description,
+                ["additionalProperties"] = true,
+            }, required);
+        }
+
+        /// <summary>A numeric array (e.g. an embedding/query vector).</summary>
+        public SchemaBuilder NumArray(String name, String description, Boolean required = false)
+        {
+            return Add(name, new JsonObject
+            {
+                ["type"] = "array",
+                ["description"] = description,
+                ["items"] = new JsonObject { ["type"] = "number" },
+            }, required);
+        }
+
         public SchemaBuilder StrArray(String name, String description, Boolean required = false, IEnumerable<String>? itemChoices = null)
         {
             var items = new JsonObject { ["type"] = "string" };

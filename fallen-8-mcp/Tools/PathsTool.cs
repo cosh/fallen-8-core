@@ -58,6 +58,25 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
         public Tool Describe(McpToolsOptions tools)
         {
+            var schema = SchemaBuilder.Create()
+                .Str("namespace", "The namespace (graph). Defaults to 'default'.")
+                .Int("from", "Source vertex id.", required: true)
+                .Int("to", "Target vertex id.", required: true)
+                .Str("algorithm", "Path algorithm.", choices: new[] { "BLS", "DIJKSTRA" })
+                .Int("maxDepth", "Maximum hop depth (default 7).")
+                .Int("maxResults", "Maximum number of paths.")
+                .Str("storedQuery", "Name of a registered stored path query (mutually exclusive with algorithm knobs).");
+
+            if (tools.EnableCode)
+            {
+                schema
+                    .Str("vertexFilter", "Inline C# vertex filter (code capability).")
+                    .Str("edgeFilter", "Inline C# edge filter (code capability).")
+                    .Str("edgePropertyFilter", "Inline C# edge-property filter (code capability).")
+                    .Str("vertexCost", "Inline C# vertex cost (code capability; DIJKSTRA).")
+                    .Str("edgeCost", "Inline C# edge cost (code capability; DIJKSTRA).");
+            }
+
             return new Tool
             {
                 Name = Name,
@@ -65,15 +84,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 Description =
                     "Find paths between two vertices. Unfiltered or by a registered stored query. " +
                     "An empty result can also mean an internal traversal limit was hit, not only 'no path'.",
-                InputSchema = SchemaBuilder.Create()
-                    .Str("namespace", "The namespace (graph). Defaults to 'default'.")
-                    .Int("from", "Source vertex id.", required: true)
-                    .Int("to", "Target vertex id.", required: true)
-                    .Str("algorithm", "Path algorithm.", choices: new[] { "BLS", "DIJKSTRA" })
-                    .Int("maxDepth", "Maximum hop depth (default 7).")
-                    .Int("maxResults", "Maximum number of paths.")
-                    .Str("storedQuery", "Name of a registered stored path query (mutually exclusive with algorithm knobs).")
-                    .Build(),
+                InputSchema = schema.Build(),
                 Annotations = new ToolAnnotations
                 {
                     Title = "Find paths",
@@ -109,6 +120,30 @@ namespace NoSQL.GraphDB.Mcp.Tools
             if (ToolArgs.GetInt(arguments, "maxResults") is { } maxResults)
             {
                 request.MaxResults = maxResults;
+            }
+
+            // Inline fragments are honoured ONLY when the code capability is on (defence beyond the schema).
+            if (tools.EnableCode)
+            {
+                var vertexFilter = ToolArgs.GetString(arguments, "vertexFilter");
+                var edgeFilter = ToolArgs.GetString(arguments, "edgeFilter");
+                var edgePropertyFilter = ToolArgs.GetString(arguments, "edgePropertyFilter");
+                if (!String.IsNullOrEmpty(vertexFilter) || !String.IsNullOrEmpty(edgeFilter) || !String.IsNullOrEmpty(edgePropertyFilter))
+                {
+                    request.Filter = new PathFilterDto
+                    {
+                        VertexFilter = vertexFilter,
+                        EdgeFilter = edgeFilter,
+                        EdgePropertyFilter = edgePropertyFilter,
+                    };
+                }
+
+                var vertexCost = ToolArgs.GetString(arguments, "vertexCost");
+                var edgeCost = ToolArgs.GetString(arguments, "edgeCost");
+                if (!String.IsNullOrEmpty(vertexCost) || !String.IsNullOrEmpty(edgeCost))
+                {
+                    request.Cost = new PathCostDto { VertexCost = vertexCost, EdgeCost = edgeCost };
+                }
             }
 
             var paths = await _bridge.PostAsync<List<PathDto>>(@namespace, $"path/{from}/to/{to}", request, cancellationToken)
