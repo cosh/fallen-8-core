@@ -132,6 +132,15 @@ namespace NoSQL.GraphDB.Mcp.Hosting
                        "Set a strong token (compose: F8_MCP_TOKEN), or use a different auth mode.";
             }
 
+            // OAuth without an audience cannot enforce audience binding (a token minted for another
+            // resource would validate on issuer+signature alone) — fail closed (spec §3.8).
+            if (options.Auth.IsOAuth && String.IsNullOrEmpty(options.Auth.Audience))
+            {
+                return "Refusing to start: auth mode is 'OAuth' but Mcp:Auth:Audience is empty. " +
+                       "Audience binding is mandatory — set the canonical resource identifier this " +
+                       "server validates the token's 'aud' claim against.";
+            }
+
             var bindsNonLoopback = !IsLoopbackHost(options.Security.BindAddress);
             if (!bindsNonLoopback || options.Security.AcceptAnonymousRemote)
             {
@@ -145,23 +154,15 @@ namespace NoSQL.GraphDB.Mcp.Hosting
                        "Mcp:Security:AcceptAnonymousRemote=true to explicitly accept an anonymous remote surface.";
             }
 
-            return null;
-        }
-
-        /// <summary>
-        ///   The TLS obligation the "TLS is the deployment's job" deferral carries once auth exists
-        ///   (spec §3.3): a warning when credentials could travel in cleartext (non-loopback,
-        ///   auth on, request scheme http and no trusted https forwarding). Advisory, not fatal.
-        /// </summary>
-        public static Boolean ShouldWarnCleartextAuth(McpOptions options, String requestScheme, String? forwardedProto)
-        {
-            if (options.Auth.IsAnonymous || IsLoopbackHost(options.Security.BindAddress))
+            // A non-loopback bind must also be an explicit decision to accept remote callers — the
+            // live second catch beyond auth (spec §3.3). AllowRemoteAccess is the operator's switch.
+            if (!options.Security.AllowRemoteAccess)
             {
-                return false;
+                return $"Refusing to start: bind address '{options.Security.BindAddress}' is not loopback but " +
+                       "Mcp:Security:AllowRemoteAccess is false. Set it true to accept remote callers, or bind loopback.";
             }
-            var https = String.Equals(requestScheme, "https", StringComparison.OrdinalIgnoreCase)
-                || String.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase);
-            return !https;
+
+            return null;
         }
     }
 }

@@ -86,42 +86,42 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void StartupPosture_IsFailClosedForAnonymousRemote()
         {
-            Assert.IsNull(Refusal("127.0.0.1", "None", accept: false), "loopback + anonymous is fine");
-            Assert.IsNotNull(Refusal("0.0.0.0", "None", accept: false), "non-loopback + anonymous is refused");
+            Assert.IsNull(Refusal("127.0.0.1", "None"), "loopback + anonymous is fine");
+            Assert.IsNotNull(Refusal("0.0.0.0", "None"), "non-loopback + anonymous is refused");
             Assert.IsNull(Refusal("0.0.0.0", "None", accept: true), "the explicit override permits anonymous remote");
-            Assert.IsNull(Refusal("0.0.0.0", "StaticToken", accept: false), "non-loopback with a real token is fine");
+
+            // A non-loopback bind needs AllowRemoteAccess even WITH auth (the live second catch).
+            Assert.IsNotNull(Refusal("0.0.0.0", "StaticToken"), "non-loopback + token but AllowRemoteAccess=false is refused");
+            Assert.IsNull(Refusal("0.0.0.0", "StaticToken", allowRemote: true), "non-loopback + token + AllowRemoteAccess is fine");
+            Assert.IsNull(Refusal("127.0.0.1", "StaticToken"), "loopback + token is fine");
 
             // StaticToken mode with an EMPTY token fails closed regardless of bind.
-            var emptyToken = TransportSecurity.EvaluateStartupRefusal(new McpOptions
+            Assert.IsNotNull(TransportSecurity.EvaluateStartupRefusal(new McpOptions
             {
                 Security = new McpSecurityOptions { BindAddress = "127.0.0.1" },
                 Auth = new McpAuthOptions { Mode = "StaticToken", StaticToken = "" },
-            });
-            Assert.IsNotNull(emptyToken, "StaticToken mode with no token is refused (credential-less by mistake)");
+            }), "StaticToken mode with no token is refused (credential-less by mistake)");
+
+            // OAuth mode with no audience fails closed (audience binding is mandatory).
+            Assert.IsNotNull(TransportSecurity.EvaluateStartupRefusal(new McpOptions
+            {
+                Security = new McpSecurityOptions { BindAddress = "127.0.0.1" },
+                Auth = new McpAuthOptions { Mode = "OAuth", Issuer = "https://issuer", Audience = "" },
+            }), "OAuth mode with no audience is refused (no audience binding)");
+            Assert.IsNull(TransportSecurity.EvaluateStartupRefusal(new McpOptions
+            {
+                Security = new McpSecurityOptions { BindAddress = "127.0.0.1" },
+                Auth = new McpAuthOptions { Mode = "OAuth", Issuer = "https://issuer", Audience = "https://mcp/resource" },
+            }), "OAuth with an audience configured is fine");
         }
 
-        private static String Refusal(String bind, String authMode, Boolean accept)
+        private static String Refusal(String bind, String authMode, Boolean accept = false, Boolean allowRemote = false)
         {
             return TransportSecurity.EvaluateStartupRefusal(new McpOptions
             {
-                Security = new McpSecurityOptions { BindAddress = bind, AcceptAnonymousRemote = accept },
+                Security = new McpSecurityOptions { BindAddress = bind, AcceptAnonymousRemote = accept, AllowRemoteAccess = allowRemote },
                 Auth = new McpAuthOptions { Mode = authMode, StaticToken = authMode == "StaticToken" ? "a-real-token" : null },
             });
-        }
-
-        [TestMethod]
-        public void CleartextAuthWarning_OnlyWhenCredentialsCouldLeak()
-        {
-            var loopbackAnon = new McpOptions();
-            Assert.IsFalse(TransportSecurity.ShouldWarnCleartextAuth(loopbackAnon, "http", null));
-
-            var remoteAuth = new McpOptions
-            {
-                Security = new McpSecurityOptions { BindAddress = "0.0.0.0" },
-                Auth = new McpAuthOptions { Mode = "StaticToken", StaticToken = "t" },
-            };
-            Assert.IsTrue(TransportSecurity.ShouldWarnCleartextAuth(remoteAuth, "http", null), "cleartext + remote + auth warns");
-            Assert.IsFalse(TransportSecurity.ShouldWarnCleartextAuth(remoteAuth, "http", "https"), "a trusted https proxy clears it");
         }
 
         // --- hosted middleware --------------------------------------------------------------

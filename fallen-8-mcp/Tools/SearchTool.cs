@@ -77,10 +77,13 @@ namespace NoSQL.GraphDB.Mcp.Tools
                         choices: new[] { "index", "property", "fulltext", "vector", "semantic" })
                     .Str("indexId", "Index name (index/fulltext/vector/semantic modes).")
                     .Str("key", "Property key (property mode).")
-                    .Str("operator", "Comparison (index/property modes).",
+                    .Str("operator", "Comparison operator for 'value' (index/property modes).",
                         choices: new[] { "equal", "greater", "greater_or_equal", "less", "less_or_equal", "not_equal" })
+                    .Any("value", "Comparison literal, JSON-native — the bridge infers the type (index/property modes).")
                     .Str("query", "Query text (fulltext/semantic modes).")
-                    .Str("kind", "Restrict to a kind.", choices: new[] { "vertex", "edge", "any" })
+                    .NumArray("vector", "Query vector for kNN (vector mode).")
+                    .Str("kind", "Restrict to a kind (honoured by index/property/vector/semantic; ignored by fulltext).",
+                        choices: new[] { "vertex", "edge", "any" })
                     .Int("limit", "Max hits per page (default 25, cap 200). Drives k for vector/semantic.")
                     .Int("cursor", "Offset into the result order (from a prior nextCursor).")
                     .StrArray("fields", "Enrich each hit with these property keys (costs one fetch per hit).")
@@ -108,9 +111,11 @@ namespace NoSQL.GraphDB.Mcp.Tools
             var fields = ToolArgs.GetStringSet(arguments, "fields");
             var end = offset + limit;
 
-            // Gathered hits (id + optional score) in the mode's deterministic order.
+            // Gathered hits (id + optional score) in the mode's deterministic order. For the
+            // bounded modes we over-fetch by one (end + 1) so hasMore can be decided by a strictly
+            // extra hit rather than a full window (which would over-report at the exact boundary).
+            var fetch = Math.Min(end + 1, MaxK);
             List<(Int32 Id, Double? Score)> gathered;
-            Boolean windowFilled;
 
             switch (mode)
             {
@@ -127,7 +132,6 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     var ids = await _bridge.PostAsync<List<Int32>>(@namespace, suffix, request!, cancellationToken).ConfigureAwait(false)
                               ?? new List<Int32>();
                     gathered = ToHits(ids);
-                    windowFilled = false;
                     break;
                 }
 
@@ -142,18 +146,17 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
                     var result = await _bridge.PostAsync<FulltextResultDto>(@namespace, "scan/index/fulltext",
                         new FulltextScanRequest { IndexId = indexId, RequestString = query }, cancellationToken).ConfigureAwait(false);
-                    if (result is null)
-                    {
-                        // 204: the endpoint's "no such fulltext index" — a clean not-found, not a silent empty.
-                        return ToolResults.Error(404, "Index not found", $"No fulltext index named '{indexId}'.");
-                    }
 
-                    gathered = new List<(Int32, Double?)>(result.Elements.Count);
-                    foreach (var hit in result.Elements)
+                    // The engine returns the SAME 204/null for "no such fulltext index" and for a
+                    // real index with zero matches, so treat it as an empty page ("searched, no
+                    // hits") — consistent with the index/property/vector modes — rather than
+                    // dishonestly reporting the index as missing.
+                    var elements = result?.Elements ?? new List<FulltextHitDto>();
+                    gathered = new List<(Int32, Double?)>(elements.Count);
+                    foreach (var hit in elements)
                     {
                         gathered.Add((hit.GraphElementId, hit.Score));
                     }
-                    windowFilled = false;
                     break;
                 }
 
@@ -166,7 +169,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                         return ToolResults.Error(400, "Invalid arguments", $"{mode} mode requires 'indexId'.");
                     }
 
-                    var k = Math.Min(end, MaxK);
+                    var k = fetch;
                     VectorResultDto? result;
                     if (mode == "vector")
                     {
@@ -197,7 +200,6 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     {
                         gathered.Add((hit.GraphElementId, hit.Score));
                     }
-                    windowFilled = hits.Count >= k;
                     break;
                 }
 
@@ -205,7 +207,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     return ToolResults.Error(400, "Invalid arguments", "mode must be index, property, fulltext, vector, or semantic.");
             }
 
-            return await BuildPageAsync(mode!, @namespace, gathered, offset, limit, end, windowFilled, fields, cancellationToken)
+            return await BuildPageAsync(mode!, @namespace, gathered, offset, end, fields, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -278,9 +280,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
             String? @namespace,
             List<(Int32 Id, Double? Score)> gathered,
             Int32 offset,
-            Int32 limit,
             Int32 end,
-            Boolean windowFilled,
             HashSet<String> fields,
             CancellationToken cancellationToken)
         {
@@ -306,7 +306,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 pageCount++;
             }
 
-            var hasMore = windowFilled ? gathered.Count >= end : gathered.Count > end;
+            // We fetched end+1 for the bounded modes, so a strictly-extra hit means there is more.
+            var hasMore = gathered.Count > end;
             var structured = new JsonObject
             {
                 ["mode"] = mode,

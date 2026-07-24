@@ -67,8 +67,9 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 Name = Name,
                 Title = "Mutate",
                 Description =
-                    "Apply one graph mutation (transactional; success means applied). Property/element " +
-                    "removals are no-ops for an absent id. Creates do not return the new id — find it by search.",
+                    "Apply one graph mutation (transactional; success means the transaction applied). " +
+                    "set_property / remove_property / remove_element are no-ops for an absent-but-in-range id " +
+                    "(success does not assert the element existed). Creates do not return the new id — find it by search.",
                 InputSchema = SchemaBuilder.Create()
                     .Str("namespace", "The namespace (graph). Defaults to 'default'.")
                     .Str("op", "The mutation.", required: true, choices: new[]
@@ -111,7 +112,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     {
                         return ToolResults.Error(400, "Invalid arguments", error);
                     }
-                    var body = new VertexSpecDto { Label = ToolArgs.GetString(arguments, "label"), Properties = properties };
+                    var body = new VertexSpecDto { CreationDate = NowEpoch(), Label = ToolArgs.GetString(arguments, "label"), Properties = properties };
                     await _bridge.RequestVoidAsync(HttpMethod.Put, @namespace, "vertex" + Wait, body, cancellationToken).ConfigureAwait(false);
                     return Applied("create_vertex", "vertex created (id assigned server-side, not returned by REST — find it via f8_search).");
                 }
@@ -131,6 +132,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     }
                     var body = new EdgeSpecDto
                     {
+                        CreationDate = NowEpoch(),
                         SourceVertex = source.Value,
                         TargetVertex = target.Value,
                         EdgePropertyId = edgePropertyId,
@@ -160,7 +162,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     var body = new PropertySpecDto { PropertyId = key, PropertyValue = literal, FullQualifiedTypeName = fqtn };
                     await _bridge.RequestVoidAsync(HttpMethod.Put, @namespace,
                         $"graphelement/{id}/{UrlSafety.EncodeSegment(key)}" + Wait, body, cancellationToken).ConfigureAwait(false);
-                    return Applied("set_property", $"property '{key}' set on element {id}.");
+                    return Applied("set_property", $"set_property '{key}' applied to element {id} (no change if it does not exist).");
                 }
 
                 case "remove_property":
@@ -212,6 +214,13 @@ namespace NoSQL.GraphDB.Mcp.Tools
         private static CallToolResult Applied(String op, String summary)
         {
             return ToolResults.Ok(summary, new JsonObject { ["op"] = op, ["applied"] = true });
+        }
+
+        /// <summary>The current time as the Unix-second creation stamp Fallen-8 expects (rather
+        /// than the DTO's placeholder), so MCP-created elements carry an honest creationDate.</summary>
+        private static UInt32 NowEpoch()
+        {
+            return (UInt32)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         }
 
         private static Boolean BuildProperties(

@@ -191,11 +191,24 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task Search_Fulltext_UnknownIndex_IsCleanNotFound()
+        public async Task Search_Fulltext_ZeroMatchOnRealIndex_IsEmptyPageNotError()
         {
+            // The engine returns the same null for "no such index" and "index exists, zero hits",
+            // so f8_search reports an honest empty page (not a misleading "index not found").
+            var result = await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"fulltext\",\"indexId\":\"fts\",\"query\":\"zzzznomatchhere\"}"), CancellationToken.None);
+            var structured = Structured(result);
+            Assert.AreEqual(0, structured.GetProperty("count").GetInt32(), "a real index with no matches is an empty page");
+            Assert.IsFalse(structured.GetProperty("hasMore").GetBoolean());
+        }
+
+        [TestMethod]
+        public async Task Search_Fulltext_UnknownIndex_IsEmptyPage()
+        {
+            // Consistent with the index/property modes' silent-empty on a missing index.
             var result = await Catalog().CallAsync("f8_search",
                 Args("{\"mode\":\"fulltext\",\"indexId\":\"no-such-index\",\"query\":\"graph\"}"), CancellationToken.None);
-            Assert.IsTrue(result.IsError, "an unknown fulltext index is a clean error, not a silent empty result");
+            Assert.AreEqual(0, Structured(result).GetProperty("count").GetInt32());
         }
 
         // --- f8_paths -----------------------------------------------------------------------

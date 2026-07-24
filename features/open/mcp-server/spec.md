@@ -295,11 +295,13 @@ all small:
 - **Few, flat schemas.** Nine tools, terse descriptions, detail in parameter docs. Disabled
   tiers/capabilities are absent from `tools/list`, so a read-only server advertises only five
   compact schemas and the `code` params cost nothing when off.
-- **No .NET plumbing in inputs.** `f8_mutate` property values and `f8_search` literals/range
-  bounds are **JSON-native**; the bridge infers the Fallen-8 type (`ValueMapping`) from the JSON
-  value (string→`System.String`, integer→`System.Int32`, real→`System.Double`, bool→`System.Boolean`,
-  array-of-number→`System.Single[]`, …), with an explicit `type` escape hatch for the rare
-  non-default (`DateTime`, `Single[]` embeddings). Agents never emit `"System.Int32"`.
+- **No .NET plumbing in inputs.** `f8_mutate` property values and `f8_search` literals are
+  **JSON-native**; the bridge infers the Fallen-8 type (`ValueMapping`) from the JSON value
+  (string→`System.String`, integer→`System.Int32/64`, real→`System.Double`, bool→`System.Boolean`).
+  Agents never emit `"System.Int32"`. Embeddings (`Single[]`) are written through
+  `f8_mutate set_embedding`'s numeric `vector`, not as a typed property. *An explicit per-value
+  `type` escape hatch (for typed `DateTime`/`decimal` comparisons) is a planned extension, not
+  yet implemented — documented as a known limitation in `docs/mcp-server.md`.*
 - **Compact, byte-bounded results.** Elements render as minimal records (`id`, `label`, scalar
   property values); **vector/array property values are omitted by default** (key + type + length
   shown), long strings are **truncated with a marker + original length**, and every result

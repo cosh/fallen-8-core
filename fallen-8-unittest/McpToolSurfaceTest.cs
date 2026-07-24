@@ -150,5 +150,18 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.IsTrue(result.IsError);
         }
+
+        [TestMethod]
+        public void Search_Schema_DeclaresEveryModesRequiredInput()
+        {
+            // Regression guard: the schema (additionalProperties:false) must declare the operands
+            // its modes require, or a schema-abiding client cannot reach index/property/vector.
+            var bridge = McpTestSupport.Bridge(
+                new McpTestSupport.LambdaHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)));
+            var schema = new SearchTool(bridge).Describe(new McpToolsOptions()).InputSchema.GetRawText();
+
+            StringAssert.Contains(schema, "\"value\"", "index/property modes need a declared 'value' operand");
+            StringAssert.Contains(schema, "\"vector\"", "vector mode needs a declared 'vector' parameter");
+        }
     }
 }

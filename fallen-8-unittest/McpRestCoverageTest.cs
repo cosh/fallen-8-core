@@ -66,7 +66,8 @@ namespace NoSQL.GraphDB.Tests
                 "analytics partition-member pagination is deferred; f8_analytics returns partition summaries"),
             new(op => op.StartsWith("GET /subgraph") || op.StartsWith("DELETE /subgraph") || op.EndsWith("/recalculate"),
                 "subgraph read/recalculate/delete are deferred; define via f8_subgraph"),
-            new(op => op.Contains("/index"),
+            // " /index" (space-anchored) matches paths that START /index — NOT the bridged /scan/index/*.
+            new(op => op.Contains(" /index"),
                 "index lifecycle (create/populate/drop) is operator/setup tooling; agents scan existing indices via f8_search"),
             new(op => op.Contains("/storedquery"),
                 "stored-query registration/listing is code-gated setup; agents invoke by name via the storedQuery parameter"),
@@ -80,12 +81,15 @@ namespace NoSQL.GraphDB.Tests
                 "dynamic-code validation is a code-gated editor/dev tool"),
             new(op => op.Contains("/benchmark") || op.Contains("/generate") || op.Contains("/unittest"),
                 "development/benchmark/sample-generation tooling, not an agent surface"),
-            new(op => op.Contains("/embedding/"),
+            // Embedding endpoints EXCEPT the two bridged ones (semantic search + set_embedding).
+            new(op => op.Contains("/embedding/")
+                    && op != "POST /embedding/search"
+                    && op != "PUT /graphelement/{graphElementIdentifier}/embedding/{embeddingName}",
                 "element embedding writes (element/elements/text) and per-element embedding read/remove are deferred; " +
                 "f8_mutate set_embedding writes, f8_search mode:semantic reads"),
             new(op => op == "GET /ns/{name}",
                 "per-namespace detail is surfaced by f8_overview(namespace); the directory by f8_overview"),
-            new(op => op.StartsWith("GET /savegames") || op == "DELETE /savegames/{id}",
+            new(op => op == "GET /savegames/{id}" || op == "DELETE /savegames/{id}",
                 "save-game detail/deletion is operator housekeeping; f8_admin lists and restores by id"),
             new(op => op == "PUT /save/all" || op == "HEAD /tabularasa/all",
                 "collection-wide save/reset variants are deferred; the single-namespace forms are bridged"),
@@ -140,6 +144,22 @@ namespace NoSQL.GraphDB.Tests
         {
             var all = McpBridgedEndpoints.All.Select(e => $"{e.Method} {e.Path}").ToList();
             Assert.AreEqual(all.Count, all.Distinct().Count(), "the bridged-endpoint list has no duplicates");
+        }
+
+        [TestMethod]
+        public void NoBridgedEndpoint_MatchesADeferral()
+        {
+            // Bridged and deferred must be mutually exclusive, or a bridged route that is later
+            // removed could be silently re-covered by a broad deferral rule — hiding the very
+            // regression the tripwire exists to catch.
+            var overlaps = McpBridgedEndpoints.All
+                .Select(e => $"{e.Method} {e.Path}")
+                .Where(op => Deferrals.Any(d => d.Matches(op)))
+                .ToList();
+
+            Assert.AreEqual(0, overlaps.Count,
+                "a bridged endpoint is also matched by a deferral rule (narrow the rule so the sets stay disjoint):\n" +
+                String.Join("\n", overlaps));
         }
     }
 }

@@ -121,6 +121,13 @@ frugal: few flat schemas, JSON-native inputs (you never write .NET type names), 
 results (scalar property values by default, vector values omitted, long strings truncated),
 and hard pagination caps. `f8_overview` answers "what is here and what can I do" in one call.
 
+The bridge infers a property/literal's type from the JSON value — string → `System.String`,
+integer → `System.Int32/64`, real → `System.Double`, bool → `System.Boolean` — which covers the
+common cases; typed comparisons against `DateTime`/`decimal` properties are not yet inferred
+(embeddings are written via `f8_mutate set_embedding`, not as a typed property). Rich results
+ride in the tool result's `structuredContent`; clients must consume that field (the `content`
+block is only a one-line summary).
+
 ## Security guidance
 
 Run agent-facing servers **read-only unless you have a concrete need** for writes. An agent can
