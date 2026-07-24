@@ -116,9 +116,15 @@ namespace NoSQL.GraphDB.Tests
 
         internal static ToolCatalog Catalog(McpToolsOptions tools, IEnumerable<IMcpTool> registeredTools)
         {
+            return Catalog(new McpOptions { Tools = tools }, registeredTools, new Microsoft.AspNetCore.Http.HttpContextAccessor());
+        }
+
+        internal static ToolCatalog Catalog(McpOptions options, IEnumerable<IMcpTool> registeredTools, Microsoft.AspNetCore.Http.IHttpContextAccessor httpContextAccessor)
+        {
             return new ToolCatalog(
                 registeredTools,
-                Options.Create(new McpOptions { Tools = tools }),
+                Options.Create(options),
+                httpContextAccessor,
                 TestLoggerFactory.Create().CreateLogger<ToolCatalog>());
         }
 

@@ -113,6 +113,11 @@ namespace NoSQL.GraphDB.Mcp
                 options.KnownProxies.Clear();
             });
 
+            if (mcp.Auth.IsOAuth)
+            {
+                McpOAuth.AddOAuth(builder.Services, mcp.Auth);
+            }
+
             var holder = McpHost.AddFallen8Mcp(builder.Services, builder.Configuration, stdio: false);
 
             var app = builder.Build();
@@ -133,10 +138,12 @@ namespace NoSQL.GraphDB.Mcp
                 app.UseRateLimiter();
             }
 
-            // Origin validation (DNS-rebinding) + static bearer (Phase B). /healthz stays anonymous.
+            // Origin validation (DNS-rebinding) + static bearer (Phase B). /healthz and the
+            // protected-resource metadata stay anonymous.
             app.Use(async (context, next) =>
             {
-                if (!context.Request.Path.StartsWithSegments("/healthz"))
+                var path = context.Request.Path;
+                if (!path.StartsWithSegments("/healthz") && !path.StartsWithSegments(McpOAuth.MetadataPath))
                 {
                     if (!TransportSecurity.IsOriginAllowed(context.Request.Headers["Origin"].ToString(), mcp.Security))
                     {
@@ -156,7 +163,19 @@ namespace NoSQL.GraphDB.Mcp
                 await next().ConfigureAwait(false);
             });
 
-            app.MapMcp();
+            if (mcp.Auth.IsOAuth)
+            {
+                app.UseAuthentication();
+                app.UseAuthorization();
+                McpOAuth.MapProtectedResourceMetadata(app, mcp.Auth);
+            }
+
+            var mcpEndpoints = app.MapMcp();
+            if (mcp.Auth.IsOAuth)
+            {
+                mcpEndpoints.RequireAuthorization();
+            }
+
             app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 
             McpHost.LogStartupPosture(

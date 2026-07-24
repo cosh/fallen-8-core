@@ -120,6 +120,13 @@ namespace NoSQL.GraphDB.Mcp.Configuration
         /// the token's <c>aud</c> claim must equal).</summary>
         public String? Audience { get; set; }
 
+        /// <summary>Phase C test/lab escape hatch: a symmetric (HMAC) signing key to validate
+        /// tokens against directly, instead of discovering the issuer's JWKS via
+        /// <see cref="Issuer"/>. Production leaves this null and relies on issuer discovery.</summary>
+        public String? SigningKey { get; set; }
+
         public Boolean IsAnonymous => String.Equals(Mode, "None", StringComparison.OrdinalIgnoreCase);
+
+        public Boolean IsOAuth => String.Equals(Mode, "OAuth", StringComparison.OrdinalIgnoreCase);
     }
 }

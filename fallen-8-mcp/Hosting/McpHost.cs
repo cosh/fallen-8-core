@@ -73,6 +73,9 @@ namespace NoSQL.GraphDB.Mcp.Hosting
             services.Configure<McpOptions>(configuration.GetSection(McpOptions.SectionName));
             services.Configure<Fallen8TargetOptions>(configuration.GetSection(Fallen8TargetOptions.SectionName));
 
+            // Needed so the catalog can read the caller's OAuth scopes per request (spec §3.6/§3.8).
+            services.AddHttpContextAccessor();
+
             services.AddHttpClient(Fallen8RestClient.HttpClientName, (sp, client) =>
                 {
                     var target = sp.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value;

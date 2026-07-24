@@ -26,9 +26,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
@@ -50,24 +52,74 @@ namespace NoSQL.GraphDB.Mcp.Tools
     {
         private readonly IReadOnlyList<IMcpTool> _tools;
         private readonly IOptions<McpOptions> _options;
+        private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ILogger<ToolCatalog> _logger;
 
-        public ToolCatalog(IEnumerable<IMcpTool> tools, IOptions<McpOptions> options, ILogger<ToolCatalog> logger)
+        public ToolCatalog(
+            IEnumerable<IMcpTool> tools,
+            IOptions<McpOptions> options,
+            IHttpContextAccessor httpContextAccessor,
+            ILogger<ToolCatalog> logger)
         {
             _tools = tools.ToList();
             _options = options;
+            _httpContextAccessor = httpContextAccessor;
             _logger = logger;
         }
 
-        private McpToolsOptions Caps => _options.Value.Tools;
+        /// <summary>
+        ///   The tier flags in force for THIS call: the operator's server-side flags, and under
+        ///   OAuth intersected FAIL-CLOSED with the caller's scopes (spec §3.6/§3.8). Read is the
+        ///   floor (a valid token always gets it); write/admin/code each require BOTH the server
+        ///   flag AND the matching <c>f8:*</c> scope, so a scope can never enable a tier the
+        ///   operator disabled, and absence of a scope never grants one.
+        /// </summary>
+        private McpToolsOptions EffectiveCaps()
+        {
+            var configured = _options.Value.Tools;
+            if (!_options.Value.Auth.IsOAuth)
+            {
+                return configured;
+            }
 
-        private Boolean TierEnabled(ToolTier tier)
+            var scopes = ScopesOf(_httpContextAccessor.HttpContext?.User);
+            return new McpToolsOptions
+            {
+                EnableWrite = configured.EnableWrite && scopes.Contains("f8:write"),
+                EnableAdmin = configured.EnableAdmin && scopes.Contains("f8:admin"),
+                EnableCode = configured.EnableCode && scopes.Contains("f8:code"),
+            };
+        }
+
+        /// <summary>The granted scopes from the standard OAuth <c>scope</c>/<c>scp</c> claims
+        /// (space-delimited or multi-valued).</summary>
+        private static HashSet<String> ScopesOf(ClaimsPrincipal? user)
+        {
+            var scopes = new HashSet<String>(StringComparer.Ordinal);
+            if (user is null)
+            {
+                return scopes;
+            }
+            foreach (var claim in user.Claims)
+            {
+                if (claim.Type is "scope" or "scp" or "http://schemas.microsoft.com/identity/claims/scope")
+                {
+                    foreach (var scope in claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        scopes.Add(scope);
+                    }
+                }
+            }
+            return scopes;
+        }
+
+        private static Boolean TierEnabled(ToolTier tier, McpToolsOptions caps)
         {
             return tier switch
             {
                 ToolTier.Read => true,
-                ToolTier.Write => Caps.EnableWrite,
-                ToolTier.Admin => Caps.EnableAdmin,
+                ToolTier.Write => caps.EnableWrite,
+                ToolTier.Admin => caps.EnableAdmin,
                 _ => false,
             };
         }
@@ -77,9 +129,9 @@ namespace NoSQL.GraphDB.Mcp.Tools
         /// <summary>The tools currently advertised: exactly those whose tier is enabled.</summary>
         public IReadOnlyList<Tool> ListTools()
         {
-            var caps = Caps;
+            var caps = EffectiveCaps();
             return _tools
-                .Where(t => TierEnabled(t.Tier))
+                .Where(t => TierEnabled(t.Tier, caps))
                 .Select(t => t.Describe(caps))
                 .ToList();
         }
@@ -93,17 +145,18 @@ namespace NoSQL.GraphDB.Mcp.Tools
             IReadOnlyDictionary<String, JsonElement> arguments,
             CancellationToken cancellationToken)
         {
+            var caps = EffectiveCaps();
             var tool = name is null ? null : _tools.FirstOrDefault(t => t.Name == name);
 
-            if (tool is null || !TierEnabled(tool.Tier))
+            if (tool is null || !TierEnabled(tool.Tier, caps))
             {
                 return ToolResults.Error(404, "Unknown or disabled tool",
-                    $"No enabled tool named '{name ?? "(null)"}'. Enable its tier or check the name.");
+                    $"No enabled tool named '{name ?? "(null)"}'. Enable its tier (and, under OAuth, hold its scope) or check the name.");
             }
 
             try
             {
-                return await tool.InvokeAsync(arguments, Caps, cancellationToken).ConfigureAwait(false);
+                return await tool.InvokeAsync(arguments, caps, cancellationToken).ConfigureAwait(false);
             }
             catch (BridgeError bridgeError)
             {

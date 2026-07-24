@@ -16,6 +16,8 @@
          server advertises). ModelContextProtocol.AspNetCore transitively brings the core +
          hosting packages; version pinned exactly per the repo's exact-version gate. -->
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.1" />
+    <!-- OAuth 2.1 resource-server: validate JWT access tokens (feature mcp-server §3.8 Phase C). -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
   </ItemGroup>
 
 </Project>
