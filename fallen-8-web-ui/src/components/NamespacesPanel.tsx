@@ -126,6 +126,9 @@ export function NamespacesPanel() {
         </div>
       ) : (
         <>
+          {/* Scroll within the panel rather than spilling the actions column past its right
+              edge when a row's content (long name + url prefix + 3 action buttons) is wide. */}
+          <div className="overflow-x-auto">
           <table className="w-full text-[12px]">
             <thead>
               <tr className="text-fg-faint">
@@ -160,10 +163,10 @@ export function NamespacesPanel() {
                   <td className="table-cell text-fg-dim">
                     {entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : "—"}
                   </td>
-                  <td className="table-cell text-fg-dim">
+                  <td className="table-cell text-fg-dim whitespace-nowrap">
                     <Truncated text={`/ns/${entry.name}/*`} max={DISPLAY_CAP.path} middle />
                   </td>
-                  <td className="table-cell">
+                  <td className="table-cell whitespace-nowrap">
                     {renaming === entry.name ? (
                       <form
                         className="flex gap-1"
@@ -242,6 +245,7 @@ export function NamespacesPanel() {
               ))}
             </tbody>
           </table>
+          </div>
 
           <div className="border-line space-y-2 border-t p-3">
             <form
