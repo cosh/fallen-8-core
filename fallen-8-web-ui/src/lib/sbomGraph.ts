@@ -115,3 +115,55 @@ export function sbomToGraph(sbom: SpdxSbom): SbomGraphResult {
 
   return { vertices, edges, ecosystemCounts };
 }
+
+/** GitHub's rate-limit headers, passed through so the message can name a retry time. */
+export interface GithubRateLimit {
+  remaining: string | null;
+  reset: string | null;
+}
+
+/**
+ * Turns a non-OK GitHub SBOM response into a SPECIFIC, actionable message (feature
+ * sample-graphs). The `GET /repos/{repo}/dependency-graph/sbom` endpoint answers 404 for
+ * THREE different causes — the repo is missing, it's private, or its dependency graph is
+ * disabled — so the old "not found (or private, or has no dependency graph)" lumped all
+ * three and buried the one the user can act on. GitHub's own error body carries a `message`
+ * that distinguishes them (notably "Dependency graph is disabled…"); we lead with that.
+ * Pure + parameterized on `now` so it is unit-testable.
+ */
+export function describeGithubSbomFailure(
+  repo: string,
+  status: number,
+  githubMessage: string,
+  rateLimit: GithubRateLimit,
+  now: number,
+): string {
+  const detail = githubMessage.trim();
+
+  // Disabled dependency graph is the actionable case, and GitHub may report it as 403 OR
+  // 404 — key off the message, not the status.
+  if (/dependency graph is disabled/i.test(detail)) {
+    return (
+      `GitHub's dependency graph is disabled for '${repo}', so it has no SBOM to fetch. ` +
+      `The repo owner can enable it under Settings → Advanced Security → Dependency graph, then retry.`
+    );
+  }
+
+  if ((status === 403 || status === 429) && rateLimit.remaining === "0" && rateLimit.reset) {
+    const mins = Math.max(1, Math.ceil((Number(rateLimit.reset) * 1000 - now) / 60_000));
+    return `GitHub's anonymous rate limit is exhausted — try again in ~${mins} min.`;
+  }
+
+  if (status === 404) {
+    return (
+      `Repository '${repo}' was not found. Only a PUBLIC repo works here — a private or ` +
+      `non-existent repo returns the same 404.` + (detail ? ` (GitHub: ${detail})` : "")
+    );
+  }
+
+  if (status === 401 || status === 403) {
+    return `GitHub refused the request (${status})${detail ? `: ${detail}` : "."}`;
+  }
+
+  return `GitHub returned ${status} for '${repo}'${detail ? `: ${detail}` : "."}`;
+}
