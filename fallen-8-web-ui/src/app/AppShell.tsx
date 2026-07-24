@@ -251,7 +251,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <select
             id="instance-switcher"
             data-testid="instance-switcher"
-            className="input w-auto min-w-40"
+            /* .input is w-full; only max-width can rein it in. Instance names are short, so a
+               compact cap keeps it proportional to the namespace switcher beside it. */
+            className="input min-w-40 max-w-56"
             value={activeId ?? ""}
             onChange={(e) => switchInstance(e.target.value)}
           >
