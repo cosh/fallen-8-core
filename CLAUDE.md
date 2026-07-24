@@ -13,6 +13,12 @@ Fallen-8 is an in-memory graph database written in C# (.NET 10). Namespaces are 
   OpenAPI via `Microsoft.AspNetCore.OpenApi`; interactive docs via Scalar.
 - **`fallen-8-unittest`** — MSTest test suite covering both projects.
 
+**User-facing documentation lives in [`docs/`](docs/README.md)** — one deep-dive per feature,
+deliberately decoupled from `features/` (no spec/plan/phase language, no links into
+`features/`). `docs/` is the home users read; `features/<name>/` remains the historical
+spec/plan record and the contributor "living doc". When a feature changes user-visible
+behaviour, update its `docs/*.md` page too.
+
 ## Build & test
 
 ```bash
