@@ -240,55 +240,65 @@ export function AppShell({ children }: { children: ReactNode }) {
       </nav>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-line bg-panel flex h-11 shrink-0 items-center gap-3 border-b px-3">
-          <label
-            htmlFor="instance-switcher"
-            className="text-fg-faint label-help text-[11px] uppercase"
-            title={help("instanceSwitcher")}
-          >
-            instance
-          </label>
-          <select
-            id="instance-switcher"
-            data-testid="instance-switcher"
-            className="input w-auto min-w-40"
-            value={activeId ?? ""}
-            onChange={(e) => switchInstance(e.target.value)}
-          >
-            {instances.map((instance) => (
-              <option key={instance.id} value={instance.id}>
-                {instance.name}
-              </option>
-            ))}
-          </select>
-          {active && namespaceSupported === false && (
-            <span data-testid="active-endpoint" className="text-fg-dim truncate text-[12px]">
-              {describeEndpoint(active)} (pre-namespace server)
-            </span>
-          )}
-          {active && namespaceSupported !== false && (
-            <>
-              <span
-                className="text-fg-faint text-[11px] uppercase"
-                title="The active namespace: an isolated graph inside this Fallen-8. Manage namespaces on the Connect screen."
-              >
-                namespace
+        {/* Two equal halves: the instance group fills the LEFT half, the namespace group +
+            endpoint left-align from the midpoint in the RIGHT half, and the status chips stay
+            pinned to the far-right corner. */}
+        <header className="border-line bg-panel grid h-11 shrink-0 grid-cols-2 items-center gap-3 border-b px-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <label
+              htmlFor="instance-switcher"
+              className="text-fg-faint label-help shrink-0 text-[11px] uppercase"
+              title={help("instanceSwitcher")}
+            >
+              instance
+            </label>
+            {/* flex-1 makes the select fill the rest of the left half (.input is w-full, which
+                flex-1's basis overrides for the flex main size). */}
+            <select
+              id="instance-switcher"
+              data-testid="instance-switcher"
+              className="input min-w-0 flex-1"
+              value={activeId ?? ""}
+              onChange={(e) => switchInstance(e.target.value)}
+            >
+              {instances.map((instance) => (
+                <option key={instance.id} value={instance.id}>
+                  {instance.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex min-w-0 items-center gap-3">
+            {active && namespaceSupported === false && (
+              <span data-testid="active-endpoint" className="text-fg-dim min-w-0 truncate text-[12px]">
+                {describeEndpoint(active)} (pre-namespace server)
               </span>
-              <NamespaceSwitcher
-                instance={active}
-                entries={namespaceEntries}
-                maxNamespaces={namespaces.data?.maxNamespaces ?? null}
-                activeNamespace={ns}
-                onSwitch={switchNamespace}
-              />
-              <span data-testid="active-endpoint" className="text-fg-dim truncate text-[12px]">
-                {describeEndpoint(active)} → /ns/{ns}/*
-              </span>
-            </>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            <LiveChip status={liveStatus} />
-            <HealthChip state={connection} />
+            )}
+            {active && namespaceSupported !== false && (
+              <>
+                <span
+                  className="text-fg-faint shrink-0 text-[11px] uppercase"
+                  title="The active namespace: an isolated graph inside this Fallen-8. Manage namespaces on the Connect screen."
+                >
+                  namespace
+                </span>
+                <NamespaceSwitcher
+                  instance={active}
+                  entries={namespaceEntries}
+                  maxNamespaces={namespaces.data?.maxNamespaces ?? null}
+                  activeNamespace={ns}
+                  onSwitch={switchNamespace}
+                />
+                <span data-testid="active-endpoint" className="text-fg-dim min-w-0 truncate text-[12px]">
+                  {describeEndpoint(active)} → /ns/{ns}/*
+                </span>
+              </>
+            )}
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <LiveChip status={liveStatus} />
+              <HealthChip state={connection} />
+            </div>
           </div>
         </header>
 
