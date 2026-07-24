@@ -34,6 +34,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import { scopedPath } from "../src/api/client";
+import { isValidNamespaceName } from "../src/lib/namespaceName";
 import {
   getInstanceStore,
   migrateInstanceStore,
@@ -72,6 +73,20 @@ beforeEach(() => {
     activeId: SAME_ORIGIN_INSTANCE.id,
     activeNamespaces: {},
     namespaceSupport: {},
+  });
+});
+
+describe("isValidNamespaceName (client mirror of the server rule)", () => {
+  it("accepts any case, spaces, punctuation, unicode up to 63 chars", () => {
+    for (const ok of ["a", "fraud-q3", "Flights", "code repo test", "under_score", "dot.name", "fraud!(q3)#2", "ümlaut-Ω", "a".repeat(63)]) {
+      expect(isValidNamespaceName(ok)).toBe(true);
+    }
+  });
+
+  it("rejects only the URL hazards (slash/backslash/control), the ends-dots, padding, empty, and over-length", () => {
+    for (const bad of ["", "   ", "a".repeat(64), " leading", "trailing ", ".", "..", "slash/name", "back\\slash", "tab\tname"]) {
+      expect(isValidNamespaceName(bad)).toBe(false);
+    }
   });
 });
 
@@ -237,7 +252,7 @@ describe("namespace switcher dropdown", () => {
     await user.click(screen.getByTestId("namespace-new"));
 
     expect(screen.getByTestId("namespace-quick-create")).toBeDisabled();
-    await user.type(screen.getByTestId("namespace-quick-create-name"), "Fraud!");
+    await user.type(screen.getByTestId("namespace-quick-create-name"), "bad/name");
     expect(screen.getByTestId("namespace-quick-create")).toBeDisabled();
 
     await user.clear(screen.getByTestId("namespace-quick-create-name"));
@@ -291,23 +306,25 @@ describe("NAMESPACES panel", () => {
     expect(screen.getByTestId("namespace-rename-default")).toBeDisabled();
   });
 
-  it("gates Create on the name pattern and shows the live URL preview", async () => {
+  it("gates Create on the URL-safety rule and shows the live URL preview", async () => {
     const user = userEvent.setup();
     renderPanel();
     await waitFor(() => expect(screen.getByTestId("namespace-create")).toBeInTheDocument());
 
     expect(screen.getByTestId("namespace-create")).toBeDisabled();
-    await user.type(screen.getByTestId("namespace-create-name"), "Fraud_Q3");
+    // A slash can't be a single path segment — still rejected.
+    await user.type(screen.getByTestId("namespace-create-name"), "bad/name");
     expect(screen.getByTestId("namespace-create")).toBeDisabled();
 
+    // A spaced, mixed-case name is now allowed (the permissive rule).
     await user.clear(screen.getByTestId("namespace-create-name"));
-    await user.type(screen.getByTestId("namespace-create-name"), "fraud-q3");
-    expect(screen.getByTestId("namespace-url-preview")).toHaveTextContent("PUT /ns/fraud-q3");
+    await user.type(screen.getByTestId("namespace-create-name"), "Fraud Q3");
+    expect(screen.getByTestId("namespace-url-preview")).toHaveTextContent("PUT /ns/Fraud Q3");
     expect(screen.getByTestId("namespace-create")).toBeEnabled();
 
     await user.click(screen.getByTestId("namespace-create"));
     await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
-    expect(createMock.mock.calls[0][1]).toBe("fraud-q3");
+    expect(createMock.mock.calls[0][1]).toBe("Fraud Q3");
   });
 
   it("drops only after the namespace name is typed", async () => {

@@ -45,7 +45,7 @@ namespace NoSQL.GraphDB.App.Namespaces
             CreatedAtUtc = createdAtUtc;
         }
 
-        /// <summary>The unique, URL-addressable name (<c>^[a-z0-9-]{1,63}$</c>); changed by rename.</summary>
+        /// <summary>The unique, URL-addressable name (permissive; see <see cref="Fallen8Namespaces.IsValidName"/>); changed by rename.</summary>
         public String Name { get; internal set; }
 
         /// <summary>The immutable collection-assigned id (e.g. <c>ns-20260723-101502-3f2a</c>).</summary>

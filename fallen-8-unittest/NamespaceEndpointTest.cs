@@ -166,7 +166,9 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new NamespaceFactory(maxNamespaces: "2");
             using var client = factory.CreateClient();
 
-            using var invalid = await client.PutAsync("/ns/Flights", null);
+            // Over the 63-char cap: the one invalid-name shape that still reaches the action over
+            // HTTP (a '/'-bearing name can't route; '.'/'..' get normalized away by the client).
+            using var invalid = await client.PutAsync("/ns/" + new string('a', 64), null);
             await AssertProblem(invalid, HttpStatusCode.BadRequest, "Invalid namespace name");
 
             await CreateNamespace(client, "first");
@@ -178,6 +180,33 @@ namespace NoSQL.GraphDB.Tests
             await AssertProblem(overQuota, (HttpStatusCode)422, "Namespace quota exceeded");
             var problem = await ReadJson(overQuota);
             Assert.AreEqual(2, problem.GetProperty("maxNamespaces").GetInt32());
+        }
+
+        [TestMethod]
+        public async Task PermissiveName_WithSpacesAndCase_CreatesAndRoutesThroughItsEncodedTwin()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+
+            const string name = "Flights EU #2";
+            var seg = Uri.EscapeDataString(name); // Flights%20EU%20%232
+
+            using (var created = await client.PutAsync("/ns/" + seg, null))
+            {
+                Assert.AreEqual(HttpStatusCode.Created, created.StatusCode);
+                Assert.AreEqual(name, (await ReadJson(created)).GetProperty("name").GetString());
+            }
+
+            // The encoded twin routes to THIS namespace's engine (Kestrel decodes the segment).
+            await CreateVertex(client, "/ns/" + seg);
+            Assert.AreEqual(1, await VertexCount(client, "/ns/" + seg));
+            Assert.AreEqual(0, await VertexCount(client, ""), "the spaced namespace is isolated from default");
+
+            // It shows up in the listing under its exact name.
+            using var list = await client.GetAsync("/ns");
+            var names = (await ReadJson(list)).GetProperty("namespaces").EnumerateArray()
+                .Select(e => e.GetProperty("name").GetString()).ToList();
+            CollectionAssert.Contains(names, name);
         }
 
         [TestMethod]

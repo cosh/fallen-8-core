@@ -105,31 +105,36 @@ namespace NoSQL.GraphDB.Tests
         #region name validation
 
         [TestMethod]
-        public void IsValidName_AcceptsLowercaseDigitsHyphensUpTo63()
+        public void IsValidName_IsPermissive_AnyCaseSpacesPunctuationUnicode()
         {
+            // Names are display/address labels only (storage is id-keyed), so almost anything goes.
             Assert.IsTrue(Fallen8Namespaces.IsValidName("a"));
-            Assert.IsTrue(Fallen8Namespaces.IsValidName("flights"));
             Assert.IsTrue(Fallen8Namespaces.IsValidName("fraud-q3"));
-            Assert.IsTrue(Fallen8Namespaces.IsValidName("0-9"));
-            Assert.IsTrue(Fallen8Namespaces.IsValidName(new String('a', 63)));
-
-            // Windows reserved device names ARE valid namespace names: on-disk locations are keyed
-            // by the immutable namespace id, never by the user-supplied name.
-            Assert.IsTrue(Fallen8Namespaces.IsValidName("con"));
+            Assert.IsTrue(Fallen8Namespaces.IsValidName("Flights"));            // uppercase
+            Assert.IsTrue(Fallen8Namespaces.IsValidName("codeREPtest"));         // mixed case
+            Assert.IsTrue(Fallen8Namespaces.IsValidName("code repo test"));      // internal spaces
+            Assert.IsTrue(Fallen8Namespaces.IsValidName("under_score"));
+            Assert.IsTrue(Fallen8Namespaces.IsValidName("dot.name"));            // dot NOT at the ends
+            Assert.IsTrue(Fallen8Namespaces.IsValidName("fraud!(q3)#2"));        // punctuation
+            Assert.IsTrue(Fallen8Namespaces.IsValidName("ümlaut-Ω-graphé"));     // unicode
+            Assert.IsTrue(Fallen8Namespaces.IsValidName("con"));                 // Windows device name: fine (id-keyed on disk)
+            Assert.IsTrue(Fallen8Namespaces.IsValidName(new String('a', 63)));   // at the length cap
         }
 
         [TestMethod]
-        public void IsValidName_RejectsEverythingElse()
+        public void IsValidName_RejectsOnlyTheUrlHazards()
         {
             Assert.IsFalse(Fallen8Namespaces.IsValidName(null));
             Assert.IsFalse(Fallen8Namespaces.IsValidName(""));
-            Assert.IsFalse(Fallen8Namespaces.IsValidName(new String('a', 64)));
-            Assert.IsFalse(Fallen8Namespaces.IsValidName("Flights"));
-            Assert.IsFalse(Fallen8Namespaces.IsValidName("under_score"));
-            Assert.IsFalse(Fallen8Namespaces.IsValidName("dot.name"));
-            Assert.IsFalse(Fallen8Namespaces.IsValidName("space name"));
-            Assert.IsFalse(Fallen8Namespaces.IsValidName("slash/name"));
-            Assert.IsFalse(Fallen8Namespaces.IsValidName("ümlaut"));
+            Assert.IsFalse(Fallen8Namespaces.IsValidName("   "));                // all whitespace
+            Assert.IsFalse(Fallen8Namespaces.IsValidName(new String('a', 64)));  // over the cap
+            Assert.IsFalse(Fallen8Namespaces.IsValidName(" leading"));           // leading whitespace
+            Assert.IsFalse(Fallen8Namespaces.IsValidName("trailing "));          // trailing whitespace
+            Assert.IsFalse(Fallen8Namespaces.IsValidName("."));                  // traversal token
+            Assert.IsFalse(Fallen8Namespaces.IsValidName(".."));                 // traversal token
+            Assert.IsFalse(Fallen8Namespaces.IsValidName("slash/name"));         // path separator
+            Assert.IsFalse(Fallen8Namespaces.IsValidName("back\\slash"));        // path separator
+            Assert.IsFalse(Fallen8Namespaces.IsValidName("tab\tname"));          // control char
         }
 
         #endregion
@@ -169,11 +174,24 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void TryCreate_AcceptsPermissiveNames()
+        {
+            using var namespaces = CreateCollection();
+
+            // The names the strict rule used to reject now create fine (and stay isolated).
+            Assert.IsTrue(namespaces.TryCreate("Flights EU", out var a, out _));
+            Assert.AreEqual("Flights EU", a.Name);
+            Assert.IsTrue(namespaces.TryCreate("code.repo_v2", out _, out _));
+            Assert.AreEqual(3, namespaces.Count);
+        }
+
+        [TestMethod]
         public void TryCreate_RejectsInvalidNames()
         {
             using var namespaces = CreateCollection();
 
-            Assert.IsFalse(namespaces.TryCreate("Flights", out var ns, out var failure));
+            // Only URL hazards are rejected (a slash can never be a single path segment).
+            Assert.IsFalse(namespaces.TryCreate("slash/name", out var ns, out var failure));
             Assert.IsNull(ns);
             Assert.AreEqual(NamespaceFailure.InvalidName, failure);
             Assert.AreEqual(1, namespaces.Count);
@@ -238,8 +256,8 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(namespaces.TryRename("flights", Fallen8Namespaces.DefaultName, out _, out failure));
             Assert.AreEqual(NamespaceFailure.Conflict, failure);
 
-            // Invalid target name.
-            Assert.IsFalse(namespaces.TryRename("flights", "Bad_Name", out _, out failure));
+            // Invalid target name (a slash can't be a single URL path segment).
+            Assert.IsFalse(namespaces.TryRename("flights", "bad/name", out _, out failure));
             Assert.AreEqual(NamespaceFailure.InvalidName, failure);
 
             // The failed attempts changed nothing.
@@ -353,11 +371,11 @@ namespace NoSQL.GraphDB.Tests
             try
             {
                 Directory.CreateDirectory(metadata);
-                // A "default"-named entry (would split-brain the bare alias) and an invalid name.
+                // A "default"-named entry (would split-brain the bare alias) and a URL-invalid name.
                 File.WriteAllText(Path.Combine(metadata, "namespaces.json"),
                     "{\"schemaVersion\":1,\"namespaces\":[" +
                     "{\"id\":\"ns-x\",\"name\":\"default\",\"createdAt\":\"2026-07-23T10:00:00.000Z\"}," +
-                    "{\"id\":\"ns-y\",\"name\":\"Bad_Name\",\"createdAt\":\"2026-07-23T10:00:00.000Z\"}]}");
+                    "{\"id\":\"ns-y\",\"name\":\"bad/name\",\"createdAt\":\"2026-07-23T10:00:00.000Z\"}]}");
 
                 using var namespaces = CreateCollection(storageDirectory: storage);
 
