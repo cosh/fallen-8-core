@@ -24,13 +24,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { DelegateKind } from "../../fallen-8-web-ui/src/api/types";
+import type {
+  AlgorithmContract,
+  DelegateKind,
+  PluginAuthoringCategory,
+} from "../../fallen-8-web-ui/src/api/types";
 import { formatFragment } from "../../fallen-8-web-ui/src/delegate/nl/format";
 import { initialMessages } from "../../fallen-8-web-ui/src/delegate/nl/generate";
 import {
   buildGenerationPrompt,
   extractFragment,
 } from "../../fallen-8-web-ui/src/delegate/nl/prompt";
+import { buildPluginGenerationPrompt, extractType } from "../../fallen-8-web-ui/src/plugin/nl/pluginPrompt";
+import { scaffoldFor } from "../../fallen-8-web-ui/src/plugin/scaffolds";
 import {
   compileErrors,
   ENDPOINT,
@@ -40,6 +46,7 @@ import {
   ollamaChat,
   ollamaReachable,
   validate,
+  validatePlugin,
 } from "../shared/f8";
 import { compareSemantics, ensureFixture } from "./fixture";
 
@@ -69,6 +76,34 @@ interface RowResult {
   semanticPass?: boolean;
 }
 
+/**
+ * WHOLE-TYPE plugin eval (feature plugin-registration): a parallel, COMPILE-ONLY path.
+ * A plugin is a whole C# type, so there is no lambda to run through /subgraph — the
+ * element-set semantic gate (fixture.ts) does not apply. We generate one first-pass draft
+ * per row and score it purely on whether it compiles + satisfies the contract via
+ * POST /plugins/{category}/validate.
+ */
+interface PluginEvalRow {
+  id: string;
+  category: PluginAuthoringCategory;
+  contract?: AlgorithmContract;
+  name: string;
+  intent: string;
+  reference: string;
+}
+
+interface PluginRowResult {
+  id: string;
+  category: PluginAuthoringCategory;
+  contract?: AlgorithmContract;
+  name: string;
+  source: string;
+  compileValid: boolean;
+  compileError: string | null;
+  pass: boolean;
+  stats: GenStats | null;
+}
+
 function runChecks(row: EvalRow, fragment: string): string[] {
   const failed: string[] = [];
   for (const pattern of row.mustMatch) {
@@ -91,6 +126,13 @@ async function main() {
     }
   ).rows;
 
+  // Optional sibling set of WHOLE-TYPE plugin rows (feature plugin-registration). Absent on an
+  // older checkout: the plugin path simply does nothing then.
+  const pluginSetPath = path.join(here, "plugin-eval-set.json");
+  const pluginEvalRows: PluginEvalRow[] = existsSync(pluginSetPath)
+    ? (JSON.parse(readFileSync(pluginSetPath, "utf8")).rows as PluginEvalRow[])
+    : [];
+
   const rescore = process.argv.includes("--rescore");
   const semantic = process.argv.includes("--semantic");
 
@@ -99,6 +141,14 @@ async function main() {
     const preflight = await validate("VertexFilter", "return (v) => true;");
     if (!preflight.valid) throw new Error("Preflight validate failed unexpectedly.");
     if (!(await ollamaReachable())) throw new Error(`Ollama not reachable at ${ENDPOINT}.`);
+    // The plugin authority is gated; validatePlugin surfaces a clear 403 if the capability is off.
+    if (pluginEvalRows.length > 0) {
+      const pluginPreflight = await validatePlugin("function", {
+        name: "PreflightFunction",
+        sourceCode: scaffoldFor("function", "Path", "PreflightFunction"),
+      });
+      if (!pluginPreflight.valid) throw new Error("Plugin preflight validate failed unexpectedly.");
+    }
   }
 
   // FT-8 semantic scoring seeds the fixture graph on the apiApp (idempotent per instance).

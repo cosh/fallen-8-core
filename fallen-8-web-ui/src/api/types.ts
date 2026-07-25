@@ -411,7 +411,7 @@ export interface PathCostSpecification {
 }
 
 export interface PathSpecification {
-  pathAlgorithmName: "BLS" | "DIJKSTRA";
+  pathAlgorithmName: string;
   maxDepth: number;
   maxResults: number;
   maxPathWeight: number;
