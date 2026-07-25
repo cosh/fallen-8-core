@@ -1,0 +1,93 @@
+# Fallen-8 fleet-observability datasources (provisioned as code).
+# Grafana provisioning interpolates $VAR / ${VAR} as environment variables, so every Grafana
+# template token below is written with a doubled dollar ($$__tags, $${__value.raw}).
+apiVersion: 1
+
+deleteDatasources:
+  - { name: Prometheus, orgId: 1 }
+  - { name: Tempo, orgId: 1 }
+  - { name: Loki, orgId: 1 }
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    orgId: 1
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+      manageAlerts: true
+      # Exemplars on the histograms carry the originating trace id; jump straight to Tempo.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+          urlDisplayLabel: View trace
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    orgId: 1
+    editable: false
+    jsonData:
+      # Traces -> Logs: select the F8 log stream by service.name (a Loki default-promoted stream
+      # label) and narrow by this trace id. Identity attributes are structured metadata, not stream
+      # labels, so service_name is the correct selector key here.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+        filterByTraceID: true
+        filterBySpanID: false
+        tags:
+          - key: service.name
+            value: service_name
+      # Traces -> Metrics: the RED metrics the spanmetrics connector derives (no _total suffix -
+      # the collector sets add_metric_suffixes: false).
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+        tags:
+          - key: fallen8.instance.id
+            value: fallen8_instance_id
+        queries:
+          - name: 'Call rate'
+            query: 'sum(rate(traces_span_metrics_calls{$$__tags}[5m]))'
+          - name: 'Duration p99'
+            query: 'histogram_quantile(0.99, sum by (le) (rate(traces_span_metrics_duration_bucket{$$__tags}[5m])))'
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false
+      traceQuery:
+        timeShiftEnabled: true
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+      spanBar:
+        type: None
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    orgId: 1
+    editable: false
+    jsonData:
+      maxLines: 1000
+      # Logs -> Traces: OTLP-ingested logs expose trace_id as structured metadata; link to Tempo.
+      derivedFields:
+        - name: TraceID
+          matcherType: label
+          matcherRegex: trace_id
+          url: '$${__value.raw}'
+          datasourceUid: tempo
+          urlDisplayLabel: View trace

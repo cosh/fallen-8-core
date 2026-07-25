@@ -32,6 +32,21 @@ flowchart TB
     end
     sidecar["Model sidecar (Ollama)<br/>embeddings + delegate assist"]:::ext
 
+    subgraph obs["Fleet observability · one Grafana pane"]
+        direction TB
+        collector["OTel Collector<br/>ingest + spanmetrics"]:::sys
+        promstore["Prometheus<br/>metrics"]:::sys
+        tempo["Tempo<br/>traces"]:::sys
+        loki["Loki<br/>logs"]:::sys
+        grafana["Grafana<br/>dashboards"]:::sys
+        collector --> promstore
+        collector --> tempo
+        collector --> loki
+        promstore --> grafana
+        tempo --> grafana
+        loki --> grafana
+    end
+
     agents -->|MCP| mcp
     mcp -->|HTTP| rest
     studio -->|HTTP| rest
@@ -42,6 +57,8 @@ flowchart TB
     rest --> roslyn
     rest --> semantic
     semantic -.->|embeddings + chat| sidecar
+    rest -.->|OTLP metrics/traces/logs| collector
+    mcp -.->|OTLP| collector
     ns --> writer --> model
     model --- plugins
     model --- durab
@@ -52,6 +69,7 @@ flowchart TB
     classDef ext fill:#141516,stroke:#666666,color:#C6C7C8,stroke-dasharray:5 4
     style app fill:#000000,stroke:#E2001A,stroke-width:1.5px,color:#C6C7C8
     style engine fill:#000000,stroke:#E2001A,stroke-width:1.5px,color:#C6C7C8
+    style obs fill:#000000,stroke:#E2001A,stroke-width:1.5px,color:#C6C7C8
 ```
 
 ## The engine (`fallen-8-core`)
@@ -114,6 +132,17 @@ the browser calls the model backend directly and any API key is held only in the
 (the earlier browser-only default was retired in favour of the gateway — see
 [studio.md](studio.md)).
 
+## Fleet observability
+
+The engine and app emit metrics, traces, and logs through BCL instruments; the app and the
+[MCP server](mcp-server.md) push them over OTLP to a small consumer stack that ships with the
+environment: an OpenTelemetry Collector ingests the push and derives per-action metrics from
+spans, Prometheus stores metrics, Tempo stores traces, Loki stores logs, and Grafana is the
+single pane. Each process stamps a tenant/instance/namespace identity on every signal so one
+Grafana can separate many instances. This is a **push** relationship and a separate set of
+containers, always on with `npm run env:up`. The full story, including what isolation is and is
+not guaranteed, is in [Fleet observability](fleet-observability.md).
+
 ## One deployable unit
 
 The [compose environment](running.md) builds the SPA, publishes the app, and ships them in
@@ -131,3 +160,4 @@ the WAL live on a mounted volume.
 - [Namespaces](namespaces.md) — the graph-collection model
 - [Security](security.md) — the API-app boundary
 - [MCP server](mcp-server.md) — how AI agents reach Fallen-8
+- [Fleet observability](fleet-observability.md): the multi-tenant metrics/traces/logs consumer

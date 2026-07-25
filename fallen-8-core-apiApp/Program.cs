@@ -46,6 +46,7 @@ using NoSQL.GraphDB.App.Services;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -175,10 +176,31 @@ namespace NoSQL.GraphDB.App
             builder.Services.AddHealthChecks()
                 .AddCheck<StartupReadinessCheck>("startup-load", tags: new[] { "ready" });
 
+            // Fleet identity (feature fleet-observability): the tenant + instance this process
+            // belongs to, stamped as OTel resource attributes on every metric, trace, and log so a
+            // central consumer can separate the fleet. Resolved ONCE here (defaults auto-fill, the
+            // auto instance id is stable for the process) and shared as a singleton with the
+            // namespace-info gauge and the request-scoped namespace enrichment.
+            builder.Services.Configure<Fallen8IdentityOptions>(
+                builder.Configuration.GetSection(Fallen8IdentityOptions.SectionName));
+            var identityOptions = new Fallen8IdentityOptions();
+            builder.Configuration.GetSection(Fallen8IdentityOptions.SectionName).Bind(identityOptions);
+            var identity = new Fallen8Identity(identityOptions);
+            builder.Services.AddSingleton(identity);
+
             if (observability.AnyExporterEnabled)
             {
+                // One resource for metrics, traces AND logs: service.name plus the fleet identity
+                // resource attributes (feature fleet-observability), so every signal carries the
+                // tenant + instance a consumer keys on.
+                // serviceInstanceId is our stable instance id (not the SDK's random per-process
+                // GUID), so the promoted service_instance_id label does not churn across restarts.
+                Action<ResourceBuilder> configureResource = r =>
+                    r.AddService("fallen8", serviceInstanceId: identity.InstanceId)
+                        .AddAttributes(identity.ResourceAttributes());
+
                 var otel = builder.Services.AddOpenTelemetry();
-                otel.ConfigureResource(r => r.AddService("fallen8"));
+                otel.ConfigureResource(configureResource);
                 otel.WithMetrics(metrics =>
                 {
                     // The engine + app meters, plus the BUILT-IN HTTP/Kestrel/runtime meters -
@@ -213,6 +235,20 @@ namespace NoSQL.GraphDB.App
                             new TraceIdRatioBasedSampler(observability.TracingSamplingRatio)));
                         tracing.AddOtlpExporter(o => o.Endpoint = new Uri(observability.Otlp.Endpoint));
                     });
+
+                    // Export the existing structured logs over OTLP with the SAME resource identity
+                    // (feature fleet-observability). Console logging (configured above) is untouched;
+                    // IncludeScopes carries the per-request namespace scope (see the enrichment
+                    // middleware) onto every exported log record.
+                    builder.Logging.AddOpenTelemetry(logging =>
+                    {
+                        var logResource = ResourceBuilder.CreateDefault();
+                        configureResource(logResource);
+                        logging.SetResourceBuilder(logResource);
+                        logging.IncludeScopes = true;
+                        logging.IncludeFormattedMessage = true;
+                        logging.AddOtlpExporter(o => o.Endpoint = new Uri(observability.Otlp.Endpoint));
+                    });
                 }
             }
 
@@ -221,6 +257,11 @@ namespace NoSQL.GraphDB.App
             // paths. Construction semantics (WAL replay at construction, compilers, ceilings) live
             // on Fallen8Namespaces.
             builder.Services.AddSingleton<Fallen8Namespaces>();
+
+            // The fallen8_namespace_info gauge (feature fleet-observability §3.4): the per-namespace
+            // id->name mapping a consumer joins engine metrics against. Constructed eagerly below
+            // (only when an exporter is enabled) so its observable gauge registers on the app meter.
+            builder.Services.AddSingleton<NoSQL.GraphDB.App.Diagnostics.NamespaceInfoMetrics>();
 
             // IFallen8 is the ADDRESSED namespace's engine: a non-disposable singleton dispatcher
             // that resolves per call from the ambient "ns" route value (see AddressedFallen8 for
@@ -383,6 +424,13 @@ namespace NoSQL.GraphDB.App
             // persisted AND WAL-replayed subgraphs rehydrate.
             _ = app.Services.GetRequiredService<Fallen8Namespaces>();
 
+            // Register the namespace-info observable gauge now (feature fleet-observability): only
+            // when an exporter is enabled, so a default configuration constructs no extra meter.
+            if (observability.AnyExporterEnabled)
+            {
+                _ = app.Services.GetRequiredService<NoSQL.GraphDB.App.Diagnostics.NamespaceInfoMetrics>();
+            }
+
             var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Fallen8.Security");
             if (string.IsNullOrWhiteSpace(security.ApiKey))
             {
@@ -434,6 +482,14 @@ namespace NoSQL.GraphDB.App
             app.UseCors();
             app.UseRateLimiter();
 
+            // Stamp the addressed namespace's id + name onto host-originated signals (feature
+            // fleet-observability §3.5). Runs after routing (route value "ns" is populated) and only
+            // when an exporter is enabled, so a default configuration runs zero extra middleware.
+            if (observability.AnyExporterEnabled)
+            {
+                app.UseMiddleware<NoSQL.GraphDB.App.Namespaces.NamespaceEnrichmentMiddleware>();
+            }
+
             // Correct order: authenticate the caller, THEN authorize (the missing UseAuthentication was
             // why UseAuthorization was a no-op gate before - feature api-security-boundary S1).
             app.UseAuthentication();
@@ -482,7 +538,7 @@ namespace NoSQL.GraphDB.App
             if (!string.IsNullOrWhiteSpace(observability.Otlp.Endpoint))
             {
                 startupLogger.LogWarning(
-                    "Fallen-8 observability: OTLP export is ENABLED to \"{Endpoint}\" (metrics + traces, sampling ratio {Ratio}).",
+                    "Fallen-8 observability: OTLP export is ENABLED to \"{Endpoint}\" (metrics + traces + logs, sampling ratio {Ratio}).",
                     observability.Otlp.Endpoint, observability.TracingSamplingRatio);
             }
             if (!observability.AnyExporterEnabled)

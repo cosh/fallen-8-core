@@ -1,0 +1,100 @@
+# OpenTelemetry Collector (contrib) - Fallen-8 fleet ingest (feature fleet-observability).
+# Image: otel/opentelemetry-collector-contrib:0.157.0
+#
+# Push-only: every Fallen-8 apiApp and MCP server sets its OTLP endpoint to this collector
+# (http://otel-collector:4317). The collector is the single ingest point and the enrichment
+# seam: it derives per-action RED metrics from spans (span_metrics), promotes the fleet
+# identity resource attributes to Prometheus labels, and fans out to Prometheus (metrics),
+# Tempo (traces), and Loki (logs).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # memory_limiter MUST be first in every pipeline.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  batch:
+    timeout: 5s
+    send_batch_size: 8192
+    send_batch_max_size: 11000
+
+connectors:
+  # RED metrics from spans: this is what turns the fallen8.path.search / subgraph.run /
+  # analytics.run / mcp.tool spans (and the built-in ASP.NET Core request spans) into
+  # per-algorithm / per-tool / per-route call-rate + latency metrics, keyed by the bounded
+  # dimensions below. Names: traces_span_metrics_calls (counter) + traces_span_metrics_duration_*.
+  spanmetrics:
+    histogram:
+      unit: s
+      explicit:
+        buckets: [2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s]
+    # service.name, span.name, span.kind and status.code are always included implicitly.
+    # Only BOUNDED dimensions here: 'result' is deliberately omitted (the analytics span's
+    # result.* tags are per-run counts - a cardinality bomb; the MCP ok/error result lives on
+    # its own fallen8_mcp_tool_calls counter instead).
+    dimensions:
+      - name: algorithm
+      - name: tool
+      - name: tier
+      - name: http.route
+      - name: fallen8.scope.id
+    # Copy the input spans' resource attributes (fallen8.tenant.id/name, fallen8.instance.id/name)
+    # onto the generated metrics so per-tenant / per-instance action metrics work.
+    add_resource_attributes: true
+    exemplars:
+      enabled: true
+    aggregation_temporality: AGGREGATION_TEMPORALITY_CUMULATIVE
+    metrics_flush_interval: 15s
+    metrics_expiration: 5m
+
+exporters:
+  # Metrics -> Prometheus remote-write. resource_to_telemetry_conversion promotes the fleet
+  # identity resource attributes to labels on EVERY metric (fallen8.tenant.id -> fallen8_tenant_id,
+  # etc.), uniformly for OTLP-received and span_metrics-generated metrics.
+  # add_metric_suffixes: false keeps the decided name mangling (no _seconds/_bytes unit suffix,
+  # no _total on counters) so the dashboards' PromQL matches the existing observability docs.
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    add_metric_suffixes: false
+    tls:
+      insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Traces -> Tempo (in-cluster plaintext on f8-net).
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  # Logs -> Loki native OTLP endpoint (the exporter appends /v1/logs -> http://loki:3100/otlp/v1/logs).
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [spanmetrics, otlp/tempo]
+    metrics:
+      receivers: [otlp, spanmetrics]
+      processors: [memory_limiter, batch]
+      exporters: [prometheusremotewrite]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki]

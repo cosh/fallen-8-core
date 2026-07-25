@@ -1,0 +1,45 @@
+# Minimal single-binary Loki with filesystem storage (feature fleet-observability).
+# Verified against grafana/loki v3.7.4. Native OTLP ingest is served at /otlp; the collector
+# pushes to http://loki:3100/otlp.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Required for native OTLP ingestion (/otlp): stores OTel resource/scope attributes as
+  # structured metadata. Default true in Loki 3.x; set explicitly for clarity. The fleet
+  # identity attributes (fallen8.tenant.id / instance.id / scope.id / namespace.name) land as
+  # structured metadata; service.name is promoted to a stream label by Loki's defaults. The
+  # dashboards select streams by {service_name=~"fallen8.*"} and filter identity with a
+  # `| fallen8_instance_id=~"$instance"` structured-metadata expression, so no custom
+  # otlp_config promotion is needed (keeping the config to Loki's verified default schema).
+  allow_structured_metadata: true
+
+ruler:
+  alertmanager_url: http://localhost:9093
+
+analytics:
+  reporting_enabled: false

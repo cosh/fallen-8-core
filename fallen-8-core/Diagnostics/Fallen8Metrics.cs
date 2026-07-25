@@ -46,12 +46,16 @@ namespace NoSQL.GraphDB.Core.Diagnostics
     ///   values and are exception-contained.</para>
     ///
     ///   <para>TAG HYGIENE (hard invariant, pinned by test): no tag value may originate from
-    ///   user input. Tags carry .NET type names and enum names only; anything user-named
-    ///   (labels, index names, property keys) belongs to <c>GET /statistics</c>, never here.
-    ///   The meter-level <c>fallen8.scope.id</c> tag is HOST-ASSIGNED (an opaque generated id,
-    ///   e.g. the namespace id in the hosted API - never a user-supplied name), so it keeps the
-    ///   invariant while letting several engines in one process report distinguishable
-    ///   instruments (feature graph-namespaces).</para>
+    ///   GRAPH CONTENT - vertex/edge labels, index names, property keys, filter fragments, or any
+    ///   user-supplied graph data. Engine tags carry .NET type names and enum names only; anything
+    ///   user-named belongs to <c>GET /statistics</c>, never here. IDENTITY DIMENSIONS (tenant,
+    ///   instance, and namespace id and name) are the sole exception (feature fleet-observability):
+    ///   operator-controlled, bounded-cardinality identifiers, not graph content. The meter-level
+    ///   <c>fallen8.scope.id</c> tag stays the HOST-ASSIGNED namespace id (an opaque generated id -
+    ///   never a user-supplied name), so several engines in one process report distinguishable
+    ///   instruments (feature graph-namespaces); the human namespace NAME is carried by the host's
+    ///   <c>fallen8_namespace_info</c> gauge and host-originated signals, never as an engine meter
+    ///   tag.</para>
     /// </summary>
     internal sealed class Fallen8Metrics : IDisposable
     {
