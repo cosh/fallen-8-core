@@ -26,6 +26,7 @@ New here? Start with [Running](running.md), open [F8 Studio](studio.md), and loa
 | [Namespaces](namespaces.md) | Many isolated graphs in one Fallen-8, addressable under `/ns/{name}/…` |
 | [Security](security.md) | The all-or-nothing API key; dynamic code execution is always on |
 | [Plugins](plugins.md) | The extension model behind indices, algorithms, and services |
+| [Plugin registration](plugin-registration.md) | Register runtime plugins from C# source, scoped per namespace (replaces DLL upload) |
 
 ## Query and traverse
 

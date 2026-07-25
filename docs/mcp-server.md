@@ -87,6 +87,7 @@ so a client loads few schemas and each result stays compact. Every tool takes an
 | read | `f8_search` | Find elements: `mode` = `index` \| `property` (un-indexed) \| `fulltext` \| `vector` \| `semantic`. Returns ids (+score); `fields` enriches with properties. Paginated (`limit`/`cursor`). |
 | read | `f8_paths` | Find paths between two vertices (unfiltered or by a registered stored query). |
 | read | `f8_analytics` | Run a whole-graph algorithm (PageRank, WCC, communities, centrality, triangle-count), or omit `algorithm` to list them. |
+| read | `f8_plugins` | The per-namespace plugin registry: `list`/`get`/`invoke` (a graph function by name); `delete` needs the write capability; `register_algorithm`/`register_function` (from C# source) need the code capability. Registered algorithms are invoked by name through `f8_paths`/`f8_analytics`/`f8_subgraph`. |
 | write | `f8_mutate` | One transactional mutation: `create_vertex`, `create_edge`, `set_property`, `remove_property`, `remove_element`, `set_embedding`. Property values are JSON-native. |
 | write | `f8_subgraph` | Define a subgraph from a stored template (or inline filters when the code capability is on). |
 | write | `f8_namespace` | Create, rename, or drop a namespace. |
@@ -103,10 +104,12 @@ Tools are grouped by the same opt-in tiers Fallen-8 uses everywhere:
 - **read** (on by default): discovery, fetch, search, paths, analytics.
 - **write** (`Mcp:Tools:EnableWrite`): mutations, subgraph define, namespace lifecycle.
 - **admin** (`Mcp:Tools:EnableAdmin`): save/load/trim/tabula_rasa.
-- **code** (`Mcp:Tools:EnableCode`): does **not** add tools — it *widens*
-  `f8_paths`/`f8_subgraph` with inline C# filter/cost fragments. Off by default so the MCP
-  surface stays token-frugal and does not invite arbitrary C# from agents; the target Fallen-8
-  always accepts inline fragments (auth permitting), so this is purely an MCP-side exposure choice.
+- **code** (`Mcp:Tools:EnableCode`): does **not** add tools — it *widens* existing ones with C#
+  source: inline filter/cost fragments on `f8_paths`/`f8_subgraph`, and the
+  `register_algorithm`/`register_function` ops on `f8_plugins` (whole-type plugin source). Off by
+  default so the MCP surface stays token-frugal and does not invite arbitrary C# from agents; the
+  target Fallen-8 always accepts the equivalent (auth + the plugin gate permitting), so this is
+  purely an MCP-side exposure choice.
 
 A disabled tier's tools are absent from the tool list **and** rejected if called anyway.
 

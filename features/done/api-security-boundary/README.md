@@ -2,9 +2,17 @@
 
 The hosted Fallen-8 API establishes an **authentication trust boundary**. Dynamic code
 execution (the Roslyn compile endpoints) is **always on** — running agent-emitted C# is
-Fallen-8's core "queries are C#" model, so there is no switch for it. Plugin DLL loading is a
-separate opt-in, off by default. Configure everything under `Fallen8:Security` in
-`appsettings.json`, environment variables, or user-secrets.
+Fallen-8's core "queries are C#" model, so there is no switch for it. Runtime plugin
+*registration* (source-based) is a separate opt-in, off by default. Configure everything under
+`Fallen8:Security` in `appsettings.json`, environment variables, or user-secrets.
+
+> **Update (plugin DLL upload removed).** An earlier revision exposed `PUT /plugin`, which
+> uploaded and loaded an external DLL in-process. That endpoint has been **removed** (feature
+> plugin-registration); runtime plugins are now authored as C# **source** and registered under
+> `POST /plugins/*` (compiled, contract-validated, namespace-scoped — see
+> [docs/plugin-registration.md](../../../docs/plugin-registration.md)). The
+> `EnableDynamicPluginLoading` switch survives, **repurposed** to gate that source-registration
+> surface; `PluginDirectory` is gone.
 
 > **Update (dynamic code is always on).** An earlier revision of this feature gated the compile
 > endpoints behind `EnableDynamicCodeExecution` (default off). That flag has been **removed**:
@@ -15,7 +23,7 @@ separate opt-in, off by default. Configure everything under `Fallen8:Security` i
 > **Honest limit (read this).** In-process Roslyn compilation and plugin loading **cannot be
 > sandboxed** — a compiled filter or a loaded plugin runs with the server process's full authority.
 > Authentication is the *trust boundary* (who may reach the code endpoints), **not a sandbox**.
-> Anyone permitted to reach `POST /path`, `PUT /subgraph`, or `PUT /plugin` is **trusted as the
+> Anyone permitted to reach `POST /path`, `PUT /subgraph`, or `POST /plugins/*` is **trusted as the
 > process**. Therefore an unauthenticated instance grants arbitrary in-process code execution to
 > anyone who can reach it — **set an API key before exposing the service off-box.** Running
 > genuinely untrusted submitted code would require out-of-process / WASM isolation (a separate,
@@ -27,8 +35,7 @@ separate opt-in, off by default. Configure everything under `Fallen8:Security` i
 |-----|---------|---------|
 | `ApiKey` | `null` | The secret required in the API-key header. **Supply via user-secrets/environment, never checked in.** When null the server runs **unauthenticated** (logs a warning) — only acceptable behind loopback. |
 | `ApiKeyHeader` | `X-Api-Key` | Header carrying the key. |
-| `EnableDynamicPluginLoading` | `false` | Master switch for `PUT /plugin`. Off ⇒ **403**, nothing written. (There is no equivalent switch for the Roslyn compile endpoints — those are always on.) |
-| `PluginDirectory` | `<base>/plugins` | Isolated directory uploaded DLLs are written to and discovered from — never the app's binary directory. |
+| `EnableDynamicPluginLoading` | `false` | Master switch for source plugin **registration** (`POST /plugins/*`). Off ⇒ **403**, nothing compiled. Invoking/listing/deleting a registered plugin is never gated by it. (There is no equivalent switch for the always-on Roslyn compile endpoints.) |
 | `AllowedCorsOrigins` | `[]` | CORS allow-list. Empty ⇒ deny all cross-origin. No wildcard-with-credentials. |
 | `SensitiveRateLimitPermitPerWindow` | `30` | Requests allowed per window on the code/plugin endpoints (429 on breach). |
 | `RateLimitWindowSeconds` | `10` | Fixed-window length for that limiter. |
@@ -41,10 +48,13 @@ separate opt-in, off by default. Configure everything under `Fallen8:Security` i
 - **Code endpoints.** `POST /path`, `PUT /subgraph`, `POST /storedquery`, `POST /delegates/validate`
   compile and run C# unconditionally; they carry only the standard authentication (anonymous ⇒ 401
   when a key is set). There is no capability flag and no 403 for a "code disabled" reason.
-- **Plugin loading.** `PUT /plugin` still requires **both** an authenticated caller **and**
-  `EnableDynamicPluginLoading=true`. Anonymous ⇒ 401; authenticated but disabled ⇒ 403.
+- **Plugin registration.** `POST /plugins/algorithm`, `POST /plugins/function`, and the
+  `/plugins/{category}/validate` compile-checks require **both** an authenticated caller **and**
+  `EnableDynamicPluginLoading=true`. Anonymous ⇒ 401; authenticated but disabled ⇒ 403. Invoking a
+  registered plugin (via `/path`/`/analytics`/`/subgraph` or `POST /plugins/function/{name}/invoke`),
+  listing, and deletion carry only the standard authentication.
 - **Perimeter.** Default-deny CORS; a fixed-window rate limiter on the sensitive endpoints (429);
-  request-size limits (1 MiB code, 64 MiB plugin) ⇒ 413 on oversize.
+  a 1 MiB request-size limit on the code + plugin-registration endpoints ⇒ 413 on oversize.
 
 ## Securing an exposed instance
 

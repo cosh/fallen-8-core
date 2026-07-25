@@ -42,3 +42,25 @@ endpoint, UI kind table, engine delegate) — trigger documented in
 `features/done/subgraph-typed-filters/spec.md`.
 
 **Closed by:** —
+
+## 2026-07-25 — plugin-registration — PENDING
+
+**Contract change:** a new authoring surface lands in F8 Studio — **whole-type C# plugins**
+(feature plugin-registration), distinct from the existing fragment (filter/cost body) surface.
+Users author a complete type implementing a category contract (`IShortestPathAlgorithm`,
+`ISubGraphAlgorithm`, `IGraphAnalyticsAlgorithm`, or the new `IGraphFunction`) and register it to a
+namespace; the editor compiles/contract-validates via `POST /plugins/{category}/validate`.
+
+**Dataset:** the current corpus is fragment-shaped (a lambda body for a typed slot). Whole-type
+authoring is a different generation target — the model must emit a full class with the `IPlugin`
+members, the correct usings, and the contract method (e.g. `IGraphFunction.TryInvoke` returning a
+`GraphFunctionResult` over `IFallen8` reads). Add a `PLUGIN` generation kind with per-contract
+scaffolds and few-shot whole-type examples; do **not** retarget the fragment rows (both surfaces
+coexist).
+
+**Prompt/eval:** NL-assist for plugin authoring ships in v1 against a general model (the whole-type
+prompt scaffolding lives in Studio); the fine-tune should absorb whole-type examples so the local
+model can draft them. Add eval scenarios that compile a generated plugin through the plugin-aware
+validate endpoint (not `/delegates/validate`).
+
+**Closed by:** —
