@@ -59,10 +59,9 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   constructor (finding P5). The expensive part - enumerating the DLLs, <c>Assembly.Load</c>
         ///   on each and <c>GetExportedTypes</c> - was previously repeated on EVERY index/service/
         ///   save/load/path op; it now runs once and is reused. It is <c>null</c> until first
-        ///   discovered and is reset to <c>null</c> by <see cref="Assimilate" /> when a new plugin
-        ///   assembly is dropped in, so a freshly assimilated plugin is picked up. The interface/
-        ///   category filters stay per-query in <see cref="GetAllTypes{T}" /> (they are cheap
-        ///   reflection over the cached list, no I/O).
+        ///   discovered and is reset to <c>null</c> by <see cref="InvalidateDiscoveryCache" /> to force
+        ///   a rediscovery. The interface/category filters stay per-query in
+        ///   <see cref="GetAllTypes{T}" /> (they are cheap reflection over the cached list, no I/O).
         /// </summary>
         private static volatile IReadOnlyList<Type> _candidateTypes;
 
@@ -71,48 +70,12 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   <see cref="FrozenDictionary{TKey,TValue}" /> mapping a plugin's <c>PluginName</c> to its
         ///   CLR type, so <see cref="TryFindPlugin{T}" /> resolves a plugin by name in O(1) instead of
         ///   activating candidates one by one until a name matches (finding P5). Cleared alongside
-        ///   <see cref="_candidateTypes" /> on <see cref="Assimilate" />.
+        ///   <see cref="_candidateTypes" /> on <see cref="InvalidateDiscoveryCache" />.
         /// </summary>
         private static readonly ConcurrentDictionary<Type, FrozenDictionary<String, Type>> _nameMaps
             = new ConcurrentDictionary<Type, FrozenDictionary<String, Type>>();
 
-        /// <summary>
-        ///   Extra directories to scan for plugin assemblies, in addition to the base directory. The
-        ///   hosted app registers its isolated, configured plugin directory here so an uploaded DLL is
-        ///   written there (never next to the app binaries) yet still discovered
-        ///   (feature api-security-boundary). Guarded by <see cref="_discoveryLock" />.
-        /// </summary>
-        private static readonly List<String> _extraSearchDirectories = new List<String>();
-
         #endregion
-
-        /// <summary>
-        ///   Registers an additional directory to scan for plugin assemblies (feature
-        ///   api-security-boundary). Idempotent; invalidates the discovery cache so a plugin already
-        ///   present in the newly added directory is picked up on the next lookup.
-        /// </summary>
-        public static void AddPluginSearchDirectory(String directory)
-        {
-            if (String.IsNullOrWhiteSpace(directory))
-            {
-                return;
-            }
-
-            var full = Path.GetFullPath(directory);
-            lock (_discoveryLock)
-            {
-                foreach (var existing in _extraSearchDirectories)
-                {
-                    if (String.Equals(existing, full, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return;
-                    }
-                }
-                _extraSearchDirectories.Add(full);
-                _candidateTypes = null;
-                _nameMaps.Clear();
-            }
-        }
 
         /// <summary>
         ///   Tries to find a plugin.
@@ -197,31 +160,6 @@ namespace NoSQL.GraphDB.Core.Plugin
                       where aPluginInstance != null
                       select aPluginInstance.PluginName);
             return result.Any();
-        }
-
-        /// <summary>
-        /// Assimilate the specified dllStream.
-        /// </summary>
-        /// <param name='dllStream'>
-        /// Dll stream.
-        /// </param>
-        /// <param name='path'>
-        /// The path where the dll should be assimilated.
-        /// </param>
-        public static String Assimilate(Stream dllStream, String path = null)
-        {
-            var assimilationPath = path ?? Path.Combine(AppContext.BaseDirectory, Path.GetRandomFileName() + ".dll");
-
-            using (var dllFileStream = File.Create(assimilationPath, 1024))
-            {
-                dllStream.CopyTo(dllFileStream);
-            }
-
-            // A new plugin assembly is now on disk, so the memoized discovery (and every derived
-            // name->type map) is stale and must be rebuilt on the next lookup (finding P5).
-            InvalidateDiscoveryCache();
-
-            return assimilationPath;
         }
 
         #region private helper
@@ -321,25 +259,14 @@ namespace NoSQL.GraphDB.Core.Plugin
         {
             var result = new List<Type>();
 
-            // Scan the base directory plus any registered extra directories (e.g. the hosted app's
-            // isolated plugin directory - feature api-security-boundary). De-duplicate by full path so
-            // a directory that resolves to the base directory is not scanned twice. Runs under
-            // _discoveryLock (see GetCandidateTypesLocked), so the extra-directory list is stable here.
-            var directories = new List<String> { Path.GetFullPath(AppContext.BaseDirectory) };
-            foreach (var extra in _extraSearchDirectories)
+            // Scan the base directory only. Runtime plugins are no longer external assemblies dropped
+            // into an extra directory (that upload path was removed - feature plugin-registration);
+            // they live as source in the per-namespace registry. The base-directory scan still
+            // discovers the BUILT-IN plugins compiled into the shipped assemblies.
+            var baseDirectory = Path.GetFullPath(AppContext.BaseDirectory);
+            foreach (var file in Directory.EnumerateFiles(baseDirectory, "*.dll"))
             {
-                if (!directories.Contains(extra, StringComparer.OrdinalIgnoreCase) && Directory.Exists(extra))
-                {
-                    directories.Add(extra);
-                }
-            }
-
-            foreach (var directory in directories)
-            {
-                foreach (var file in Directory.EnumerateFiles(directory, "*.dll"))
-                {
-                    result.AddRange(ProcessAFile(file));
-                }
+                result.AddRange(ProcessAFile(file));
             }
 
             return result;
@@ -421,6 +348,11 @@ namespace NoSQL.GraphDB.Core.Plugin
 
         /// <summary>
         ///   Drops the memoized discovery and all derived name maps, forcing a re-scan on next use.
+        ///   Retained diagnostic/test hook: it has no runtime caller since the DLL-drop path
+        ///   (<c>Assimilate</c>) was removed with the plugin-upload endpoint (feature
+        ///   plugin-registration) - built-ins never change at runtime - but it is the primitive the
+        ///   memoization's invalidate → fresh-name-map-rebuild invariant (finding M1) is pinned against
+        ///   in <c>EnginePerformanceTest</c>.
         /// </summary>
         private static void InvalidateDiscoveryCache()
         {

@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -285,7 +286,8 @@ namespace NoSQL.GraphDB.Core
                         // RemoveStoredQuery that fails skips-and-continues (like the CreateSubGraph /
                         // RegisterStoredQuery paths below) rather than halting recovery.
                         var isDerivedSubGraphEntry = type == Persistency.WalEntryType.RemoveSubGraph ||
-                                                     type == Persistency.WalEntryType.RemoveStoredQuery;
+                                                     type == Persistency.WalEntryType.RemoveStoredQuery ||
+                                                     type == Persistency.WalEntryType.RemovePlugin;
                         bool applied;
                         try
                         {
@@ -332,6 +334,10 @@ namespace NoSQL.GraphDB.Core
                     else if (type == Persistency.WalEntryType.RegisterStoredQuery)
                     {
                         ReplayStoredQueryRegister(payload);
+                    }
+                    else if (type == Persistency.WalEntryType.RegisterPlugin)
+                    {
+                        ReplayPluginRegister(payload);
                     }
 
                     replayed++;
@@ -557,6 +563,124 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Builds the in-memory entry for a persisted plugin definition (feature plugin-registration):
+        ///   recompiles the source through the registered <see cref="PluginCompiler" /> when one is
+        ///   present. Like a stored query, a plugin is OPERATOR-REGISTERED state - so a failure never
+        ///   drops the definition: a compile/contract failure (or a compiler that throws, violating its
+        ///   Try contract) keeps the entry as <see cref="PluginCompileState.Failed" /> with its
+        ///   diagnostics (visible via list/get, unresolvable until fixed, recoverable by
+        ///   delete+re-register), and a missing compiler keeps it as source-only. Loud, never silent loss.
+        /// </summary>
+        private PluginEntry BuildRehydratedPluginEntry(PluginDefinition definition)
+        {
+            var compiler = PluginCompiler;
+            if (compiler == null)
+            {
+                return new PluginEntry(definition, PluginCompileState.SourceOnly, null);
+            }
+
+            try
+            {
+                if (compiler.TryCompile(definition, out var artifact, out var error))
+                {
+                    return new PluginEntry(definition, PluginCompileState.Compiled, artifact);
+                }
+
+                _logger.LogError(
+                    "Plugin \"{Name}\" failed to recompile on load and is kept as Failed (delete + re-register to recover): {Error}",
+                    definition.Name, error);
+                return new PluginEntry(definition, PluginCompileState.Failed, null, error);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Recompiling plugin \"{Name}\" threw; it is kept as Failed (delete + re-register to recover).",
+                    definition.Name);
+                return new PluginEntry(definition, PluginCompileState.Failed, null, ex.Message);
+            }
+        }
+
+        /// <summary>
+        ///   Replaces the plugin registry with the definitions of a loaded snapshot manifest, eagerly
+        ///   recompiling each via <see cref="BuildRehydratedPluginEntry" />. Warns once when definitions
+        ///   exist but no compiler is registered (embedded engine use: entries load as source-only;
+        ///   there is no invocation surface without a hosting layer anyway).
+        /// </summary>
+        private void RehydratePlugins(List<PluginDefinition> definitions)
+        {
+            var entries = new List<PluginEntry>(definitions.Count);
+
+            if (definitions.Count > 0 && PluginCompiler == null)
+            {
+                _logger.LogWarning(
+                    "The savegame holds {Count} plugin definition(s) but no plugin compiler is registered; they are loaded as source-only. Register IFallen8.PluginCompiler before load to recompile them.",
+                    definitions.Count);
+            }
+
+            foreach (var definition in definitions)
+            {
+                if (definition == null || !PluginRegistry.IsValidName(definition.Name))
+                {
+                    _logger.LogError("A plugin definition in the manifest has an invalid name and was skipped.");
+                    continue;
+                }
+
+                entries.Add(BuildRehydratedPluginEntry(definition));
+            }
+
+            Plugins.ReplaceAll(entries);
+
+            if (entries.Count > 0)
+            {
+                _logger.LogInformation("Rehydrated {Count} plugin definition(s).", entries.Count);
+            }
+        }
+
+        /// <summary>
+        ///   Replays one logged <see cref="Persistency.WalEntryType.RegisterPlugin" /> entry: decodes
+        ///   the persisted definition, recompiles it (keep-and-mark-Failed on failure, per
+        ///   <see cref="BuildRehydratedPluginEntry" /> - operator state is never silently dropped) and
+        ///   re-executes the equivalent registration against the registry as replayed so far, in commit
+        ///   order. An undecodable entry is warned and skipped so recovery continues; registrations
+        ///   allocate no element ids. The trust-boundary note on <see cref="ReplayStoredQueryRegister" />
+        ///   applies identically: replay RECOMPILES persisted C# via Roslyn in-process, so the save/WAL
+        ///   directory is a trust boundary equivalent to the application binaries.
+        /// </summary>
+        private void ReplayPluginRegister(byte[] payload)
+        {
+            if (!WalTransactionCodec.TryDecodePluginRegister(payload, out var definition))
+            {
+                _logger.LogWarning("A logged RegisterPlugin entry could not be decoded during recovery and was skipped.");
+                return;
+            }
+
+            try
+            {
+                var tx = new RegisterPluginTransaction
+                {
+                    Entry = BuildRehydratedPluginEntry(definition),
+                    // A replayed registration was already quota-checked at its original commit;
+                    // recovery may run before the operator's configured ceiling is applied, so
+                    // re-enforcing here could silently drop committed operator state.
+                    BypassQuota = true
+                };
+
+                if (!tx.TryExecute(this))
+                {
+                    _logger.LogWarning(
+                        "Re-executing a logged RegisterPlugin transaction for \"{Name}\" during recovery returned false (reason {Reason}); it is skipped.",
+                        definition.Name, tx.FailureReason);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Recovering logged plugin \"{Name}\" threw during recovery; it is skipped and recovery continues with later entries.",
+                    definition.Name);
+            }
+        }
+
+        /// <summary>
         ///   Grows the published snapshot's live slot count to <paramref name="targetCount" /> (padding
         ///   the tail with null slots), used before a WAL replay so that <c>_currentId == Count</c>
         ///   holds. This is required when the snapshot's id-space size is smaller than the log's
@@ -700,6 +824,10 @@ namespace NoSQL.GraphDB.Core
                 // stored-query-library): the load REPLACES the library wholesale, exactly like the
                 // graph itself, BEFORE any WAL replay applies later Register/Remove entries on top.
                 RehydrateStoredQueries(_persistencyFactory.LoadStoredQueryDefinitions(path));
+
+                // Rehydrate the plugin registry from its manifest (feature plugin-registration), same
+                // wholesale-replace-before-WAL-replay discipline as the stored query library.
+                RehydratePlugins(_persistencyFactory.LoadPluginDefinitions(path));
 
                 // WAL (spec P4/§5). When the WAL is enabled it OWNS the loaded snapshot's id-space
                 // handling: it deliberately does NOT run the closing compaction, so the in-memory id

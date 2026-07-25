@@ -89,6 +89,19 @@ namespace NoSQL.GraphDB.Core.Persistency
         ///   or removal marker). Replayed by re-executing the equivalent
         ///   <see cref="Transaction.SetEmbeddingsTransaction" /> against the loaded snapshot.
         /// </summary>
-        SetEmbeddings = 16
+        SetEmbeddings = 16,
+
+        /// <summary>
+        ///   A plugin registration (feature plugin-registration). Payload: the serialized
+        ///   <see cref="Plugins.PluginDefinition" /> (JSON). Like a stored query there is no
+        ///   unloggable case - a plugin IS its serializable source. Replayed by recompiling the
+        ///   definition (via the registered <c>IPluginCompiler</c>) and re-executing the equivalent
+        ///   registration in commit order; a replay recompile failure keeps the entry as Failed rather
+        ///   than dropping it (operator-registered state, never silently lost).
+        /// </summary>
+        RegisterPlugin = 17,
+
+        /// <summary>A plugin removal (feature plugin-registration). Payload: the name.</summary>
+        RemovePlugin = 18
     }
 }

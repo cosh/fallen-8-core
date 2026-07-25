@@ -25,7 +25,7 @@ export interface TrainingExample {
  * One compact JSON object per line — the JSONL the FL-3 consolidation tool reads. A trailing
  * newline keeps concatenating multiple exports valid; an empty set yields an empty string.
  */
-export function toTrainingJsonl(examples: TrainingExample[]): string {
+export function toTrainingJsonl<T>(examples: T[]): string {
   if (examples.length === 0) {
     return "";
   }

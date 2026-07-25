@@ -44,10 +44,10 @@ each extend `IIndex` with query methods but do not form separate plugin families
 
 [`PluginFactory`](../fallen-8-core/Plugin/PluginFactory.cs) is a static discovery service:
 
-- **Scanning.** On first use it loads every `*.dll` in `AppContext.BaseDirectory` (plus any path
-  registered via `AddPluginSearchDirectory`) and collects the eligible types. The result is
-  memoized; `Assimilate(stream, path)` writes a new DLL and invalidates the cache so the next
-  lookup rediscovers it.
+- **Scanning.** On first use it loads every `*.dll` in `AppContext.BaseDirectory` and collects the
+  eligible types — this is how the **built-in** plugins compiled into the shipped assemblies are
+  found. The result is memoized. (There is no runtime *external-assembly* loading: the DLL-upload
+  path was removed — runtime plugins are now authored as C# source, see below.)
 - **Eligibility.** A candidate is a `public`, non-abstract class with a public parameterless
   constructor. Its family is decided by which family interface it implements — no attributes or
   manifest.
@@ -105,25 +105,28 @@ public sealed class VertexCountAlgorithm : AGraphAnalyticsAlgorithm
 }
 ```
 
-To deploy it, compile the class into any assembly on the probing path — into `fallen-8-core`, a
-referenced assembly, or a DLL dropped in the base directory (or a registered plugin directory).
-It is discovered on the next lookup and addressed by `PluginName` (here, `"algorithm":
-"VERTEXCOUNT"` on `POST /analytics`). A family with no base class (e.g. `IIndex`) requires
-implementing the full `IPlugin` contract above directly.
+There are two ways to deploy it. As a **built-in**, compile the class into an assembly on the
+probing path — into `fallen-8-core` or a referenced assembly in the base directory — and it is
+discovered on the next lookup and addressed by `PluginName` (here, `"algorithm": "VERTEXCOUNT"` on
+`POST /analytics`). As a **runtime plugin**, submit its C# source to the typed registration API and
+it is compiled, contract-validated, and stored scoped to a namespace — see
+[plugin-registration.md](plugin-registration.md). A family with no base class (e.g. `IIndex`)
+requires implementing the full `IPlugin` contract above directly.
 
 ## REST exposure
 
-There is no general plugin-management API. Two read-only listings and one upload endpoint exist:
+Two read-only listings surface built-ins, and a typed registration API manages runtime plugins:
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /status` | Lists available index / path / analytics / service plugin names alongside the live index inventory — see [observability.md](observability.md). |
 | `GET /analytics/algorithms` | Lists analytics plugins with descriptions — see [graph-analytics.md](graph-analytics.md). |
-| `PUT /plugin` | Uploads a DLL and assimilates it. It runs **in-process with full trust** (a trust boundary, not a sandbox), is process-global across every namespace, and is off by default — it requires authentication plus `Fallen8:Security:EnableDynamicPluginLoading=true`. See [security.md](security.md). |
+| `POST /plugins/{algorithm,function}`, `GET/DELETE /plugins[/{name}]`, `POST /plugins/function/{name}/invoke` | Register (from C# source), list, get, delete, and invoke **runtime** plugins, scoped per namespace — see [plugin-registration.md](plugin-registration.md). This replaces the former `PUT /plugin` DLL upload, which has been removed. |
 
 ## See also
 
 - [indexes.md](indexes.md) — built-in index types and their creation options.
 - [path-finding.md](path-finding.md) · [subgraphs.md](subgraphs.md) · [graph-analytics.md](graph-analytics.md) — the built-in algorithm plugins.
+- [plugin-registration.md](plugin-registration.md) — registering runtime plugins from C# source.
 - [delegates.md](delegates.md) — runtime-compiled filter/cost fragments (a different mechanism).
-- [security.md](security.md) — gating for uploaded, full-trust plugins.
+- [security.md](security.md) — gating for the full-trust dynamic-code and plugin-registration surfaces.

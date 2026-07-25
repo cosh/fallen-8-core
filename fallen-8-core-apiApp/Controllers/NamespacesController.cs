@@ -126,21 +126,24 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        /// Renames a namespace
+        /// Updates a namespace: rename it and/or set its plugin-registration override
         /// </summary>
         /// <param name="name">The current namespace name</param>
-        /// <param name="specification">The new name</param>
-        /// <returns>The renamed namespace entry</returns>
+        /// <param name="specification">The update: an optional new name and/or a plugin-registration override</param>
+        /// <returns>The updated namespace entry</returns>
         /// <remarks>
         /// Rename is a pure metadata operation: the engine, its data, and its on-disk locations
-        /// (keyed by the immutable namespace id) are untouched — only the URL address changes.
-        /// The reserved "default" namespace cannot be renamed.
+        /// (keyed by the immutable namespace id) are untouched — only the URL address changes. The
+        /// reserved "default" namespace cannot be RENAMED, but its plugin-registration override CAN
+        /// be set. "pluginRegistration" is "enabled"/"disabled"/"inherit" (feature
+        /// plugin-registration): it overrides Fallen8:Security:EnableDynamicPluginLoading for this
+        /// namespace ("inherit" clears the override). Supply at least one of the two fields.
         /// </remarks>
-        /// <response code="200">The namespace was renamed</response>
-        /// <response code="400">The new name is missing, empty/whitespace-padded, too long, "."/"..", or contains "/", "\", or a control character</response>
+        /// <response code="200">The namespace was updated</response>
+        /// <response code="400">Neither field supplied, an invalid new name, or an unrecognized "pluginRegistration" value</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="404">No namespace with this name exists</response>
-        /// <response code="409">The new name is already in use, or the namespace is "default"</response>
+        /// <response code="409">The new name is already in use, or a rename of the reserved "default" namespace</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         [HttpPatch("/ns/{name}")]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
@@ -151,17 +154,53 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-        public IActionResult Rename([FromRoute] String name, [FromBody] NamespaceRenameSpecification specification)
+        public IActionResult Update([FromRoute] String name, [FromBody] NamespaceUpdateSpecification specification)
         {
-            if (specification == null || String.IsNullOrEmpty(specification.Name))
+            if (specification == null ||
+                (String.IsNullOrEmpty(specification.Name) && specification.PluginRegistration == null))
             {
-                return ProblemResults.Create(StatusCodes.Status400BadRequest, "Invalid namespace name",
-                    "A body of the form { \"name\": \"new-name\" } is required.");
+                return ProblemResults.Create(StatusCodes.Status400BadRequest, "Invalid namespace update",
+                    "Supply a new \"name\" and/or a \"pluginRegistration\" of \"enabled\"/\"disabled\"/\"inherit\".");
             }
 
-            return _namespaces.TryRename(name, specification.Name, out var ns, out var failure)
-                ? Ok(ToRest(ns))
-                : FailureProblem(name, failure, specification.Name);
+            Namespace ns = null;
+            var effectiveName = name;
+
+            if (!String.IsNullOrEmpty(specification.Name))
+            {
+                if (!_namespaces.TryRename(name, specification.Name, out ns, out var renameFailure))
+                {
+                    return FailureProblem(name, renameFailure, specification.Name);
+                }
+                effectiveName = ns.Name;
+            }
+
+            if (specification.PluginRegistration != null)
+            {
+                if (!TryParsePluginRegistration(specification.PluginRegistration, out var enabled))
+                {
+                    return ProblemResults.Create(StatusCodes.Status400BadRequest, "Invalid pluginRegistration",
+                        "Expected \"enabled\", \"disabled\", or \"inherit\".");
+                }
+                if (!_namespaces.TrySetPluginRegistration(effectiveName, enabled, out ns, out var setFailure))
+                {
+                    return FailureProblem(effectiveName, setFailure);
+                }
+            }
+
+            return Ok(ToRest(ns));
+        }
+
+        /// <summary>Maps the "pluginRegistration" body value to the override (true/false/null=inherit).</summary>
+        private static bool TryParsePluginRegistration(String raw, out bool? enabled)
+        {
+            switch (raw)
+            {
+                case "enabled": enabled = true; return true;
+                case "disabled": enabled = false; return true;
+                case "inherit": enabled = null; return true;
+                default: enabled = null; return false;
+            }
         }
 
         /// <summary>
@@ -204,7 +243,8 @@ namespace NoSQL.GraphDB.App.Controllers
                 State = ns.State == NamespaceState.Ready ? "ready" : "creating",
                 VertexCount = ns.Engine.VertexCount,
                 EdgeCount = ns.Engine.EdgeCount,
-                CreatedAt = ns.CreatedAtUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                CreatedAt = ns.CreatedAtUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+                PluginRegistrationEnabled = ns.PluginRegistrationEnabled
             };
         }
 

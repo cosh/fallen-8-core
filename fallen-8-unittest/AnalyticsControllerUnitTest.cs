@@ -155,6 +155,9 @@ namespace NoSQL.GraphDB.Tests
                 return _inner.TryRunAnalytics(out result, algorithmName, definition);
             }
 
+            public bool TryInvokeGraphFunction(out NoSQL.GraphDB.Core.Plugins.GraphFunctionResult result, string name, IDictionary<string, object> parameters)
+                => _inner.TryInvokeGraphFunction(out result, name, parameters);
+
             public TransactionInformation EnqueueTransaction(ATransaction tx)
                 => FailWrites
                     ? new TransactionInformation(null) { Transaction = tx, TransactionState = TransactionState.RolledBack }
@@ -178,6 +181,12 @@ namespace NoSQL.GraphDB.Tests
             {
                 get => _inner.StoredQueryCompiler;
                 set => _inner.StoredQueryCompiler = value;
+            }
+            public NoSQL.GraphDB.Core.Plugins.PluginRegistry Plugins => _inner.Plugins;
+            public NoSQL.GraphDB.Core.Plugins.IPluginCompiler PluginCompiler
+            {
+                get => _inner.PluginCompiler;
+                set => _inner.PluginCompiler = value;
             }
             public ILoggerFactory LoggerFactory => _inner.LoggerFactory;
             public void SetId(Guid id) => _inner.SetId(id);

@@ -1,0 +1,43 @@
+{
+  "$comment": "Held-out WHOLE-TYPE plugin eval intents (feature plugin-registration). Sibling of eval-set.json (the fragment held-out set) so the delegate schema + fixture.ts stay untouched. NEVER add these intents to a training set - they are the measurement. Plugin drafts are scored COMPILE-ONLY via POST /plugins/{category}/validate: the /subgraph element-set trick (fixture.ts) compares filter lambdas over a seeded graph and does not apply to whole types. `reference` is a known-good compiling source kept for documentation/parity; scoring runs the model's own output through the validator. `contract` is present only for algorithm rows.",
+  "rows": [
+    {
+      "id": "fn-all-vertices",
+      "category": "function",
+      "name": "AllVertices",
+      "intent": "return every vertex in the graph",
+      "reference": "using System;\nusing System.Collections.Generic;\nusing NoSQL.GraphDB.Core;\nusing NoSQL.GraphDB.Core.Plugin;\nusing NoSQL.GraphDB.Core.Plugins;\n\npublic sealed class AllVertices : IGraphFunction\n{\n    private IFallen8 _graph;\n\n    public string PluginName    => \"AllVertices\";\n    public Type   PluginCategory => typeof(IGraphFunction);\n    public string Description   => \"Returns every vertex in the graph.\";\n    public string Manufacturer  => \"you\";\n\n    public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) => _graph = fallen8;\n    public void Dispose() { }\n\n    public bool TryInvoke(out GraphFunctionResult result, IDictionary<string, object> parameters)\n    {\n        result = GraphFunctionResult.FromElements(_graph.GetAllVertices(), edges: null);\n        return true;\n    }\n}\n"
+    },
+    {
+      "id": "fn-all-elements",
+      "category": "function",
+      "name": "AllElements",
+      "intent": "return all vertices and edges in the graph",
+      "reference": "using System;\nusing System.Collections.Generic;\nusing NoSQL.GraphDB.Core;\nusing NoSQL.GraphDB.Core.Plugin;\nusing NoSQL.GraphDB.Core.Plugins;\n\npublic sealed class AllElements : IGraphFunction\n{\n    private IFallen8 _graph;\n\n    public string PluginName    => \"AllElements\";\n    public Type   PluginCategory => typeof(IGraphFunction);\n    public string Description   => \"Returns every vertex and edge in the graph.\";\n    public string Manufacturer  => \"you\";\n\n    public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) => _graph = fallen8;\n    public void Dispose() { }\n\n    public bool TryInvoke(out GraphFunctionResult result, IDictionary<string, object> parameters)\n    {\n        result = GraphFunctionResult.FromElements(_graph.GetAllVertices(), _graph.GetAllEdges());\n        return true;\n    }\n}\n"
+    },
+    {
+      "id": "an-outdegree",
+      "category": "algorithm",
+      "contract": "Analytics",
+      "name": "OutDegreeScores",
+      "intent": "score each vertex by the number of its outgoing edges",
+      "reference": "using System;\nusing System.Collections.Generic;\nusing NoSQL.GraphDB.Core;\nusing NoSQL.GraphDB.Core.Algorithms.Analytics;\nusing NoSQL.GraphDB.Core.Plugin;\n\npublic sealed class OutDegreeScores : IGraphAnalyticsAlgorithm\n{\n    private IFallen8 _graph;\n\n    public string PluginName    => \"OutDegreeScores\";\n    public Type   PluginCategory => typeof(IGraphAnalyticsAlgorithm);\n    public string Description   => \"Scores every vertex by its outgoing degree.\";\n    public string Manufacturer  => \"you\";\n\n    public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) => _graph = fallen8;\n    public void Dispose() { }\n\n    public bool TryRunAnalytics(out GraphAnalyticsResult result, GraphAnalyticsDefinition definition)\n    {\n        var scores = new Dictionary<int, double>();\n        foreach (var vertex in _graph.GetAllVertices())\n        {\n            scores[vertex.Id] = vertex.GetOutDegree();\n        }\n        result = new GraphAnalyticsResult(scores, new Dictionary<string, object>(), true, 1, TimeSpan.Zero, false);\n        return true;\n    }\n}\n"
+    },
+    {
+      "id": "path-skeleton",
+      "category": "algorithm",
+      "contract": "Path",
+      "name": "MyPathAlgorithm",
+      "intent": "a minimal Path algorithm scaffold to start from",
+      "reference": "using System;\nusing System.Collections.Generic;\nusing NoSQL.GraphDB.Core;\nusing NoSQL.GraphDB.Core.Algorithms.Path;\nusing NoSQL.GraphDB.Core.Plugin;\n\npublic sealed class MyPathAlgorithm : IShortestPathAlgorithm\n{\n    public string PluginName    => \"MyPathAlgorithm\";\n    public Type   PluginCategory => typeof(IShortestPathAlgorithm);\n    public string Description   => \"A custom Path algorithm.\";\n    public string Manufacturer  => \"you\";\n\n    public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) { }\n    public void Dispose() { }\n\n    public bool TryCalculateShortestPath(out List<Path> result, ShortestPathDefinition definition)\n    {\n        result = new List<Path>();\n        return false;\n    }\n}\n"
+    },
+    {
+      "id": "subgraph-skeleton",
+      "category": "algorithm",
+      "contract": "SubGraph",
+      "name": "MySubGraphAlgorithm",
+      "intent": "a minimal SubGraph algorithm scaffold to start from",
+      "reference": "using System;\nusing System.Collections.Generic;\nusing NoSQL.GraphDB.Core;\nusing NoSQL.GraphDB.Core.Algorithms.SubGraph;\nusing NoSQL.GraphDB.Core.Plugin;\n\npublic sealed class MySubGraphAlgorithm : ISubGraphAlgorithm\n{\n    public string PluginName    => \"MySubGraphAlgorithm\";\n    public Type   PluginCategory => typeof(ISubGraphAlgorithm);\n    public string Description   => \"A custom SubGraph algorithm.\";\n    public string Manufacturer  => \"you\";\n\n    public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) { }\n    public void Dispose() { }\n\n    public bool TryCreateSubgraph(out SubGraphResult result, SubGraphDefinition definition)\n    {\n        result = null;\n        return false;\n    }\n}\n"
+    }
+  ]
+}

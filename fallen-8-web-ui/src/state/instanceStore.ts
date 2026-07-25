@@ -118,7 +118,9 @@ export type FilterSource = "inline" | "stored";
 export interface PathDraft {
   from: string;
   to: string;
-  algorithm: "BLS" | "DIJKSTRA";
+  // "BLS" / "DIJKSTRA" are the built-ins; any string is accepted so a runtime-registered Path
+  // algorithm plugin (feature plugin-registration) is selectable by name.
+  algorithm: string;
   maxDepth: number;
   maxResults: number;
   maxPathWeight: number;

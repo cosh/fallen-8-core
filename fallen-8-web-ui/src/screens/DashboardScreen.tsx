@@ -24,6 +24,7 @@ import { Stat } from "../components/Stat";
 import { Truncated } from "../components/Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
+import { PluginsPanel } from "../components/PluginsPanel";
 import { SampleGraphsPanel } from "../components/SampleGraphsPanel";
 
 /**
@@ -191,14 +192,17 @@ export function DashboardScreen() {
         <Stat label="used memory" value={`${(data.usedMemory / 1024 / 1024).toFixed(1)} MiB`} />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {/* Built-in plugin families discovered on the engine, plus the addressed namespace's
+          registered algorithm plugins unioned in by /status (feature plugin-registration §4.4).
+          Service plugins are intentionally not shown — no service plugins ship built-in and there
+          is no user service-authoring surface. */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <PluginList title="Index plugins" plugins={data.availableIndexPlugins ?? []} />
         <PluginList title="Path plugins" plugins={data.availablePathPlugins ?? []} />
         <PluginList
           title="Analytics plugins"
           plugins={data.availableAnalyticsPlugins ?? []}
         />
-        <PluginList title="Service plugins" plugins={data.availableServicePlugins ?? []} />
       </div>
 
       <section className="panel" data-testid="embedding-provider-card">
@@ -409,6 +413,8 @@ export function DashboardScreen() {
       </section>
 
       <StoredQueriesPanel />
+
+      <PluginsPanel />
 
       <datalist id="dash-vertex-labels">
         {suggestions.vertexLabels.map((label) => (

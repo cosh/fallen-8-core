@@ -16,6 +16,7 @@ import {
   type SemanticDraft,
 } from "../lib/semantic";
 import { shapeSuggestions, useEmbeddingProvider, useGraphShape } from "../state/graphShape";
+import { useStatus } from "../state/status";
 import { SemanticBlockEditor } from "../components/SemanticBlockEditor";
 import { DelegateSlot } from "../delegate/DelegateSlot";
 import {
@@ -46,6 +47,11 @@ export function PathScreen() {
   const navigate = useNavigate();
   const shape = useGraphShape(instance).data;
   const suggestions = shapeSuggestions(shape);
+  // Runtime-registered Path algorithm plugins for this namespace (feature plugin-registration),
+  // from /status; the built-ins BLS/DIJKSTRA are always offered, so drop them from the extras.
+  const registeredPathPlugins = (useStatus(instance).data?.availablePathPlugins ?? []).filter(
+    (name) => name !== "BLS" && name !== "DIJKSTRA",
+  );
   const provider = useEmbeddingProvider(instance);
   const providerEnabled = provider ? provider.enabled : null;
   const [showAdvanced, setShowAdvanced] = useState(
@@ -166,7 +172,7 @@ export function PathScreen() {
                 className="input w-auto"
                 value={draft.algorithm}
                 onChange={(e) => {
-                  const algorithm = e.target.value as "BLS" | "DIJKSTRA";
+                  const algorithm = e.target.value;
                   // BLS ignores costs; drop a stale costBySimilarity so it is never sent
                   // (and never owns the vertex-cost slot) under a hop-count search.
                   setDraft(
@@ -178,6 +184,13 @@ export function PathScreen() {
               >
                 <option value="BLS">BLS (hop count)</option>
                 <option value="DIJKSTRA">Dijkstra (weighted)</option>
+                {/* Runtime-registered Path algorithm plugins in this namespace (feature
+                    plugin-registration), surfaced from /status alongside the built-ins. */}
+                {registeredPathPlugins.map((name) => (
+                  <option key={name} value={name}>
+                    {name} (registered)
+                  </option>
+                ))}
               </select>
             </Field>
             <Field helpKey="pathMaxDepth" label="maxDepth" htmlFor="path-depth">

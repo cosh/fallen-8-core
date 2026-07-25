@@ -1,16 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { DelegateKind, DelegateValidationResult } from "../../api/types";
-import { Field } from "../../components/Field";
 import { help } from "../../lib/fieldHelp";
 import {
-  BUILTIN_NL_BACKEND,
   effectiveNlConfig,
   isLoopbackEndpoint,
   isNlConfigured,
-  NL_PRESETS,
   useNlAssist,
-  usesApiKey,
 } from "./config";
+import { NlBackendConfig } from "./NlBackendConfig";
 import { downloadText, toTrainingJsonl, type TrainingExample, type Verdict } from "./feedback";
 import { formatFragment } from "./format";
 import { buildGenerationPrompt, buildRefinePrompt, extractFragment } from "./prompt";
@@ -191,133 +188,7 @@ export function NlAssistPanel({
           </p>
         )}
 
-        {showConfig && (
-          <div className="space-y-2" data-testid="nl-config">
-            <Field helpKey="nlBackend" label="backend" htmlFor="nl-mode">
-              <select
-                id="nl-mode"
-                className="input w-auto"
-                value={config.mode}
-                onChange={(e) => setConfig({ mode: e.target.value as "builtin" | "custom" })}
-              >
-                <option value="builtin">built-in (local Ollama)</option>
-                <option value="custom">custom</option>
-              </select>
-            </Field>
-            {config.mode === "builtin" ? (
-              <p className="text-fg-faint text-[10px]" data-testid="nl-builtin-hint">
-                Fixed to the stack this project ships in docker-compose.yml:{" "}
-                <code>{BUILTIN_NL_BACKEND.endpoint}</code> · ollama ·{" "}
-                <code>{BUILTIN_NL_BACKEND.model}</code> (MIT weights + MIT runtime).
-                Nothing to configure.
-              </p>
-            ) : (
-              <>
-                <Field helpKey="nlPreset" label="preset" htmlFor="nl-preset">
-                  <select
-                    id="nl-preset"
-                    className="input w-auto"
-                    value=""
-                    onChange={(e) => {
-                      const preset = NL_PRESETS.find((p) => p.name === e.target.value);
-                      if (preset) {
-                        setConfig({
-                          endpoint: preset.endpoint,
-                          apiKind: preset.apiKind,
-                          model: preset.model,
-                        });
-                      }
-                    }}
-                  >
-                    <option value="">— prefill from preset —</option>
-                    {NL_PRESETS.map((preset) => (
-                      <option key={preset.name} value={preset.name}>
-                        {preset.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field helpKey="nlEndpoint" label="endpoint" htmlFor="nl-endpoint">
-                  <input
-                    id="nl-endpoint"
-                    className="input"
-                    value={config.endpoint}
-                    onChange={(e) => setConfig({ endpoint: e.target.value })}
-                    placeholder="http://localhost:11434"
-                  />
-                </Field>
-                <div className="flex gap-2">
-                  <Field helpKey="nlApi" label="api" htmlFor="nl-kind">
-                    <select
-                      id="nl-kind"
-                      className="input w-auto"
-                      value={config.apiKind}
-                      onChange={(e) =>
-                        setConfig({ apiKind: e.target.value as "ollama" | "openai" })
-                      }
-                    >
-                      <option value="ollama">ollama</option>
-                      <option value="openai">openai-compatible</option>
-                    </select>
-                  </Field>
-                  <Field helpKey="nlModel" label="model" htmlFor="nl-model" className="grow">
-                    <input
-                      id="nl-model"
-                      className="input"
-                      value={config.model}
-                      onChange={(e) => setConfig({ model: e.target.value })}
-                      placeholder="phi4-mini"
-                    />
-                  </Field>
-                  <Field
-                    helpKey="nlTemperature"
-                    label="temp"
-                    htmlFor="nl-temperature"
-                    className="w-16"
-                  >
-                    <input
-                      id="nl-temperature"
-                      className="input"
-                      type="number"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      value={config.temperature}
-                      onChange={(e) =>
-                        setConfig({ temperature: Number(e.target.value) || 0 })
-                      }
-                    />
-                  </Field>
-                </div>
-                {usesApiKey(config) ? (
-                  <Field
-                    helpKey="nlApiKey"
-                    label="api key (optional — sent only to the model endpoint)"
-                    htmlFor="nl-key"
-                  >
-                    <input
-                      id="nl-key"
-                      className="input"
-                      type="password"
-                      value={config.apiKey ?? ""}
-                      onChange={(e) => setConfig({ apiKey: e.target.value || undefined })}
-                    />
-                  </Field>
-                ) : (
-                  <p className="text-fg-faint text-[10px]" data-testid="nl-no-key-hint">
-                    No API key — Ollama endpoints never use one.
-                  </p>
-                )}
-                <p className="text-fg-faint text-[10px]">
-                  Presets are prefills, not recommendations — the blessed setup stays the
-                  built-in MIT stack. Hosted endpoints must send CORS headers and show a
-                  “text leaves this machine” notice; for your own Ollama set{" "}
-                  <code>OLLAMA_ORIGINS</code> to this app's origin.
-                </p>
-              </>
-            )}
-          </div>
-        )}
+        {showConfig && <NlBackendConfig config={config} setConfig={setConfig} />}
 
         {!configured && !showConfig && (
           <p className="text-fg-faint" data-testid="nl-disabled-hint">

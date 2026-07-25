@@ -127,7 +127,7 @@ form, or the command line). The defaults:
 | `Fallen8:Metadata:Directory` | storage dir | [Save games](save-games.md) |
 | `Fallen8:Namespaces:MaxNamespaces` | `10000` | [Namespaces](namespaces.md) |
 | `Fallen8:Security:ApiKey` | `null` (open) | [Security](security.md) |
-| `Fallen8:Security:EnableDynamicPluginLoading` | `false` | [Plugins](plugins.md) |
+| `Fallen8:Security:EnableDynamicPluginLoading` | `true` (per-namespace overridable) | [Plugin registration](plugin-registration.md) |
 | `Fallen8:Embedding:Enabled` | `false` (bare run) | [Semantic traversal](semantic-traversal.md) |
 | `Fallen8:ChangeFeed:Enabled` | `true` | [Change feed](change-feed.md) |
 | `Fallen8:Analytics:DefaultTimeBudgetSeconds` | `30` | [Graph analytics](graph-analytics.md) |

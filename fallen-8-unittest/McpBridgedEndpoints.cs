@@ -52,6 +52,14 @@ namespace NoSQL.GraphDB.Tests
             ("POST", "/path/{from}/to/{to}"),
             ("GET", "/analytics/algorithms"),
             ("POST", "/analytics/{algorithmName}"),
+            // Plugin registry (feature plugin-registration). f8_plugins: list/get/invoke are Read;
+            // delete is gated on the write capability; register_* on the code capability.
+            ("GET", "/plugins"),
+            ("GET", "/plugins/{name}"),
+            ("POST", "/plugins/function/{name}/invoke"),
+            ("DELETE", "/plugins/{name}"),
+            ("POST", "/plugins/algorithm"),
+            ("POST", "/plugins/function"),
             // Write tier.
             ("PUT", "/vertex"),
             ("PUT", "/edge"),

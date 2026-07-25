@@ -141,6 +141,10 @@ namespace NoSQL.GraphDB.App
             builder.Services.Configure<Fallen8StoredQueryOptions>(
                 builder.Configuration.GetSection(Fallen8StoredQueryOptions.SectionName));
 
+            // Plugin registry configuration (feature plugin-registration).
+            builder.Services.Configure<Fallen8PluginOptions>(
+                builder.Configuration.GetSection(Fallen8PluginOptions.SectionName));
+
             // Namespace collection configuration (feature graph-namespaces).
             builder.Services.Configure<Fallen8NamespacesOptions>(
                 builder.Configuration.GetSection(Fallen8NamespacesOptions.SectionName));
@@ -325,10 +329,6 @@ namespace NoSQL.GraphDB.App
                 });
             });
 
-            // Register the isolated plugin directory as an additional plugin search directory so an
-            // uploaded DLL (written there, never next to the app binaries) is still discoverable.
-            PluginFactory.AddPluginSearchDirectory(security.ResolvePluginDirectory());
-
             builder.Services.AddControllers(options =>
             {
                 // Route twins (feature graph-namespaces): every namespace-scoped action also
@@ -368,11 +368,11 @@ namespace NoSQL.GraphDB.App
                     "code unconditionally, so an unauthenticated server is an open code-execution surface.");
             }
             // Dynamic code execution is always on (compiled filter/cost fragments run in-process with
-            // FULL TRUST). Always state the trust boundary; note plugin loading separately when enabled.
+            // FULL TRUST). Always state the trust boundary; note plugin registration separately when enabled.
             startupLogger.LogWarning("Fallen-8 dynamic code execution is ALWAYS ENABLED: compiled filters/costs on " +
                 "/path and /subgraph run in-process with FULL TRUST - anyone permitted to reach these endpoints is " +
                 "trusted as the server process. This is a trust boundary, not a sandbox." +
-                (security.EnableDynamicPluginLoading ? " Plugin DLL loading is also ENABLED." : string.Empty));
+                (security.EnableDynamicPluginLoading ? " Source plugin registration (/plugins/*) is also ENABLED." : string.Empty));
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())

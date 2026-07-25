@@ -42,3 +42,44 @@ endpoint, UI kind table, engine delegate) — trigger documented in
 `features/done/subgraph-typed-filters/spec.md`.
 
 **Closed by:** —
+
+## 2026-07-25 — plugin-registration — PENDING
+
+**Contract change:** a new authoring surface lands in F8 Studio — **whole-type C# plugins**
+(feature plugin-registration), distinct from the existing fragment (filter/cost body) surface.
+Users author a complete type implementing a category contract (`IShortestPathAlgorithm`,
+`ISubGraphAlgorithm`, `IGraphAnalyticsAlgorithm`, or the new `IGraphFunction`) and register it to a
+namespace; the editor compiles/contract-validates via `POST /plugins/{category}/validate`.
+
+**Dataset:** the current corpus is fragment-shaped (a lambda body for a typed slot). Whole-type
+authoring is a different generation target — the model must emit a full class with the `IPlugin`
+members, the correct usings, and the contract method (e.g. `IGraphFunction.TryInvoke` returning a
+`GraphFunctionResult` over `IFallen8` reads). Add a `PLUGIN` generation kind with per-contract
+scaffolds and few-shot whole-type examples; do **not** retarget the fragment rows (both surfaces
+coexist).
+
+**Prompt/eval:** NL-assist for plugin authoring ships in v1 against a general model (the whole-type
+prompt scaffolding lives in Studio); the fine-tune should absorb whole-type examples so the local
+model can draft them. Add eval scenarios that compile a generated plugin through the plugin-aware
+validate endpoint (not `/delegates/validate`).
+
+**Closed by:** Pipeline TOOLING is wired for whole-type plugins (not yet a fine-tune RUN — that
+remains the operator's to execute against a live F8 + GPU):
+- `dataset-gen/generate.ts` now emits a PLUGIN generation kind alongside the untouched fragment
+  rows — per-contract seeds (function + algorithm Path/SubGraph/Analytics), each a whole type
+  built from `buildPluginGenerationPrompt` + `scaffoldFor`, compile-gated through
+  `POST /plugins/{category}/validate`, with a coverage guard requiring ≥1 plugin row per contract
+  and the drift hash extended to `plugin/nl/pluginPrompt.ts` + `plugin/scaffolds.ts`.
+- `feedback/consolidate.ts` now ingests the plugin panel's `{ kind:"plugin", … }` captures
+  (fixing the prior mis-ingest that sent an empty body to `/delegates/validate`): plugin rows are
+  read via their own fields, re-validated via `validatePlugin`, and written as whole-type corpus
+  rows; fragment captures are unchanged; malformed lines are skipped, never abort.
+- `eval/plugin-eval-set.json` + `eval/baseline.ts` add a held-out, COMPILE-ONLY plugin eval path
+  (the `/subgraph` element-set gate does not apply to whole types).
+- `train/train-config.phi4-f8*.json` raise `maxSeqLength` 2048→4096 so a whole plugin type is not
+  truncated; `train_lora.py` is shape-agnostic (reads only `messages`) and needed no change.
+Deferred (honest): richer Path/SubGraph algorithm BODIES beyond the compiling skeleton are left to
+the operator's bootstrap + captured-feedback loop, where they are verified against the live
+validator; hand-authoring complex traversal/subgraph bodies here without a live compile gate would
+only add rows that silently drop. Entry stays PENDING until an actual fine-tune run absorbs these
+examples — close it then with the produced model version.

@@ -480,7 +480,7 @@ namespace NoSQL.GraphDB.Tests
                     },
                     MaxNamespaces = 10000
                 }, "NamespacesREST"),
-                (new NamespaceRenameSpecification { Name = "fl-eu" }, "NamespaceRenameSpecification"),
+                (new NamespaceUpdateSpecification { Name = "fl-eu", PluginRegistration = "disabled" }, "NamespaceUpdateSpecification"),
                 (new SaveGameNamespaceREST
                 {
                     Name = "flights",
@@ -751,6 +751,54 @@ namespace NoSQL.GraphDB.Tests
                     SpecificationJson = "{\"vertexFilter\":\"return (ge) => true;\"}",
                     CompileDiagnostics = "ID: CS1002, Message: ; expected"
                 }, "StoredQueryDetailREST"),
+                (new AlgorithmPluginRegistration
+                {
+                    Name = "MyDijkstra",
+                    Contract = "Path",
+                    Description = "a custom shortest path",
+                    SourceCode = "public sealed class MyDijkstra { }"
+                }, "AlgorithmPluginRegistration"),
+                (new FunctionPluginRegistration
+                {
+                    Name = "NeighboursOfLabel",
+                    Description = "vertices of a label",
+                    SourceCode = "public sealed class NeighboursOfLabel { }"
+                }, "FunctionPluginRegistration"),
+                (new GraphFunctionInvocation
+                {
+                    Parameters = new Dictionary<string, string> { { "label", "person" } }
+                }, "GraphFunctionInvocation"),
+                (new PluginValidationSpecification
+                {
+                    Name = "MyDijkstra",
+                    Contract = "Path",
+                    SourceCode = "public sealed class MyDijkstra { }"
+                }, "PluginValidationSpecification"),
+                (new PluginSummaryREST
+                {
+                    Name = "MyDijkstra",
+                    Category = "Algorithm",
+                    Contract = "Path",
+                    Description = "a custom shortest path",
+                    CreatedAt = new DateTime(2026, 7, 25, 12, 0, 0, DateTimeKind.Utc),
+                    CompileState = "Compiled"
+                }, "PluginSummaryREST"),
+                (new PluginDetailREST
+                {
+                    Name = "NeighboursOfLabel",
+                    Category = "Function",
+                    Contract = "GraphFunction",
+                    CreatedAt = new DateTime(2026, 7, 25, 12, 0, 0, DateTimeKind.Utc),
+                    CompileState = "Failed",
+                    SourceCode = "public sealed class NeighboursOfLabel { }",
+                    CompileDiagnostics = "ID: CS1002, Message: ; expected"
+                }, "PluginDetailREST"),
+                (new GraphFunctionResultREST
+                {
+                    Vertices = new List<Vertex>(),
+                    Edges = new List<Edge>()
+                }, "GraphFunctionResultREST (empty projection)"),
+                (new PluginValidationREST { Valid = false, Error = "ID: CS1002, Message: ; expected" }, "PluginValidationREST"),
                 (new LiteralSpecification { Value = "John Doe", FullQualifiedTypeName = "System.String" }, "LiteralSpecification"),
                 (new PluginSpecification
                 {

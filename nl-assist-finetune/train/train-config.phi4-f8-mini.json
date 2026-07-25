@@ -4,7 +4,8 @@
   "baseModel": "microsoft/Phi-4-mini-instruct",
   "baseModelLicense": "MIT",
   "seed": 20260719,
-  "maxSeqLength": 2048,
+  "$maxSeqLengthNote": "4096 (was 2048): the dataset now carries WHOLE-TYPE plugin rows (feature plugin-registration) alongside the short fragment rows. A plugin is a complete C# type - usings + the IPlugin members + the contract method - which with the verbose whole-type system prompt overruns 2048 and would be truncated (the assistant target lost, so the model trains on a cut example). 4096 fits a plugin example with headroom; the fragment rows are far shorter and unaffected. Raise only if a future example truncates; lower is the first OOM lever.",
+  "maxSeqLength": 4096,
 
   "lora": {
     "r": 16,

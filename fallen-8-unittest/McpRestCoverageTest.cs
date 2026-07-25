@@ -71,8 +71,13 @@ namespace NoSQL.GraphDB.Tests
                 "index lifecycle (create/populate/drop) is operator/setup tooling; agents scan existing indices via f8_search"),
             new(op => op.Contains("/storedquery"),
                 "stored-query registration/listing is code-gated setup; agents invoke by name via the storedQuery parameter"),
-            new(op => op.Contains("/service") || op.Contains("/plugin"),
-                "service/plugin administration is operator-only"),
+            new(op => op.Contains("/service"),
+                "service administration is operator-only"),
+            // The plugin registry is bridged by f8_plugins (list/get/invoke/delete/register_*); only the
+            // side-effect-free compile-check endpoints stay unbridged - they back the Studio authoring
+            // editor, and agents register directly (feature plugin-registration).
+            new(op => op.Contains("/plugins/") && op.EndsWith("/validate"),
+                "the plugin compile-check endpoints back the Studio authoring editor; agents register directly"),
             new(op => op.Contains("/bulk/"),
                 "bulk import/export is stream-shaped operator-tier I/O (spec §7)"),
             new(op => op.Contains("/changefeed"),

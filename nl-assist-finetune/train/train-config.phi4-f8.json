@@ -1,12 +1,13 @@
 {
   "$comment": "LoRA fine-tune configuration for the phi4-f8 variant: the FULL Phi-4 (14B, MIT) base (feature delegate-model-variants). Same dataset + pipeline as train-config.phi4-f8-mini.json; only the base and the hardware-scaled knobs differ. Reproducible per spec FT-1. Produce it with: VARIANT=phi4-f8 ./run.sh all",
 
-  "$hardwareNote": "14B 4-bit QLoRA does NOT fit the 8GB GPU the mini trained on. Budget ~16GB+ VRAM (RTX 3090/4090 class). On OOM: keep perDeviceBatchSize 1 and drop maxSeqLength (e.g. 1536), then raise gradAccumSteps to hold the effective batch. Inference of the 14B is GPU-only in practice.",
+  "$hardwareNote": "14B 4-bit QLoRA does NOT fit the 8GB GPU the mini trained on. Budget ~16GB+ VRAM (RTX 3090/4090 class). On OOM: keep perDeviceBatchSize 1 and drop maxSeqLength (e.g. 2048), then raise gradAccumSteps to hold the effective batch. Inference of the 14B is GPU-only in practice.",
 
   "baseModel": "microsoft/phi-4",
   "baseModelLicense": "MIT",
   "seed": 20260719,
-  "maxSeqLength": 2048,
+  "$maxSeqLengthNote": "4096 (was 2048): matches the mini config - the dataset now carries WHOLE-TYPE plugin rows (feature plugin-registration), a complete C# type plus the verbose whole-type system prompt, which overruns 2048 and would be truncated. 4096 fits a plugin example with headroom. This raises per-step VRAM on the 14B; if you OOM, dropping maxSeqLength (back toward 2048) is the first lever per the hardware note, at the cost of truncating the longest plugin rows.",
+  "maxSeqLength": 4096,
 
   "$targetModulesNote": "VERIFY against the actual module names of microsoft/phi-4 before training - the Phi-3/Phi-4 family often exposes FUSED projections ('qkv_proj', 'gate_up_proj') rather than the split names below. 'python train/train_lora.py --inspect --config train/train-config.phi4-f8.json' prints the model; set targetModules to the names it actually has, or LoRA attaches to nothing.",
   "lora": {

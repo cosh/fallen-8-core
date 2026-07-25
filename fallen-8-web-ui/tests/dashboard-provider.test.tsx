@@ -14,6 +14,14 @@ import type {
  * unknown state only when neither reports.
  */
 
+// The Dashboard mounts the Plugins panel, whose authoring editor pulls in Monaco (feature
+// plugin-registration). Mock it to keep this screen test free of the Monaco worker import,
+// exactly as the Path/Subgraph screen tests do.
+vi.mock("../src/delegate/monacoSetup", () => ({ setupMonaco: () => {}, monaco: {} }));
+vi.mock("@monaco-editor/react", () => ({
+  default: () => null,
+}));
+
 import { DashboardScreen } from "../src/screens/DashboardScreen";
 
 function provider(enabled: boolean, loaded = false): EmbeddingProviderStatsREST {

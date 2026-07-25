@@ -1,11 +1,11 @@
 # Security
 
-Fallen-8's hosted API has one access control: an **API key** that gates *access* to the whole service (all or nothing). Set it and every request needs it; leave it unset and the whole service is open. There is no dynamic-code switch — compiling and running submitted C# fragments is Fallen-8's core "queries are C#" model and is **always available** (auth permitting). One opt-in capability, **plugin DLL loading**, is off by default and gated separately ([plugins](plugins.md)). This page is the one home for that posture; other docs reference it.
+Fallen-8's hosted API has one access control: an **API key** that gates *access* to the whole service (all or nothing). Set it and every request needs it; leave it unset and the whole service is open. There is no dynamic-code switch — compiling and running submitted C# fragments is Fallen-8's core "queries are C#" model and is **always available** (auth permitting). Runtime **plugin registration** compiles submitted C# too ([plugin registration](plugin-registration.md)); it is **on by default** and can be turned off globally or **per namespace**. This page is the one home for that posture; other docs reference it.
 
 | Control | Config key | Gates | Default |
 |---|---|---|---|
 | API key | `Fallen8:Security:ApiKey` | Access to every endpoint | unset → open |
-| Plugin loading | `Fallen8:Security:EnableDynamicPluginLoading` | Uploading + loading plugin DLLs ([plugins](plugins.md)) | `false` → refused |
+| Plugin registration | `Fallen8:Security:EnableDynamicPluginLoading` (global default) + per-namespace `pluginRegistration` override | Registering plugins from source (`POST /plugins/*`, [plugin registration](plugin-registration.md)) | `true` → allowed; override per namespace via `PATCH /ns/{name}` |
 
 ## API key authentication
 
@@ -49,7 +49,7 @@ The path and subgraph endpoints compile inline C# filter/cost fragments with Ros
 | `POST /delegates/validate` | yes | Compile-checks a fragment without running it. |
 | Stored-query **invocation** by name, list / get / delete | as any request | No new code is introduced; the pre-compiled artifact runs. |
 | Filterless path search (`{}` body), the `semantic` block, analytics, change feed, reads/scans, mutations | as any request | Compile no C# at all. |
-| Plugin DLL upload | yes **and** `EnableDynamicPluginLoading=true` | A *separate* opt-in switch ([plugins](plugins.md)). |
+| Plugin **registration** (`POST /plugins/algorithm`, `/plugins/function`, `/plugins/{category}/validate`) | yes **and** plugin registration enabled | On by default; disable globally (`EnableDynamicPluginLoading=false`) or per namespace (`PATCH /ns/{name}` `pluginRegistration`) — see [plugin registration](plugin-registration.md). Invoking/listing/deleting a registered plugin is never gated by this. |
 
 **Honest limit.** A compiled fragment — inline or stored — runs in-process with the server's full authority. Authentication is *access control* (who may reach the code endpoints at all); it is **not a sandbox**. Anyone who can present the key has full code execution as the server process. Running genuinely untrusted code would need out-of-process or WASM isolation, which Fallen-8 does not provide. **Therefore: never expose an unauthenticated instance off-box — set an API key (or front the service with an authenticating proxy) before it is reachable beyond localhost or a trusted network.**
 
@@ -88,7 +88,7 @@ Additional knobs under `Fallen8:Security`, applied to the sensitive (code/plugin
 - [Stored queries](stored-queries.md) — named, pre-compiled queries: registration needs a credential, invocation reuses the artifact
 - [Semantic traversal](semantic-traversal.md) — the code-free `semantic` block
 - [Change feed](change-feed.md) — declarative, compiles no code
-- [Plugins](plugins.md) — the separate `EnableDynamicPluginLoading` switch
+- [Plugin registration](plugin-registration.md) — the `EnableDynamicPluginLoading` global default + the per-namespace override
 - [Observability](observability.md) — metrics/health endpoints and whether `/metrics` requires the key
 - [Running Fallen-8](running.md) — setting `F8_API_KEY` in compose
 - [Studio](studio.md) — registering an instance with its key

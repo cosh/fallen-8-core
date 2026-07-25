@@ -33,6 +33,7 @@ using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
@@ -94,6 +95,15 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Gets the per-namespace registry of runtime-registered plugins (feature
+        ///   plugin-registration).
+        /// </summary>
+        public abstract PluginRegistry Plugins
+        {
+            get; internal set;
+        }
+
+        /// <summary>
         ///   Gets the change feed, or null when the engine carries none (feature change-feed).
         /// </summary>
         public abstract ChangeFeed.ChangeFeedDispatcher ChangeFeed
@@ -106,6 +116,15 @@ namespace NoSQL.GraphDB.Core
         ///   persisted source.
         /// </summary>
         public abstract IStoredQueryCompiler StoredQueryCompiler
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   Gets or sets the compiler used to (re)build plugin artifacts from their persisted source
+        ///   (feature plugin-registration).
+        /// </summary>
+        public abstract IPluginCompiler PluginCompiler
         {
             get; set;
         }
@@ -155,6 +174,7 @@ namespace NoSQL.GraphDB.Core
         public abstract bool TryCalculateShortestPath(out List<Path> result, string plugin, ShortestPathDefinition definition);
         public abstract bool TryCalculateShortestPath<T>(out List<Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm;
         public abstract bool TryRunAnalytics(out Algorithms.Analytics.GraphAnalyticsResult result, string algorithmName, Algorithms.Analytics.GraphAnalyticsDefinition definition);
+        public abstract bool TryInvokeGraphFunction(out Plugins.GraphFunctionResult result, string name, IDictionary<String, Object> parameters);
 
         #endregion
 

@@ -432,6 +432,12 @@ namespace NoSQL.GraphDB.Tests
                 get => _inner.StoredQueryCompiler;
                 set => _inner.StoredQueryCompiler = value;
             }
+            public NoSQL.GraphDB.Core.Plugins.PluginRegistry Plugins => _inner.Plugins;
+            public NoSQL.GraphDB.Core.Plugins.IPluginCompiler PluginCompiler
+            {
+                get => _inner.PluginCompiler;
+                set => _inner.PluginCompiler = value;
+            }
             public ILoggerFactory LoggerFactory => _inner.LoggerFactory;
             public void SetId(Guid id) => _inner.SetId(id);
             public void ConfigureAutoTrim(bool enabled, int tombstoneThreshold) => _inner.ConfigureAutoTrim(enabled, tombstoneThreshold);
@@ -458,6 +464,9 @@ namespace NoSQL.GraphDB.Tests
                 => _inner.TryCalculateShortestPath<T>(out result, definition);
             public bool TryRunAnalytics(out NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsResult result, string algorithmName, NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsDefinition definition)
                 => _inner.TryRunAnalytics(out result, algorithmName, definition);
+
+            public bool TryInvokeGraphFunction(out NoSQL.GraphDB.Core.Plugins.GraphFunctionResult result, string name, IDictionary<string, object> parameters)
+                => _inner.TryInvokeGraphFunction(out result, name, parameters);
         }
     }
 }

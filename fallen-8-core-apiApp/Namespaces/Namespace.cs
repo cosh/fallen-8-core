@@ -65,6 +65,15 @@ namespace NoSQL.GraphDB.App.Namespaces
         public NamespaceState State { get; internal set; } = NamespaceState.Ready;
 
         /// <summary>
+        ///   This namespace's plugin-registration override (feature plugin-registration). Null ⇒
+        ///   inherit the global <c>Fallen8:Security:EnableDynamicPluginLoading</c> default; true/false
+        ///   force plugin registration on/off for this namespace. Read by the authorization gate and
+        ///   persisted on the namespace catalog entry (the default namespace's override lives on the
+        ///   catalog document).
+        /// </summary>
+        public Boolean? PluginRegistrationEnabled { get; internal set; }
+
+        /// <summary>
         ///   Set exactly once, under the collection's dispose gate, when the engine is disposed —
         ///   a drop and the collection's own disposal can both reach an engine, and
         ///   <c>Fallen8.Dispose</c> is not idempotent.

@@ -76,7 +76,8 @@ Every endpoint group and the page that documents it. Routes shown bare; each als
 | Change feed | `GET /changefeed` (Server-Sent Events) | [change-feed.md](change-feed.md) |
 | Save games | `PUT /save`, `PUT /save/all` **(Fallen-8-level)**, `PUT /load`, `GET /savegames`, `/savegames/{id}`, `PUT /savegames/{id}/load`, `DELETE /savegames/{id}` **(Fallen-8-level)** | [save-games.md](save-games.md) |
 | Delegate validation **(Fallen-8-level)** | `POST /delegates/validate` | [delegates.md](delegates.md) |
-| Plugins & services | `PUT /plugin`, `POST /service`, `DELETE /service/{key}` | [plugins.md](plugins.md) |
+| Plugin registration | `POST /plugins/{algorithm,function}`, `POST /plugins/{category}/validate`, `POST /plugins/function/{name}/invoke`, `GET /plugins`, `GET/DELETE /plugins/{name}` | [plugin-registration.md](plugin-registration.md) |
+| Services | `POST /service`, `DELETE /service/{key}` | [plugins.md](plugins.md) |
 | Observability | `GET /status`, `/statistics`, `/metrics`, `/healthz`, `/readyz` | [observability.md](observability.md) |
 | Sample & benchmark data | `PUT /unittest`, `GET /generate`, `/benchmark` | [samples.md](samples.md) |
 | Maintenance | `HEAD /trim`, `HEAD /tabularasa` (clear graph), `HEAD /tabularasa/all` **(Fallen-8-level)** | [graph-model.md](graph-model.md) |

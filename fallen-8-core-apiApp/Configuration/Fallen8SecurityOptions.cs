@@ -43,7 +43,11 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>The configuration section this binds from.</summary>
         public const String SectionName = "Fallen8:Security";
 
-        /// <summary>Authorization policy name gating the plugin-DLL load endpoint (PUT /plugin).</summary>
+        /// <summary>
+        ///   Authorization policy name gating source plugin registration (POST /plugins/*, feature
+        ///   plugin-registration). Named for its history (it formerly gated the removed PUT /plugin DLL
+        ///   upload); the policy name is a config/contract constant, so it is kept stable.
+        /// </summary>
         public const String DynamicPluginPolicy = "Fallen8.DynamicPluginLoading";
 
         /// <summary>The authentication scheme name for the built-in API-key handler.</summary>
@@ -65,17 +69,24 @@ namespace NoSQL.GraphDB.App.Configuration
         public String ApiKeyHeader { get; set; } = "X-Api-Key";
 
         /// <summary>
-        ///   Master switch for uploading + loading plugin DLLs (PUT /plugin). Default false: a disabled
-        ///   server returns 403 and writes nothing.
+        ///   The GLOBAL default for runtime plugin REGISTRATION (POST /plugins/*, feature
+        ///   plugin-registration). Default <b>true</b>: registration is on unless an operator disables
+        ///   it - consistent with the always-on dynamic-code model (compiled path/subgraph fragments
+        ///   already run unconditionally, so gating source plugin registration off by default was
+        ///   inconsistent). It gates only the introduction surface - invoking an already-registered
+        ///   plugin, listing, and deletion are never gated by this switch.
+        ///
+        ///   <para>This is the per-instance DEFAULT; an individual namespace can override it (enable
+        ///   or disable) via <c>PATCH /ns/{name}</c> (<c>pluginRegistrationEnabled</c>), which the
+        ///   authorization gate resolves ahead of this global value.</para>
+        ///
+        ///   <para>HONEST LIMIT: a registered plugin still runs IN-PROCESS WITH FULL TRUST when
+        ///   invoked. This narrows who can INTRODUCE code and makes it visible/validated/logged - it is
+        ///   not a sandbox. On an unauthenticated internet-facing instance this is an open
+        ///   code-execution surface, so set an API key (as the always-on code endpoints already
+        ///   require).</para>
         /// </summary>
-        public Boolean EnableDynamicPluginLoading { get; set; } = false;
-
-        /// <summary>
-        ///   Directory uploaded plugin DLLs are written to and discovered from. Defaults to a
-        ///   <c>plugins</c> subdirectory of <see cref="AppContext.BaseDirectory"/> - never the app's own
-        ///   binary directory, so an upload cannot plant a DLL next to the server binaries.
-        /// </summary>
-        public String PluginDirectory { get; set; }
+        public Boolean EnableDynamicPluginLoading { get; set; } = true;
 
         /// <summary>
         ///   Origins allowed by the CORS policy. Empty (default) means deny all cross-origin requests.
@@ -105,13 +116,5 @@ namespace NoSQL.GraphDB.App.Configuration
         ///   an <see cref="ApiKey"/>.
         /// </summary>
         public Boolean AllowRemoteAccess { get; set; } = false;
-
-        /// <summary>Resolves <see cref="PluginDirectory"/>, defaulting to <c>&lt;base&gt;/plugins</c>.</summary>
-        public String ResolvePluginDirectory()
-        {
-            return String.IsNullOrWhiteSpace(PluginDirectory)
-                ? System.IO.Path.Combine(AppContext.BaseDirectory, "plugins")
-                : PluginDirectory;
-        }
     }
 }

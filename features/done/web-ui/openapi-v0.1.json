@@ -3250,8 +3250,8 @@
         "tags": [
           "Namespaces"
         ],
-        "summary": "Renames a namespace",
-        "description": "Rename is a pure metadata operation: the engine, its data, and its on-disk locations\r\n(keyed by the immutable namespace id) are untouched — only the URL address changes.\r\nThe reserved \"default\" namespace cannot be renamed.",
+        "summary": "Updates a namespace: rename it and/or set its plugin-registration override",
+        "description": "Rename is a pure metadata operation: the engine, its data, and its on-disk locations\r\n(keyed by the immutable namespace id) are untouched — only the URL address changes. The\r\nreserved \"default\" namespace cannot be RENAMED, but its plugin-registration override CAN\r\nbe set. \"pluginRegistration\" is \"enabled\"/\"disabled\"/\"inherit\" (feature\r\nplugin-registration): it overrides Fallen8:Security:EnableDynamicPluginLoading for this\r\nnamespace (\"inherit\" clears the override). Supply at least one of the two fields.",
         "parameters": [
           {
             "name": "name",
@@ -3278,16 +3278,16 @@
           }
         ],
         "requestBody": {
-          "description": "The new name",
+          "description": "The update: an optional new name and/or a plugin-registration override",
           "content": {
             "application/json; ver=0.1": {
               "schema": {
-                "$ref": "#/components/schemas/NamespaceRenameSpecification"
+                "$ref": "#/components/schemas/NamespaceUpdateSpecification"
               }
             },
             "application/*+json; ver=0.1": {
               "schema": {
-                "$ref": "#/components/schemas/NamespaceRenameSpecification"
+                "$ref": "#/components/schemas/NamespaceUpdateSpecification"
               }
             }
           },
@@ -3295,7 +3295,7 @@
         },
         "responses": {
           "200": {
-            "description": "The namespace was renamed",
+            "description": "The namespace was updated",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -3315,7 +3315,7 @@
             }
           },
           "400": {
-            "description": "The new name is missing, empty/whitespace-padded, too long, \".\"/\"..\", or contains \"/\", \"\\\", or a control character",
+            "description": "Neither field supplied, an invalid new name, or an unrecognized \"pluginRegistration\" value",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -3375,7 +3375,7 @@
             }
           },
           "409": {
-            "description": "The new name is already in use, or the namespace is \"default\"",
+            "description": "The new name is already in use, or a rename of the reserved \"default\" namespace",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -6672,6 +6672,761 @@
         }
       }
     },
+    "/ns/{ns}/plugins": {
+      "get": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Lists all registered plugins in the addressed namespace.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the plugin summaries",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PluginSummaryREST"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/plugins/algorithm": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Registers an algorithm plugin (Path / SubGraph / Analytics) from whole-type C# source.",
+        "description": "The source is compiled ONCE here and validated against the contract (exactly one public\r\nclass implementing the contract's interface, with a public parameterless constructor and a\r\nPluginName equal to the registration name). A registered algorithm is then invoked by name\r\nthrough the existing path/subgraph/analytics endpoints. Entries are immutable: to change\r\none, delete and re-register.\r\n\r\nSECURITY: registration compiles C# that later executes IN-PROCESS WITH FULL TRUST. It\r\nrequires the dynamic-plugin capability (Fallen8:Security:EnableDynamicPluginLoading) - a\r\nprovisioning window - plus authentication; invoking an already-registered plugin does not.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The registration (name, contract, description, sourceCode)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AlgorithmPluginRegistration"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AlgorithmPluginRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The plugin was compiled, validated and registered",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginSummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The registration was malformed, or the source failed to compile / satisfy the contract (diagnostics in the body)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic plugin registration is disabled on this server",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A plugin with the same name already exists, the name collides with a built-in, or the per-namespace quota was reached",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The registration transaction faulted with an internal error",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/plugins/algorithm/validate": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Compile-checks an algorithm plugin source WITHOUT registering it (for the authoring editor).",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginValidationSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginValidationSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The compile check ran; the body reports validity + diagnostics",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginValidationREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The request was malformed (invalid contract)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic plugin registration is disabled on this server",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/plugins/function": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Registers a graph function (a stored graph procedure) from whole-type C# source.",
+        "description": "A graph function reads the whole graph (full scan or index query) and returns a view of\r\nexisting vertices/edges. It is invoked by name via POST /plugins/function/{name}/invoke.\r\nRead-only in v1. Same compile/validate/gate contract as algorithm registration.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The registration (name, description, sourceCode)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FunctionPluginRegistration"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FunctionPluginRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The function was compiled, validated and registered",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginSummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The registration was malformed, or the source failed to compile / satisfy the contract",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic plugin registration is disabled on this server",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A plugin with the same name already exists, or the per-namespace quota was reached",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The registration transaction faulted with an internal error",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/plugins/function/validate": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Compile-checks a graph function source WITHOUT registering it (for the authoring editor).",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginValidationSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginValidationSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The compile check ran; the body reports validity + diagnostics",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginValidationREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The request was malformed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic plugin registration is disabled on this server",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/plugins/function/{name}/invoke": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Invokes a registered graph function by name against the addressed namespace's graph.",
+        "description": "Invoking a registered function does NOT require the dynamic-plugin capability (only\r\nregistration does) - it carries the standard authentication like any read. The function is\r\nactivated fresh and runs read-only; the result references existing graph elements.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The registered function name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The call-time parameters (string-valued in v1)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphFunctionInvocation"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphFunctionInvocation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The function ran; returns the selected vertices/edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphFunctionResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The function reported an expected failure (e.g. a missing/invalid parameter)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No graph function with the given name is registered in this namespace",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The function exists but is not in a runnable (Compiled) state",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The function threw while running",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/plugins/{name}": {
+      "get": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Gets the full definition of a registered plugin, including its source.",
+        "description": "The response includes the stored source (which also covers manual migration between\r\ninstances) and - for a Failed entry - the recompile diagnostics.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The plugin name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the plugin detail",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginDetailREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No plugin with the given name exists in this namespace",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Deletes (deregisters) a plugin.",
+        "description": "Deletion drops the pinned compiled type so its collectible load context can unload once\r\nin-flight invocations finish. Removal compiles nothing; it carries only the standard\r\nauthentication (not the dynamic-plugin capability).",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The plugin name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The plugin was deleted"
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No plugin with the given name exists in this namespace",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The removal transaction was rolled back and did not complete"
+          }
+        }
+      }
+    },
     "/ns/{ns}/save": {
       "put": {
         "tags": [
@@ -9455,13 +10210,64 @@
         }
       }
     },
-    "/plugin": {
-      "put": {
+    "/plugins": {
+      "get": {
         "tags": [
-          "Admin"
+          "Plugins"
         ],
-        "summary": "Uploads and registers a new plugin to the database",
-        "description": "SECURITY: an uploaded plugin is loaded and executed IN-PROCESS WITH FULL TRUST - a trust\r\nboundary, not a sandbox. Requires an authenticated caller AND\r\nFallen8:Security:EnableDynamicPluginLoading=true. The DLL is written to the configured,\r\nisolated plugin directory, never next to the server binaries.",
+        "summary": "Lists all registered plugins in the addressed namespace.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the plugin summaries",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PluginSummaryREST"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/plugins/algorithm": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Registers an algorithm plugin (Path / SubGraph / Analytics) from whole-type C# source.",
+        "description": "The source is compiled ONCE here and validated against the contract (exactly one public\r\nclass implementing the contract's interface, with a public parameterless constructor and a\r\nPluginName equal to the registration name). A registered algorithm is then invoked by name\r\nthrough the existing path/subgraph/analytics endpoints. Entries are immutable: to change\r\none, delete and re-register.\r\n\r\nSECURITY: registration compiles C# that later executes IN-PROCESS WITH FULL TRUST. It\r\nrequires the dynamic-plugin capability (Fallen8:Security:EnableDynamicPluginLoading) - a\r\nprovisioning window - plus authentication; invoking an already-registered plugin does not.",
         "parameters": [
           {
             "name": "api-version",
@@ -9479,39 +10285,575 @@
           }
         ],
         "requestBody": {
-          "description": "The plugin DLL binary content as a stream",
+          "description": "The registration (name, contract, description, sourceCode)",
           "content": {
-            "application/octet-stream": {
+            "application/json; ver=0.1": {
               "schema": {
-                "$ref": "#/components/schemas/Stream"
+                "$ref": "#/components/schemas/AlgorithmPluginRegistration"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/AlgorithmPluginRegistration"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "Plugin successfully uploaded and registered"
-          },
-          "400": {
-            "description": "Invalid plugin data or incompatible plugin",
+          "201": {
+            "description": "The plugin was compiled, validated and registered",
             "content": {
-              "text/plain; ver=0.1": {
+              "application/json; ver=0.1": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/PluginSummaryREST"
                 }
               },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The registration was malformed, or the source failed to compile / satisfy the contract (diagnostics in the body)",
+            "content": {
               "application/json; ver=0.1": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
-              "text/json; ver=0.1": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic plugin registration is disabled on this server",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A plugin with the same name already exists, the name collides with a built-in, or the per-namespace quota was reached",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The registration transaction faulted with an internal error",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/plugins/algorithm/validate": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Compile-checks an algorithm plugin source WITHOUT registering it (for the authoring editor).",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginValidationSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginValidationSpecification"
               }
             }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The compile check ran; the body reports validity + diagnostics",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginValidationREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The request was malformed (invalid contract)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic plugin registration is disabled on this server",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/plugins/function": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Registers a graph function (a stored graph procedure) from whole-type C# source.",
+        "description": "A graph function reads the whole graph (full scan or index query) and returns a view of\r\nexisting vertices/edges. It is invoked by name via POST /plugins/function/{name}/invoke.\r\nRead-only in v1. Same compile/validate/gate contract as algorithm registration.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The registration (name, description, sourceCode)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FunctionPluginRegistration"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/FunctionPluginRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The function was compiled, validated and registered",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginSummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The registration was malformed, or the source failed to compile / satisfy the contract",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic plugin registration is disabled on this server",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A plugin with the same name already exists, or the per-namespace quota was reached",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The registration transaction faulted with an internal error",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/plugins/function/validate": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Compile-checks a graph function source WITHOUT registering it (for the authoring editor).",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginValidationSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginValidationSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The compile check ran; the body reports validity + diagnostics",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginValidationREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The request was malformed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Dynamic plugin registration is disabled on this server",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/plugins/function/{name}/invoke": {
+      "post": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Invokes a registered graph function by name against the addressed namespace's graph.",
+        "description": "Invoking a registered function does NOT require the dynamic-plugin capability (only\r\nregistration does) - it carries the standard authentication like any read. The function is\r\nactivated fresh and runs read-only; the result references existing graph elements.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The registered function name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The call-time parameters (string-valued in v1)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphFunctionInvocation"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphFunctionInvocation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The function ran; returns the selected vertices/edges",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphFunctionResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The function reported an expected failure (e.g. a missing/invalid parameter)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No graph function with the given name is registered in this namespace",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The function exists but is not in a runnable (Compiled) state",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The function threw while running",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/plugins/{name}": {
+      "get": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Gets the full definition of a registered plugin, including its source.",
+        "description": "The response includes the stored source (which also covers manual migration between\r\ninstances) and - for a Failed entry - the recompile diagnostics.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The plugin name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the plugin detail",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginDetailREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No plugin with the given name exists in this namespace",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Plugins"
+        ],
+        "summary": "Deletes (deregisters) a plugin.",
+        "description": "Deletion drops the pinned compiled type so its collectible load context can unload once\r\nin-flight invocations finish. Removal compiles nothing; it carries only the standard\r\nauthentication (not the dynamic-plugin capability).",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The plugin name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The plugin was deleted"
           },
           "401": {
             "description": "No valid credential was supplied",
@@ -9533,8 +10875,8 @@
               }
             }
           },
-          "403": {
-            "description": "Dynamic plugin loading is disabled on this server (Fallen8:Security:EnableDynamicPluginLoading)",
+          "404": {
+            "description": "No plugin with the given name exists in this namespace",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -9552,6 +10894,9 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "The removal transaction was rolled back and did not complete"
           }
         }
       }
@@ -12353,6 +13698,46 @@
         },
         "description": "Abstract base class for all graph elements (vertices and edges)"
       },
+      "AlgorithmPluginRegistration": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The unique name to register under (per namespace). Must equal the type's `PluginName`."
+          },
+          "contract": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The contract the source implements: \"Path\", \"SubGraph\" or \"Analytics\"."
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "An optional human-readable description."
+          },
+          "sourceCode": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The whole-type C# source implementing the contract's interface."
+          }
+        },
+        "description": "Request body for `POST /plugins/algorithm` (feature plugin-registration): register a\r\nruntime-authored algorithm plugin from whole-type C# source.",
+        "example": {
+          "name": "MyDijkstra",
+          "contract": "Path",
+          "description": "a custom weighted shortest path",
+          "sourceCode": "using ...; public sealed class MyDijkstra : IShortestPathAlgorithm { ... }"
+        }
+      },
       "AnalyticsResultREST": {
         "type": "object",
         "properties": {
@@ -13495,6 +14880,38 @@
           ]
         }
       },
+      "FunctionPluginRegistration": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The unique name to register under (per namespace). Must equal the type's `PluginName`."
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "An optional human-readable description."
+          },
+          "sourceCode": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The whole-type C# source implementing `IGraphFunction`."
+          }
+        },
+        "description": "Request body for `POST /plugins/function` (feature plugin-registration): register a\r\nstored graph function (an `IGraphFunction`) from whole-type C# source. The function\r\ncategory has a single contract, so no discriminator is needed.",
+        "example": {
+          "name": "NeighboursOfLabel",
+          "description": "all vertices of a label and their edges",
+          "sourceCode": "using ...; public sealed class NeighboursOfLabel : IGraphFunction { ... }"
+        }
+      },
       "Graph": {
         "type": "object",
         "properties": {
@@ -13552,6 +14969,48 @@
             }
           ]
         }
+      },
+      "GraphFunctionInvocation": {
+        "type": "object",
+        "properties": {
+          "parameters": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The parameters passed to the function (may be null/empty)."
+          }
+        },
+        "description": "Request body for `POST /plugins/function/{name}/invoke` (feature plugin-registration):\r\nthe call-time parameter bag. Values are STRINGS in v1 (a function parses what it needs);\r\nricher typed parameters are a later refinement."
+      },
+      "GraphFunctionResultREST": {
+        "type": "object",
+        "properties": {
+          "vertices": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Vertex"
+            },
+            "description": "The selected vertices."
+          },
+          "edges": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Edge"
+            },
+            "description": "The selected edges."
+          }
+        },
+        "description": "The result of a graph-function invocation (feature plugin-registration): the selected\r\nvertices and edges, projected with the SAME DTOs as `GET /vertex/{id}` /\r\n`GET /edge/{id}` (a view of existing elements at call time)."
       },
       "GraphStatisticsREST": {
         "type": "object",
@@ -13978,19 +15437,6 @@
         },
         "description": "One label (or property key) with its element count. When the response is\r\n    sampled, counts are AS COUNTED IN THE SAMPLE (multiply by sampleStride to extrapolate)."
       },
-      "NamespaceRenameSpecification": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "description": "The new namespace name. Permissive: 1-63 characters of any case, spaces, punctuation, or\r\nUnicode; only empty/whitespace-only, leading/trailing whitespace, \".\" / \"..\", \"/\", \"\\\", and\r\ncontrol characters are rejected. Case-sensitive."
-          }
-        },
-        "description": "Request body for renaming a namespace."
-      },
       "NamespaceREST": {
         "type": "object",
         "properties": {
@@ -14032,6 +15478,13 @@
               "string"
             ],
             "description": "When the namespace was created (UTC, ISO 8601)."
+          },
+          "pluginRegistrationEnabled": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "This namespace's plugin-registration override (feature plugin-registration):\r\n`true`/`false` when set explicitly, `null` when it inherits the global\r\n`Fallen8:Security:EnableDynamicPluginLoading` default."
           }
         },
         "description": "One namespace as the REST surface reports it (feature graph-namespaces). No memory\r\nfigure by design: engines share one GC heap, so a per-namespace byte count would be\r\nfiction (spec §5.3)."
@@ -14060,6 +15513,26 @@
           }
         },
         "description": "The namespace list with its configured ceiling."
+      },
+      "NamespaceUpdateSpecification": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional new namespace name (rename). Permissive: 1-63 characters of any case, spaces,\r\npunctuation, or Unicode; only empty/whitespace-only, leading/trailing whitespace,\r\n\".\" / \"..\", \"/\", \"\\\", and control characters are rejected. Case-sensitive. Omit to leave\r\nthe name unchanged."
+          },
+          "pluginRegistration": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional plugin-registration override (feature plugin-registration):\r\n`\"enabled\"` | `\"disabled\"` | `\"inherit\"`. Omit (or null) to leave it\r\nunchanged; `\"inherit\"` clears the override so this namespace follows the global\r\n`Fallen8:Security:EnableDynamicPluginLoading` default."
+          }
+        },
+        "description": "Request body for updating a namespace via `PATCH /ns/{name}`: rename it and/or set its\r\nplugin-registration override. Both fields are optional; supply at least one."
       },
       "PartitionMembersREST": {
         "type": "object",
@@ -14521,6 +15994,66 @@
         },
         "description": "A single element of a subgraph pattern sequence."
       },
+      "PluginDetailREST": {
+        "type": "object",
+        "properties": {
+          "sourceCode": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The stored whole-type C# source."
+          },
+          "compileDiagnostics": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The recompile diagnostics, present only for a `Failed` entry."
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The registered name."
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The category (\"Algorithm\" / \"Function\")."
+          },
+          "contract": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The contract (\"Path\" / \"SubGraph\" / \"Analytics\" / \"GraphFunction\")."
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The optional description."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "When the plugin was registered (UTC).",
+            "format": "date-time"
+          },
+          "compileState": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The compile state (\"Compiled\" / \"Failed\" / \"SourceOnly\")."
+          }
+        },
+        "description": "The full detail of a registered plugin: its summary plus the stored source (for inspection\r\nand manual cross-instance migration) and, for a `Failed` entry, the recompile\r\ndiagnostics."
+      },
       "PluginSpecification": {
         "required": [
           "uniqueId",
@@ -14569,6 +16102,96 @@
             }
           }
         }
+      },
+      "PluginSummaryREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The registered name."
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The category (\"Algorithm\" / \"Function\")."
+          },
+          "contract": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The contract (\"Path\" / \"SubGraph\" / \"Analytics\" / \"GraphFunction\")."
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The optional description."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "When the plugin was registered (UTC).",
+            "format": "date-time"
+          },
+          "compileState": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The compile state (\"Compiled\" / \"Failed\" / \"SourceOnly\")."
+          }
+        },
+        "description": "A summary of a registered plugin (feature plugin-registration): everything but the source."
+      },
+      "PluginValidationREST": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "description": "Whether the source compiled and satisfied its contract."
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The compiler / contract diagnostics when invalid; null when valid."
+          }
+        },
+        "description": "The result of a side-effect-free plugin compile-check (feature plugin-registration): whether\r\nthe source compiled and satisfied its contract, and the diagnostics if not."
+      },
+      "PluginValidationSpecification": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The name the source must expose as `PluginName` (validated for equality)."
+          },
+          "contract": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The contract for an algorithm plugin (\"Path\"/\"SubGraph\"/\"Analytics\"); ignored for the function endpoint."
+          },
+          "sourceCode": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The whole-type C# source to compile-check."
+          }
+        },
+        "description": "Request body for the side-effect-free validate endpoints\r\n`POST /plugins/algorithm/validate` and `POST /plugins/function/validate` (feature\r\nplugin-registration): compile + contract-validate source WITHOUT registering it, so the\r\nStudio editor can surface diagnostics. Shares the fields of the matching registration body."
       },
       "ProblemDetails": {
         "type": "object",
@@ -15505,10 +17128,6 @@
         },
         "description": "The stored form of a subgraph query: a SubGraphSpecification WITHOUT the\r\nper-instance `name`/`additionalInformation` fields."
       },
-      "Stream": {
-        "type": "string",
-        "format": "binary"
-      },
       "SubGraphPatternThresholdSummary": {
         "type": "object",
         "properties": {
@@ -16201,6 +17820,9 @@
     },
     {
       "name": "Namespaces"
+    },
+    {
+      "name": "Plugins"
     },
     {
       "name": "SampleGraph"

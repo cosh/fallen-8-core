@@ -49,6 +49,9 @@ Each feature has a deep-dive doc — follow the link.
 - **[REST API](docs/rest-api.md)** — a versioned HTTP surface with an OpenAPI document and an
   interactive Scalar reference.
 - **[Plugins](docs/plugins.md)** — indices, algorithms, and services are all discovered plugins.
+- **[Plugin registration](docs/plugin-registration.md)** — add runtime algorithm and graph-function
+  plugins by authoring C# source (compiled, contract-validated, namespace-scoped) instead of
+  uploading a DLL.
 - **[F8 Studio](docs/studio.md)** — a browser UI to browse, query, visualize, and author the C#
   delegates, with an optional local natural-language assist.
 - **[MCP server](docs/mcp-server.md)** — a Model Context Protocol surface so AI agents call

@@ -41,9 +41,9 @@ namespace NoSQL.GraphDB.Tests
     /// <summary>
     /// Pipeline tests for the API security boundary (feature api-security-boundary), through the real
     /// ASP.NET pipeline via WebApplicationFactory: anonymous requests to protected endpoints are 401,
-    /// a valid API key is accepted, the plugin-load endpoint is 403 unless the operator enables it
-    /// (dynamic code execution is always on), open reads stay reachable, and an uploaded plugin lands
-    /// in the isolated directory. The
+    /// a valid API key is accepted, source plugin registration (POST /plugins/*, feature
+    /// plugin-registration) is 403 unless the operator enables it (dynamic code execution is always
+    /// on), and open reads stay reachable. The
     /// controller unit tests new up controllers directly and bypass the pipeline, so they cannot see
     /// any of this - these do.
     /// </summary>
@@ -51,29 +51,6 @@ namespace NoSQL.GraphDB.Tests
     public class ApiSecurityBoundaryTest
     {
         private const string ApiKey = "test-secret-key";
-        private string _pluginDir;
-
-        [TestInitialize]
-        public void TestInitialize()
-        {
-            _pluginDir = Path.Combine(Path.GetTempPath(), "f8_sec_plugins_" + Guid.NewGuid().ToString("N"));
-        }
-
-        [TestCleanup]
-        public void TestCleanup()
-        {
-            try
-            {
-                if (_pluginDir != null && Directory.Exists(_pluginDir))
-                {
-                    Directory.Delete(_pluginDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
-        }
 
         private sealed class SecurityFactory : WebApplicationFactory<Program>
         {
@@ -100,7 +77,6 @@ namespace NoSQL.GraphDB.Tests
             var settings = new Dictionary<string, string>
             {
                 ["Fallen8:Security:EnableDynamicPluginLoading"] = enablePlugin ? "true" : "false",
-                ["Fallen8:Security:PluginDirectory"] = _pluginDir,
             };
             if (withApiKey)
             {
@@ -236,71 +212,75 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreNotEqual(HttpStatusCode.Forbidden, subgraph.StatusCode, "PUT /subgraph with fragments must not be 403.");
         }
 
+        private static StringContent FunctionRegistrationBody()
+        {
+            // A minimal registration body: the gate is evaluated BEFORE the source is compiled, so the
+            // gate assertions do not depend on the source being valid.
+            return new StringContent("{\"name\":\"x\",\"sourceCode\":\"// x\"}", Encoding.UTF8, "application/json");
+        }
+
         [TestMethod]
-        public async Task PluginUpload_GateOff_Returns403_AndWritesNothing()
+        public async Task PluginRegistration_GateOff_Returns403()
         {
             using var factory = NewHost(enablePlugin: false);
             using var client = Client(factory, withKey: true);
 
-            using var content = new ByteArrayContent(new byte[] { 1, 2, 3, 4 });
-            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-            using var response = await client.PutAsync("/plugin", content);
+            using var response = await client.PostAsync("/plugins/function", FunctionRegistrationBody());
 
             Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode,
-                "Authenticated PUT /plugin with plugin loading disabled must be 403.");
-            Assert.IsFalse(Directory.Exists(_pluginDir) && Directory.GetFiles(_pluginDir).Length > 0,
-                "A 403'd plugin upload must write nothing.");
+                "With source plugin registration disabled, POST /plugins/* must be 403 even for an authenticated caller.");
         }
 
         [TestMethod]
-        public async Task PluginUpload_GateOn_IsNotBlockedByTheGate()
+        public async Task PluginRegistration_GateOn_IsNotBlockedByTheGate()
         {
             using var factory = NewHost(enablePlugin: true);
             using var client = Client(factory, withKey: true);
 
-            using var content = new ByteArrayContent(new byte[] { 1, 2, 3, 4 });
-            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-            using var response = await client.PutAsync("/plugin", content);
+            using var response = await client.PostAsync("/plugins/function", FunctionRegistrationBody());
 
-            Assert.AreNotEqual(HttpStatusCode.Forbidden, response.StatusCode, "With plugin loading enabled the upload must not be 403.");
-            Assert.AreNotEqual(HttpStatusCode.Unauthorized, response.StatusCode, "With a valid key the upload must not be 401.");
+            Assert.AreNotEqual(HttpStatusCode.Forbidden, response.StatusCode, "With registration enabled the request must not be 403.");
+            Assert.AreNotEqual(HttpStatusCode.Unauthorized, response.StatusCode, "With a valid key the request must not be 401.");
         }
 
-        /// <summary>
-        /// Verifies the S4 isolation directly at the controller (the HTTP `[FromBody] Stream` binding
-        /// is orthogonal): an upload is written to the configured plugin directory, never
-        /// AppContext.BaseDirectory.
-        /// </summary>
         [TestMethod]
-        public void PluginUpload_WritesIntoTheConfiguredIsolatedDirectory()
+        public async Task PluginRegistration_PerNamespaceOverride_GatesThatNamespaceOnly()
         {
-            var loggerFactory = TestLoggerFactory.Create();
-            using var engine = new NoSQL.GraphDB.Core.Fallen8(loggerFactory);
-            var options = Microsoft.Extensions.Options.Options.Create(new NoSQL.GraphDB.App.Configuration.Fallen8SecurityOptions
-            {
-                PluginDirectory = _pluginDir,
-                EnableDynamicPluginLoading = true,
-            });
-            var controller = new NoSQL.GraphDB.App.Controllers.AdminController(
-                loggerFactory.CreateLogger<NoSQL.GraphDB.App.Controllers.AdminController>(), engine, options,
-                new NoSQL.GraphDB.App.Services.SaveGameRegistry(
-                    Microsoft.Extensions.Options.Options.Create(new NoSQL.GraphDB.App.Configuration.Fallen8MetadataOptions
-                    {
-                        Directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_meta_" + System.Guid.NewGuid().ToString("N"))
-                    }),
-                    loggerFactory.CreateLogger<NoSQL.GraphDB.App.Services.SaveGameRegistry>()));
+            // Global default ON (feature plugin-registration: enabled by default).
+            using var factory = NewHost(enablePlugin: true);
+            using var client = Client(factory, withKey: true);
 
-            var before = Directory.GetFiles(AppContext.BaseDirectory, "*.dll").Length;
-            using (var dll = new MemoryStream(new byte[] { 1, 2, 3, 4, 5 }))
+            using (var create = await client.PutAsync("/ns/ns-gate", null))
             {
-                controller.UploadPlugin(dll);
+                Assert.AreEqual(HttpStatusCode.Created, create.StatusCode, "namespace create should succeed");
             }
 
-            Assert.IsTrue(Directory.Exists(_pluginDir), "The isolated plugin directory must be created.");
-            Assert.AreEqual(1, Directory.GetFiles(_pluginDir, "*.dll").Length,
-                "The uploaded DLL must be written into the configured isolated plugin directory.");
-            Assert.AreEqual(before, Directory.GetFiles(AppContext.BaseDirectory, "*.dll").Length,
-                "No plugin DLL may be written next to the server binaries (AppContext.BaseDirectory).");
+            // A fresh namespace inherits the global default (ON) — not gated off.
+            using (var before = await client.PostAsync("/ns/ns-gate/plugins/function", FunctionRegistrationBody()))
+            {
+                Assert.AreNotEqual(HttpStatusCode.Forbidden, before.StatusCode,
+                    "with the global default ON, a fresh namespace must not be 403");
+            }
+
+            // Disable registration on JUST that namespace via the per-namespace override.
+            using (var patch = await client.PatchAsync("/ns/ns-gate",
+                new StringContent("{\"pluginRegistration\":\"disabled\"}", Encoding.UTF8, "application/json")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, patch.StatusCode, "the per-namespace override PATCH should succeed");
+            }
+
+            using (var after = await client.PostAsync("/ns/ns-gate/plugins/function", FunctionRegistrationBody()))
+            {
+                Assert.AreEqual(HttpStatusCode.Forbidden, after.StatusCode,
+                    "the namespace with pluginRegistration=disabled must now be 403");
+            }
+
+            // The default namespace still follows the (ON) global default — the override is scoped.
+            using (var onDefault = await client.PostAsync("/plugins/function", FunctionRegistrationBody()))
+            {
+                Assert.AreNotEqual(HttpStatusCode.Forbidden, onDefault.StatusCode,
+                    "the default namespace must stay enabled — the override applies only to ns-gate");
+            }
         }
 
         #endregion

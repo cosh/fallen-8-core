@@ -1,8 +1,13 @@
 /**
- * Shared harness plumbing (nl-assist-finetune). One definition of the two external
+ * Shared harness plumbing (nl-assist-finetune). One definition of the external
  * dependencies every script in this pipeline talks to:
- *   - the F8 apiApp's POST /delegates/validate - the product's own compile authority,
- *     used both as the training-set filter (spec FT-2) and the eval metric (FT-4);
+ *   - the F8 apiApp's POST /delegates/validate - the product's compile authority for the
+ *     fragment (delegate lambda-body) surface, used both as the training-set filter (spec
+ *     FT-2) and the eval metric (FT-4);
+ *   - the F8 apiApp's POST /plugins/{category}/validate - the compile authority for the
+ *     WHOLE-TYPE plugin surface (feature plugin-registration). Same role, different shape:
+ *     a plugin is a complete C# type, not a lambda body. Unlike /delegates/validate this
+ *     endpoint is gated by the dynamic-plugin capability + auth (403 when disabled);
  *   - the Ollama chat endpoint - the model transport, streamed so slow generations
  *     don't trip undici's headers timeout.
  * Baseline eval, semantic eval, and the dataset generator all import from here so the
@@ -15,7 +20,12 @@
  *                                       authority — dynamic code is always on)
  */
 
-import type { DelegateKind } from "../../fallen-8-web-ui/src/api/types";
+import type {
+  DelegateKind,
+  PluginAuthoringCategory,
+  PluginValidationResult,
+  PluginValidationSpecification,
+} from "../../fallen-8-web-ui/src/api/types";
 import type { ChatTurn } from "../../fallen-8-web-ui/src/delegate/nl/generate";
 
 export const MODEL = process.env.NL_EVAL_MODEL ?? "phi4-mini";
@@ -81,6 +91,41 @@ export async function validate(
     );
   }
   return (await response.json()) as ValidationResult;
+}
+
+/**
+ * The WHOLE-TYPE compile authority (feature plugin-registration): POST
+ * /plugins/{category}/validate. Sibling of validate() above - same base URL, same f8Fetch
+ * 429-retry, same JSON handling - but it compiles a complete C# type (the body is
+ * `{ name, contract?, sourceCode }`, `contract` read only for the algorithm category) and
+ * returns `{ valid, error }` rather than a diagnostics list. Unlike /delegates/validate this
+ * route is gated by the dynamic-plugin capability + auth, so a 403 is turned into a clear,
+ * actionable error rather than an opaque HTTP failure. `category` is "algorithm" | "function".
+ */
+export async function validatePlugin(
+  category: PluginAuthoringCategory,
+  spec: PluginValidationSpecification,
+): Promise<PluginValidationResult> {
+  const response = await f8Fetch(`/plugins/${category}/validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+  if (response.status === 403) {
+    await response.text().catch(() => undefined); // drain so the connection is reusable
+    throw new Error(
+      `/plugins/${category}/validate returned HTTP 403 - the dynamic-plugin capability is ` +
+        `disabled on the F8 box at NL_EVAL_F8 (${F8}). Plugin registration/validation is gated; ` +
+        `enable the dynamic-plugin capability on the apiApp and re-run.`,
+    );
+  }
+  if (!response.ok) {
+    throw new Error(
+      `/plugins/${category}/validate returned HTTP ${response.status} - is the apiApp reachable ` +
+        `at NL_EVAL_F8 (${F8}) with the dynamic-plugin capability enabled?`,
+    );
+  }
+  return (await response.json()) as PluginValidationResult;
 }
 
 /** Error strings from a validation result (severity=error), formatted "<id> <message>". */

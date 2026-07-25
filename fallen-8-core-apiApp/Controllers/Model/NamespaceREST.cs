@@ -49,6 +49,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         /// <summary>When the namespace was created (UTC, ISO 8601).</summary>
         public String CreatedAt { get; set; }
+
+        /// <summary>
+        ///   This namespace's plugin-registration override (feature plugin-registration):
+        ///   <c>true</c>/<c>false</c> when set explicitly, <c>null</c> when it inherits the global
+        ///   <c>Fallen8:Security:EnableDynamicPluginLoading</c> default.
+        /// </summary>
+        public Boolean? PluginRegistrationEnabled { get; set; }
     }
 
     /// <summary>The namespace list with its configured ceiling.</summary>
@@ -61,14 +68,26 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         public Int32 MaxNamespaces { get; set; }
     }
 
-    /// <summary>Request body for renaming a namespace.</summary>
-    public sealed class NamespaceRenameSpecification
+    /// <summary>
+    ///   Request body for updating a namespace via <c>PATCH /ns/{name}</c>: rename it and/or set its
+    ///   plugin-registration override. Both fields are optional; supply at least one.
+    /// </summary>
+    public sealed class NamespaceUpdateSpecification
     {
         /// <summary>
-        ///   The new namespace name. Permissive: 1-63 characters of any case, spaces, punctuation, or
-        ///   Unicode; only empty/whitespace-only, leading/trailing whitespace, "." / "..", "/", "\", and
-        ///   control characters are rejected. Case-sensitive.
+        ///   Optional new namespace name (rename). Permissive: 1-63 characters of any case, spaces,
+        ///   punctuation, or Unicode; only empty/whitespace-only, leading/trailing whitespace,
+        ///   "." / "..", "/", "\", and control characters are rejected. Case-sensitive. Omit to leave
+        ///   the name unchanged.
         /// </summary>
         public String Name { get; set; }
+
+        /// <summary>
+        ///   Optional plugin-registration override (feature plugin-registration):
+        ///   <c>"enabled"</c> | <c>"disabled"</c> | <c>"inherit"</c>. Omit (or null) to leave it
+        ///   unchanged; <c>"inherit"</c> clears the override so this namespace follows the global
+        ///   <c>Fallen8:Security:EnableDynamicPluginLoading</c> default.
+        /// </summary>
+        public String PluginRegistration { get; set; }
     }
 }

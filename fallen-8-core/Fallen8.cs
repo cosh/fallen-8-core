@@ -33,6 +33,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.ChangeFeed;
 using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.StoredQueries;
@@ -142,6 +143,14 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   The per-namespace registry of runtime-registered plugins (feature plugin-registration).
+        /// </summary>
+        public override PluginRegistry Plugins
+        {
+            get; internal set;
+        }
+
+        /// <summary>
         ///   The change feed (feature change-feed), or null when the engine was constructed
         ///   without <see cref="ChangeFeedOptions"/> - the write path then pays only a null check.
         /// </summary>
@@ -155,6 +164,16 @@ namespace NoSQL.GraphDB.Core
         ///   Null unless set by the hosting layer (for example the REST API).
         /// </summary>
         public override IStoredQueryCompiler StoredQueryCompiler
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The compiler used to (re)build plugin artifacts from their persisted source
+        ///   (feature plugin-registration). Null unless set by the hosting layer (for example the
+        ///   REST API).
+        /// </summary>
+        public override IPluginCompiler PluginCompiler
         {
             get; set;
         }
@@ -325,6 +344,7 @@ namespace NoSQL.GraphDB.Core
             ServiceFactory = new ServiceFactory(this, serviceLogger);
             SubGraphFactory = new SubGraphFactory(this, subGraphLogger, _pluginCache);
             StoredQueries = new StoredQueryLibrary(loggerfactory.CreateLogger<StoredQueryLibrary>());
+            Plugins = new PluginRegistry(loggerfactory.CreateLogger<PluginRegistry>());
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
             _persistencyFactory = new PersistencyFactory(persistencyLogger);
@@ -382,7 +402,8 @@ namespace NoSQL.GraphDB.Core
             ISubGraphRecipeCompiler subGraphRecipeCompiler = null,
             IStoredQueryCompiler storedQueryCompiler = null,
             ChangeFeedOptions changeFeedOptions = null,
-            String metricsScopeId = null)
+            String metricsScopeId = null,
+            IPluginCompiler pluginCompiler = null)
             : this(loggerfactory, metricsScopeId)
         {
             if (changeFeedOptions != null)
@@ -401,6 +422,14 @@ namespace NoSQL.GraphDB.Core
             if (storedQueryCompiler != null)
             {
                 StoredQueryCompiler = storedQueryCompiler;
+            }
+
+            // Same rule for plugin entries (feature plugin-registration): an unanchored log's
+            // RegisterPlugin entries replay during construction, and only a compiler present then can
+            // recompile them.
+            if (pluginCompiler != null)
+            {
+                PluginCompiler = pluginCompiler;
             }
 
             if (writeAheadLogOptions != null && !String.IsNullOrWhiteSpace(writeAheadLogOptions.Path))
@@ -473,6 +502,19 @@ namespace NoSQL.GraphDB.Core
         private T ResolveCachedPlugin<T>(Microsoft.Extensions.Caching.Memory.IMemoryCache cache,
             string pluginName, Action<T> register) where T : class, Plugin.IPlugin
         {
+            // Runtime-registered plugins (feature plugin-registration) take precedence over the
+            // built-ins and are activated FRESH each time - never cached by name - so a delete or
+            // re-register is never served a stale instance. The built-in cache path below is
+            // unchanged (built-ins never change, so caching them is safe). Capture the registry once:
+            // Dispose nulls the Plugins field while request threads may still be reading, so a
+            // re-read between the null check and the call could dereference null.
+            var registry = Plugins;
+            if (registry != null && registry.TryActivate<T>(out var registered, pluginName))
+            {
+                registered.Initialize(this, null);
+                return registered;
+            }
+
             if (cache.TryGetValue(pluginName, out Object cached))
             {
                 return (T)cached;
@@ -486,6 +528,37 @@ namespace NoSQL.GraphDB.Core
             }
 
             return null;
+        }
+
+        /// <summary>
+        ///   Invokes a runtime-registered graph function by name (feature plugin-registration).
+        ///   Resolves from the per-namespace <see cref="Plugins"/> registry only (no built-in
+        ///   functions), activates a fresh instance, initializes it against this graph, and runs it.
+        ///   The activated instance is disposed after the call; the returned result references live
+        ///   graph elements, so it stays valid after disposal.
+        /// </summary>
+        public override bool TryInvokeGraphFunction(out Plugins.GraphFunctionResult result, string name,
+            IDictionary<string, object> parameters)
+        {
+            result = null;
+
+            // Capture the registry once: Dispose nulls the Plugins field while a request thread may be
+            // mid-invoke, so re-reading it between the null check and the call could dereference null.
+            var registry = Plugins;
+            if (registry == null || !registry.TryActivate<Plugins.IGraphFunction>(out var function, name))
+            {
+                return false;
+            }
+
+            try
+            {
+                function.Initialize(this, null);
+                return function.TryInvoke(out result, parameters);
+            }
+            finally
+            {
+                try { function.Dispose(); } catch { /* a function's Dispose is best-effort */ }
+            }
         }
 
         public override bool TryCalculateShortestPath<T>(
@@ -616,6 +689,9 @@ namespace NoSQL.GraphDB.Core
 
             StoredQueries.Clear();
             StoredQueries = null;
+
+            Plugins.Clear();
+            Plugins = null;
 
             // After the writer thread has stopped (no more publishes): stop the dispatcher and
             // complete every subscriber stream.
