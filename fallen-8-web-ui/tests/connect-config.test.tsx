@@ -31,8 +31,10 @@ function config(overrides: Partial<ConfigREST> = {}): ConfigREST {
         dimension: 1024,
         intendedMetric: "Cosine",
         loaded: true,
+        resident: true,
+        gpu: false,
       },
-      chat: { enabled: true, backend: "Ollama", model: "phi4-f8-mini", loaded: false, gpu: true },
+      chat: { enabled: true, backend: "Ollama", model: "phi4-f8-mini", loaded: false, resident: true, gpu: true },
     },
     observability: {
       otlpEnabled: true,
@@ -75,7 +77,7 @@ describe("Connect Configuration panel", () => {
 
     const chat = screen.getByTestId("config-chat");
     expect(chat).toHaveTextContent("phi4-f8-mini");
-    expect(chat).toHaveTextContent("GPU"); // gpu:true → device GPU
+    expect(chat).toHaveTextContent("loaded · GPU"); // resident + gpu:true → loaded on GPU
 
     expect(screen.getByTestId("config-observability-summary")).toHaveTextContent(
       "pushing metrics + traces + logs to http://otel-collector:4317",
@@ -106,7 +108,7 @@ describe("Connect Configuration panel", () => {
             intendedMetric: null,
             loaded: false,
           },
-          chat: { enabled: true, backend: "Ollama", model: "phi4-f8-mini", loaded: true, gpu: null },
+          chat: { enabled: true, backend: "Ollama", model: "phi4-f8-mini", loaded: true, resident: null, gpu: null },
         },
         observability: {
           otlpEnabled: false,
@@ -125,10 +127,20 @@ describe("Connect Configuration panel", () => {
     expect(embedding).toHaveTextContent("Off");
     const chat = screen.getByTestId("config-chat");
     expect(chat).not.toHaveTextContent("GPU");
-    expect(chat).not.toHaveTextContent("CPU"); // gpu:null → device row omitted
+    expect(chat).not.toHaveTextContent("CPU"); // residency unknown → no device shown
     expect(screen.getByTestId("config-observability-summary")).toHaveTextContent(
       "Off — no exporter configured",
     );
+  });
+
+  it("re-checks on demand via the Refresh button", async () => {
+    getConfigMock.mockResolvedValue(config());
+    renderPanel();
+    await screen.findByTestId("config-embedding");
+    const callsAfterLoad = getConfigMock.mock.calls.length;
+
+    await userEvent.click(screen.getByTestId("config-refresh"));
+    await waitFor(() => expect(getConfigMock.mock.calls.length).toBeGreaterThan(callsAfterLoad));
   });
 
   it("degrades to an unavailable note when the instance rejects the read", async () => {

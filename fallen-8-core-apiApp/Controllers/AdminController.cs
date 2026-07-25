@@ -113,6 +113,12 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly Fallen8ObservabilityOptions _observability;
 
+        /// <summary>
+        /// The embedding config (feature instance-config): supplies the Ollama endpoint/model for
+        /// the /config residency probe. Null under direct unit construction.
+        /// </summary>
+        private readonly Fallen8EmbeddingOptions _embeddingOptions;
+
         #endregion
 
         /// <summary>The namespace collection (feature graph-namespaces); null under direct unit
@@ -122,11 +128,13 @@ namespace NoSQL.GraphDB.App.Controllers
         public AdminController(ILogger<AdminController> logger, IFallen8 fallen8, IOptions<Fallen8SecurityOptions> security,
             Services.SaveGameRegistry saveGames, Embedding.Fallen8EmbeddingProvider embeddingProvider = null,
             Fallen8Namespaces namespaces = null, IOptions<Fallen8DurabilityOptions> durability = null,
-            Chat.Fallen8ChatProvider chatProvider = null, IOptions<Fallen8ObservabilityOptions> observability = null)
+            Chat.Fallen8ChatProvider chatProvider = null, IOptions<Fallen8ObservabilityOptions> observability = null,
+            IOptions<Fallen8EmbeddingOptions> embeddingOptions = null)
         {
             _embeddingProvider = embeddingProvider;
             _chatProvider = chatProvider;
             _observability = observability?.Value ?? new Fallen8ObservabilityOptions();
+            _embeddingOptions = embeddingOptions?.Value;
 
             _namespaces = namespaces;
 
@@ -264,21 +272,50 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         public async Task<ConfigREST> Config(CancellationToken cancellationToken)
         {
+            var embedding = EmbeddingProviderStatsREST.From(_embeddingProvider);
             var chat = ChatProviderStatsREST.From(_chatProvider);
-            if (chat != null && _chatProvider != null)
+
+            // Best-effort model-residency probe for Ollama-backed providers (feature instance-config):
+            // is the configured model actually loaded in the sidecar right now? It uses a TRANSIENT
+            // client (never the providers' lazy backends), so reading config never loads a model or
+            // flips "loaded"; it is bounded so a hung/absent sidecar answers "unknown" (null) within
+            // the timeout and never fails the read. Both providers probe concurrently.
+            using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                // Best-effort GPU residency, bounded so a hung or absent sidecar never stalls the
-                // config read (the probe itself swallows failures and returns null).
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 cts.CancelAfter(TimeSpan.FromSeconds(3));
-                chat.Gpu = await _chatProvider.TryDetectGpuAsync(cts.Token);
+
+                async Task ProbeAsync(String endpoint, String model, Action<Boolean?, Boolean?> assign)
+                {
+                    if (String.IsNullOrWhiteSpace(endpoint) || String.IsNullOrWhiteSpace(model))
+                    {
+                        return;
+                    }
+
+                    var state = await Chat.OllamaModelProbe.ProbeAsync(endpoint, model, cts.Token);
+                    assign(state?.Resident, state?.Gpu);
+                }
+
+                var probes = new System.Collections.Generic.List<Task>();
+                if (chat != null && chat.Enabled && _chatProvider != null)
+                {
+                    probes.Add(ProbeAsync(_chatProvider.OllamaEndpoint, _chatProvider.OllamaModel,
+                        (resident, gpu) => { chat.Resident = resident; chat.Gpu = gpu; }));
+                }
+                if (embedding != null && embedding.Enabled && _embeddingOptions != null &&
+                    String.Equals(embedding.Backend, "Ollama", StringComparison.OrdinalIgnoreCase))
+                {
+                    probes.Add(ProbeAsync(_embeddingOptions.Ollama?.Endpoint, _embeddingOptions.Ollama?.Model,
+                        (resident, gpu) => { embedding.Resident = resident; embedding.Gpu = gpu; }));
+                }
+
+                await Task.WhenAll(probes);
             }
 
             return new ConfigREST
             {
                 Semantic = new SemanticConfigREST
                 {
-                    Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider),
+                    Embedding = embedding,
                     Chat = chat,
                 },
                 Observability = ObservabilityConfigREST.From(_observability),

@@ -25,5 +25,8 @@ export function useConfig(instance: InstanceConfig) {
     queryKey: [instance.id, "config"],
     queryFn: ({ signal }) => getConfig(instance, signal),
     retry: 0,
+    // Re-check periodically so model residency (a model loads/unloads in the sidecar over time)
+    // updates on its own; the panel also offers a manual Refresh. GET /config's probe is bounded.
+    refetchInterval: 10_000,
   });
 }

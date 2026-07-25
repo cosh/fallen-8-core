@@ -55,20 +55,15 @@ namespace NoSQL.GraphDB.Tests
         private sealed class FakeChatBackend : IChatBackend
         {
             private readonly Func<IReadOnlyList<ChatTurn>, ChatBackendOptions, CancellationToken, Task<ChatBackendResult>> _chat;
-            private readonly Boolean? _gpu;
 
             public FakeChatBackend(
-                Func<IReadOnlyList<ChatTurn>, ChatBackendOptions, CancellationToken, Task<ChatBackendResult>> chat,
-                Boolean? gpu = null)
+                Func<IReadOnlyList<ChatTurn>, ChatBackendOptions, CancellationToken, Task<ChatBackendResult>> chat)
             {
                 _chat = chat;
-                _gpu = gpu;
             }
 
             public Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages, ChatBackendOptions options,
                 CancellationToken cancellationToken) => _chat(messages, options, cancellationToken);
-
-            public Task<Boolean?> TryDetectGpuAsync(CancellationToken cancellationToken) => Task.FromResult(_gpu);
         }
 
         private const String ApiKey = "chat-test-key";
@@ -115,8 +110,7 @@ namespace NoSQL.GraphDB.Tests
 
         private static StringContent Json(String json) => new StringContent(json, Encoding.UTF8, "application/json");
 
-        private static FakeChatBackend Returns(String content, Int64 promptTokens = 3, Int64 completionTokens = 7,
-            Boolean? gpu = null)
+        private static FakeChatBackend Returns(String content, Int64 promptTokens = 3, Int64 completionTokens = 7)
         {
             return new FakeChatBackend((_, _, _) => Task.FromResult(new ChatBackendResult
             {
@@ -126,7 +120,7 @@ namespace NoSQL.GraphDB.Tests
                 CompletionTokens = completionTokens,
                 DurationMs = 123.0,
                 TokensPerSecond = 42.0
-            }), gpu);
+            }));
         }
 
         [TestMethod]
@@ -213,9 +207,9 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task Status_IncludesChatCapabilityBlock_NoGpuProbe()
+        public async Task Status_IncludesChatCapabilityBlock_NoResidencyProbe()
         {
-            using var factory = new ChatFactory(enabled: true, backend: Returns("x", gpu: true));
+            using var factory = new ChatFactory(enabled: true, backend: Returns("x"));
             using var client = factory.CreateClient();
 
             using var response = await client.GetAsync("/status");
@@ -225,14 +219,13 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(chat.GetProperty("enabled").GetBoolean());
             Assert.AreEqual("Ollama", chat.GetProperty("backend").GetString());
             Assert.AreEqual("fake-model", chat.GetProperty("model").GetString());
-            Assert.AreEqual(JsonValueKind.Null, chat.GetProperty("gpu").ValueKind,
-                "the cheap /status probe never calls the backend for GPU");
+            Assert.IsFalse(chat.GetProperty("loaded").GetBoolean(), "no chat call happened, so nothing is loaded");
         }
 
         [TestMethod]
-        public async Task Config_ProjectsSemanticAndObservability_ProbesGpu_Redacts()
+        public async Task Config_ProjectsSemanticAndObservability_Redacts_AndDoesNotFlipLoaded()
         {
-            using var factory = new ChatFactory(enabled: true, backend: Returns("x", gpu: true),
+            using var factory = new ChatFactory(enabled: true, backend: Returns("x"),
                 withApiKey: true, otlpEndpoint: "http://otel-collector:4317");
             using var client = factory.CreateClient();
             client.DefaultRequestHeaders.Add("X-Api-Key", ApiKey);
@@ -245,7 +238,12 @@ namespace NoSQL.GraphDB.Tests
 
             var chat = body.GetProperty("semantic").GetProperty("chat");
             Assert.IsTrue(chat.GetProperty("enabled").GetBoolean());
-            Assert.AreEqual(true, chat.GetProperty("gpu").GetBoolean(), "GET /config probes the backend for GPU");
+            // THE regression this fix targets: the residency probe uses a TRANSIENT client, so
+            // reading config must NOT flip 'loaded'. No chat completion happened, so the lazy
+            // backend is still uncreated. (resident/gpu are best-effort and environment-dependent -
+            // they reflect whatever the local sidecar reports, so they are not asserted here.)
+            Assert.IsFalse(chat.GetProperty("loaded").GetBoolean(),
+                "a config read must never load the model or flip 'loaded'");
 
             var obs = body.GetProperty("observability");
             Assert.IsTrue(obs.GetProperty("otlpEnabled").GetBoolean());
@@ -264,27 +262,6 @@ namespace NoSQL.GraphDB.Tests
 
             using var response = await client.GetAsync("/config");
             Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
-        }
-
-        [TestMethod]
-        public async Task Provider_Gpu_NullWhenDisabled_PassesThroughWhenEnabled()
-        {
-            var disabled = new Fallen8ChatProvider(
-                Options.Create(new Fallen8ChatOptions { Enabled = false }),
-                new Lazy<IChatBackend>(() => Returns("x", gpu: true)));
-            Assert.IsNull(await disabled.TryDetectGpuAsync(CancellationToken.None),
-                "a disabled provider never probes the backend");
-
-            var enabled = new Fallen8ChatProvider(
-                Options.Create(new Fallen8ChatOptions { Enabled = true }),
-                new Lazy<IChatBackend>(() => Returns("x", gpu: true)));
-            Assert.AreEqual(true, await enabled.TryDetectGpuAsync(CancellationToken.None));
-
-            var unknown = new Fallen8ChatProvider(
-                Options.Create(new Fallen8ChatOptions { Enabled = true }),
-                new Lazy<IChatBackend>(() => Returns("x", gpu: null)));
-            Assert.IsNull(await unknown.TryDetectGpuAsync(CancellationToken.None),
-                "an undeterminable GPU state stays null (the UI shows nothing)");
         }
     }
 }

@@ -372,10 +372,30 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        /// <summary>Whether the backend has actually been created (lazy load happened).</summary>
+        /// <summary>Whether the backend has actually been created (lazy load happened on first use).
+        /// For an Ollama backend this is client construction, not model residency - see
+        /// <see cref="Resident"/>.</summary>
         /// <example>false</example>
         [JsonPropertyName("loaded")]
         public Boolean Loaded
+        {
+            get; set;
+        }
+
+        /// <summary>Whether the model is currently loaded in the backend (Ollama /api/ps): true =
+        /// warm, false = not loaded right now (loads on first use), null = undeterminable or not an
+        /// Ollama backend. Only set on GET /config (a point-in-time probe), never on /status or
+        /// /statistics.</summary>
+        [JsonPropertyName("resident")]
+        public Boolean? Resident
+        {
+            get; set;
+        }
+
+        /// <summary>Best-effort GPU residency (Ollama VRAM): true/false when reported, null when
+        /// undeterminable or not probed. Only set on GET /config.</summary>
+        [JsonPropertyName("gpu")]
+        public Boolean? Gpu
         {
             get; set;
         }

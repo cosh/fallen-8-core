@@ -43,11 +43,6 @@ namespace NoSQL.GraphDB.App.Chat
         /// 503) - never returns a partial/garbled result silently.</summary>
         Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages, ChatBackendOptions options,
             CancellationToken cancellationToken);
-
-        /// <summary>Best-effort GPU residency of the configured model: <c>true</c>/<c>false</c> when
-        /// the backend reports it (Ollama <c>/api/ps</c> VRAM), <c>null</c> when it cannot be
-        /// determined (model not resident, backend down, or backend cannot report). Never throws.</summary>
-        Task<Boolean?> TryDetectGpuAsync(CancellationToken cancellationToken);
     }
 
     /// <summary>One chat turn: a role (<c>system</c>/<c>user</c>/<c>assistant</c>/<c>tool</c>) and content.</summary>

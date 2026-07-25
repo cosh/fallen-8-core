@@ -202,15 +202,21 @@ export interface EmbeddingProviderStatsREST {
   dimension: number;
   intendedMetric: string | null;
   loaded: boolean;
+  // Live model residency (Ollama /api/ps), only set on GET /config: true = warm, false = not
+  // loaded right now, null/undefined = unknown (non-Ollama backend or probe failed).
+  resident?: boolean | null;
+  gpu?: boolean | null;
 }
 
-// The chat gateway state (feature instance-config); on /status (no gpu) and GET /config (gpu set).
+// The chat gateway state (feature instance-config); on /status (capability only) and GET /config
+// (with the residency/GPU probe).
 export interface ChatProviderStatsREST {
   enabled: boolean;
   backend: string | null;
   model: string | null;
   loaded: boolean;
-  // Best-effort GPU residency: true/false when the backend reports it, null/undefined = unknown.
+  // Live model residency + GPU (Ollama /api/ps), only set on GET /config; null/undefined = unknown.
+  resident?: boolean | null;
   gpu?: boolean | null;
 }
 

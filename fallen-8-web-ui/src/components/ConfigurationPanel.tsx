@@ -27,10 +27,39 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function gpuLabel(gpu: boolean | null | undefined): string | null {
-  if (gpu === true) return "GPU";
-  if (gpu === false) return "CPU";
-  return null; // unknown / not reported → show nothing
+type ModelStatus = { text: string; state: "loaded" | "idle" | "unknown" };
+
+/**
+ * The provider's live status. Prefers the model-residency probe (Ollama /api/ps) when known —
+ * that is the honest "is the model loaded right now" signal — and falls back to the lazy
+ * `loaded` flag (client created on first use) for non-Ollama backends or when the probe is
+ * inconclusive. "idle" is normal: a provider loads its model on first use.
+ */
+function modelStatus(
+  loaded: boolean,
+  resident: boolean | null | undefined,
+  gpu: boolean | null | undefined,
+): ModelStatus {
+  if (resident === true) {
+    const device = gpu === true ? " · GPU" : gpu === false ? " · CPU" : "";
+    return { text: `loaded${device}`, state: "loaded" };
+  }
+  if (resident === false) return { text: "not loaded (loads on first use)", state: "idle" };
+  return loaded
+    ? { text: "loaded", state: "loaded" }
+    : { text: "idle (loads on first use)", state: "idle" };
+}
+
+function StatusRow({ status }: { status: ModelStatus }) {
+  const dot =
+    status.state === "loaded" ? "bg-accent" : status.state === "idle" ? "bg-fg-faint" : "bg-warn";
+  return (
+    <div className="flex items-center gap-2 text-[12px]" data-testid="config-model-status">
+      <span className="text-fg-faint w-20 shrink-0 tracking-wide uppercase">status</span>
+      <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+      <span className="text-fg-dim min-w-0 truncate">{status.text}</span>
+    </div>
+  );
 }
 
 function EmbeddingCard({ embedding }: { embedding: EmbeddingProviderStatsREST | null | undefined }) {
@@ -52,7 +81,7 @@ function EmbeddingCard({ embedding }: { embedding: EmbeddingProviderStatsREST | 
             }
           />
           <Row label="vector" value={`${embedding.dimension}d · ${embedding.intendedMetric ?? "—"}`} />
-          <Row label="loaded" value={embedding.loaded ? "yes" : "not yet"} />
+          <StatusRow status={modelStatus(embedding.loaded, embedding.resident, embedding.gpu)} />
         </div>
       ) : (
         <p className="text-fg-faint mt-2 text-[11px]">
@@ -64,7 +93,6 @@ function EmbeddingCard({ embedding }: { embedding: EmbeddingProviderStatsREST | 
 }
 
 function ChatCard({ chat }: { chat: ChatProviderStatsREST | null | undefined }) {
-  const gpu = gpuLabel(chat?.gpu);
   return (
     <div className="border-line rounded border p-3" data-testid="config-chat">
       <div className="flex items-baseline gap-2">
@@ -75,8 +103,7 @@ function ChatCard({ chat }: { chat: ChatProviderStatsREST | null | undefined }) 
         <div className="mt-2 space-y-0.5">
           <Row label="backend" value={chat.backend ?? "—"} />
           <Row label="model" value={chat.model ?? "—"} />
-          <Row label="loaded" value={chat.loaded ? "yes" : "not yet"} />
-          {gpu && <Row label="device" value={gpu} />}
+          <StatusRow status={modelStatus(chat.loaded, chat.resident, chat.gpu)} />
         </div>
       ) : (
         <p className="text-fg-faint mt-2 text-[11px]">
@@ -119,6 +146,22 @@ export function ConfigurationPanel() {
       <div className="panel-title">
         Configuration
         <span className="text-fg-faint normal-case">this instance · read-only</span>
+        <button
+          type="button"
+          className="btn ml-auto flex shrink-0 items-center gap-1.5 normal-case"
+          data-testid="config-refresh"
+          title="Re-check the providers (model residency is probed live; the panel also re-checks every 10s)"
+          disabled={config.isFetching}
+          onClick={() => void config.refetch()}
+        >
+          {config.isFetching && (
+            <span
+              className="inline-block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
+              aria-hidden
+            />
+          )}
+          {config.isFetching ? "checking…" : "Refresh"}
+        </button>
       </div>
       <div className="space-y-4 p-3">
         {config.isPending && <div className="text-fg-faint text-[12px]">checking…</div>}

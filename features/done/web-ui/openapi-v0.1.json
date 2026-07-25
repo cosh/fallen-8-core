@@ -14296,6 +14296,13 @@
             "type": "boolean",
             "description": "Whether the backend client has been created (a chat call happened)."
           },
+          "resident": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable or not an\r\n    Ollama backend. A point-in-time read, only set on GET /config."
+          },
           "gpu": {
             "type": [
               "null",
@@ -14847,8 +14854,22 @@
           },
           "loaded": {
             "type": "boolean",
-            "description": "Whether the backend has actually been created (lazy load happened).",
+            "description": "Whether the backend has actually been created (lazy load happened on first use).\r\n    For an Ollama backend this is client construction, not model residency - see\r\n    bool? EmbeddingProviderStatsREST.Resident.",
             "example": false
+          },
+          "resident": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable or not an\r\n    Ollama backend. Only set on GET /config (a point-in-time probe), never on /status or\r\n    /statistics."
+          },
+          "gpu": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "Best-effort GPU residency (Ollama VRAM): true/false when reported, null when\r\n    undeterminable or not probed. Only set on GET /config."
           }
         },
         "description": "The active embedding provider and its declared model identity (feature\r\n    embedding-provider). Cheap config/state reads only - surfacing it never loads a model.\r\n    Carried by both GET /status (the cheap discovery surface) and GET /statistics (the\r\n    full snapshot)."

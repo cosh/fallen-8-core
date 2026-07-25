@@ -81,6 +81,15 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
+        /// <summary>Whether the model is currently loaded in the backend (Ollama /api/ps): true =
+        /// warm, false = not loaded right now (loads on first use), null = undeterminable or not an
+        /// Ollama backend. A point-in-time read, only set on GET /config.</summary>
+        [JsonPropertyName("resident")]
+        public Boolean? Resident
+        {
+            get; set;
+        }
+
         /// <summary>Best-effort GPU residency of the model: true/false when the backend reports it,
         /// null when undeterminable (or not probed). A point-in-time read, only set on GET /config.</summary>
         [JsonPropertyName("gpu")]

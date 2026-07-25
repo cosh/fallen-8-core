@@ -103,50 +103,6 @@ namespace NoSQL.GraphDB.App.Chat
             };
         }
 
-        public async Task<Boolean?> TryDetectGpuAsync(CancellationToken cancellationToken)
-        {
-            try
-            {
-                var running = await _client.ListRunningModelsAsync(cancellationToken);
-                if (running == null)
-                {
-                    return null;
-                }
-
-                // Match the configured model (Ollama tags may carry a :latest suffix); GPU is true
-                // when the resident model reports non-zero VRAM. Absent = we simply do not know.
-                foreach (var m in running)
-                {
-                    if (m?.Name == null || !ModelMatches(m.Name, _model))
-                    {
-                        continue;
-                    }
-
-                    return m.SizeVram > 0;
-                }
-
-                return null;
-            }
-            catch
-            {
-                // Best-effort: a probe failure never breaks a config read - report "unknown".
-                return null;
-            }
-        }
-
-        private static Boolean ModelMatches(String resident, String configured)
-        {
-            if (String.Equals(resident, configured, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            // Tolerate a :tag on either side ("phi4-f8-mini" vs "phi4-f8-mini:latest").
-            var residentBase = resident.Split(':')[0];
-            var configuredBase = configured.Split(':')[0];
-            return String.Equals(residentBase, configuredBase, StringComparison.OrdinalIgnoreCase);
-        }
-
         private static ChatRole ParseRole(String role)
         {
             switch (role?.Trim().ToLowerInvariant())

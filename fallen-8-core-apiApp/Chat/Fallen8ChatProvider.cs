@@ -64,8 +64,17 @@ namespace NoSQL.GraphDB.App.Chat
         /// <summary>The configured backend endpoint (surfaced read-only on the config view).</summary>
         public String Endpoint => _options.Ollama.Endpoint;
 
-        /// <summary>Whether the backend client has been created (a chat call happened).</summary>
+        /// <summary>Whether the backend client has been created (a chat call happened). A config
+        /// read never flips this: residency is probed via a transient client (OllamaModelProbe).</summary>
         public Boolean IsLoaded => _backend.IsValueCreated;
+
+        /// <summary>The configured Ollama endpoint (for the residency probe); null for non-Ollama.</summary>
+        public String OllamaEndpoint =>
+            String.Equals(_options.Backend, "Ollama", StringComparison.OrdinalIgnoreCase) ? _options.Ollama.Endpoint : null;
+
+        /// <summary>The configured model (for the residency probe).</summary>
+        public String OllamaModel =>
+            String.Equals(_options.Backend, "Ollama", StringComparison.OrdinalIgnoreCase) ? _options.Ollama.Model : null;
 
         /// <summary>
         ///   Runs one chat completion, bounded by <c>Fallen8:Chat:TimeoutSeconds</c>. Faults map to:
@@ -123,24 +132,6 @@ namespace NoSQL.GraphDB.App.Chat
             return result;
         }
 
-        /// <summary>Best-effort GPU residency of the configured model, or <c>null</c> when off or
-        /// undeterminable. Never throws.</summary>
-        public async Task<Boolean?> TryDetectGpuAsync(CancellationToken cancellationToken)
-        {
-            if (!IsEnabled)
-            {
-                return null;
-            }
-
-            try
-            {
-                return await _backend.Value.TryDetectGpuAsync(cancellationToken);
-            }
-            catch
-            {
-                return null;
-            }
-        }
     }
 
     /// <summary>The chat provider or its backend is not usable right now - a configuration error,
