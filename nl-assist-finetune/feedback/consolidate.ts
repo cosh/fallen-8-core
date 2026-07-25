@@ -136,10 +136,24 @@ function classify(row: Record<string, unknown>): Capture | null {
     ) {
       return null;
     }
+    // Reject an unknown category/contract HERE (skip as malformed) so a hand-edited or foreign
+    // plugin-shaped line never reaches validatePlugin() — an unroutable /plugins/{bad}/validate
+    // (404) or a bad contract (400) throws and would abort the whole batch, breaking the
+    // "a stray line never aborts the run" contract this module promises.
+    if (row.category !== "algorithm" && row.category !== "function") {
+      return null;
+    }
+    let contract: AlgorithmContract | undefined;
+    if (row.category === "algorithm") {
+      if (row.contract !== "Path" && row.contract !== "SubGraph" && row.contract !== "Analytics") {
+        return null;
+      }
+      contract = row.contract as AlgorithmContract;
+    }
     return {
       shape: "plugin",
       category: row.category as PluginAuthoringCategory,
-      contract: typeof row.contract === "string" ? (row.contract as AlgorithmContract) : undefined,
+      contract,
       name: row.name,
       intent: row.intent,
       source: row.source,
