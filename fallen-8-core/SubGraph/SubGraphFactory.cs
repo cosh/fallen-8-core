@@ -235,8 +235,10 @@ namespace NoSQL.GraphDB.Core.SubGraph
             // Runtime-registered plugins (feature plugin-registration) take precedence over the
             // built-ins and are activated FRESH from the source graph's registry (never cached by
             // name), so a delete/re-register is never served a stale instance. Initialized against the
-            // requested source, exactly like the cached path.
-            if (fallen8.Plugins != null && fallen8.Plugins.TryActivate<ISubGraphAlgorithm>(out algo, algorithmTypeName))
+            // requested source, exactly like the cached path. Capture the registry once (Dispose may
+            // null it under a concurrent teardown).
+            var registry = fallen8.Plugins;
+            if (registry != null && registry.TryActivate<ISubGraphAlgorithm>(out algo, algorithmTypeName))
             {
                 try
                 {

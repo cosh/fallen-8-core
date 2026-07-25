@@ -505,8 +505,11 @@ namespace NoSQL.GraphDB.Core
             // Runtime-registered plugins (feature plugin-registration) take precedence over the
             // built-ins and are activated FRESH each time - never cached by name - so a delete or
             // re-register is never served a stale instance. The built-in cache path below is
-            // unchanged (built-ins never change, so caching them is safe).
-            if (Plugins != null && Plugins.TryActivate<T>(out var registered, pluginName))
+            // unchanged (built-ins never change, so caching them is safe). Capture the registry once:
+            // Dispose nulls the Plugins field while request threads may still be reading, so a
+            // re-read between the null check and the call could dereference null.
+            var registry = Plugins;
+            if (registry != null && registry.TryActivate<T>(out var registered, pluginName))
             {
                 registered.Initialize(this, null);
                 return registered;
@@ -539,7 +542,10 @@ namespace NoSQL.GraphDB.Core
         {
             result = null;
 
-            if (Plugins == null || !Plugins.TryActivate<Plugins.IGraphFunction>(out var function, name))
+            // Capture the registry once: Dispose nulls the Plugins field while a request thread may be
+            // mid-invoke, so re-reading it between the null check and the call could dereference null.
+            var registry = Plugins;
+            if (registry == null || !registry.TryActivate<Plugins.IGraphFunction>(out var function, name))
             {
                 return false;
             }

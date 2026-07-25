@@ -118,15 +118,58 @@ namespace NoSQL.GraphDB.App.Helper
         }
 
         /// <inheritdoc/>
+        public bool TryCompile(PluginDefinition definition, out Type artifact, out String error)
+        {
+            artifact = null;
+
+            // On success the returned Type keeps its collectible load context alive for the plugin's
+            // registered lifetime (the registry pins the Type); we deliberately do NOT unload it here.
+            if (!CompileToType(definition, out var type, out _, out error))
+            {
+                return false;
+            }
+
+            artifact = type;
+            return true;
+        }
+
+        /// <summary>
+        ///   The side-effect-free compile + contract check behind
+        ///   <c>POST /plugins/{category}/validate</c> (the editor's compile-as-you-type). It compiles
+        ///   and contract-validates exactly as <see cref="TryCompile"/> but keeps NO artifact, so it
+        ///   ALWAYS unloads the load context it created - a validate that returned the context orphaned
+        ///   (as an earlier revision did) would accumulate collectible contexts across a debounced
+        ///   authoring session until GC.
+        /// </summary>
+        public bool TryValidate(PluginDefinition definition, out String error)
+        {
+            if (!CompileToType(definition, out _, out var context, out error))
+            {
+                return false;
+            }
+
+            // The validated type is discarded, so unload its context deterministically.
+            context.Unload();
+            return true;
+        }
+
+        /// <summary>
+        ///   The shared compile core: runs the pre-checks, compiles the source into a fresh collectible
+        ///   <see cref="AssemblyLoadContext"/>, and validates the category contract. On FAILURE it
+        ///   unloads any context it created and returns a diagnostic. On SUCCESS it returns the plugin
+        ///   type AND its still-loaded context, and the CALLER decides whether to keep the context alive
+        ///   (registration, via the Type) or unload it (validation).
+        /// </summary>
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code",
             Justification = "Runtime plugin compilation dynamically generates and loads code, which is incompatible with trimming.")]
         [UnconditionalSuppressMessage("Trimming", "IL2072:Target parameter argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method.",
             Justification = "The plugin type is created at runtime from compiled source; trimming is disabled for this application.")]
         [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.",
             Justification = "Runtime plugin compilation is inherently dynamic; the app is not AOT-compiled.")]
-        public bool TryCompile(PluginDefinition definition, out Type artifact, out String error)
+        private bool CompileToType(PluginDefinition definition, out Type type, out AssemblyLoadContext context, out String error)
         {
-            artifact = null;
+            type = null;
+            context = null;
             error = null;
 
             if (definition == null)
@@ -180,31 +223,29 @@ namespace NoSQL.GraphDB.App.Helper
 
             ms.Seek(0, SeekOrigin.Begin);
 
-            // Load into a collectible context so the assembly can be unloaded once the plugin is
-            // deleted (success) or immediately (validation failure). On success the returned Type keeps
-            // the context alive for the plugin's registered lifetime.
-            var context = new AssemblyLoadContext(assemblyName, isCollectible: true);
+            var loadContext = new AssemblyLoadContext(assemblyName, isCollectible: true);
             Assembly assembly;
             try
             {
-                assembly = context.LoadFromStream(ms);
+                assembly = loadContext.LoadFromStream(ms);
             }
             catch (Exception ex)
             {
-                context.Unload();
+                loadContext.Unload();
                 error = "The compiled plugin assembly could not be loaded: " + ex.Message;
                 return false;
             }
 
-            var validationError = ValidateContract(assembly, contractType, definition.Name, out var type);
+            var validationError = ValidateContract(assembly, contractType, definition.Name, out var candidate);
             if (validationError != null)
             {
-                context.Unload();
+                loadContext.Unload();
                 error = validationError;
                 return false;
             }
 
-            artifact = type;
+            type = candidate;
+            context = loadContext;
             return true;
         }
 

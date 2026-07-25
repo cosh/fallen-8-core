@@ -502,7 +502,9 @@ namespace NoSQL.GraphDB.App.Controllers
                 CreatedAt = DateTime.UtcNow
             };
 
-            var ok = _compiler.TryCompile(definition, out _, out var error);
+            // TryValidate (not TryCompile) so the validate path unloads its collectible load context
+            // instead of orphaning one per compile-as-you-type check.
+            var ok = _compiler.TryValidate(definition, out var error);
             return new PluginValidationREST { Valid = ok, Error = ok ? null : error };
         }
 

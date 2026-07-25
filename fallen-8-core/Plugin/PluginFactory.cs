@@ -348,6 +348,11 @@ namespace NoSQL.GraphDB.Core.Plugin
 
         /// <summary>
         ///   Drops the memoized discovery and all derived name maps, forcing a re-scan on next use.
+        ///   Retained diagnostic/test hook: it has no runtime caller since the DLL-drop path
+        ///   (<c>Assimilate</c>) was removed with the plugin-upload endpoint (feature
+        ///   plugin-registration) - built-ins never change at runtime - but it is the primitive the
+        ///   memoization's invalidate → fresh-name-map-rebuild invariant (finding M1) is pinned against
+        ///   in <c>EnginePerformanceTest</c>.
         /// </summary>
         private static void InvalidateDiscoveryCache()
         {
