@@ -63,4 +63,23 @@ prompt scaffolding lives in Studio); the fine-tune should absorb whole-type exam
 model can draft them. Add eval scenarios that compile a generated plugin through the plugin-aware
 validate endpoint (not `/delegates/validate`).
 
-**Closed by:** —
+**Closed by:** Pipeline TOOLING is wired for whole-type plugins (not yet a fine-tune RUN — that
+remains the operator's to execute against a live F8 + GPU):
+- `dataset-gen/generate.ts` now emits a PLUGIN generation kind alongside the untouched fragment
+  rows — per-contract seeds (function + algorithm Path/SubGraph/Analytics), each a whole type
+  built from `buildPluginGenerationPrompt` + `scaffoldFor`, compile-gated through
+  `POST /plugins/{category}/validate`, with a coverage guard requiring ≥1 plugin row per contract
+  and the drift hash extended to `plugin/nl/pluginPrompt.ts` + `plugin/scaffolds.ts`.
+- `feedback/consolidate.ts` now ingests the plugin panel's `{ kind:"plugin", … }` captures
+  (fixing the prior mis-ingest that sent an empty body to `/delegates/validate`): plugin rows are
+  read via their own fields, re-validated via `validatePlugin`, and written as whole-type corpus
+  rows; fragment captures are unchanged; malformed lines are skipped, never abort.
+- `eval/plugin-eval-set.json` + `eval/baseline.ts` add a held-out, COMPILE-ONLY plugin eval path
+  (the `/subgraph` element-set gate does not apply to whole types).
+- `train/train-config.phi4-f8*.json` raise `maxSeqLength` 2048→4096 so a whole plugin type is not
+  truncated; `train_lora.py` is shape-agnostic (reads only `messages`) and needed no change.
+Deferred (honest): richer Path/SubGraph algorithm BODIES beyond the compiling skeleton are left to
+the operator's bootstrap + captured-feedback loop, where they are verified against the live
+validator; hand-authoring complex traversal/subgraph bodies here without a live compile gate would
+only add rows that silently drop. Entry stays PENDING until an actual fine-tune run absorbs these
+examples — close it then with the produced model version.

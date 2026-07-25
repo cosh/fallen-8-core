@@ -128,8 +128,10 @@ interface PluginTrainRow {
   messages: ChatTurn[];
 }
 
-const bucketOf = (seed: { category: PluginAuthoringCategory; contract: AlgorithmContract }): PluginBucket =>
-  seed.category === "function" ? "function" : seed.contract;
+// A function has one contract, so its bucket is "function"; an algorithm buckets by contract
+// (always set on both a seed and a built row's algorithm rows).
+const bucketOf = (row: { category: PluginAuthoringCategory; contract?: AlgorithmContract }): PluginBucket =>
+  row.category === "function" ? "function" : (row.contract as AlgorithmContract);
 
 /**
  * Boilerplate-shared IGraphFunction source: the SAME whole-type shape the scaffold ships

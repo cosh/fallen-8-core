@@ -160,10 +160,16 @@ async function main() {
   const resultsDir = path.join(here, "results");
   mkdirSync(resultsDir, { recursive: true });
   const outFile = path.join(resultsDir, `baseline-${MODEL.replace(/[^\w.-]/g, "_")}.json`);
-  const results: RowResult[] = existsSync(outFile)
-    ? (JSON.parse(readFileSync(outFile, "utf8")).rows as RowResult[])
-    : [];
+  const persisted = existsSync(outFile)
+    ? (JSON.parse(readFileSync(outFile, "utf8")) as { rows?: RowResult[]; pluginRows?: PluginRowResult[] })
+    : {};
+  const results: RowResult[] = persisted.rows ?? [];
+  const pluginResults: PluginRowResult[] = persisted.pluginRows ?? [];
   const done = new Set(results.map((result) => result.id));
+  const donePlugins = new Set(pluginResults.map((result) => result.id));
+  // Both result arrays are written together on every step so a resumed run keeps each.
+  const save = () =>
+    writeFileSync(outFile, JSON.stringify({ model: MODEL, rows: results, pluginRows: pluginResults }, null, 2));
 
   if (rescore) {
     for (const result of results) {
@@ -177,9 +183,23 @@ async function main() {
         result.semanticPass = verdict.applicable ? verdict.pass : undefined;
       }
     }
+    // Plugin rescore is compile-only: re-validate each recorded source (no model calls).
+    for (const result of pluginResults) {
+      const validation = await validatePlugin(result.category, {
+        name: result.name,
+        contract: result.category === "algorithm" ? (result.contract ?? "Path") : undefined,
+        sourceCode: result.source,
+      });
+      result.compileValid = validation.valid;
+      result.compileError = validation.error;
+      result.pass = validation.valid;
+    }
   }
 
-  console.log(`model=${MODEL} endpoint=${ENDPOINT} f8=${F8} rows=${rows.length} (resumed: ${done.size})`);
+  console.log(
+    `model=${MODEL} endpoint=${ENDPOINT} f8=${F8} rows=${rows.length} (resumed: ${done.size})` +
+      (pluginEvalRows.length > 0 ? ` pluginRows=${pluginEvalRows.length} (resumed: ${donePlugins.size})` : ""),
+  );
 
   for (const row of rows) {
     if (rescore) break;
@@ -206,7 +226,7 @@ async function main() {
       result.semanticPass = verdict.applicable ? verdict.pass : undefined;
     }
     results.push(result);
-    writeFileSync(outFile, JSON.stringify({ model: MODEL, rows: results }, null, 2));
+    save();
     const sem = semantic
       ? ` sem=${result.semanticApplicable ? (result.semanticPass ? "ok" : "MISS") : "n/a"}`
       : "";
@@ -214,6 +234,47 @@ async function main() {
       `${result.pass ? "PASS" : "FAIL"} ${row.id} compile=${result.compileValid} checks=${
         failedChecks.length === 0 ? "ok" : failedChecks.join("; ")
       }${sem} ${result.stats ? `${((result.stats.durationMs ?? 0) / 1000).toFixed(1)}s ${result.stats.tokensPerSecond?.toFixed(1) ?? "?"} tok/s` : ""}`,
+    );
+  }
+
+  // Whole-type plugin rows (compile-only). One first-pass draft per row through the plugin
+  // authority; no semantic gate (a whole type is not a /subgraph filter lambda).
+  for (const row of pluginEvalRows) {
+    if (rescore) break;
+    if (donePlugins.has(row.id)) continue;
+    const contract = row.contract ?? "Path"; // ignored by the prompt for a function
+    const scaffold = scaffoldFor(row.category, contract, row.name);
+    const prompt = buildPluginGenerationPrompt({
+      category: row.category,
+      contract,
+      name: row.name,
+      scaffold,
+      intent: row.intent,
+    });
+    const { content, stats } = await ollamaChat(initialMessages(prompt));
+    const source = extractType(content);
+    const validation = await validatePlugin(row.category, {
+      name: row.name,
+      contract: row.category === "algorithm" ? contract : undefined,
+      sourceCode: source,
+    });
+    const result: PluginRowResult = {
+      id: row.id,
+      category: row.category,
+      contract: row.contract,
+      name: row.name,
+      source,
+      compileValid: validation.valid,
+      compileError: validation.error,
+      pass: validation.valid,
+      stats,
+    };
+    pluginResults.push(result);
+    save();
+    console.log(
+      `${result.pass ? "PASS" : "FAIL"} ${row.id} compile=${result.compileValid}${
+        result.compileError ? ` (${result.compileError.split("\n")[0]})` : ""
+      } ${result.stats ? `${((result.stats.durationMs ?? 0) / 1000).toFixed(1)}s ${result.stats.tokensPerSecond?.toFixed(1) ?? "?"} tok/s` : ""}`,
     );
   }
 
@@ -253,9 +314,44 @@ async function main() {
       kinds.map((kind) => [kind, summarize(results.filter((result) => result.kind === kind))]),
     ),
   };
-  writeFileSync(outFile, JSON.stringify({ ...summary, rows: results }, null, 2));
-  console.log("\n=== summary ===");
+
+  // Plugin summary (compile-only). Bucketed by the coverage buckets: the algorithm contracts
+  // plus the function category.
+  const pluginBucketOf = (result: PluginRowResult) =>
+    result.category === "function" ? "function" : result.contract ?? "algorithm";
+  const summarizePlugins = (subset: PluginRowResult[]) => {
+    const withStats = subset.filter((result) => result.stats?.durationMs !== undefined);
+    const meanSeconds =
+      withStats.reduce((sum, result) => sum + (result.stats!.durationMs ?? 0), 0) /
+      Math.max(1, withStats.length) /
+      1000;
+    return {
+      n: subset.length,
+      compile: percent(subset.filter((result) => result.compileValid).length, subset.length),
+      meanSecondsPerDraft: Number(meanSeconds.toFixed(1)),
+    };
+  };
+  const pluginBuckets = [...new Set(pluginResults.map(pluginBucketOf))];
+  const pluginSummary =
+    pluginResults.length > 0
+      ? {
+          overall: summarizePlugins(pluginResults),
+          perContract: Object.fromEntries(
+            pluginBuckets.map((b) => [b, summarizePlugins(pluginResults.filter((r) => pluginBucketOf(r) === b))]),
+          ),
+        }
+      : undefined;
+
+  writeFileSync(
+    outFile,
+    JSON.stringify({ ...summary, pluginSummary, rows: results, pluginRows: pluginResults }, null, 2),
+  );
+  console.log("\n=== summary (fragments) ===");
   console.table({ overall: summary.overall, ...summary.perKind });
+  if (pluginSummary) {
+    console.log("\n=== summary (plugins, compile-only) ===");
+    console.table({ overall: pluginSummary.overall, ...pluginSummary.perContract });
+  }
   console.log(`results: ${outFile}`);
 }
 

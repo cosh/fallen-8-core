@@ -134,10 +134,20 @@ npx tsx nl-assist-finetune/dataset-gen/generate.ts --check      # drift guard (n
 $env:NL_GEN_BOOTSTRAP = "1"; npx tsx nl-assist-finetune/dataset-gen/generate.ts   # mine extra phrasings (needs Ollama)
 ```
 
-Each JSONL row is `{ delegateKind, intent, fragment, source, noisy, messages }`, where
+Each fragment JSONL row is `{ delegateKind, intent, fragment, source, noisy, messages }`, where
 `messages` is the real runtime prompt (`system`/`user` from the web UI's own prompt module)
 plus the fragment as the `assistant` turn — so training matches the shipping prompt exactly
 and the prompt contract lives in one place, not re-encoded in Python.
+
+The generator also emits WHOLE-TYPE **plugin** rows (feature plugin-registration) into the same
+`train.jsonl`, coexisting with — never replacing — the fragment rows. Each is a complete C# type
+implementing a category contract (function `IGraphFunction`, or algorithm Path/SubGraph/Analytics),
+built from `plugin/nl/pluginPrompt.ts` + `plugin/scaffolds.ts` and compile-gated through
+`POST /plugins/{category}/validate` (the plugin authority — gated by the dynamic-plugin capability;
+the generator preflights it and errors clearly if it is disabled). A plugin row is
+`{ kind:"plugin", category, contract?, name, source, intent, messages }` (`contract` only for an
+algorithm); the trainer reads only `messages`, so both shapes train together. Coverage requires
+≥1 compiling plugin row per contract, and the drift hash covers the plugin prompt + scaffolds too.
 
 ## Phase 3 — train on WSL2 / Linux (NVIDIA GPU)
 
@@ -251,6 +261,14 @@ checks, and performance. Resumable; raw results in `eval/results/` (gitignored).
 numbers go into the **run ledger** in [plan.md](../features/done/nl-assist-finetune/plan.md)
 so movement is visible run-over-run (performance numbers are hardware-bound — compare same
 machine only). `eval/eval-set.json` is held out: never feed it to training (spec FT-4).
+
+Whole-type **plugin** rows have a sibling held-out set, `eval/plugin-eval-set.json`, scored
+**compile-only** through `POST /plugins/{category}/validate` (the `/subgraph` element-set
+semantic gate applies to filter lambdas, not to whole types). `baseline.ts` runs it as a parallel
+path — a plugin summary prints alongside the fragment summary and both live in the same
+`eval/results/baseline-<model>.json` — and simply skips it if the sibling file is absent. Like the
+fragment set it is held out from training; `consolidate.ts` drops any capture whose intent is in
+either eval set.
 
 ### FT-8 semantic gate (phase 4)
 
