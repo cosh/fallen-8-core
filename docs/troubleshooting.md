@@ -3,15 +3,20 @@
 The snags people actually hit, with the shortest fix and a pointer to the doc that owns the
 full story.
 
-## NL assist returns "Model endpoint returned HTTP 404"
+## NL assist fails to draft (404 / 403 / 503)
 
-**Symptom.** Studio's delegate editor, using the built-in (local Ollama) backend, returns
-`Model endpoint returned HTTP 404`.
+**Symptom.** Studio's delegate editor cannot draft a fragment. In the default **instance**
+backend the instance answers `403` (chat gateway off) or `503` (backend unreachable / model
+missing); in a **custom** browser-direct backend you see `Model endpoint returned HTTP 404`.
 
-**Cause.** The assist model (`phi4-f8-mini`) is not in the sidecar's volume yet — usually the
-first-start pull has not finished, or it failed (no internet to `registry.ollama.ai`). The
-container uses its own `f8-ollama-models` volume, **not** any Ollama installed on the host,
-so pulling on the host does not help the container.
+**Cause.** By default NL-assist routes browser → the instance's `POST /chat` → the Ollama
+sidecar (feature instance-config). A `403` means the chat gateway is off
+(`Fallen8:Chat:Enabled` / `F8_CHAT=false`); a `503`/`404` means the assist model
+(`phi4-f8-mini`) is not in the sidecar's volume yet — usually the first-start pull has not
+finished, or it failed (no internet to `registry.ollama.ai`). The container uses its own
+`f8-ollama-models` volume, **not** any Ollama installed on the host, so pulling on the host
+does not help the container. (A custom browser-direct backend bypasses the instance; a 404
+there is the model missing on *that* endpoint.)
 
 **Fix.**
 

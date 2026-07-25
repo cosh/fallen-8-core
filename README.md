@@ -53,7 +53,8 @@ Each feature has a deep-dive doc — follow the link.
   plugins by authoring C# source (compiled, contract-validated, namespace-scoped) instead of
   uploading a DLL.
 - **[F8 Studio](docs/studio.md)** — a browser UI to browse, query, visualize, and author the C#
-  delegates, with an optional local natural-language assist.
+  delegates, with a natural-language assist that runs through your instance by default (or a
+  browser-direct custom model backend).
 - **[MCP server](docs/mcp-server.md)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
   writes and three auth modes up to OAuth 2.1.
@@ -91,7 +92,7 @@ flowchart TB
     mcp -->|HTTP| rest
     studio -->|HTTP| rest
     services -->|HTTP| rest
-    rest -.->|embeddings| sidecar
+    rest -.->|embeddings + chat| sidecar
 
     classDef client fill:#45494D,stroke:#666666,color:#FEFEFE
     classDef mcp fill:#E2001A,stroke:#FC0606,color:#FEFEFE

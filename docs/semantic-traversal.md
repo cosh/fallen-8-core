@@ -155,6 +155,17 @@ Configure it under `Fallen8:Embedding` (off unless `Enabled`):
 | `QueryPrefix` | `""` | Retrieval prefix applied to **query-time** embeddings only |
 | `Onnx.{ModelPath,VocabPath,…}`, `LLamaSharp.ModelPath`, `Ollama.{Endpoint,Model}` | — | Backend-specific settings |
 
+## The chat gateway (its sibling)
+
+The embedding provider has a sibling under the same "semantic gateway" idea (feature
+instance-config): a **chat gateway**, `POST /chat`, that proxies a chat completion to the
+same model backend so a client reaches an SLM/LLM *through* the instance. It is the default
+NL-assist transport in [F8 Studio](studio.md), also apiApp-only and capability-gated, and the
+model is server-owned. Configure it under `Fallen8:Chat` (off unless `Enabled` /
+`F8_CHAT`): `Backend` (`Ollama`), `Ollama.{Endpoint,Model}` (default `phi4-f8-mini`),
+`TimeoutSeconds`. Both providers' state — plus whether the backend runs on GPU when Ollama
+reports it — is shown read-only in Studio's Connect **Configuration** section (`GET /config`).
+
 Weights are **never downloaded by Fallen-8** — paths point at operator-provided files.
 
 | Backend | In-process | Weights | Note |

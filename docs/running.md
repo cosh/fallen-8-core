@@ -64,6 +64,7 @@ for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 | `F8_PORT` | `8080` | Host port for Studio + API (container always listens on 8080) |
 | `F8_API_KEY` | *(unset)* | Set it and the **entire** service requires the key; unset = open ([Security](security.md)) |
 | `F8_EMBEDDINGS` | `true` | Text-in embeddings via the sidecar's `bge-m3`; `false` disables the provider (bring-your-own-vector still works) |
+| `F8_CHAT` | `true` | The chat gateway (`POST /chat` → the sidecar's assist model); the default NL-assist path. `false` answers 403 (custom browser-direct backends still work) |
 | `F8_GPU` | *(auto)* | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects |
 | `F8_PULL_PHI4F8` | `0` | `1` also pulls the larger GPU-only `phi4-f8` assist model (~9 GB) |
 | `F8_DELEGATE_REPO` | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`) |
