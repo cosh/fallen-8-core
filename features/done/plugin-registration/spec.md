@@ -1,8 +1,9 @@
 # Plugin Registration — Specification
 
-> **Status:** Open — spec/plan for review. Branch `feature/plugin-registration`. Not yet
-> implemented. The design decisions in §8 were reviewed and settled (2026-07-25); this revision
-> reflects them.
+> **Status:** Implemented (branch `feature/plugin-registration`, 2026-07-25). Design decisions in
+> §8 were reviewed and settled before implementation; this revision reflects them. All six plan
+> phases landed; full C# suite + web-ui build/tests green. Pending: principal-council review before
+> merge to `main`.
 >
 > **One-line:** replace the DLL-upload plugin path with typed, source-based, namespace-scoped
 > plugin registration — generalizing the stored-query pattern
