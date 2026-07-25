@@ -2,34 +2,42 @@
 
 Fallen-8 is an in-memory graph engine with a thin REST app wrapped around it. The engine
 holds the graph in RAM and runs the algorithms; the app exposes it over HTTP and serves the
-browser UI. This doc is the map of how the pieces fit; each piece's contract lives in its own
-doc, linked below.
+browser UI. Three kinds of client reach it: **AI agents** through the [MCP server](mcp-server.md),
+and **F8 Studio** (the browser UI) plus **your own services** straight over the REST API. This
+doc is the map of how the pieces fit; each piece's contract lives in its own doc, linked below.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','lineColor':'#666666'}}}%%
 flowchart TB
-    subgraph client["Clients"]
-        agent["AI agent / your code<br/>(emits C# delegates)"]
-        studio["F8 Studio (React SPA)"]
-    end
-    subgraph app["fallen-8-core-apiApp (ASP.NET Core)"]
-        rest["REST controllers<br/>+ OpenAPI"]
-        roslyn["Roslyn delegate compiler<br/>+ code cache"]
-        embed["Embedding provider<br/>(optional, off by default)"]
-        wwwroot["wwwroot (serves Studio)"]
-    end
-    subgraph engine["fallen-8-core (engine)"]
-        ns["Namespaces<br/>(collection of graphs)"]
-        writer["Single writer thread<br/>← transaction queue"]
-        model["Graph model<br/>(vertices, edges, properties, embeddings)"]
-        plugins["Plugins<br/>(indices · path · subgraph · analytics · services)"]
-        durab["Durability<br/>(WAL + checkpoints + registry)"]
-    end
-    sidecar["Model sidecar (Ollama)<br/>embeddings + delegate assist"]
+    agents["AI agents"]:::client
+    studio["F8 Studio<br/>(React SPA, browser)"]:::client
+    svc["Your services / code"]:::client
 
-    agent -->|HTTP| rest
+    mcp["MCP server — fallen-8-mcp<br/>separate deployable · bridges MCP → REST"]:::mcp
+
+    subgraph app["fallen-8-core-apiApp (ASP.NET Core · thin layer)"]
+        direction TB
+        rest["REST controllers + OpenAPI"]:::sys
+        roslyn["Roslyn delegate compiler<br/>+ code cache"]:::sys
+        embed["Embedding provider<br/>(optional, off by default)"]:::sys
+        wwwroot["wwwroot (serves F8 Studio)"]:::sys
+    end
+    subgraph engine["fallen-8-core (in-memory engine)"]
+        direction TB
+        ns["Namespaces<br/>(collection of graphs)"]:::sys
+        writer["Single writer thread<br/>← transaction queue"]:::sys
+        model["Graph model<br/>(vertices, edges, properties, embeddings)"]:::sys
+        plugins["Plugins<br/>(indices · path · subgraph · analytics · services)"]:::sys
+        durab["Durability<br/>(WAL + checkpoints + registry)"]:::sys
+    end
+    sidecar["Model sidecar (Ollama)<br/>embeddings + delegate assist"]:::ext
+
+    agents -->|MCP| mcp
+    mcp -->|HTTP| rest
     studio -->|HTTP| rest
+    svc -->|HTTP| rest
     studio -.->|assist calls, direct from browser| sidecar
-    wwwroot --- studio
+    wwwroot -.- studio
     rest --> ns
     rest --> roslyn
     rest --> embed
@@ -37,6 +45,13 @@ flowchart TB
     ns --> writer --> model
     model --- plugins
     model --- durab
+
+    classDef client fill:#45494D,stroke:#666666,color:#FEFEFE
+    classDef mcp fill:#E2001A,stroke:#FC0606,color:#FEFEFE
+    classDef sys fill:#141516,stroke:#45494D,color:#FEFEFE
+    classDef ext fill:#141516,stroke:#666666,color:#C6C7C8,stroke-dasharray:5 4
+    style app fill:#000000,stroke:#E2001A,stroke-width:1.5px,color:#C6C7C8
+    style engine fill:#000000,stroke:#E2001A,stroke-width:1.5px,color:#C6C7C8
 ```
 
 ## The engine (`fallen-8-core`)
@@ -78,6 +93,14 @@ A thin ASP.NET Core layer. It owns three things the engine deliberately does not
 
 The app also serves [F8 Studio](studio.md) as static files from its `wwwroot`.
 
+## AI agents and the MCP server
+
+AI agents do not call the REST API directly. They go through **`fallen-8-mcp`**, a separate
+deployable that bridges the [Model Context Protocol](https://modelcontextprotocol.io) to the
+REST surface over HTTP — it references neither the engine nor the app. It is a small,
+token-frugal tool surface, read-only by default, with opt-in write/admin tiers and three auth
+modes. The full story is in [MCP server](mcp-server.md).
+
 ## F8 Studio and the model sidecar
 
 [F8 Studio](studio.md) is a React single-page app. It talks to the REST API like any other
@@ -94,8 +117,6 @@ one container (the app serves the UI from `wwwroot`), alongside the Ollama sidec
 a whole, it is the "just works" default. The container is durable by default — checkpoints and
 the WAL live on a mounted volume.
 
-![Fallen-8 architecture: F8 Studio and a user-run model backend sit above the REST API, a thin layer over the in-memory engine (model, transactions, algorithms, indices, persistence, plugins); a save-game registry drives startup, and the whole stack ships as one Docker unit.](../pics/architecture.svg)
-
 ## See also
 
 - [Running](running.md) — how to launch each of these
@@ -105,3 +126,4 @@ the WAL live on a mounted volume.
 - [Save games](save-games.md) — the durability subsystem
 - [Namespaces](namespaces.md) — the graph-collection model
 - [Security](security.md) — the API-app boundary
+- [MCP server](mcp-server.md) — how AI agents reach Fallen-8

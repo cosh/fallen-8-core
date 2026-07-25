@@ -143,13 +143,22 @@ Every non-trivial feature follows the same lifecycle so work is visible and revi
    plan's phases are done, the build is clean, and tests pass.
 5. **Cross-feature impact check (mandatory)** — every feature sweeps the other layers and
    features it may affect (engine ↔ REST contract ↔ OpenAPI snapshot ↔ Studio UI ↔
-   NL-assist dataset/eval ↔ feature READMEs ↔ persisted recipes/stored queries) and records
-   the findings in its spec under "Impact on existing features". When another feature's
-   assets are affected — e.g. an engine contract change that stales the Studio UI or the
-   fine-tune dataset — do not silently adapt or ignore them: surface the impact and ask
-   about next steps with honest options. Impacts that need an NL-assist retrain are not
-   re-litigated per feature: append an entry to `nl-assist-finetune/RETRAIN-LOG.md` (the
-   next fine-tune run drains all pending entries).
+   NL-assist dataset/eval ↔ feature READMEs ↔ **architecture diagrams** ↔ persisted
+   recipes/stored queries) and records the findings in its spec under "Impact on existing
+   features". When another feature's assets are affected — e.g. an engine contract change
+   that stales the Studio UI or the fine-tune dataset — do not silently adapt or ignore them:
+   surface the impact and ask about next steps with honest options. Impacts that need an
+   NL-assist retrain are not re-litigated per feature: append an entry to
+   `nl-assist-finetune/RETRAIN-LOG.md` (the next fine-tune run drains all pending entries).
+6. **Architecture-doc freshness (mandatory)** — the architecture story lives in exactly two
+   places: the diagram + prose in the root [`README.md`](README.md) (the simple view) and
+   [`docs/architecture.md`](docs/architecture.md) (the full view, its mermaid diagram the
+   single source — there is deliberately no duplicate hand-drawn image). If a feature changes
+   how clients reach Fallen-8 (a new channel or deployable), how the layers fit, or what ships
+   in the deployable, update **both** diagrams in the same PR. A stale architecture diagram is
+   a feature-incomplete signal, not a follow-up. Diagram style is fixed: dark surfaces with the
+   brand red `#E2001A` accent, colours taken from the F8 logos in `pics/` — never the mermaid
+   defaults.
 
 Commit messages and PR descriptions are honest and concise, and do not reference the
 assistant or add AI-generated trailers.

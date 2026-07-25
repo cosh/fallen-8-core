@@ -62,24 +62,43 @@ Each feature has a deep-dive doc — follow the link.
 
 ## Architecture
 
-An in-memory engine with a thin REST app around it. The engine (`fallen-8-core`) holds the
-graph in RAM, serializes every write through one writer thread, and runs the algorithms; the
-app (`fallen-8-core-apiApp`) exposes it over HTTP and serves F8 Studio. Everything ships as
-one Docker unit alongside a model sidecar.
+An in-memory engine with a thin REST app around it. **AI agents** reach it through the
+[MCP server](docs/mcp-server.md); **F8 Studio** (the browser UI) and **your own services** call
+the [REST API](docs/rest-api.md) directly. Under the hood the engine (`fallen-8-core`) holds the
+graph in RAM, serializes every write through one writer thread, and runs the algorithms, while
+the app (`fallen-8-core-apiApp`) is the thin HTTP layer that also serves F8 Studio. Engine and
+app ship as one Docker unit alongside a model sidecar.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','lineColor':'#666666'}}}%%
 flowchart TB
-    clients["AI agents / your code / F8 Studio"] -->|HTTP| app
-    subgraph app["REST app (thin layer)"]
-        rest["Controllers + OpenAPI"]
-        roslyn["Roslyn delegate compiler"]
+    agents["AI agents"]:::client
+    studio["F8 Studio<br/>browser UI"]:::client
+    services["Your services / code"]:::client
+
+    mcp["MCP server<br/>fallen-8-mcp"]:::mcp
+
+    subgraph unit["Fallen-8 · one Docker unit"]
+        direction TB
+        rest["REST API<br/>fallen-8-core-apiApp · thin layer"]:::api
+        engine["In-memory graph engine<br/>fallen-8-core"]:::engine
+        rest --> engine
     end
-    app --> engine
-    subgraph engine["In-memory engine"]
-        writer["single writer thread ← transaction queue"]
-        plugins["plugins: indices · path · subgraph · analytics"]
-        durab["durability: WAL + checkpoints"]
-    end
+
+    sidecar["Model sidecar<br/>Ollama"]:::ext
+
+    agents -->|MCP| mcp
+    mcp -->|HTTP| rest
+    studio -->|HTTP| rest
+    services -->|HTTP| rest
+    rest -.->|embeddings| sidecar
+
+    classDef client fill:#45494D,stroke:#666666,color:#FEFEFE
+    classDef mcp fill:#E2001A,stroke:#FC0606,color:#FEFEFE
+    classDef api fill:#141516,stroke:#45494D,color:#FEFEFE
+    classDef engine fill:#060606,stroke:#45494D,color:#FEFEFE
+    classDef ext fill:#141516,stroke:#666666,color:#C6C7C8,stroke-dasharray:5 4
+    style unit fill:#000000,stroke:#E2001A,stroke-width:1.5px,color:#C6C7C8
 ```
 
 Full details — the writer thread, plugin system, durability, and the model sidecar — are in
