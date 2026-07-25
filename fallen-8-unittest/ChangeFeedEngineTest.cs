@@ -425,13 +425,16 @@ namespace NoSQL.GraphDB.Tests
             // - CreateSubGraphTransaction / RemoveSubGraphTransaction: subgraphs are derived state
             //   materialized in their OWN standalone graph instance; the main graph is untouched.
             // - Register/RemoveStoredQueryTransaction: library state, not graph state.
+            // - Register/RemovePluginTransaction: plugin registry state, not graph state.
             var exempt = new HashSet<string>
             {
                 nameof(SaveTransaction),
                 nameof(CreateSubGraphTransaction),
                 nameof(RemoveSubGraphTransaction),
                 nameof(RegisterStoredQueryTransaction),
-                nameof(RemoveStoredQueryTransaction)
+                nameof(RemoveStoredQueryTransaction),
+                nameof(RegisterPluginTransaction),
+                nameof(RemovePluginTransaction)
             };
 
             var transactionTypes = typeof(ATransaction).Assembly.GetTypes()

@@ -54,7 +54,7 @@ namespace NoSQL.GraphDB.Tests
     ///  - P4: the RangeIndex's cached sorted-key structure answers ordered range queries correctly
     ///        across value-only updates, new/removed keys, and Greater/Lower bracketing.
     ///  - P5: the memoized PluginFactory discovery still resolves every plugin by name and enumerates
-    ///        every index plugin, and an Assimilate-style invalidation rebuilds a fresh name map (M1).
+    ///        every index plugin, and a discovery-cache invalidation rebuilds a fresh name map (M1).
     ///  - P6: bounded BLS reconstruction caps the result to maxResults while preserving the first-k
     ///        path order of the unbounded run.
     /// </summary>
@@ -323,8 +323,8 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void PluginFactory_AfterDiscoveryInvalidation_RebuildsFreshNameMapAndStillResolves()
         {
-            // M1 regression. InvalidateDiscoveryCache (the Assimilate path) clears the memoized
-            // candidate set AND every derived per-category name map under _discoveryLock, and
+            // M1 regression. InvalidateDiscoveryCache (the discovery-cache reset hook) clears the
+            // memoized candidate set AND every derived per-category name map under _discoveryLock, and
             // GetNameMap now BUILDS AND STORES the name map under that SAME lock. So an invalidation
             // can never be overtaken by the store of a map built from the pre-invalidation candidate
             // set: after an invalidation the very next by-name lookup must rebuild a FRESH map that
@@ -341,7 +341,7 @@ namespace NoSQL.GraphDB.Tests
 
             var invalidate = typeof(PluginFactory).GetMethod("InvalidateDiscoveryCache",
                 BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.IsNotNull(invalidate, "PluginFactory.InvalidateDiscoveryCache (the Assimilate invalidation) must exist.");
+            Assert.IsNotNull(invalidate, "PluginFactory.InvalidateDiscoveryCache (the discovery-cache reset hook) must exist.");
 
             // Prime the path-algorithm category's name map (built + cached on first by-name lookup).
             IShortestPathAlgorithm bls;
@@ -350,7 +350,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(nameMaps.TryGetValue(typeof(IShortestPathAlgorithm), out var mapBefore),
                 "Resolving by name must have cached the category's name map.");
 
-            // Simulate Assimilate dropping in a new plugin DLL: invalidate discovery + all name maps.
+            // Invalidate discovery + all name maps (the cache-reset hook), forcing a fresh re-scan.
             invalidate.Invoke(null, null);
 
             // The invalidation must drop the cached map immediately, forcing the next lookup to

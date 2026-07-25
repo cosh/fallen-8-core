@@ -43,7 +43,11 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>The configuration section this binds from.</summary>
         public const String SectionName = "Fallen8:Security";
 
-        /// <summary>Authorization policy name gating the plugin-DLL load endpoint (PUT /plugin).</summary>
+        /// <summary>
+        ///   Authorization policy name gating source plugin registration (POST /plugins/*, feature
+        ///   plugin-registration). Named for its history (it formerly gated the removed PUT /plugin DLL
+        ///   upload); the policy name is a config/contract constant, so it is kept stable.
+        /// </summary>
         public const String DynamicPluginPolicy = "Fallen8.DynamicPluginLoading";
 
         /// <summary>The authentication scheme name for the built-in API-key handler.</summary>
@@ -65,17 +69,17 @@ namespace NoSQL.GraphDB.App.Configuration
         public String ApiKeyHeader { get; set; } = "X-Api-Key";
 
         /// <summary>
-        ///   Master switch for uploading + loading plugin DLLs (PUT /plugin). Default false: a disabled
-        ///   server returns 403 and writes nothing.
+        ///   Master switch for runtime plugin REGISTRATION (POST /plugins/*, feature
+        ///   plugin-registration). Default false: a disabled server returns 403 to a registration
+        ///   attempt and compiles nothing. It gates only the introduction surface - invoking an
+        ///   already-registered plugin, listing, and deletion are never gated by this switch. (It
+        ///   formerly gated the removed PUT /plugin DLL upload; the DLL path no longer exists.)
+        ///
+        ///   <para>HONEST LIMIT: a registered plugin still runs IN-PROCESS WITH FULL TRUST when
+        ///   invoked. This narrows who can INTRODUCE code and makes it visible/validated/logged - it is
+        ///   not a sandbox.</para>
         /// </summary>
         public Boolean EnableDynamicPluginLoading { get; set; } = false;
-
-        /// <summary>
-        ///   Directory uploaded plugin DLLs are written to and discovered from. Defaults to a
-        ///   <c>plugins</c> subdirectory of <see cref="AppContext.BaseDirectory"/> - never the app's own
-        ///   binary directory, so an upload cannot plant a DLL next to the server binaries.
-        /// </summary>
-        public String PluginDirectory { get; set; }
 
         /// <summary>
         ///   Origins allowed by the CORS policy. Empty (default) means deny all cross-origin requests.
@@ -105,13 +109,5 @@ namespace NoSQL.GraphDB.App.Configuration
         ///   an <see cref="ApiKey"/>.
         /// </summary>
         public Boolean AllowRemoteAccess { get; set; } = false;
-
-        /// <summary>Resolves <see cref="PluginDirectory"/>, defaulting to <c>&lt;base&gt;/plugins</c>.</summary>
-        public String ResolvePluginDirectory()
-        {
-            return String.IsNullOrWhiteSpace(PluginDirectory)
-                ? System.IO.Path.Combine(AppContext.BaseDirectory, "plugins")
-                : PluginDirectory;
-        }
     }
 }

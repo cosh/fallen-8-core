@@ -83,12 +83,6 @@ namespace NoSQL.GraphDB.App.Controllers
         private readonly ILogger<AdminController> _logger;
 
         /// <summary>
-        /// The isolated directory uploaded plugin DLLs are written to (never the app's own binary
-        /// directory) - feature api-security-boundary.
-        /// </summary>
-        private readonly String _pluginDirectory;
-
-        /// <summary>
         /// The save-game metadata registry (feature save-games): records every save and auto-registers
         /// an unknown checkpoint on load.
         /// </summary>
@@ -135,7 +129,6 @@ namespace NoSQL.GraphDB.App.Controllers
             _optimalNumberOfPartitions = Convert.ToInt32(Environment.ProcessorCount * 3 / 2);
 
             var securityOptions = security?.Value ?? new Fallen8SecurityOptions();
-            _pluginDirectory = securityOptions.ResolvePluginDirectory();
             _apiKeyConfigured = !String.IsNullOrWhiteSpace(securityOptions.ApiKey);
 
             _saveGames = saveGames;
@@ -586,60 +579,11 @@ namespace NoSQL.GraphDB.App.Controllers
             return _fallen8.ServiceFactory.Services.Remove(key);
         }
 
-        /// <summary>
-        /// Uploads and registers a new plugin to the database
-        /// </summary>
-        /// <param name="dllStream">The plugin DLL binary content as a stream</param>
-        /// <response code="204">Plugin successfully uploaded and registered</response>
-        /// <response code="400">Invalid plugin data or incompatible plugin</response>
-        /// <response code="401">No valid credential was supplied</response>
-        /// <response code="403">Dynamic plugin loading is disabled on this server (Fallen8:Security:EnableDynamicPluginLoading)</response>
-        /// <response code="413">The uploaded DLL exceeds the plugin size limit</response>
-        /// <remarks>
-        /// SECURITY: an uploaded plugin is loaded and executed IN-PROCESS WITH FULL TRUST - a trust
-        /// boundary, not a sandbox. Requires an authenticated caller AND
-        /// Fallen8:Security:EnableDynamicPluginLoading=true. The DLL is written to the configured,
-        /// isolated plugin directory, never next to the server binaries.
-        /// </remarks>
-        // Fallen-8-level: plugin discovery is process-global, shared by every namespace.
-        [Fallen8Level]
-        [HttpPut("/plugin")]
-        [Authorize(Policy = Fallen8SecurityOptions.DynamicPluginPolicy)]
-        [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
-        [RequestSizeLimit(64L * 1024 * 1024)]
-        [Consumes("application/octet-stream")]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status403Forbidden)]
-        public IActionResult UploadPlugin([FromBody] Stream dllStream)
-        {
-            if (dllStream == null)
-            {
-                return BadRequest("A plugin DLL stream is required.");
-            }
-
-            // Write into the isolated plugin directory (created if absent), NOT AppContext.BaseDirectory,
-            // so an upload can never plant a DLL next to the server's own binaries. The directory is a
-            // registered plugin search directory (see Program.cs), so the plugin is still discovered.
-            System.IO.Directory.CreateDirectory(_pluginDirectory);
-            var assimilationPath = System.IO.Path.Combine(_pluginDirectory, System.IO.Path.GetRandomFileName() + ".dll");
-
-            try
-            {
-                PluginFactory.Assimilate(dllStream, assimilationPath);
-            }
-            catch (Exception ex)
-            {
-                // An invalid/incompatible DLL is a client error (400), not an unhandled 500 - matching
-                // the documented ProducesResponseType(400) (feature api-error-contract E7). Best-effort
-                // cleanup of the partially-written file.
-                try { if (System.IO.File.Exists(assimilationPath)) System.IO.File.Delete(assimilationPath); } catch { }
-                return BadRequest("The uploaded plugin could not be loaded: " + ex.Message);
-            }
-
-            return NoContent();
-        }
+        // The runtime plugin-DLL upload endpoint (PUT /plugin) was REMOVED (feature
+        // plugin-registration): loading an opaque external assembly in-process was the most dangerous
+        // surface in the product. It is replaced by typed, source-based, namespace-scoped registration
+        // under /plugins/* (PluginsController) - the server now compiles and contract-validates C#
+        // source instead of loading an unvalidated binary. See docs/plugin-registration.md.
 
         #region private helper
 

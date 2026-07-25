@@ -180,25 +180,8 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(0, negative.Edges.Count);
         }
 
-        // ---- E7: invalid plugin upload -> 400 -----------------------------------------------------
-
-        [TestMethod]
-        public void UploadPlugin_WithANullStream_Returns400()
-        {
-            var fallen8 = new Fallen8(_loggerFactory);
-            var admin = new AdminController(
-                new UnitTestLogger<AdminController>(),
-                fallen8,
-                Options.Create(new Fallen8SecurityOptions()),
-                new NoSQL.GraphDB.App.Services.SaveGameRegistry(
-                    Options.Create(new NoSQL.GraphDB.App.Configuration.Fallen8MetadataOptions
-                    {
-                        Directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_meta_" + System.Guid.NewGuid().ToString("N"))
-                    }),
-                    new UnitTestLogger<NoSQL.GraphDB.App.Services.SaveGameRegistry>()));
-
-            var result = admin.UploadPlugin(null);
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult), "A null plugin stream must be a 400.");
-        }
+        // The former E7 case (UploadPlugin null-stream -> 400) was removed with the PUT /plugin DLL
+        // upload endpoint (feature plugin-registration). Malformed source plugin registration is
+        // covered by PluginsControllerTest / PluginCompilerTest (compile failure -> 400).
     }
 }
