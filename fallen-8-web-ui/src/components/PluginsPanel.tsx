@@ -19,10 +19,10 @@ import { Truncated } from "./Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
 
 /**
- * Dashboard · Plugins (feature plugin-registration): the registry's ONE management home —
- * list (name, category, contract, compileState badge), read-only source + recompile
- * diagnostics for a selected/Failed entry, a function runner for a registered graph
- * function, and delete (immutable entries: delete + re-register is the edit flow). The
+ * Plugins screen · registry table (feature plugin-registration): the registry's ONE
+ * management home — list (name, category, contract, compileState badge), read-only source +
+ * recompile diagnostics for a selected/Failed entry, a function runner for a registered
+ * graph function, and delete (immutable entries: delete + re-register is the edit flow). The
  * whole-type authoring flow lives in the "Register plugin" editor, the sibling of the
  * stored-query library's inline capture — see StoredQueriesPanel for the shape this mirrors.
  */

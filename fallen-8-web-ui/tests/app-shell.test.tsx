@@ -64,12 +64,14 @@ const STATUS: StatusREST = {
 
 const GATED = [
   "nav-dashboard",
+  "nav-samples",
   "nav-save-games",
   "nav-browser",
   "nav-query",
   "nav-path",
   "nav-subgraph",
   "nav-analytics",
+  "nav-plugins",
   "nav-canvas",
 ];
 

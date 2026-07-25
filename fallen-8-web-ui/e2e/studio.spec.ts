@@ -241,10 +241,11 @@ test("save games: save now registers a row; load and delete demand typed confirm
 
 test("scenario 8: erasing a namespace demands its typed NAME (feature graph-namespaces)", async ({ page }) => {
   await registerSecuredInstance(page, "erasable");
-  await page.goto("/dashboard");
+  // Administration (Erase namespace) lives on the Save games screen now.
+  await page.goto("/save-games");
   await page.getByTestId("tabularasa").click();
 
-  // The erase is namespace-scoped now: the gate is the NAMESPACE name, not the instance's.
+  // The erase is namespace-scoped: the gate is the NAMESPACE name, not the instance's.
   const confirm = page.getByTestId("confirm-action");
   await expect(confirm).toBeDisabled();
   await page.getByTestId("confirm-typed").fill("erasable");
@@ -255,6 +256,9 @@ test("scenario 8: erasing a namespace demands its typed NAME (feature graph-name
   await expect(page.getByTestId("admin-message")).toContainText("erased", {
     timeout: 20_000,
   });
+
+  // The count reads 0 back on the Dashboard.
+  await page.goto("/dashboard");
   await expect(page.getByTestId("stat-vertices")).toHaveText("0");
 });
 

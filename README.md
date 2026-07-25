@@ -114,7 +114,7 @@ Linux, and Windows PowerShell):
 npm run env:up
 ```
 
-Then open **F8 Studio at http://localhost:8080** and load a sample graph from the dashboard. The
+Then open **F8 Studio at http://localhost:8080** and load a sample graph from the Samples screen. The
 **MCP server is on http://localhost:8090** for AI-agent clients (read-only by default).
 
 Every other way to run it — a bare `dotnet run`, the configuration keys, the security

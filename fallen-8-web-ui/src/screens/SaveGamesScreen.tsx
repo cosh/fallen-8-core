@@ -1,26 +1,40 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useActiveInstance } from "../instances/registry";
+import { useActiveInstance, useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import {
   deleteSaveGame,
+  exportBulk,
+  importBulk,
   listSaveGames,
+  loadGraph,
   loadSaveGame,
   saveAllNamespaces,
+  saveGraph,
+  tabulaRasa,
+  tabulaRasaAll,
+  trimGraph,
 } from "../api/endpoints";
 import type { SaveGame, SaveGameNamespace } from "../api/types";
+import { ApiError } from "../api/client";
 import { invalidateInstanceQueries } from "../api/queries";
-import { getInstanceStore } from "../state/instanceStore";
+import { getInstanceStore, purgeAllInstanceStores } from "../state/instanceStore";
+import { shapeSuggestions, useGraphShape } from "../state/graphShape";
 import { formatExact } from "../lib/format";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 
 /**
- * Save games (feature save-games + graph-namespaces): the persistent checkpoint registry
- * as a table. Fallen-8-level — an entry can span several namespaces ("Save all" creates
- * one), and loading restores exactly the namespaces an entry contains (or one of them,
- * via the restore selector). Sits under Dashboard in the rail.
+ * Save games (feature save-games + graph-namespaces): the persistence home. The top is the
+ * Fallen-8-level checkpoint registry — an entry can span several namespaces ("Save all"
+ * creates one), and loading restores exactly the namespaces an entry contains (or one of
+ * them). Below it, the **Administration** section holds the persistence/lifecycle and jsonl
+ * interchange actions that used to live on the Dashboard: those are NAMESPACE-scoped (they
+ * act on the active namespace shown in the top bar), so they run through the namespace-bound
+ * instance while the registry keeps using the raw Fallen-8-level one. Sits under Dashboard
+ * in the rail.
  */
 
 function formatBytes(bytes: number): string {
@@ -62,7 +76,11 @@ export function effectiveNamespaces(game: SaveGame): SaveGameNamespace[] {
 }
 
 export function SaveGamesScreen() {
+  // The registry is Fallen-8-level: raw instance, raw query keys, raw workspace stores.
   const instance = useActiveInstance()!;
+  // The Administration actions act on the ACTIVE namespace (top bar): namespace-bound instance.
+  const { instance: ns } = useInstanceStore();
+  const namespace = ns.namespace ?? "default";
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<
@@ -71,6 +89,18 @@ export function SaveGamesScreen() {
   const [deleteFiles, setDeleteFiles] = useState(false);
   /** "" = restore the entire entry; otherwise the one namespace to restore. */
   const [loadNamespace, setLoadNamespace] = useState("");
+
+  // ---- Administration state (moved from the Dashboard) ----
+  const [adminConfirming, setAdminConfirming] = useState<
+    "tabularasa" | "factory-reset" | "load-path" | null
+  >(null);
+  const [loadPath, setLoadPath] = useState("");
+  const [adminMessage, setAdminMessage] = useState<string | null>(null);
+  const [showExportFilter, setShowExportFilter] = useState(false);
+  const [exportVertexLabel, setExportVertexLabel] = useState("");
+  const [exportEdgeLabel, setExportEdgeLabel] = useState("");
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const suggestions = shapeSuggestions(useGraphShape(ns).data);
 
   const list = useQuery({
     queryKey: [instance.id, "savegames"],
@@ -130,7 +160,85 @@ export function SaveGamesScreen() {
     },
   });
 
+  // ---- Administration mutations (namespace-scoped, moved from the Dashboard) ----
+  const save = useMutation({
+    mutationFn: () => saveGraph(ns),
+    onSuccess: (entry) => {
+      setAdminMessage(
+        entry
+          ? `Saved namespace “${namespace}” to ${entry.location} — registered as save game ${entry.id} (it appears in the table above).`
+          : "Saved.",
+      );
+      invalidate();
+    },
+  });
+  const loadCheckpoint = useMutation({
+    mutationFn: () => loadGraph(ns, loadPath),
+    onSuccess: () => {
+      setAdminMessage(`Loaded namespace “${namespace}” from ${loadPath}.`);
+      invalidate();
+    },
+  });
+  const trim = useMutation({
+    mutationFn: () => trimGraph(ns),
+    onSuccess: () => setAdminMessage("Trim requested."),
+  });
+  const erase = useMutation({
+    mutationFn: () => tabulaRasa(ns),
+    onSuccess: () => {
+      setAdminMessage(`Namespace “${namespace}” erased.`);
+      invalidate();
+    },
+  });
+  const factoryReset = useMutation({
+    mutationFn: () => tabulaRasaAll(ns),
+    onSuccess: () => {
+      setAdminMessage("Factory reset: every namespace dropped, “default” erased.");
+      // Fallen-8-wide: every namespace's caches AND persisted workspaces (canvases would
+      // resurface phantom elements) are stale now, not just this one's.
+      purgeAllInstanceStores(instance.id.split("/")[0]);
+      queryClient.invalidateQueries();
+    },
+  });
+  const exportGraph = useMutation({
+    mutationFn: () =>
+      exportBulk(ns, {
+        vertexLabel: exportVertexLabel.trim() || undefined,
+        edgeLabel: exportEdgeLabel.trim() || undefined,
+      }),
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${instance.name}-${namespace}.jsonl`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setAdminMessage(`Exported ${(blob.size / 1024 / 1024).toFixed(1)} MiB of jsonl.`);
+    },
+  });
+  const importGraph = useMutation({
+    mutationFn: async (file: File) => {
+      if (file.size > 64 * 1024 * 1024) {
+        setAdminMessage(
+          "Large file — the browser buffers the whole upload with no resumability; curl is the better tool from here up.",
+        );
+      }
+      return await importBulk(ns, file);
+    },
+    onSuccess: (result) => {
+      setAdminMessage(
+        result
+          ? `Imported ${result.verticesCreated.toLocaleString()} vertices and ${result.edgesCreated.toLocaleString()} edges (${result.linesRead.toLocaleString()} lines read).`
+          : "Imported.",
+      );
+      invalidate();
+    },
+  });
+
   const failed = [saveAll, load, remove].find((m) => m.isError);
+  const adminFailed = [save, loadCheckpoint, trim, erase, factoryReset, exportGraph].find(
+    (m) => m.isError,
+  );
 
   const confirmingMembers = confirming ? effectiveNamespaces(confirming.game) : [];
 
@@ -258,6 +366,182 @@ export function SaveGamesScreen() {
         </div>
       </section>
 
+      {/* Administration (moved from the Dashboard): namespace-scoped persistence/lifecycle
+          plus jsonl interchange. The destructive actions require typing the target name. */}
+      <section className="panel" data-testid="administration">
+        <div className="panel-title">
+          Administration
+          <span className="text-fg-faint normal-case">
+            acts on namespace “{namespace}”
+          </span>
+        </div>
+        <div className="space-y-3 p-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <button
+              type="button"
+              className="btn"
+              data-testid="save-namespace"
+              title={`Checkpoints namespace “${namespace}” into a save-game entry`}
+              disabled={save.isPending}
+              onClick={() => save.mutate()}
+            >
+              {save.isPending ? "Saving…" : "Save namespace"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={trim.isPending}
+              onClick={() => trim.mutate()}
+            >
+              Trim
+            </button>
+            <div className="ml-4 flex items-end gap-2">
+              <Field helpKey="loadPath" label="load path" htmlFor="load-path">
+                <input
+                  id="load-path"
+                  className="input w-72"
+                  value={loadPath}
+                  onChange={(e) => setLoadPath(e.target.value)}
+                  placeholder="path returned by save"
+                />
+              </Field>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={!loadPath.trim()}
+                onClick={() => setAdminConfirming("load-path")}
+              >
+                Load…
+              </button>
+            </div>
+            <button
+              type="button"
+              className="btn btn-danger ml-auto"
+              data-testid="tabularasa"
+              title={`Erases namespace “${namespace}” (it stays registered, empty)`}
+              onClick={() => setAdminConfirming("tabularasa")}
+            >
+              Erase namespace…
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              data-testid="factory-reset"
+              title="Fallen-8-wide: drops every non-default namespace and erases “default”"
+              onClick={() => setAdminConfirming("factory-reset")}
+            >
+              Factory reset…
+            </button>
+          </div>
+
+          <div className="border-line space-y-2 border-t pt-3">
+            <div className="text-fg-faint text-[10px] tracking-widest uppercase">
+              interchange (jsonl)
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <button
+                type="button"
+                className="btn"
+                data-testid="bulk-export"
+                disabled={exportGraph.isPending}
+                title="internally consistent interchange — not a crash-consistent backup; use save games for point-in-time"
+                onClick={() => exportGraph.mutate()}
+              >
+                {exportGraph.isPending ? "Exporting…" : "Export .jsonl"}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowExportFilter((s) => !s)}
+              >
+                {showExportFilter ? "Hide" : "Filter by label"}
+              </button>
+              {showExportFilter && (
+                <>
+                  <Field
+                    helpKey="exportVertexLabel"
+                    label="vertex label"
+                    htmlFor="export-vertex-label"
+                  >
+                    <input
+                      id="export-vertex-label"
+                      className="input w-36"
+                      list="savegame-vertex-labels"
+                      value={exportVertexLabel}
+                      onChange={(e) => setExportVertexLabel(e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    helpKey="exportEdgeLabel"
+                    label="edge label"
+                    htmlFor="export-edge-label"
+                  >
+                    <input
+                      id="export-edge-label"
+                      className="input w-36"
+                      list="savegame-edge-labels"
+                      value={exportEdgeLabel}
+                      onChange={(e) => setExportEdgeLabel(e.target.value)}
+                    />
+                  </Field>
+                </>
+              )}
+              <button
+                type="button"
+                className="btn ml-4"
+                data-testid="bulk-import"
+                disabled={importGraph.isPending}
+                title="imports into an EMPTY graph only — the server enforces this with a 409"
+                onClick={() => importFileRef.current?.click()}
+              >
+                {importGraph.isPending ? "Importing…" : "Import .jsonl…"}
+              </button>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".jsonl,.ndjson,application/x-ndjson"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) importGraph.mutate(file);
+                }}
+              />
+            </div>
+            {importGraph.isError && (
+              <div className="space-y-1" data-testid="import-error">
+                <ErrorBox error={importGraph.error} />
+                {importGraph.error instanceof ApiError &&
+                  importGraph.error.status === 409 && (
+                    <p className="text-fg-dim text-[12px]">
+                      Target graph is not empty — Erase namespace first, or import into a
+                      fresh namespace.
+                    </p>
+                  )}
+              </div>
+            )}
+          </div>
+
+          {adminMessage && (
+            <div className="text-accent wrap-break-word text-[12px]" data-testid="admin-message">
+              {adminMessage}
+            </div>
+          )}
+          {adminFailed && <ErrorBox error={adminFailed.error} />}
+        </div>
+      </section>
+
+      <datalist id="savegame-vertex-labels">
+        {suggestions.vertexLabels.map((label) => (
+          <option key={label} value={label} />
+        ))}
+      </datalist>
+      <datalist id="savegame-edge-labels">
+        {suggestions.edgeLabels.map((label) => (
+          <option key={label} value={label} />
+        ))}
+      </datalist>
+
       <ConfirmDialog
         open={confirming?.kind === "load"}
         title="Restore save game"
@@ -327,6 +611,46 @@ export function SaveGamesScreen() {
           remove.mutate({ id: game.id, files });
         }}
         onCancel={() => setConfirming(null)}
+      />
+
+      <ConfirmDialog
+        open={adminConfirming === "tabularasa"}
+        title={`Erase namespace “${namespace}”`}
+        description={`Removes every vertex, edge, and index of namespace “${namespace}” (the namespace stays registered, empty; other namespaces are untouched). This cannot be undone.`}
+        instanceName={namespace}
+        endpoint={`${describeEndpoint(ns)} → /ns/${namespace}/*`}
+        confirmLabel="Erase namespace"
+        onConfirm={() => {
+          setAdminConfirming(null);
+          erase.mutate();
+        }}
+        onCancel={() => setAdminConfirming(null)}
+      />
+      <ConfirmDialog
+        open={adminConfirming === "factory-reset"}
+        title="Factory reset — Fallen-8-wide"
+        description="Drops EVERY non-default namespace (their data is gone; save games remain restore points) and erases “default”. This affects ALL namespaces of this Fallen-8 and cannot be undone."
+        instanceName={instance.name}
+        endpoint={describeEndpoint(instance)}
+        confirmLabel="Reset everything"
+        onConfirm={() => {
+          setAdminConfirming(null);
+          factoryReset.mutate();
+        }}
+        onCancel={() => setAdminConfirming(null)}
+      />
+      <ConfirmDialog
+        open={adminConfirming === "load-path"}
+        title="Load a checkpoint"
+        description={`Loading replaces namespace “${namespace}”'s in-memory graph with the checkpoint.`}
+        instanceName={namespace}
+        endpoint={`${describeEndpoint(ns)} → /ns/${namespace}/*`}
+        confirmLabel="Load checkpoint"
+        onConfirm={() => {
+          setAdminConfirming(null);
+          loadCheckpoint.mutate();
+        }}
+        onCancel={() => setAdminConfirming(null)}
       />
     </div>
   );

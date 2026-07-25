@@ -10,6 +10,7 @@ import { NamespaceScope } from "./NamespaceScope";
 import { useRegistry, DEFAULT_NAMESPACE } from "../instances/registry";
 import { ConnectScreen } from "../screens/ConnectScreen";
 import { DashboardScreen } from "../screens/DashboardScreen";
+import { SamplesScreen } from "../screens/SamplesScreen";
 import { SaveGamesScreen } from "../screens/SaveGamesScreen";
 import { BrowserScreen } from "../screens/BrowserScreen";
 import { QueryScreen } from "../screens/QueryScreen";
@@ -17,6 +18,7 @@ import { IndexesScreen } from "../screens/IndexesScreen";
 import { PathScreen } from "../screens/PathScreen";
 import { SubgraphScreen } from "../screens/SubgraphScreen";
 import { AnalyticsScreen } from "../screens/AnalyticsScreen";
+import { PluginsScreen } from "../screens/PluginsScreen";
 import { CanvasScreen } from "../screens/CanvasScreen";
 import { BenchmarkScreen } from "../screens/BenchmarkScreen";
 
@@ -70,6 +72,14 @@ const dashboardRoute = createRoute({
   component: DashboardScreen,
 });
 
+// Sample-graph gallery (feature sample-graphs): its own screen so the gallery gets full
+// width and a tag filter. Namespace-scoped - loading a sample writes into the active graph.
+const samplesRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "samples",
+  component: SamplesScreen,
+});
+
 const browserRoute = createRoute({
   getParentRoute: () => namespaceRoute,
   path: "browser",
@@ -108,6 +118,14 @@ const analyticsRoute = createRoute({
   component: AnalyticsScreen,
 });
 
+// Plugins (feature plugin-registration): the built-in plugin families plus the namespace's
+// runtime-authored, compile-validated registry. Namespace-scoped (registrations are per graph).
+const pluginsRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "plugins",
+  component: PluginsScreen,
+});
+
 const canvasRoute = createRoute({
   getParentRoute: () => namespaceRoute,
   path: "canvas",
@@ -122,7 +140,10 @@ function activeNamespace(): string {
 
 /**
  * Pre-namespace bookmarks (/dashboard, /canvas, …) redirect to the active namespace's
- * equivalent, so old links keep working.
+ * equivalent, so old links keep working. The screens added AFTER the namespace migration
+ * (Samples, Plugins) are intentionally absent: they never had pre-namespace bookmarks, and
+ * a bare /plugins would in any case resolve to the REST /plugins route (not the SPA) on a
+ * full-page load — both are reached via the rail, which links the scoped /q/{ns}/… URL.
  */
 const LEGACY_SCOPED_PATHS = [
   "/dashboard",
@@ -151,12 +172,14 @@ const routeTree = rootRoute.addChildren([
   benchmarkRoute,
   namespaceRoute.addChildren([
     dashboardRoute,
+    samplesRoute,
     browserRoute,
     queryRoute,
     indexesRoute,
     pathRoute,
     subgraphRoute,
     analyticsRoute,
+    pluginsRoute,
     canvasRoute,
   ]),
   ...legacyRedirectRoutes,

@@ -13,15 +13,17 @@ Connect, Save games, and Benchmark are Fallen-8-level (they can span namespaces)
 | Screen | Scope | Purpose |
 |---|---|---|
 | Connect | Fallen-8 | Register instances, manage namespaces |
-| Dashboard | namespace | Status, sample graphs, admin (save/load/erase, jsonl import/export), stored queries |
+| Dashboard | namespace | Status overview: vertex/edge counts, memory, embedding provider |
+| Samples | namespace | One-click demo-graph gallery with a capability tag filter |
+| Save games | Fallen-8 | Checkpoint registry (load / delete) + administration (save/load/erase, jsonl import/export) |
 | Browser | namespace | Look up an element, inspect properties/embeddings, adjacency, bulk view, mutations |
-| Query | namespace | Property scans and index queries (equality/range/fulltext/spatial/vector) |
-| Canvas | namespace | 2D/3D visualization of whatever you send to it |
+| Query | namespace | Property scans and index queries (equality/range/fulltext/spatial/vector) + the stored-query library |
+| Indexes | namespace | Create and manage indexes and their content |
 | Path | namespace | Route finding (BLS / Dijkstra) with filters, costs, semantic scoring |
 | Subgraph | namespace | Subgraph lifecycle + pattern builder |
 | Analytics | namespace | Graph shape + run algorithms with write-back |
-| Indexes | namespace | Create and manage indexes and their content |
-| Save games | Fallen-8 | Checkpoint registry: load / delete |
+| Plugins | namespace | Built-in plugin families + the runtime-authored plugin registry |
+| Canvas | namespace | 2D/3D visualization of whatever you send to it |
 | Benchmark | Fallen-8 | Generate a random graph, measure edge-traversal throughput |
 
 ## Connect
@@ -34,12 +36,13 @@ Two panels. The **Instances** table lists registered servers with a radio to act
 
 ![Dashboard screen](images/screen-dashboard.png)
 
-Vertex/edge counts, used memory, and the index/path/analytics/service plugin inventories from `GET /status` ([observability.md](observability.md), [plugins.md](plugins.md)). Cards below:
+A lean status overview for the active namespace: vertex/edge counts, used memory from `GET /status` ([observability.md](observability.md)), and the **Embedding provider** card — backend, model, dimension, metric, and load state, or a note when it is off or unreported ([semantic-traversal.md](semantic-traversal.md)). Everything that used to crowd the Dashboard now has its own rail entry — the sample gallery is **Samples**, the plugin inventories and registry are **Plugins**, persistence and administration are **Save games**, and the stored-query library is on **Query**.
 
-- **Embedding provider** — backend, model, dimension, metric, and load state, or a note when it is off or unreported ([semantic-traversal.md](semantic-traversal.md)).
-- **Sample graphs** — one-click demo datasets plus a live "any GitHub repo" dependency card; loading into a non-empty graph erases it first behind a typed confirm ([samples.md](samples.md)).
-- **Administration** — Save namespace, Save all namespaces, Trim, Load, Erase namespace, Factory reset (the destructive actions require typing the target name), plus jsonl Export (optionally filtered by label) and Import — import requires an empty graph ([bulk-import-export.md](bulk-import-export.md)).
-- **Stored queries** — register and inspect named path/subgraph queries ([stored-queries.md](stored-queries.md)).
+## Samples
+
+![Samples screen](images/screen-samples.png)
+
+The one-click demo-graph gallery. Each full-width card names a curated dataset, its vertex/edge counts, its capability badges, and a **what you can test** list; **Load** fetches the dataset, imports it, builds its indices, and drops it onto the canvas with the sample's style. A tag bar at the top filters the gallery by capability (canvas / path / analytics / semantic / spatial). A live **Any GitHub repo** card ingests any public repository's dependency graph just-in-time, and a **Scale** card points at the Benchmark tab's server-side generator. Loading into a non-empty graph erases it first behind a typed confirm — save a checkpoint or switch namespaces to keep the current data. Walkthrough with queries: [samples.md](samples.md).
 
 ## Browser
 
@@ -52,6 +55,8 @@ Look up a graph element, vertex, or edge by id. The inspector shows the label, t
 ![Query screen](images/screen-query.png)
 
 Two modes. A **property scan** takes a property id, a comparison operator, a typed literal, and a result type (Vertices / Edges / Both). **Ask an index** picks from the live inventory and offers only the forms the index answers: equality/operator, range, fulltext, spatial, or vector (kNN). A vector query is entered as a pasted vector or as text embedded server-side by the provider, with `k`, an element-kind filter, and a label constraint. Results report the id count, a vector metric legend (higher/lower is better), fulltext highlights, and a scored table. Index semantics live in [indexes.md](indexes.md) and [vector-search.md](vector-search.md).
+
+Below the query workspace, the **Stored queries** table is the named path/subgraph library's management home — list, read-only source, recompile diagnostics, delete, and Open-in cross-links that pre-select an entry on the Path or Subgraph screen. Registration itself happens on Path/Subgraph, where a fragment can be tested before it is captured ([stored-queries.md](stored-queries.md)).
 
 ## Canvas
 
@@ -86,6 +91,12 @@ A table lists existing subgraphs (with a badge for semantic ones) offering To ca
 
 **Graph shape** runs an on-demand `GET /statistics` pass — counts, top vertex/edge labels and property keys, degree percentiles, and the index list; its snapshot also feeds identifier suggestions across Studio. **Run** picks an algorithm from the live plugin list, scopes it by vertex label / edge property / direction, and sets max results, max iterations, and a time budget (PageRank adds damping and epsilon). Optional **write-back** stamps each score onto a vertex property (snapshot-durable only), which you can then color by on the Canvas to read results spatially. The result panel shows convergence, statistics, partitions with paged members, and a scored table. A run already in progress returns 429; an exhausted budget returns 408. Algorithms and semantics: [graph-analytics.md](graph-analytics.md).
 
+## Plugins
+
+![Plugins screen](images/screen-plugins.png)
+
+The one home for everything plugin-related. The top row shows the **built-in plugin families** discovered on the engine (index / path / analytics) from `GET /status`. Below it, the **registry** table lists the active namespace's runtime-authored, compile-validated plugins — name, category, contract, and compile-state badge — with read-only source and recompile diagnostics, a function runner for a registered graph function, and delete (entries are immutable: delete and re-register is the edit flow). **Register plugin…** opens the whole-type authoring editor. Registrations are per namespace. Concept and REST: [plugins.md](plugins.md).
+
 ## Indexes
 
 ![Indexes screen](images/screen-indexes.png)
@@ -96,7 +107,9 @@ The inventory table shows each index's id, type, query capabilities, key/value c
 
 ![Save games screen](images/screen-savegames.png)
 
-The persistent checkpoint registry as a Fallen-8-level table: saved-at, trigger, member namespaces, aggregate counts, file count, and size. "Save all namespaces" writes one entry spanning every namespace; **Load** restores the entire entry or a single namespace (typed confirm); **Delete** optionally removes the checkpoint files on disk. Semantics: [save-games.md](save-games.md).
+The persistence home. The top is the persistent checkpoint registry as a Fallen-8-level table: saved-at, trigger, member namespaces, aggregate counts, file count, and size. "Save all namespaces" writes one entry spanning every namespace; **Load** restores the entire entry or a single namespace (typed confirm); **Delete** optionally removes the checkpoint files on disk. Semantics: [save-games.md](save-games.md).
+
+Below it, the **Administration** section holds the namespace-scoped persistence and lifecycle actions (they act on the active namespace shown in the top bar): **Save namespace**, **Trim**, **Load** from a checkpoint path, **Erase namespace**, and the Fallen-8-wide **Factory reset** (the destructive actions require typing the target name). An **interchange (jsonl)** subsection exports the graph (optionally filtered by label) and imports jsonl into an empty graph — import requires an empty target, which the server enforces with a 409 ([bulk-import-export.md](bulk-import-export.md)).
 
 ## Benchmark
 

@@ -11,16 +11,10 @@ import type {
  * Dashboard embedding-provider card (feature embedding-out-of-box): the provider state
  * comes from the cheap /status surface — always known on a current server — with the
  * graph-shape snapshot as fallback for servers predating the /status field, and the
- * unknown state only when neither reports.
+ * unknown state only when neither reports. The Dashboard is otherwise lean now (samples,
+ * admin, stored queries and plugins each moved to their own rail entry), so this screen
+ * pulls in no Monaco and needs no editor mocks.
  */
-
-// The Dashboard mounts the Plugins panel, whose authoring editor pulls in Monaco (feature
-// plugin-registration). Mock it to keep this screen test free of the Monaco worker import,
-// exactly as the Path/Subgraph screen tests do.
-vi.mock("../src/delegate/monacoSetup", () => ({ setupMonaco: () => {}, monaco: {} }));
-vi.mock("@monaco-editor/react", () => ({
-  default: () => null,
-}));
 
 import { DashboardScreen } from "../src/screens/DashboardScreen";
 
@@ -85,7 +79,7 @@ function renderDashboard(statusRest: StatusREST, statistics?: GraphStatisticsRES
 }
 
 beforeEach(() => {
-  // Any unmocked query (e.g. the stored-queries panel) resolves harmlessly.
+  // A background /status or /statistics refetch resolves harmlessly against this stub.
   vi.stubGlobal("fetch", vi.fn(async () => new Response("null", { status: 200 })));
 });
 
