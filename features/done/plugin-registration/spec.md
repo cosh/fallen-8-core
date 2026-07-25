@@ -280,6 +280,14 @@ The `EnableDynamicCodeExecution` flag referenced in older feature docs **no long
 authentication + rate-limit only). The surviving analogous switch is `EnableDynamicPluginLoading`
 (`Fallen8:Security`, default false), today gating `PUT /plugin`.
 
+> **Update (2026-07-25, post-review):** the gate default was flipped to **ON**
+> (`EnableDynamicPluginLoading = true`) — consistent with the always-on dynamic-code model — and made
+> **per-namespace overridable**: `PATCH /ns/{name}` accepts `pluginRegistration`
+> (`enabled`/`disabled`/`inherit`), persisted on the namespace catalog (the default namespace's
+> override rides on the catalog document); the authorization handler resolves the addressed
+> namespace's override ahead of the global default. The "on ⇒ 201 / off ⇒ 403" matrix below still
+> holds per the effective (namespace-resolved) value.
+
 **Repurpose `EnableDynamicPluginLoading`** as the registration gate for the new typed endpoints (its
 `DynamicPluginPolicy` + `DynamicCapabilityAuthorization` handler reused as-is — same default-off
 "provisioning window" semantics, minus the DLL). Registration (`POST /plugins/algorithm`,

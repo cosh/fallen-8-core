@@ -274,8 +274,10 @@ namespace NoSQL.GraphDB.Tests
             using var missing = await client.PatchAsync("/ns/missing", Json("{\"name\":\"target\"}"));
             await AssertProblem(missing, HttpStatusCode.NotFound, "Namespace not found");
 
+            // PATCH now accepts a rename AND/OR a plugin-registration override (feature
+            // plugin-registration); an empty body supplies neither.
             using var badBody = await client.PatchAsync("/ns/fl-eu", Json("{}"));
-            await AssertProblem(badBody, HttpStatusCode.BadRequest, "Invalid namespace name");
+            await AssertProblem(badBody, HttpStatusCode.BadRequest, "Invalid namespace update");
         }
 
         /// <summary>

@@ -48,6 +48,18 @@ namespace NoSQL.GraphDB.App.Namespaces
         {
             get; set;
         } = new List<NamespaceCatalogEntry>();
+
+        /// <summary>
+        ///   The default namespace's per-namespace plugin-registration override (feature
+        ///   plugin-registration). The default namespace is implicit (it has no
+        ///   <see cref="NamespaceCatalogEntry"/>), so its override is stored here. Null ⇒ inherit the
+        ///   global <c>Fallen8:Security:EnableDynamicPluginLoading</c> default.
+        /// </summary>
+        [JsonPropertyName("defaultPluginRegistrationEnabled")]
+        public Boolean? DefaultPluginRegistrationEnabled
+        {
+            get; set;
+        }
     }
 
     /// <summary>One cataloged namespace: its immutable id (the on-disk key) and its current name.</summary>
@@ -68,6 +80,17 @@ namespace NoSQL.GraphDB.App.Namespaces
         /// <summary>ISO-8601 UTC creation instant.</summary>
         [JsonPropertyName("createdAt")]
         public String CreatedAt
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   This namespace's plugin-registration override (feature plugin-registration). Null ⇒
+        ///   inherit the global <c>Fallen8:Security:EnableDynamicPluginLoading</c> default; true/false
+        ///   force it on/off for this namespace regardless of the global value.
+        /// </summary>
+        [JsonPropertyName("pluginRegistrationEnabled")]
+        public Boolean? PluginRegistrationEnabled
         {
             get; set;
         }

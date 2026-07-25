@@ -243,6 +243,46 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreNotEqual(HttpStatusCode.Unauthorized, response.StatusCode, "With a valid key the request must not be 401.");
         }
 
+        [TestMethod]
+        public async Task PluginRegistration_PerNamespaceOverride_GatesThatNamespaceOnly()
+        {
+            // Global default ON (feature plugin-registration: enabled by default).
+            using var factory = NewHost(enablePlugin: true);
+            using var client = Client(factory, withKey: true);
+
+            using (var create = await client.PutAsync("/ns/ns-gate", null))
+            {
+                Assert.AreEqual(HttpStatusCode.Created, create.StatusCode, "namespace create should succeed");
+            }
+
+            // A fresh namespace inherits the global default (ON) — not gated off.
+            using (var before = await client.PostAsync("/ns/ns-gate/plugins/function", FunctionRegistrationBody()))
+            {
+                Assert.AreNotEqual(HttpStatusCode.Forbidden, before.StatusCode,
+                    "with the global default ON, a fresh namespace must not be 403");
+            }
+
+            // Disable registration on JUST that namespace via the per-namespace override.
+            using (var patch = await client.PatchAsync("/ns/ns-gate",
+                new StringContent("{\"pluginRegistration\":\"disabled\"}", Encoding.UTF8, "application/json")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, patch.StatusCode, "the per-namespace override PATCH should succeed");
+            }
+
+            using (var after = await client.PostAsync("/ns/ns-gate/plugins/function", FunctionRegistrationBody()))
+            {
+                Assert.AreEqual(HttpStatusCode.Forbidden, after.StatusCode,
+                    "the namespace with pluginRegistration=disabled must now be 403");
+            }
+
+            // The default namespace still follows the (ON) global default — the override is scoped.
+            using (var onDefault = await client.PostAsync("/plugins/function", FunctionRegistrationBody()))
+            {
+                Assert.AreNotEqual(HttpStatusCode.Forbidden, onDefault.StatusCode,
+                    "the default namespace must stay enabled — the override applies only to ns-gate");
+            }
+        }
+
         #endregion
     }
 }

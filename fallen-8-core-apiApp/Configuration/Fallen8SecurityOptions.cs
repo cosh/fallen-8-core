@@ -69,17 +69,24 @@ namespace NoSQL.GraphDB.App.Configuration
         public String ApiKeyHeader { get; set; } = "X-Api-Key";
 
         /// <summary>
-        ///   Master switch for runtime plugin REGISTRATION (POST /plugins/*, feature
-        ///   plugin-registration). Default false: a disabled server returns 403 to a registration
-        ///   attempt and compiles nothing. It gates only the introduction surface - invoking an
-        ///   already-registered plugin, listing, and deletion are never gated by this switch. (It
-        ///   formerly gated the removed PUT /plugin DLL upload; the DLL path no longer exists.)
+        ///   The GLOBAL default for runtime plugin REGISTRATION (POST /plugins/*, feature
+        ///   plugin-registration). Default <b>true</b>: registration is on unless an operator disables
+        ///   it - consistent with the always-on dynamic-code model (compiled path/subgraph fragments
+        ///   already run unconditionally, so gating source plugin registration off by default was
+        ///   inconsistent). It gates only the introduction surface - invoking an already-registered
+        ///   plugin, listing, and deletion are never gated by this switch.
+        ///
+        ///   <para>This is the per-instance DEFAULT; an individual namespace can override it (enable
+        ///   or disable) via <c>PATCH /ns/{name}</c> (<c>pluginRegistrationEnabled</c>), which the
+        ///   authorization gate resolves ahead of this global value.</para>
         ///
         ///   <para>HONEST LIMIT: a registered plugin still runs IN-PROCESS WITH FULL TRUST when
         ///   invoked. This narrows who can INTRODUCE code and makes it visible/validated/logged - it is
-        ///   not a sandbox.</para>
+        ///   not a sandbox. On an unauthenticated internet-facing instance this is an open
+        ///   code-execution surface, so set an API key (as the always-on code endpoints already
+        ///   require).</para>
         /// </summary>
-        public Boolean EnableDynamicPluginLoading { get; set; } = false;
+        public Boolean EnableDynamicPluginLoading { get; set; } = true;
 
         /// <summary>
         ///   Origins allowed by the CORS policy. Empty (default) means deny all cross-origin requests.

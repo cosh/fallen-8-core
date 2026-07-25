@@ -480,7 +480,7 @@ namespace NoSQL.GraphDB.Tests
                     },
                     MaxNamespaces = 10000
                 }, "NamespacesREST"),
-                (new NamespaceRenameSpecification { Name = "fl-eu" }, "NamespaceRenameSpecification"),
+                (new NamespaceUpdateSpecification { Name = "fl-eu", PluginRegistration = "disabled" }, "NamespaceUpdateSpecification"),
                 (new SaveGameNamespaceREST
                 {
                     Name = "flights",

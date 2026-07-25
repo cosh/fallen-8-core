@@ -154,7 +154,12 @@ namespace NoSQL.GraphDB.App.Namespaces
             // Semantically bad entries are SKIPPED LOUDLY (an unreadable catalog still throws): a
             // "default"-named entry would split-brain the bare alias against /ns/default, and a
             // duplicate/invalid name would silently overwrite (leaking an engine + WAL handle).
-            foreach (var entry in LoadCatalog().Namespaces)
+            var catalog = LoadCatalog();
+            // The default namespace's plugin-registration override (feature plugin-registration) is
+            // stored on the document, since default has no catalog entry.
+            Default.PluginRegistrationEnabled = catalog.DefaultPluginRegistrationEnabled;
+
+            foreach (var entry in catalog.Namespaces)
             {
                 if (String.Equals(entry.Name, DefaultName, StringComparison.Ordinal)
                     || !IsValidName(entry.Name)
@@ -172,7 +177,10 @@ namespace NoSQL.GraphDB.App.Namespaces
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var stamp)
                     ? stamp
                     : DateTime.UtcNow;
-                var ns = new Namespace(entry.Name, entry.Id, CreateEngine(ResolveNamespaceWalPath(entry.Id), entry.Id), createdAt);
+                var ns = new Namespace(entry.Name, entry.Id, CreateEngine(ResolveNamespaceWalPath(entry.Id), entry.Id), createdAt)
+                {
+                    PluginRegistrationEnabled = entry.PluginRegistrationEnabled,
+                };
                 _byName[entry.Name] = ns;
             }
         }
@@ -370,6 +378,47 @@ namespace NoSQL.GraphDB.App.Namespaces
             }
 
             _logger.LogInformation("Renamed namespace \"{OldName}\" to \"{NewName}\" ({Id}).", name, ns.Name, ns.Id);
+            failure = NamespaceFailure.None;
+            return true;
+        }
+
+        /// <summary>
+        ///   Sets a namespace's plugin-registration override (feature plugin-registration): true/false
+        ///   forces registration on/off for that namespace, null clears the override so it inherits the
+        ///   global <c>Fallen8:Security:EnableDynamicPluginLoading</c> default. Unlike rename, the
+        ///   reserved <c>default</c> namespace IS settable (its override persists on the catalog
+        ///   document). Persisted atomically; rolled back on a write failure.
+        /// </summary>
+        public Boolean TrySetPluginRegistration(String name, Boolean? enabled, out Namespace ns, out NamespaceFailure failure)
+        {
+            ns = null;
+
+            lock (_writeLock)
+            {
+                if (!_byName.TryGetValue(name, out ns))
+                {
+                    ns = null;
+                    failure = NamespaceFailure.NotFound;
+                    return false;
+                }
+
+                var previous = ns.PluginRegistrationEnabled;
+                ns.PluginRegistrationEnabled = enabled;
+
+                try
+                {
+                    WriteCatalogUnlocked(_byName.Values);
+                }
+                catch
+                {
+                    ns.PluginRegistrationEnabled = previous;
+                    ns = null;
+                    throw;
+                }
+            }
+
+            _logger.LogInformation("Set plugin registration for namespace \"{Name}\" ({Id}) to {Value}.",
+                ns.Name, ns.Id, enabled.HasValue ? enabled.Value.ToString() : "inherit");
             failure = NamespaceFailure.None;
             return true;
         }
@@ -575,7 +624,12 @@ namespace NoSQL.GraphDB.App.Namespaces
                 return;
             }
 
-            var document = new NamespaceCatalogDocument();
+            var document = new NamespaceCatalogDocument
+            {
+                // The default namespace is implicit (no entry below), so its plugin-registration
+                // override rides on the document itself (feature plugin-registration).
+                DefaultPluginRegistrationEnabled = Default.PluginRegistrationEnabled,
+            };
             foreach (var ns in namespaces.OrderBy(n => n.Name, StringComparer.Ordinal))
             {
                 if (ReferenceEquals(ns, Default))
@@ -588,6 +642,7 @@ namespace NoSQL.GraphDB.App.Namespaces
                     Id = ns.Id,
                     Name = ns.Name,
                     CreatedAt = ns.CreatedAtUtc.ToString(CreatedAtFormat),
+                    PluginRegistrationEnabled = ns.PluginRegistrationEnabled,
                 });
             }
 

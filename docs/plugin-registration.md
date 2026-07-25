@@ -89,12 +89,18 @@ is returned as `400` with the compiler/contract diagnostics — the same shape t
 
 ## The gate
 
-Registration requires the dynamic-plugin capability
-(`Fallen8:Security:EnableDynamicPluginLoading`, **default off** — a provisioning window) plus
-authentication. Everything else — invoking a registered plugin, listing, getting, and deleting —
-requires only the standard authentication, never the switch. So an operator registers a vetted set
-while the switch is on, then runs day-to-day with it off; the introduction surface is closed while
-the registered plugins keep working. See [security.md](security.md).
+Registration requires the dynamic-plugin capability plus authentication. The capability is
+**on by default** — `Fallen8:Security:EnableDynamicPluginLoading` (default `true`) is the
+per-instance global default, and any namespace can **override** it (enable or disable) with
+`PATCH /ns/{name}` `{ "pluginRegistration": "enabled" | "disabled" | "inherit" }`. The gate resolves
+the addressed namespace's override first, then the global default. Everything else — invoking a
+registered plugin, listing, getting, and deleting — requires only the standard authentication, never
+the capability. So you can leave registration on everywhere, or disable it on a specific
+(e.g. shared/untrusted) namespace while others keep authoring. See [security.md](security.md).
+
+Default-on is deliberate and consistent with the always-on dynamic-code model (inline path/subgraph
+C# fragments already compile unconditionally); it is **not** a sandbox — a registered plugin runs
+full-trust, so an internet-facing instance must set an API key.
 
 ## Namespace scoping
 

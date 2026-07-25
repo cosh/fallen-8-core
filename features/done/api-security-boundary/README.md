@@ -35,7 +35,7 @@ Fallen-8's core "queries are C#" model, so there is no switch for it. Runtime pl
 |-----|---------|---------|
 | `ApiKey` | `null` | The secret required in the API-key header. **Supply via user-secrets/environment, never checked in.** When null the server runs **unauthenticated** (logs a warning) — only acceptable behind loopback. |
 | `ApiKeyHeader` | `X-Api-Key` | Header carrying the key. |
-| `EnableDynamicPluginLoading` | `false` | Master switch for source plugin **registration** (`POST /plugins/*`). Off ⇒ **403**, nothing compiled. Invoking/listing/deleting a registered plugin is never gated by it. (There is no equivalent switch for the always-on Roslyn compile endpoints.) |
+| `EnableDynamicPluginLoading` | `true` | GLOBAL DEFAULT for source plugin **registration** (`POST /plugins/*`). On by default (consistent with the always-on Roslyn compile endpoints); a namespace can override it via `PATCH /ns/{name}` `pluginRegistration` (enabled/disabled/inherit). When effectively off ⇒ **403**, nothing compiled. Invoking/listing/deleting a registered plugin is never gated by it. |
 | `AllowedCorsOrigins` | `[]` | CORS allow-list. Empty ⇒ deny all cross-origin. No wildcard-with-credentials. |
 | `SensitiveRateLimitPermitPerWindow` | `30` | Requests allowed per window on the code/plugin endpoints (429 on breach). |
 | `RateLimitWindowSeconds` | `10` | Fixed-window length for that limiter. |

@@ -25,8 +25,10 @@
 
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
+using NoSQL.GraphDB.App.Namespaces;
 
 namespace NoSQL.GraphDB.App.Security
 {
@@ -66,12 +68,18 @@ namespace NoSQL.GraphDB.App.Security
     {
         private readonly Fallen8SecurityOptions _security;
         private readonly Fallen8EmbeddingOptions _embedding;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly Fallen8Namespaces _namespaces;
 
         public DynamicCapabilityAuthorizationHandler(IOptions<Fallen8SecurityOptions> security,
-            IOptions<Fallen8EmbeddingOptions> embedding)
+            IOptions<Fallen8EmbeddingOptions> embedding,
+            IHttpContextAccessor httpContextAccessor,
+            Fallen8Namespaces namespaces)
         {
             _security = security.Value;
             _embedding = embedding.Value;
+            _httpContextAccessor = httpContextAccessor;
+            _namespaces = namespaces;
         }
 
         protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, DynamicCapabilityRequirement requirement)
@@ -80,15 +88,21 @@ namespace NoSQL.GraphDB.App.Security
             // agent-emitted C# fragments is Fallen-8's core "queries are C#" model, so the compile
             // endpoints (/path, /subgraph, /delegates/validate, /storedquery) are never gated off -
             // they carry only the standard auth (the fallback policy, required when an API key is
-            // configured). Plugin DLL loading and the embedding provider stay opt-in.
-            var enabled = requirement.Which switch
+            // configured). Plugin registration and the embedding provider stay operator-controlled.
+            bool enabled;
+            switch (requirement.Which)
             {
-                DynamicCapabilityRequirement.Capability.DynamicPluginLoading => _security.EnableDynamicPluginLoading,
-                DynamicCapabilityRequirement.Capability.EmbeddingProvider => _embedding.Enabled,
+                case DynamicCapabilityRequirement.Capability.DynamicPluginLoading:
+                    enabled = ResolvePluginRegistrationEnabled();
+                    break;
+                case DynamicCapabilityRequirement.Capability.EmbeddingProvider:
+                    enabled = _embedding.Enabled;
+                    break;
                 // Explicit so a capability added later cannot silently inherit the plugin gate.
-                _ => throw new System.ArgumentOutOfRangeException(nameof(requirement),
-                    requirement.Which, "Unhandled dynamic capability")
-            };
+                default:
+                    throw new System.ArgumentOutOfRangeException(nameof(requirement),
+                        requirement.Which, "Unhandled dynamic capability");
+            }
 
             if (enabled)
             {
@@ -96,6 +110,33 @@ namespace NoSQL.GraphDB.App.Security
             }
 
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        ///   Resolves plugin-registration for the ADDRESSED namespace (feature plugin-registration):
+        ///   the namespace's per-namespace override wins, and the global
+        ///   <see cref="Fallen8SecurityOptions.EnableDynamicPluginLoading"/> default is the fallback.
+        ///   The <c>ns</c> route value is populated by routing before authorization runs (the same
+        ///   source <c>AddressedFallen8</c> reads); a bare route or an unknown namespace falls back to
+        ///   the default namespace / global default (the validation filter 404s an unknown namespace
+        ///   before the action runs regardless).
+        /// </summary>
+        private bool ResolvePluginRegistrationEnabled()
+        {
+            var name = _httpContextAccessor.HttpContext?
+                .Request.RouteValues[NamespaceRouteConvention.RouteParameterName] as string;
+
+            Namespace ns;
+            if (name == null)
+            {
+                ns = _namespaces.Default;
+            }
+            else if (!_namespaces.TryGet(name, out ns))
+            {
+                ns = null;
+            }
+
+            return ns?.PluginRegistrationEnabled ?? _security.EnableDynamicPluginLoading;
         }
     }
 }

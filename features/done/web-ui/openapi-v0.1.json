@@ -3250,8 +3250,8 @@
         "tags": [
           "Namespaces"
         ],
-        "summary": "Renames a namespace",
-        "description": "Rename is a pure metadata operation: the engine, its data, and its on-disk locations\r\n(keyed by the immutable namespace id) are untouched — only the URL address changes.\r\nThe reserved \"default\" namespace cannot be renamed.",
+        "summary": "Updates a namespace: rename it and/or set its plugin-registration override",
+        "description": "Rename is a pure metadata operation: the engine, its data, and its on-disk locations\r\n(keyed by the immutable namespace id) are untouched — only the URL address changes. The\r\nreserved \"default\" namespace cannot be RENAMED, but its plugin-registration override CAN\r\nbe set. \"pluginRegistration\" is \"enabled\"/\"disabled\"/\"inherit\" (feature\r\nplugin-registration): it overrides Fallen8:Security:EnableDynamicPluginLoading for this\r\nnamespace (\"inherit\" clears the override). Supply at least one of the two fields.",
         "parameters": [
           {
             "name": "name",
@@ -3278,16 +3278,16 @@
           }
         ],
         "requestBody": {
-          "description": "The new name",
+          "description": "The update: an optional new name and/or a plugin-registration override",
           "content": {
             "application/json; ver=0.1": {
               "schema": {
-                "$ref": "#/components/schemas/NamespaceRenameSpecification"
+                "$ref": "#/components/schemas/NamespaceUpdateSpecification"
               }
             },
             "application/*+json; ver=0.1": {
               "schema": {
-                "$ref": "#/components/schemas/NamespaceRenameSpecification"
+                "$ref": "#/components/schemas/NamespaceUpdateSpecification"
               }
             }
           },
@@ -3295,7 +3295,7 @@
         },
         "responses": {
           "200": {
-            "description": "The namespace was renamed",
+            "description": "The namespace was updated",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -3315,7 +3315,7 @@
             }
           },
           "400": {
-            "description": "The new name is missing, empty/whitespace-padded, too long, \".\"/\"..\", or contains \"/\", \"\\\", or a control character",
+            "description": "Neither field supplied, an invalid new name, or an unrecognized \"pluginRegistration\" value",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -3375,7 +3375,7 @@
             }
           },
           "409": {
-            "description": "The new name is already in use, or the namespace is \"default\"",
+            "description": "The new name is already in use, or a rename of the reserved \"default\" namespace",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -15437,19 +15437,6 @@
         },
         "description": "One label (or property key) with its element count. When the response is\r\n    sampled, counts are AS COUNTED IN THE SAMPLE (multiply by sampleStride to extrapolate)."
       },
-      "NamespaceRenameSpecification": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "description": "The new namespace name. Permissive: 1-63 characters of any case, spaces, punctuation, or\r\nUnicode; only empty/whitespace-only, leading/trailing whitespace, \".\" / \"..\", \"/\", \"\\\", and\r\ncontrol characters are rejected. Case-sensitive."
-          }
-        },
-        "description": "Request body for renaming a namespace."
-      },
       "NamespaceREST": {
         "type": "object",
         "properties": {
@@ -15491,6 +15478,13 @@
               "string"
             ],
             "description": "When the namespace was created (UTC, ISO 8601)."
+          },
+          "pluginRegistrationEnabled": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "This namespace's plugin-registration override (feature plugin-registration):\r\n`true`/`false` when set explicitly, `null` when it inherits the global\r\n`Fallen8:Security:EnableDynamicPluginLoading` default."
           }
         },
         "description": "One namespace as the REST surface reports it (feature graph-namespaces). No memory\r\nfigure by design: engines share one GC heap, so a per-namespace byte count would be\r\nfiction (spec §5.3)."
@@ -15519,6 +15513,26 @@
           }
         },
         "description": "The namespace list with its configured ceiling."
+      },
+      "NamespaceUpdateSpecification": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional new namespace name (rename). Permissive: 1-63 characters of any case, spaces,\r\npunctuation, or Unicode; only empty/whitespace-only, leading/trailing whitespace,\r\n\".\" / \"..\", \"/\", \"\\\", and control characters are rejected. Case-sensitive. Omit to leave\r\nthe name unchanged."
+          },
+          "pluginRegistration": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional plugin-registration override (feature plugin-registration):\r\n`\"enabled\"` | `\"disabled\"` | `\"inherit\"`. Omit (or null) to leave it\r\nunchanged; `\"inherit\"` clears the override so this namespace follows the global\r\n`Fallen8:Security:EnableDynamicPluginLoading` default."
+          }
+        },
+        "description": "Request body for updating a namespace via `PATCH /ns/{name}`: rename it and/or set its\r\nplugin-registration override. Both fields are optional; supply at least one."
       },
       "PartitionMembersREST": {
         "type": "object",
