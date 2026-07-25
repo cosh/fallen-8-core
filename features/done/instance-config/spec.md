@@ -1,7 +1,8 @@
 # Instance configuration + unified semantic gateway — Spec
 
-Status: **open** (spec/plan; not yet implemented). Revised after an adversarial spec review
-(technical-correctness, cross-feature-completeness, right-sizing critics).
+Status: **implemented** (all seven phases landed; full .NET + web-ui suites green). Shipped on
+the combined `feature/studio-and-config` branch alongside the Studio nav-reorg. Revised after
+an adversarial spec review (technical-correctness, cross-feature-completeness, right-sizing).
 
 ## Summary
 
