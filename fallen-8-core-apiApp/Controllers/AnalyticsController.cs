@@ -100,7 +100,26 @@ namespace NoSQL.GraphDB.App.Controllers
         public IActionResult GetAvailableAlgorithms()
         {
             PluginFactory.TryGetAvailablePluginsWithDescriptions<IGraphAnalyticsAlgorithm>(out var algorithms);
-            return Ok(algorithms ?? new Dictionary<String, String>());
+            var result = algorithms ?? new Dictionary<String, String>();
+
+            // Union the addressed namespace's runtime-registered analytics plugins (feature
+            // plugin-registration §4.4): a registered analytics plugin resolves by name through
+            // POST /analytics/{name}, so it must appear in the list a picker binds to.
+            var registry = _fallen8.Plugins;
+            if (registry != null)
+            {
+                foreach (var entry in registry.GetAll())
+                {
+                    if (entry.CompileState == NoSQL.GraphDB.Core.Plugins.PluginCompileState.Compiled &&
+                        entry.Definition.Contract == NoSQL.GraphDB.Core.Plugins.PluginContract.Analytics &&
+                        !result.ContainsKey(entry.Definition.Name))
+                    {
+                        result[entry.Definition.Name] = entry.Definition.Description ?? String.Empty;
+                    }
+                }
+            }
+
+            return Ok(result);
         }
 
         /// <summary>

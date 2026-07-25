@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Plugins;
@@ -151,6 +152,25 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(TransactionState.RolledBack, info.TransactionState);
             Assert.AreEqual(TransactionFailureReason.QuotaExceeded, info.FailureReason);
             Assert.AreEqual(2, _fallen8.Plugins.Count);
+        }
+
+        [TestMethod]
+        public void NamesForContract_ReturnsOnlyCompiledEntriesOfThatContract()
+        {
+            // The union surface (feature plugin-registration §4.4): a status/analytics "available"
+            // list unions these names with the built-ins. Only Compiled entries of the contract count.
+            Register(CompiledEntry("PathA"));
+            Register(CompiledEntry("PathB"));
+
+            // A Failed entry of the same contract must be excluded (it cannot be invoked).
+            var failed = new PluginEntry(Definition("PathFailed"), PluginCompileState.Failed, null, "boom");
+            var info = _fallen8.EnqueueTransaction(new RegisterPluginTransaction { Entry = failed });
+            info.WaitUntilFinished();
+            Assert.AreEqual(TransactionState.Finished, info.TransactionState);
+
+            var pathNames = new List<string>(_fallen8.Plugins.NamesForContract(PluginContract.Path));
+            CollectionAssert.AreEquivalent(new[] { "PathA", "PathB" }, pathNames);
+            Assert.AreEqual(0, _fallen8.Plugins.NamesForContract(PluginContract.Analytics).Count);
         }
 
         [TestMethod]

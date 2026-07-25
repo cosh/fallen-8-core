@@ -47,6 +47,7 @@ using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Plugin;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.Transaction;
@@ -169,6 +170,20 @@ namespace NoSQL.GraphDB.App.Controllers
 
             IEnumerable<String> availableServices;
             PluginFactory.TryGetAvailablePlugins<IService>(out availableServices);
+
+            // Union the addressed namespace's runtime-registered algorithm plugins (feature
+            // plugin-registration §4.4): a registered Path/Analytics plugin resolves by name, so it
+            // must also be DISCOVERABLE in the available-plugin lists, not just invocable. Index has no
+            // user-registrable category and functions have their own surface, so only these two lists
+            // union. Capture the registry once (Dispose may null it under a concurrent teardown).
+            var pluginRegistry = _fallen8.Plugins;
+            if (pluginRegistry != null)
+            {
+                availablePathAlgos = (availablePathAlgos ?? Enumerable.Empty<String>())
+                    .Concat(pluginRegistry.NamesForContract(PluginContract.Path)).Distinct().ToList();
+                availableAnalyticsAlgos = (availableAnalyticsAlgos ?? Enumerable.Empty<String>())
+                    .Concat(pluginRegistry.NamesForContract(PluginContract.Analytics)).Distinct().ToList();
+            }
 
             // Read-locked snapshot (id -> index); O(#indices) plus the per-index counts
             // (see IndexDescriptionREST.Values), no graph pass. A bound vector index

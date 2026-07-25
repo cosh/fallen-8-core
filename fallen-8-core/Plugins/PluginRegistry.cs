@@ -149,6 +149,29 @@ namespace NoSQL.GraphDB.Core.Plugins
         }
 
         /// <summary>
+        ///   Returns the names of every registered, currently-<see cref="PluginCompileState.Compiled"/>
+        ///   plugin of the given contract (feature plugin-registration): the set an enumeration surface
+        ///   (e.g. <c>GET /status</c>'s available-plugin lists, the analytics algorithm list) UNIONs
+        ///   with the built-ins so a registered plugin is discoverable, not just invocable by name
+        ///   (spec §4.4). Only Compiled entries are returned - a Failed/SourceOnly entry cannot be
+        ///   invoked, so advertising it would mislead. Lock-free snapshot read.
+        /// </summary>
+        public IReadOnlyList<String> NamesForContract(PluginContract contract)
+        {
+            var snap = Volatile.Read(ref _snapshot);
+            var result = new List<String>();
+            foreach (var kv in snap)
+            {
+                var entry = kv.Value;
+                if (entry.CompileState == PluginCompileState.Compiled && entry.Definition.Contract == contract)
+                {
+                    result.Add(entry.Definition.Name);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
         ///   Returns a point-in-time list of all registered entries (lock-free snapshot read).
         /// </summary>
         public IReadOnlyList<PluginEntry> GetAll()
