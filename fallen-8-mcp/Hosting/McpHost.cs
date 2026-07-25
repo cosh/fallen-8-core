@@ -106,6 +106,10 @@ namespace NoSQL.GraphDB.Mcp.Hosting
             services.AddSingleton<IMcpTool, SearchTool>();
             services.AddSingleton<IMcpTool, PathsTool>();
             services.AddSingleton<IMcpTool, AnalyticsTool>();
+            // f8_plugins is Read tier (list/get/invoke always available); its delete op is gated on the
+            // write capability and its register_* ops on the code capability, per-op (feature
+            // plugin-registration).
+            services.AddSingleton<IMcpTool, PluginsTool>();
 
             // Write tier (Mcp:Tools:EnableWrite) — absent from tools/list and rejected on call when off.
             services.AddSingleton<IMcpTool, MutateTool>();
