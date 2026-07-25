@@ -430,8 +430,12 @@ namespace NoSQL.GraphDB.Tests
         #endregion
 
         [TestMethod]
-        public void TagHygiene_NoUserSuppliedStringEverBecomesATagValue()
+        public void TagHygiene_NoGraphContentEverBecomesATagValue()
         {
+            // The narrowed invariant (feature fleet-observability §3.3): no GRAPH CONTENT (labels,
+            // index names, property keys, filter fragments) ever becomes a metric tag. Identity
+            // dimensions (tenant/instance/namespace id + name) are the allowed exception and are
+            // covered by NamespaceCollectionTest's info-gauge + scope-tag tests, not here.
             const string userLabel = "userSuppliedLabelXYZZY";
             const string userProperty = "userSuppliedKeyXYZZY";
             const string userIndexName = "userIndexNameXYZZY";
@@ -473,7 +477,7 @@ namespace NoSQL.GraphDB.Tests
                     Assert.IsFalse(
                         value.Contains(userLabel) || value.Contains(userProperty) ||
                         value.Contains(userIndexName) || value.Contains(userFragmentMarker),
-                        $"metric tag {tag.Key}='{value}' on {measurement.Instrument} must never carry user input");
+                        $"metric tag {tag.Key}='{value}' on {measurement.Instrument} must never carry graph content");
                 }
             }
         }

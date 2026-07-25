@@ -1,0 +1,148 @@
+# Fallen-8 fleet observability stack (feature fleet-observability): the CONSUMER side that
+# collects the OpenTelemetry data the Fallen-8 apiApp and MCP server push, and presents it in
+# one Grafana pane. Always brought up with `npm run env:up` (scripts/env-up.js includes this
+# file unconditionally, alongside the base compose and the conditional GPU override), so a
+# first-time user sees metrics, traces, and logs immediately.
+#
+#   OTel Collector  http://localhost:4317 (gRPC) / :4318 (HTTP)  - external F8s push here
+#   Grafana         http://localhost:${F8_GRAFANA_PORT:-3000}     - the single pane (open, trusted-network)
+#
+# Prometheus / Tempo / Loki are internal (reachable only on f8-net). Push-only: nothing scrapes
+# the producers. Dashboards + datasources are provisioned from ./observability, so the whole
+# thing is reproducible on every up. Managed as one unit with the rest of the environment.
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector/config.yaml"]
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
+    ports:
+      # Published so Fallen-8 instances OUTSIDE this compose can push to the fleet collector.
+      - "${F8_OTLP_GRPC_PORT:-4317}:4317"
+      - "${F8_OTLP_HTTP_PORT:-4318}:4318"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    networks:
+      - f8-net
+
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-remote-write-receiver
+      - --web.enable-otlp-receiver
+      - --enable-feature=exemplar-storage
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - f8-prometheus-data:/prometheus
+    expose:
+      - "9090"
+    healthcheck:
+      # prom/prometheus is busybox-based, so wget is available.
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      - f8-net
+
+  tempo:
+    image: grafana/tempo:3.0.2
+    restart: unless-stopped
+    command: ["-target=all", "-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - f8-tempo-data:/var/tempo
+    expose:
+      - "3200"   # Tempo HTTP API (Grafana queries + /ready)
+      - "4317"   # OTLP gRPC receiver (the collector pushes traces here)
+    healthcheck:
+      # Distroless image: no shell/wget. Use the binary's built-in health check.
+      test: ["CMD", "/tempo", "-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - f8-net
+
+  loki:
+    image: grafana/loki:3.7.4
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./observability/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - f8-loki-data:/loki
+    expose:
+      - "3100"
+    healthcheck:
+      # Distroless since 3.6.0: no shell/wget. Use the binary's built-in health check.
+      test: ["CMD", "/usr/bin/loki", "-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - f8-net
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    environment:
+      # Trusted-network dev posture (matches the rest of the environment's no-auth default): open
+      # for viewing/editing without login. Set F8_GRAFANA_PASSWORD to lock the admin account.
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${F8_GRAFANA_PASSWORD:-admin}
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Editor
+      - GF_USERS_DEFAULT_THEME=dark
+      - GF_FEATURE_TOGGLES_ENABLE=traceToMetrics
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - f8-grafana-data:/var/lib/grafana
+    ports:
+      - "${F8_GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    healthcheck:
+      # grafana/grafana is Alpine-based, so wget is available.
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - f8-net
+
+volumes:
+  f8-prometheus-data:
+    name: f8-prometheus-data
+  f8-tempo-data:
+    name: f8-tempo-data
+  f8-loki-data:
+    name: f8-loki-data
+  f8-grafana-data:
+    name: f8-grafana-data
+
+networks:
+  f8-net:
+    name: f8-net
+    driver: bridge

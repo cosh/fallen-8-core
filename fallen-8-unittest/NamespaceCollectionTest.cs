@@ -332,7 +332,58 @@ namespace NoSQL.GraphDB.Tests
             {
                 Assert.IsTrue(scopeIds.Contains(namespaces.Default.Id), "the default engine's meter carries its id");
                 Assert.IsTrue(scopeIds.Contains(flights.Id), "a created engine's meter carries its id");
-                Assert.IsFalse(scopeIds.Contains("flights"), "the user-supplied NAME never becomes a tag value");
+                Assert.IsFalse(scopeIds.Contains("flights"),
+                    "the ENGINE meter's scope tag stays the id; the human namespace NAME rides on " +
+                    "fallen8_namespace_info / host-originated signals (feature fleet-observability §3.3), never here");
+            }
+        }
+
+        [TestMethod]
+        public void NamespaceInfoGauge_EmitsIdAndName_PerNamespace()
+        {
+            // Feature fleet-observability §3.4: the fallen8_namespace_info gauge is the id->name
+            // mapping a consumer joins engine metrics against. It emits value 1 per namespace with
+            // the scope id AND the human name - the name being the narrowed tag-hygiene invariant's
+            // allowed identity exception (§3.3). Tenant/instance ride the OTel resource (promoted by
+            // the collector), not gauge tags, so they are not asserted here.
+            var measurements = new List<(Int32 Value, Dictionary<String, Object> Tags)>();
+            using var listener = new System.Diagnostics.Metrics.MeterListener();
+            listener.InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == NoSQL.GraphDB.App.Diagnostics.AppDiagnostics.SourceName
+                    && instrument.Name == "fallen8.namespace.info")
+                {
+                    l.EnableMeasurementEvents(instrument);
+                }
+            };
+            listener.SetMeasurementEventCallback<Int32>((instrument, value, tags, state) =>
+            {
+                var captured = new Dictionary<String, Object>();
+                foreach (var tag in tags)
+                {
+                    captured[tag.Key] = tag.Value;
+                }
+                lock (measurements)
+                {
+                    measurements.Add((value, captured));
+                }
+            });
+            listener.Start();
+
+            using var namespaces = CreateCollection();
+            Assert.IsTrue(namespaces.TryCreate("flights", out var flights, out _));
+            using var info = new NoSQL.GraphDB.App.Diagnostics.NamespaceInfoMetrics(namespaces);
+
+            listener.RecordObservableInstruments();
+
+            lock (measurements)
+            {
+                Assert.IsTrue(measurements.Count >= 2, "one info row per namespace (default + flights)");
+                Assert.IsTrue(measurements.TrueForAll(m => m.Value == 1), "the info gauge value is always 1");
+                Assert.IsTrue(measurements.Exists(m =>
+                    m.Tags.TryGetValue("fallen8.scope.id", out var sid) && Equals(sid, flights.Id) &&
+                    m.Tags.TryGetValue("fallen8.namespace.name", out var nm) && Equals(nm, "flights")),
+                    "the created namespace's info row carries its id and its HUMAN name (the allowed identity exception)");
             }
         }
 

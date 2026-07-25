@@ -63,6 +63,14 @@ services:
       - Fallen8__Embedding__IntendedMetric=Cosine
       - Fallen8__Embedding__Ollama__Endpoint=http://ollama:11434
       - Fallen8__Embedding__Ollama__Model=bge-m3
+      # Fleet observability (feature fleet-observability): push metrics + traces + logs to the
+      # in-network collector and declare this instance's fleet identity. Always on with env:up;
+      # override the identity per deployment (F8_TENANT_ID / F8_INSTANCE_ID / ...).
+      - Fallen8__Observability__Otlp__Endpoint=http://otel-collector:4317
+      - Fallen8__Identity__Tenant__Id=${F8_TENANT_ID:-local}
+      - Fallen8__Identity__Tenant__Name=${F8_TENANT_NAME:-Local}
+      - Fallen8__Identity__Instance__Id=${F8_INSTANCE_ID:-f8-local}
+      - Fallen8__Identity__Instance__Name=${F8_INSTANCE_NAME:-Fallen-8 (compose)}
     volumes:
       - f8-data:/data
     healthcheck:
@@ -135,6 +143,14 @@ services:
       - Mcp__Tools__EnableWrite=${F8_MCP_ENABLE_WRITE:-false}
       - Mcp__Tools__EnableAdmin=${F8_MCP_ENABLE_ADMIN:-false}
       - Mcp__Tools__EnableCode=${F8_MCP_ENABLE_CODE:-false}
+      # Fleet observability (feature fleet-observability): push MCP telemetry to the same collector,
+      # declaring the SAME identity as the fallen8 instance it fronts, so the fleet dashboards
+      # resolve the MCP tool panels under that instance.
+      - Mcp__Observability__Otlp__Endpoint=http://otel-collector:4317
+      - Mcp__Identity__Tenant__Id=${F8_TENANT_ID:-local}
+      - Mcp__Identity__Tenant__Name=${F8_TENANT_NAME:-Local}
+      - Mcp__Identity__Instance__Id=${F8_INSTANCE_ID:-f8-local}
+      - Mcp__Identity__Instance__Name=${F8_INSTANCE_NAME:-Fallen-8 (compose)}
     depends_on:
       fallen8:
         condition: service_healthy

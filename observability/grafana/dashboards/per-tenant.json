@@ -1,0 +1,1413 @@
+{
+  "uid": "fallen8-per-tenant",
+  "title": "Fallen-8 - Tenant / instance drill-down",
+  "description": "Per tenant/instance/namespace: transaction, WAL, checkpoint, graph, index, codegen, HTTP, algorithm, and MCP-tool signals, plus scoped traces and logs.",
+  "tags": [
+    "fallen8",
+    "tenant",
+    "observability"
+  ],
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "timezone": "",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(fallen8_namespace_info, fallen8_tenant_id)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(fallen8_namespace_info, fallen8_tenant_id)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 2,
+        "regex": "",
+        "sort": 1
+      },
+      {
+        "name": "instance",
+        "label": "Instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(fallen8_namespace_info{fallen8_tenant_id=~\"$tenant\"}, fallen8_instance_id)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(fallen8_namespace_info{fallen8_tenant_id=~\"$tenant\"}, fallen8_instance_id)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 2,
+        "regex": "",
+        "sort": 1
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(fallen8_namespace_info{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}, fallen8_namespace_name)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(fallen8_namespace_info{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}, fallen8_namespace_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 2,
+        "regex": "",
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Transactions",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Commit duration p50 / p90 / p99",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "p50 {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.50, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_transaction_commit_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "p90 {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.90, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_transaction_commit_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "p99 {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.99, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_transaction_commit_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Execute duration p50 / p90 / p99",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "p50 {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.50, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_transaction_execute_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "p90 {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.90, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_transaction_execute_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "p99 {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.99, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_transaction_execute_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Transaction queue depth",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{fallen8_namespace_name}}",
+          "expr": "max by (fallen8_scope_id, fallen8_instance_id) (fallen8_transaction_queue_depth{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Group-commit size (avg / p99)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "avg {{fallen8_namespace_name}}",
+          "expr": "(sum by (fallen8_scope_id, fallen8_instance_id) (rate(fallen8_transaction_group_size_sum{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval])) / sum by (fallen8_scope_id, fallen8_instance_id) (rate(fallen8_transaction_group_size_count{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "p99 {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.99, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_transaction_group_size_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Durability - checkpoint & WAL",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "panels": []
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Checkpoint save / load duration (p99)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "save {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.99, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_checkpoint_save_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "load {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.99, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_checkpoint_load_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Checkpoint save / load bytes (p99)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "save {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.99, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_checkpoint_save_bytes_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "load {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.99, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_checkpoint_load_bytes_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "WAL flush duration (p99) + failure rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "failures.*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ops"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "flush p99 {{fallen8_namespace_name}}",
+          "expr": "histogram_quantile(0.99, sum by (fallen8_scope_id, fallen8_instance_id, le) (rate(fallen8_wal_flush_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "failures {{fallen8_instance_id}}",
+          "expr": "sum by (fallen8_instance_id) (rate(fallen8_wal_flush_failures{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "WAL degraded",
+      "description": "1 while the WAL failure fence is tripped for the selected scope.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "noValue": "OK",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{fallen8_namespace_name}}",
+          "expr": "max by (fallen8_scope_id, fallen8_instance_id) (fallen8_wal_degraded{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Graph & indices",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Graph vertices / edges",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 35
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "vertices {{fallen8_namespace_name}}",
+          "expr": "max by (fallen8_scope_id, fallen8_instance_id) (fallen8_graph_vertices{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "edges {{fallen8_namespace_name}}",
+          "expr": "max by (fallen8_scope_id, fallen8_instance_id) (fallen8_graph_edges{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Index count / entries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 35
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "entries.*"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "indices {{fallen8_namespace_name}}",
+          "expr": "max by (fallen8_scope_id, fallen8_instance_id) (fallen8_index_count{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "entries {{fallen8_namespace_name}}",
+          "expr": "max by (fallen8_scope_id, fallen8_instance_id) (fallen8_index_entries{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}) * on(fallen8_scope_id, fallen8_instance_id) group_left(fallen8_namespace_name) fallen8_namespace_info{fallen8_instance_id=~\"$instance\", fallen8_namespace_name=~\"$namespace\"}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Codegen & HTTP",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "panels": []
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Codegen cache hit rate",
+      "description": "hits / (hits + misses) over the range. App-level (codegen) metric - filtered by tenant/instance only.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "hit rate",
+          "expr": "sum(rate(fallen8_codegen_cache_hits{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval])) / (sum(rate(fallen8_codegen_cache_hits{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval])) + sum(rate(fallen8_codegen_cache_misses{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval])))"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "HTTP request rate by route",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{http_route}}",
+          "expr": "sum by (http_route) (rate(http_server_request_duration_count{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "HTTP latency p99 by route",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{http_route}}",
+          "expr": "histogram_quantile(0.99, sum by (http_route, le) (rate(http_server_request_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval])))"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "row",
+      "title": "Algorithms (spanmetrics)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
+      "panels": []
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Algorithm call rate (path / subgraph / analytics)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 61
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{span_name}} / {{algorithm}}",
+          "expr": "sum by (span_name, algorithm) (rate(traces_span_metrics_calls{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\", algorithm!=\"\"}[$__rate_interval]))"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Algorithm latency p99",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 61
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{span_name}} / {{algorithm}}",
+          "expr": "histogram_quantile(0.99, sum by (span_name, algorithm, le) (rate(traces_span_metrics_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\", algorithm!=\"\"}[$__rate_interval])))"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "row",
+      "title": "MCP tools",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 69
+      },
+      "panels": []
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "MCP tool call rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 70
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{tool}} ({{tier}})",
+          "expr": "sum by (tool, tier) (rate(fallen8_mcp_tool_calls{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval]))"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "MCP tool latency p99",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 70
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{tool}}",
+          "expr": "histogram_quantile(0.99, sum by (tool, le) (rate(fallen8_mcp_tool_duration_bucket{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval])))"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "MCP tool error rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 70
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "range": true,
+          "legendFormat": "{{tool}}",
+          "expr": "sum by (tool) (rate(fallen8_mcp_tool_calls{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\", result=\"error\"}[$__rate_interval])) / clamp_min(sum by (tool) (rate(fallen8_mcp_tool_calls{fallen8_tenant_id=~\"$tenant\", fallen8_instance_id=~\"$instance\"}[$__rate_interval])), 1)"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "row",
+      "title": "Traces & logs",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 78
+      },
+      "panels": []
+    },
+    {
+      "id": 26,
+      "type": "table",
+      "title": "Recent traces (Tempo)",
+      "description": "TraceQL scoped to the selected instance; click a trace id to open it.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 79
+      },
+      "options": {},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{resource.fallen8.instance.id=~\"$instance\"}",
+          "tableType": "traces",
+          "limit": 20,
+          "filters": []
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "logs",
+      "title": "Logs (Loki)",
+      "description": "Logs scoped to the selected instance; trace ids link into Tempo via the derived field.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 89
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "queryType": "range",
+          "expr": "{service_name=~\"fallen8.*\"} | fallen8_instance_id=~\"$instance\""
+        }
+      ]
+    }
+  ]
+}

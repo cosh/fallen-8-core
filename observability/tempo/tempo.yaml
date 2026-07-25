@@ -1,0 +1,25 @@
+# Minimal single-binary (monolithic, -target=all) Tempo config with local storage
+# (feature fleet-observability). Verified against grafana/tempo v3.0.2. WAL, blocks, and the
+# live store all sit under /var/tempo, which is the persisted named volume.
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"   # the collector pushes traces here
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+usage_report:
+  reporting_enabled: false

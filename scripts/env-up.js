@@ -35,13 +35,21 @@ function main() {
   );
 
   const files = ['-f', 'docker-compose.yml'];
+  // The fleet observability stack (feature fleet-observability) always comes up with the
+  // environment, so a first-time user sees metrics/traces/logs in Grafana immediately. It is a
+  // separate file for readability, included unconditionally here (unlike the GPU override, which
+  // is conditional because a device reservation hard-fails on hosts without an NVIDIA GPU).
+  files.push('-f', 'docker-compose.observability.yml');
   if (gpu) files.push('-f', 'docker-compose.gpu.yml');
 
   // The AI-agent MCP surface (feature mcp-server) starts with the rest of the environment on
   // http://localhost:8090 — anonymous + read-only for local dev. Securing it for an off-box
   // setup is env-var config on the f8-mcp service (F8_MCP_AUTH_MODE / F8_MCP_TOKEN / tier
   // flags); see docs/mcp-server.md.
-  const result = spawnSync('docker', ['compose', ...files, 'up', '-d', '--build'], {
+  // --remove-orphans: if a previous run used a different set of compose files, drop any
+  // container no longer in this configuration, so a recreated f8-net never strands a stale
+  // container on an old network id ("network ... not found").
+  const result = spawnSync('docker', ['compose', ...files, 'up', '-d', '--build', '--remove-orphans'], {
     cwd: path.join(__dirname, '..'),
     stdio: 'inherit',
   });

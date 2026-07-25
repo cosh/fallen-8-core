@@ -1,0 +1,24 @@
+# Prometheus config for the Fallen-8 observability stack (feature fleet-observability).
+# Ingestion is PUSH from the otel-collector via remote-write (/api/v1/write), so no scrape
+# jobs are required; a self-scrape is kept for meta-monitoring. Image: prom/prometheus:v3.13.1.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Only used on the native-OTLP ingest path (--web.enable-otlp-receiver). The collector uses
+# remote-write, which already promotes the identity resource attributes to labels, so this block
+# is inert in the default wiring; it is here so a direct-to-Prometheus OTLP push also keys cleanly.
+otlp:
+  promote_resource_attributes:
+    - fallen8.tenant.id
+    - fallen8.tenant.name
+    - fallen8.instance.id
+    - fallen8.instance.name
+    - fallen8.scope.id
+    - fallen8.namespace.name
+  keep_identifying_resource_attributes: true
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

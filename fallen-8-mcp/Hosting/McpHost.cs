@@ -73,6 +73,10 @@ namespace NoSQL.GraphDB.Mcp.Hosting
             services.Configure<McpOptions>(configuration.GetSection(McpOptions.SectionName));
             services.Configure<Fallen8TargetOptions>(configuration.GetSection(Fallen8TargetOptions.SectionName));
 
+            // Feature fleet-observability §3.6: OTLP push of MCP metrics/traces/logs (no-op unless
+            // Mcp:Observability:Otlp:Endpoint is configured). Shared by both transports.
+            McpObservability.AddMcpObservability(services, configuration);
+
             // Needed so the catalog can read the caller's OAuth scopes per request (spec §3.6/§3.8).
             services.AddHttpContextAccessor();
 

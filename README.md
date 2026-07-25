@@ -46,6 +46,9 @@ Each feature has a deep-dive doc — follow the link.
   `/ns/{name}/…`.
 - **[Observability](docs/observability.md)** — opt-in Prometheus/OTLP metrics and traces, a
   graph-shape snapshot, health probes.
+- **[Fleet observability](docs/fleet-observability.md)**: a multi-tenant consumer stack (Collector,
+  Prometheus, Tempo, Loki, Grafana) that collects what many instances push and shows the whole fleet
+  in one Grafana pane, keyed by tenant/instance/namespace; on by default with `npm run env:up`.
 - **[REST API](docs/rest-api.md)** — a versioned HTTP surface with an OpenAPI document and an
   interactive Scalar reference.
 - **[Plugins](docs/plugins.md)** — indices, algorithms, and services are all discovered plugins.
@@ -86,18 +89,22 @@ flowchart TB
     end
 
     sidecar["Model sidecar<br/>Ollama"]:::ext
+    obs["Fleet observability<br/>Collector · Prometheus · Tempo · Loki · Grafana"]:::obs
 
     agents -->|MCP| mcp
     mcp -->|HTTP| rest
     studio -->|HTTP| rest
     services -->|HTTP| rest
     rest -.->|embeddings| sidecar
+    rest -.->|OTLP push| obs
+    mcp -.->|OTLP push| obs
 
     classDef client fill:#45494D,stroke:#666666,color:#FEFEFE
     classDef mcp fill:#E2001A,stroke:#FC0606,color:#FEFEFE
     classDef api fill:#141516,stroke:#45494D,color:#FEFEFE
     classDef engine fill:#060606,stroke:#45494D,color:#FEFEFE
     classDef ext fill:#141516,stroke:#666666,color:#C6C7C8,stroke-dasharray:5 4
+    classDef obs fill:#141516,stroke:#E2001A,color:#C6C7C8
     style unit fill:#000000,stroke:#E2001A,stroke-width:1.5px,color:#C6C7C8
 ```
 

@@ -184,12 +184,24 @@ namespace NoSQL.GraphDB.App.Controllers
 
             try
             {
+                // Algorithm-run span (feature fleet-observability): the app ActivitySource is
+                // already exported, so this makes "which analytics algorithm, how often, how slow"
+                // a first-class signal (the collector's spanmetrics connector turns it into RED
+                // metrics). The tag is the bounded plugin name only - never user scope strings.
+                using var runSpan = Diagnostics.AppDiagnostics.Source.StartActivity("fallen8.analytics.run");
+                runSpan?.SetTag("algorithm", algorithmName);
+
                 if (!_fallen8.TryRunAnalytics(out var result, algorithmName, engineDefinition))
                 {
                     // The definition was validated above, so a false here is the budget dying
                     // before any usable result (or client cancellation, which no longer cares).
                     return Problem408();
                 }
+
+                runSpan?.SetTag("result.converged", result.Converged);
+                runSpan?.SetTag("result.iterations", result.IterationsRun);
+                runSpan?.SetTag("result.vertices",
+                    Math.Max(result.VertexScores.Count, result.VertexPartitions.Count));
 
                 var response = Project(algorithmName, result, maxResults);
 

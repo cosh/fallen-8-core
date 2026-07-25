@@ -18,6 +18,14 @@
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.1" />
     <!-- OAuth 2.1 resource-server: validate JWT access tokens (feature mcp-server §3.8 Phase C). -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
+    <!-- OpenTelemetry (feature fleet-observability §3.6): OTLP push of metrics + traces + logs.
+         Core pinned at 1.17.0 to match the apiApp; instrumentation packages are version-aligned at
+         1.17.0 for this release. Exact-version gate: no floating ranges. -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.17.0" />
   </ItemGroup>
 
 </Project>

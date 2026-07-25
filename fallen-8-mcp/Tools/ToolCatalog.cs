@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Security.Claims;
 using System.Text.Json;
@@ -37,6 +38,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NoSQL.GraphDB.Mcp.Bridge;
 using NoSQL.GraphDB.Mcp.Configuration;
+using NoSQL.GraphDB.Mcp.Diagnostics;
 
 namespace NoSQL.GraphDB.Mcp.Tools
 {
@@ -148,19 +150,34 @@ namespace NoSQL.GraphDB.Mcp.Tools
             var caps = EffectiveCaps();
             var tool = name is null ? null : _tools.FirstOrDefault(t => t.Name == name);
 
+            // Per-tool telemetry (feature fleet-observability §3.6). Bounded tag values resolved
+            // once - the tool's short name from its fixed f8_* set (or "unknown") and its tier -
+            // never the raw caller-supplied name, so the tag-hygiene invariant holds. The span is
+            // the parent of the downstream REST client span (end-to-end MCP -> REST -> engine trace).
+            var toolTag = McpDiagnostics.ToolTag(tool);
+            var tierTag = McpDiagnostics.TierTag(tool);
+
+            using var activity = McpDiagnostics.Source.StartActivity(McpDiagnostics.ToolSpanName);
+            activity?.SetTag("tool", toolTag);
+            activity?.SetTag("tier", tierTag);
+            var start = Stopwatch.GetTimestamp();
+
             if (tool is null || !TierEnabled(tool.Tier, caps))
             {
-                return ToolResults.Error(404, "Unknown or disabled tool",
+                var miss = ToolResults.Error(404, "Unknown or disabled tool",
                     $"No enabled tool named '{name ?? "(null)"}'. Enable its tier (and, under OAuth, hold its scope) or check the name.");
+                McpDiagnostics.RecordToolCall(toolTag, tierTag, "error", Stopwatch.GetElapsedTime(start), activity);
+                return miss;
             }
 
+            CallToolResult result;
             try
             {
-                return await tool.InvokeAsync(arguments, caps, cancellationToken).ConfigureAwait(false);
+                result = await tool.InvokeAsync(arguments, caps, cancellationToken).ConfigureAwait(false);
             }
             catch (BridgeError bridgeError)
             {
-                return ToolResults.Error(bridgeError);
+                result = ToolResults.Error(bridgeError);
             }
             catch (OperationCanceledException)
             {
@@ -170,8 +187,12 @@ namespace NoSQL.GraphDB.Mcp.Tools
             {
                 // Log the detail; return a generic message so nothing sensitive reaches the caller.
                 _logger.LogError(ex, "Unhandled error invoking tool {Tool}", name);
-                return ToolResults.Error(500, "Internal error", "The tool failed unexpectedly.");
+                result = ToolResults.Error(500, "Internal error", "The tool failed unexpectedly.");
             }
+
+            var resultTag = result.IsError == true ? "error" : "ok";
+            McpDiagnostics.RecordToolCall(toolTag, tierTag, resultTag, Stopwatch.GetElapsedTime(start), activity);
+            return result;
         }
 
         // --- MCP low-level handler adapters ---------------------------------------------------

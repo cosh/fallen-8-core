@@ -58,7 +58,7 @@ Invoke-RestMethod -Uri http://localhost:8080/metrics
 
 **Built-in meters** enabled alongside (native to .NET, no instrumentation packages): `Microsoft.AspNetCore.Hosting`, `Microsoft.AspNetCore.Server.Kestrel`, `System.Runtime`.
 
-**Tag hygiene (hard invariant, pinned by test):** no metric tag value originates from user input — tags are type/enum/artifact names only. Anything user-named (labels, index names, property keys) lives in `/statistics`, behind auth.
+**Tag hygiene (hard invariant, pinned by test):** no metric tag value originates from **graph content**: vertex/edge labels, index names, property keys, or filter fragments; those stay in `/statistics`, behind auth. The one exception is **identity dimensions** (tenant, instance, and namespace id and name): operator-controlled, bounded-cardinality identifiers a fleet consumer keys on, added by [fleet observability](fleet-observability.md). Tags otherwise carry type/enum/artifact names only.
 
 A minimal scrape config (add the header block only when `RequireApiKey=true`):
 
@@ -145,6 +145,7 @@ When an exporter is enabled the cost is noise-level — recording a handful of c
 
 ## See also
 
+- [Fleet observability](fleet-observability.md): the multi-tenant consumer that collects these signals from many instances into one Grafana pane
 - [Security](security.md) — whether `/metrics` and `/statistics` require the API key
 - [Save games](save-games.md) — what the WAL / checkpoint / degraded-durability metrics mean
 - [Delegates](delegates.md) — the codegen cache the `fallen8.codegen.*` metrics track
