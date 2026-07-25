@@ -47,6 +47,7 @@ New here? Start with [Running](running.md), open [F8 Studio](studio.md), and loa
 | [Save games](save-games.md) | Checkpoints, the registry that drives startup, and the write-ahead log |
 | [Observability](observability.md) | Opt-in Prometheus/OTLP metrics and traces, statistics, health probes |
 | [REST API](rest-api.md) | The OpenAPI document, Scalar reference, versioning, and the endpoint map |
+| [MCP server](mcp-server.md) | The Model Context Protocol surface for AI agents — tools, tiers, auth |
 
 ## Help
 

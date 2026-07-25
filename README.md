@@ -107,6 +107,20 @@ Each one is a guided tour of a different feature — analytics, weighted paths, 
 canvas visualization. See the gallery walkthrough, with screenshots and example queries, in
 [docs/samples.md](docs/samples.md).
 
+## Use Fallen-8 from AI agents
+
+Agents reach Fallen-8 through the **MCP server** — a separate deployable that exposes the graph
+as [Model Context Protocol](https://modelcontextprotocol.io) tools any MCP client (Claude Code,
+Claude Desktop, IDE agents) can call. It is a small, token-frugal tool surface, read-only by
+default, with opt-in write/admin tiers and three auth modes (anonymous-loopback, static bearer,
+OAuth 2.1). Enable it in the compose environment with a token:
+
+```bash
+F8_MCP=1 F8_MCP_TOKEN="$(openssl rand -hex 32)" npm run env:up   # MCP on http://localhost:8090
+```
+
+Full guide — tools, tiers, auth, connecting a client — in [docs/mcp-server.md](docs/mcp-server.md).
+
 ## Troubleshooting
 
 Common snags — first-start model pulls, the embedding provider, dynamic-code 403s, GPU

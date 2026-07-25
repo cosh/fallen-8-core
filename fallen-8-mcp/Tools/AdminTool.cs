@@ -1,0 +1,163 @@
+// MIT License
+//
+// AdminTool.cs
+//
+// Copyright (c) 2026 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
+using ModelContextProtocol.Protocol;
+using NoSQL.GraphDB.Mcp.Bridge;
+using NoSQL.GraphDB.Mcp.Bridge.Dto;
+using NoSQL.GraphDB.Mcp.Configuration;
+
+namespace NoSQL.GraphDB.Mcp.Tools
+{
+    /// <summary>
+    ///   <c>f8_admin</c> — durability &amp; maintenance (spec §3.2/§3.4/§3.7). Honest scoping:
+    ///   <c>save</c>/<c>trim</c>/<c>tabula_rasa</c> are namespace-scoped; <c>list_savegames</c> and
+    ///   <c>load</c> are Fallen-8-level (<c>load</c> restores a registry entry by id, with an
+    ///   optional <c>restoreNamespace</c> member selector). <c>trim</c>/<c>tabula_rasa</c> are
+    ///   fire-and-forget (HEAD, 204): they report "enqueued", never "applied".
+    /// </summary>
+    public sealed class AdminTool : IMcpTool
+    {
+        private readonly Fallen8RestClient _bridge;
+
+        public AdminTool(Fallen8RestClient bridge)
+        {
+            _bridge = bridge;
+        }
+
+        public String Name => "f8_admin";
+
+        public ToolTier Tier => ToolTier.Admin;
+
+        public Tool Describe(McpToolsOptions tools)
+        {
+            return new Tool
+            {
+                Name = Name,
+                Title = "Admin & durability",
+                Description =
+                    "Durability and maintenance: save, load (by save-game id), list_savegames, trim, tabula_rasa. " +
+                    "trim/tabula_rasa are fire-and-forget (reported as enqueued). load/trim/tabula_rasa are destructive.",
+                InputSchema = SchemaBuilder.Create()
+                    .Str("op", "The operation.", required: true,
+                        choices: new[] { "save", "load", "list_savegames", "trim", "tabula_rasa" })
+                    .Str("namespace", "The namespace for save/trim/tabula_rasa. Defaults to 'default'.")
+                    .Str("saveGameLocation", "Optional save path (save).")
+                    .Int("savePartitions", "Optional partition count (save).")
+                    .Str("id", "Save-game id (load).")
+                    .Str("restoreNamespace", "Restore only this namespace from a multi-namespace save-game (load).")
+                    .Build(),
+                Annotations = new ToolAnnotations
+                {
+                    Title = "Admin & durability",
+                    ReadOnlyHint = false,
+                    DestructiveHint = true,
+                    OpenWorldHint = false,
+                },
+            };
+        }
+
+        public async Task<CallToolResult> InvokeAsync(
+            IReadOnlyDictionary<String, JsonElement> arguments,
+            McpToolsOptions tools,
+            CancellationToken cancellationToken)
+        {
+            var op = ToolArgs.GetString(arguments, "op");
+            var @namespace = ToolArgs.GetString(arguments, "namespace");
+
+            switch (op)
+            {
+                case "save":
+                {
+                    var body = new SaveSpecDto
+                    {
+                        SaveGameLocation = ToolArgs.GetString(arguments, "saveGameLocation"),
+                        SavePartitions = ToolArgs.GetInt(arguments, "savePartitions"),
+                    };
+                    var saved = await _bridge.RequestRawAsync(HttpMethod.Put, @namespace, "save", body, cancellationToken)
+                        .ConfigureAwait(false);
+                    return ToolResults.Ok("save-game written.", Pass(saved));
+                }
+
+                case "list_savegames":
+                {
+                    // Fallen-8-level: no namespace scoping.
+                    var list = await _bridge.RequestRawAsync(HttpMethod.Get, null, "savegames", null, cancellationToken)
+                        .ConfigureAwait(false);
+                    var node = list is null ? new JsonArray() : JsonNode.Parse(list.Value.GetRawText())!;
+                    var count = node is JsonArray arr ? arr.Count : 0;
+                    return ToolResults.Ok($"{count} save-game(s).", new JsonObject { ["saveGames"] = node });
+                }
+
+                case "load":
+                {
+                    var id = ToolArgs.GetString(arguments, "id");
+                    if (String.IsNullOrEmpty(id))
+                    {
+                        return ToolResults.Error(400, "Invalid arguments", "load requires a save-game 'id'.");
+                    }
+                    var suffix = $"savegames/{UrlSafety.EncodeSegment(id)}/load?waitForCompletion=true";
+                    var restoreNamespace = ToolArgs.GetString(arguments, "restoreNamespace");
+                    if (!String.IsNullOrEmpty(restoreNamespace))
+                    {
+                        suffix += $"&namespace={UrlSafety.EncodeSegment(restoreNamespace)}";
+                    }
+                    var loaded = await _bridge.RequestRawAsync(HttpMethod.Put, null, suffix, null, cancellationToken)
+                        .ConfigureAwait(false);
+                    return ToolResults.Ok($"save-game '{id}' loaded.", Pass(loaded));
+                }
+
+                case "trim":
+                {
+                    await _bridge.RequestVoidAsync(HttpMethod.Head, @namespace, "trim", null, cancellationToken).ConfigureAwait(false);
+                    return ToolResults.Ok("trim enqueued (fire-and-forget; not awaited).",
+                        new JsonObject { ["op"] = "trim", ["enqueued"] = true });
+                }
+
+                case "tabula_rasa":
+                {
+                    await _bridge.RequestVoidAsync(HttpMethod.Head, @namespace, "tabularasa", null, cancellationToken).ConfigureAwait(false);
+                    return ToolResults.Ok("tabula_rasa enqueued (fire-and-forget; the namespace's data is erased).",
+                        new JsonObject { ["op"] = "tabula_rasa", ["enqueued"] = true });
+                }
+
+                default:
+                    return ToolResults.Error(400, "Invalid arguments",
+                        "op must be save, load, list_savegames, trim, or tabula_rasa.");
+            }
+        }
+
+        private static JsonNode Pass(JsonElement? raw)
+        {
+            return raw is null ? new JsonObject() : JsonNode.Parse(raw.Value.GetRawText())!;
+        }
+    }
+}

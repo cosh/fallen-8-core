@@ -76,6 +76,14 @@ dotnet run --project fallen-8-core-apiApp
   read its state from `GET /status`. The living docs are
   [features/done/element-embeddings/](features/done/element-embeddings/) and
   [features/done/embedding-provider/](features/done/embedding-provider/).
+- **AI agents reach Fallen-8 through the MCP server — a separate deployable.** `fallen-8-mcp`
+  bridges the Model Context Protocol to the REST API over HTTP (it never references the engine
+  or the apiApp); its surface is a small, token-frugal set of consolidated tools across
+  read/write/admin tiers plus a `code` capability, with three auth modes. **Engine → REST →
+  MCP is a one-way propagation rule:** a capability that grows in the engine and reaches the
+  REST surface MUST also be surfaced to agents as an MCP tool — or be a conscious, reasoned
+  deferral. This is enforced (see Quality gates), not just documented. Living doc:
+  [docs/mcp-server.md](docs/mcp-server.md); the feature record is under `features/*/mcp-server/`.
 
 ## Quality gates (enforced, feature code-quality)
 
@@ -87,6 +95,11 @@ dotnet run --project fallen-8-core-apiApp
 - **OpenAPI snapshot**: regenerate with `pwsh scripts/update-openapi-snapshot.ps1` whenever
   a controller's routes or XML docs change; review the printed diff - additions are
   expected, removals only where a deliberately edited remark shrank.
+- **MCP coverage (engine→REST→MCP)**: `McpRestCoverageTest` fails the suite if a REST
+  operation in the OpenAPI snapshot is neither bridged by an MCP tool
+  (`McpBridgedEndpoints`) nor recorded as a conscious deferral (with a reason) — so a newly
+  added REST endpoint forces a decision to surface it to agents or justify why not.
+  `McpContractTest` additionally pins the bridge's routes/methods against the same snapshot.
 - **One home per explanation**: a concept is explained once — usually on the type that owns
   the contract or in the feature README — and every other site is a one-line pointer. Do not
   re-narrate a feature's story across call-site comments, controller remarks, the root
