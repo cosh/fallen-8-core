@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
@@ -89,6 +90,9 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 case RegisterStoredQueryTransaction _: type = WalEntryType.RegisterStoredQuery; return true;
                 case RemoveStoredQueryTransaction _: type = WalEntryType.RemoveStoredQuery; return true;
+
+                case RegisterPluginTransaction _: type = WalEntryType.RegisterPlugin; return true;
+                case RemovePluginTransaction _: type = WalEntryType.RemovePlugin; return true;
 
                 case SetEmbeddingsTransaction _: type = WalEntryType.SetEmbeddings; return true;
 
@@ -210,6 +214,22 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                     case WalEntryType.RemoveStoredQuery:
                         writer.WriteOptimized(((RemoveStoredQueryTransaction)tx).Name ?? String.Empty);
+                        break;
+
+                    case WalEntryType.RegisterPlugin:
+                        {
+                            // The whole definition (name, category, contract, source, metadata)
+                            // round-trips as JSON via the SAME source-gen serialization the snapshot
+                            // manifest uses, so Save and WAL agree byte-for-byte on what a plugin is.
+                            var register = (RegisterPluginTransaction)tx;
+                            var json = JsonSerializer.Serialize(
+                                register.Entry.Definition, CoreJsonContext.Default.PluginDefinition);
+                            writer.WriteOptimized(json);
+                            break;
+                        }
+
+                    case WalEntryType.RemovePlugin:
+                        writer.WriteOptimized(((RemovePluginTransaction)tx).Name ?? String.Empty);
                         break;
 
                     case WalEntryType.SetEmbeddings:
@@ -335,6 +355,9 @@ namespace NoSQL.GraphDB.Core.Persistency
                 case WalEntryType.RemoveStoredQuery:
                     return new RemoveStoredQueryTransaction { Name = reader.ReadOptimizedString() };
 
+                case WalEntryType.RemovePlugin:
+                    return new RemovePluginTransaction { Name = reader.ReadOptimizedString() };
+
                 case WalEntryType.SetEmbeddings:
                     {
                         var count = reader.ReadOptimizedInt32Checked("wal embedding definitions");
@@ -360,10 +383,11 @@ namespace NoSQL.GraphDB.Core.Persistency
                 case WalEntryType.TabulaRasa:
                 case WalEntryType.CreateSubGraph:
                 case WalEntryType.RegisterStoredQuery:
-                    // Trim/TabulaRasa carry no payload; CreateSubGraph/RegisterStoredQuery need the
-                    // (engine-external) compilers, so the replay loop decodes them via
-                    // TryDecodeSubGraphCreate/TryDecodeStoredQueryRegister and drives the compile +
-                    // re-execute itself rather than re-executing a ready transaction.
+                case WalEntryType.RegisterPlugin:
+                    // Trim/TabulaRasa carry no payload; CreateSubGraph/RegisterStoredQuery/RegisterPlugin
+                    // need the (engine-external) compilers, so the replay loop decodes them via
+                    // TryDecodeSubGraphCreate/TryDecodeStoredQueryRegister/TryDecodePluginRegister and
+                    // drives the compile + re-execute itself rather than re-executing a ready transaction.
                     return null;
 
                 default:
@@ -397,6 +421,40 @@ namespace NoSQL.GraphDB.Core.Persistency
                 }
 
                 definition = JsonSerializer.Deserialize(json, CoreJsonContext.Default.StoredQueryDefinition);
+                return definition != null;
+            }
+            catch
+            {
+                definition = null;
+                return false;
+            }
+        }
+
+        /// <summary>
+        ///   Decodes a <see cref="WalEntryType.RegisterPlugin" /> entry into the persisted plugin
+        ///   definition (feature plugin-registration). Returns false (never throws) when the payload is
+        ///   not a plugin-registration entry or its definition JSON cannot be parsed, so a single
+        ///   unusable-but-CRC-valid entry is skipped on replay rather than halting recovery.
+        /// </summary>
+        internal static bool TryDecodePluginRegister(byte[] payload, out PluginDefinition definition)
+        {
+            definition = null;
+
+            try
+            {
+                var reader = new SerializationReader(new MemoryStream(payload, writable: false));
+                if ((WalEntryType)reader.ReadByte() != WalEntryType.RegisterPlugin)
+                {
+                    return false;
+                }
+
+                var json = reader.ReadOptimizedString();
+                if (string.IsNullOrEmpty(json))
+                {
+                    return false;
+                }
+
+                definition = JsonSerializer.Deserialize(json, CoreJsonContext.Default.PluginDefinition);
                 return definition != null;
             }
             catch

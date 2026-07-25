@@ -41,6 +41,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Service;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
 
@@ -481,6 +482,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             {
                 SaveSubGraphRecipes(fallen8, path);
                 SaveStoredQueries(fallen8, path);
+                SavePlugins(fallen8, path);
             }
             catch
             {
@@ -488,7 +490,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 throw;
             }
 
-            File.Move(tempMain, path, true); // atomic commit point (the recipe + stored-query manifests are already durable)
+            File.Move(tempMain, path, true); // atomic commit point (the recipe + stored-query + plugin manifests are already durable)
 
             return path;
         }
@@ -686,6 +688,105 @@ namespace NoSQL.GraphDB.Core.Persistency
             catch (Exception ex)
             {
                 _logger.LogError(ex, String.Format("Could not read the stored query manifest \"{0}\": {1}", manifestPath, ex.Message));
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Persists every registered plugin definition into ONE versioned manifest next to the save
+        /// point (feature plugin-registration) - the exact discipline of
+        /// <see cref="SaveStoredQueries"/>: written atomically (temp + fsync + rename) BEFORE the
+        /// header commit-point rename, and a write failure FAILS the whole save (nothing committed, the
+        /// WAL left unreset so its RegisterPlugin entries survive for the next replay). Source only,
+        /// never compiled bytes.
+        /// </summary>
+        private void SavePlugins(IFallen8 fallen8, string path)
+        {
+            if (fallen8.Plugins == null)
+            {
+                return;
+            }
+
+            var definitions = new List<PluginDefinition>();
+            foreach (var entry in fallen8.Plugins.GetAll())
+            {
+                if (entry?.Definition != null)
+                {
+                    definitions.Add(entry.Definition);
+                }
+            }
+
+            var manifestPath = path + Constants.PluginManifestString;
+
+            if (definitions.Count == 0)
+            {
+                // Nothing to persist: make sure no stale manifest lingers at this path.
+                TryDeleteFile(manifestPath);
+                return;
+            }
+
+            var manifest = new PluginManifest
+            {
+                FormatVersion = PersistenceFormat.FormatVersion,
+                Definitions = definitions
+            };
+
+            var temp = TempNameFor(manifestPath);
+            try
+            {
+                var json = JsonSerializer.Serialize(manifest, CoreJsonContext.Default.PluginManifest);
+                WriteAllBytesDurably(temp, Encoding.UTF8.GetBytes(json));
+                File.Move(temp, manifestPath, true);
+            }
+            catch (Exception ex)
+            {
+                TryDeleteFile(temp);
+                _logger.LogError(ex, String.Format("Could not persist the plugin manifest \"{0}\": {1}", manifestPath, ex.Message));
+                throw new IOException(String.Format("Could not persist the plugin manifest \"{0}\".", manifestPath), ex);
+            }
+        }
+
+        /// <summary>
+        /// Reads the single plugin manifest that sits next to the given save point (feature
+        /// plugin-registration). A missing manifest means "no plugins"; an unknown manifest version or
+        /// a read error is logged LOUDLY and treated as no plugins - the manifest must never fail the
+        /// whole load, but a corrupt one is an error, not a silent skip.
+        /// </summary>
+        internal List<PluginDefinition> LoadPluginDefinitions(string pathToSavePoint)
+        {
+            var result = new List<PluginDefinition>();
+            var manifestPath = pathToSavePoint + Constants.PluginManifestString;
+
+            if (!File.Exists(manifestPath))
+            {
+                return result;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(manifestPath, Encoding.UTF8);
+                var manifest = JsonSerializer.Deserialize(json, CoreJsonContext.Default.PluginManifest);
+                if (manifest == null)
+                {
+                    return result;
+                }
+
+                if (manifest.FormatVersion != PersistenceFormat.FormatVersion)
+                {
+                    _logger.LogError(String.Format("The plugin manifest \"{0}\" has unsupported version {1} (expected {2}); its plugins will not be rehydrated.",
+                        manifestPath, manifest.FormatVersion, PersistenceFormat.FormatVersion));
+                    return result;
+                }
+
+                if (manifest.Definitions != null)
+                {
+                    result.AddRange(manifest.Definitions.Where(d => d != null));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, String.Format("Could not read the plugin manifest \"{0}\": {1}", manifestPath, ex.Message));
             }
 
             return result;
