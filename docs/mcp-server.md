@@ -103,9 +103,10 @@ Tools are grouped by the same opt-in tiers Fallen-8 uses everywhere:
 - **read** (on by default): discovery, fetch, search, paths, analytics.
 - **write** (`Mcp:Tools:EnableWrite`): mutations, subgraph define, namespace lifecycle.
 - **admin** (`Mcp:Tools:EnableAdmin`): save/load/trim/tabula_rasa.
-- **code** (`Mcp:Tools:EnableCode`, double opt-in): does **not** add tools — it *widens*
-  `f8_paths`/`f8_subgraph` with inline C# filter/cost fragments. Effective only when the target
-  Fallen-8 also has dynamic-code execution enabled (its own `403` surfaces otherwise).
+- **code** (`Mcp:Tools:EnableCode`): does **not** add tools — it *widens*
+  `f8_paths`/`f8_subgraph` with inline C# filter/cost fragments. Off by default so the MCP
+  surface stays token-frugal and does not invite arbitrary C# from agents; the target Fallen-8
+  always accepts inline fragments (auth permitting), so this is purely an MCP-side exposure choice.
 
 A disabled tier's tools are absent from the tool list **and** rejected if called anyway.
 

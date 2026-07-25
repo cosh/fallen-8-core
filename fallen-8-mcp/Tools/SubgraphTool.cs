@@ -40,8 +40,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
     /// <summary>
     ///   <c>f8_subgraph</c> — define/compute a subgraph (spec §3.2). Code-free by a registered
     ///   <c>storedQuery</c>; the inline <c>vertexFilter</c>/<c>edgeFilter</c> C# fragments appear
-    ///   only when the <c>code</c> capability is enabled (and the target then still gates them
-    ///   with its own 403 if dynamic-code execution is off).
+    ///   only when the MCP <c>code</c> capability is enabled (the target engine always accepts
+    ///   them, auth permitting — this is purely an MCP-side exposure choice).
     /// </summary>
     public sealed class SubgraphTool : IMcpTool
     {

@@ -276,6 +276,31 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(saveGames.GetArrayLength() >= 1, "the saved game appears in the registry");
         }
 
+        [TestMethod]
+        public async Task Mutate_BatchCreate_ReturnsIds_ThenLinksThem()
+        {
+            using var api = new ApiAppFactory();
+            var catalog = WriteCatalog(api);
+
+            var created = await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                "{\"op\":\"create_vertices\",\"vertices\":[" +
+                "{\"label\":\"person\",\"properties\":{\"name\":\"Ada\"}}," +
+                "{\"label\":\"person\",\"properties\":{\"name\":\"Grace\"}}]}"), CancellationToken.None);
+            var vids = McpTestSupport.Structured(created).GetProperty("ids").EnumerateArray().Select(e => e.GetInt32()).ToList();
+            Assert.AreEqual(2, vids.Count, "create_vertices returns one id per vertex (the single-create gap fixed)");
+
+            var linked = await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                $"{{\"op\":\"create_edges\",\"edges\":[{{\"source\":{vids[0]},\"target\":{vids[1]},\"edgePropertyId\":\"knows\"}}]}}"),
+                CancellationToken.None);
+            var eids = McpTestSupport.Structured(linked).GetProperty("ids").EnumerateArray().ToList();
+            Assert.AreEqual(1, eids.Count, "create_edges returns the assigned edge id");
+
+            var get = await catalog.CallAsync("f8_get",
+                McpTestSupport.Args($"{{\"kind\":\"vertex\",\"id\":{vids[0]},\"include\":[\"degree\"]}}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(get).GetProperty("degree").GetInt32() >= 1,
+                "the batch-created vertices are linked by the batch-created edge");
+        }
+
         private static async Task<Int32?> FindByName(ToolCatalog catalog, String name)
         {
             var search = await catalog.CallAsync("f8_search",

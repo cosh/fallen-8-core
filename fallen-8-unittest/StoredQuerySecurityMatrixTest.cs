@@ -44,10 +44,10 @@ using NoSQL.GraphDB.Core.Transaction;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Pipeline tests pinning the stored-query-library security matrix (spec section 3.3) through
-    /// the real ASP.NET pipeline in BOTH kill-switch states: registration and inline fragments
-    /// require EnableDynamicCodeExecution; stored invocation, filterless path search, and
-    /// list/get/delete do not; 401 (authentication) always precedes 403 (capability).
+    /// Pipeline tests pinning the stored-query-library security matrix through the real ASP.NET
+    /// pipeline. Dynamic code execution is ALWAYS ON (there is no kill switch), so registration,
+    /// inline fragments, stored invocation, filterless path search, and list/get/delete all work;
+    /// authentication is still enforced when an API key is configured (401 for an anonymous caller).
     /// </summary>
     [TestClass]
     public class StoredQuerySecurityMatrixTest
@@ -56,18 +56,10 @@ namespace NoSQL.GraphDB.Tests
 
         private sealed class MatrixFactory : WebApplicationFactory<Program>
         {
-            private readonly bool _enableCode;
-
-            public MatrixFactory(bool enableCode)
-            {
-                _enableCode = enableCode;
-            }
-
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
                 builder.UseSetting("Fallen8:Durability:Volatile", "true");
                 builder.UseSetting("Fallen8:Security:ApiKey", ApiKey);
-                builder.UseSetting("Fallen8:Security:EnableDynamicCodeExecution", _enableCode ? "true" : "false");
             }
         }
 
@@ -152,7 +144,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SwitchOn_Registration_Returns201()
         {
-            using var factory = new MatrixFactory(enableCode: true);
+            using var factory = new MatrixFactory();
             using var client = Client(factory);
 
             using var response = await client.PostAsync("/storedquery", Json(RegisterBody));
@@ -163,7 +155,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SwitchOn_InlineAndStoredAndFilterless_AllPass()
         {
-            using var factory = new MatrixFactory(enableCode: true);
+            using var factory = new MatrixFactory();
             using var client = Client(factory);
             await CreateTwoVertices(client);
 
@@ -204,39 +196,12 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
-        #region switch OFF
+        #region ungated behaviour (dynamic code is always on)
 
         [TestMethod]
-        public async Task SwitchOff_Registration_Returns403()
+        public async Task StoredInvocation_Succeeds()
         {
-            using var factory = new MatrixFactory(enableCode: false);
-            using var client = Client(factory);
-
-            using var response = await client.PostAsync("/storedquery", Json(RegisterBody));
-
-            Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode,
-                "Registration introduces code and is ALWAYS gated by the switch.");
-        }
-
-        [TestMethod]
-        public async Task SwitchOff_InlineFragments_Return403()
-        {
-            using var factory = new MatrixFactory(enableCode: false);
-            using var client = Client(factory);
-
-            using var inlinePath = await client.PostAsync("/path/0/to/1", Json(InlinePathBody));
-            Assert.AreEqual(HttpStatusCode.Forbidden, inlinePath.StatusCode,
-                "Inline path fragments must stay 403 with the switch off.");
-
-            using var inlineSubGraph = await client.PutAsync("/subgraph", Json(InlineSubGraphBody));
-            Assert.AreEqual(HttpStatusCode.Forbidden, inlineSubGraph.StatusCode,
-                "Inline subgraph fragments must stay 403 with the switch off.");
-        }
-
-        [TestMethod]
-        public async Task SwitchOff_StoredInvocation_Succeeds()
-        {
-            using var factory = new MatrixFactory(enableCode: false);
+            using var factory = new MatrixFactory();
             using var client = Client(factory);
             await CreateTwoVertices(client);
 
@@ -258,7 +223,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Deliberate contract fix: a filterless path search compiles no user-supplied code
             // and no longer requires the switch.
-            using var factory = new MatrixFactory(enableCode: false);
+            using var factory = new MatrixFactory();
             using var client = Client(factory);
             await CreateTwoVertices(client);
 
@@ -271,7 +236,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SwitchOff_ListGetDelete_AreNeverGated()
         {
-            using var factory = new MatrixFactory(enableCode: false);
+            using var factory = new MatrixFactory();
             using var client = Client(factory);
 
             RegisterDirectlyOnEngine(factory, "manage-me", StoredQueryKind.Path);
@@ -287,34 +252,19 @@ namespace NoSQL.GraphDB.Tests
                 "Deletion compiles nothing and must stay possible while the switch is off.");
         }
 
-        [TestMethod]
-        public async Task SwitchOff_MixedStoredAndInline_Returns403_TheCodeGateWins()
-        {
-            // A request that BOTH references a stored query AND carries inline fragments
-            // introduces code, so with the switch off the capability gate answers first.
-            using var factory = new MatrixFactory(enableCode: false);
-            using var client = Client(factory);
-
-            RegisterDirectlyOnEngine(factory, "mixed-ref", StoredQueryKind.Path);
-
-            using var mixed = await client.PostAsync("/path/0/to/1",
-                Json("{\"storedQuery\":\"mixed-ref\"," + InlinePathBody.Substring(1)));
-            Assert.AreEqual(HttpStatusCode.Forbidden, mixed.StatusCode);
-        }
-
         #endregion
 
-        #region 401-before-403 ordering
+        #region authentication still applies (when a key is configured)
 
         [TestMethod]
-        public async Task Anonymous_InlineFragments_SwitchOff_Return401_NeverLeaking403()
+        public async Task Anonymous_InlineFragments_Return401_WhenKeyConfigured()
         {
-            using var factory = new MatrixFactory(enableCode: false);
+            using var factory = new MatrixFactory();
             using var client = Client(factory, withKey: false);
 
             using var path = await client.PostAsync("/path/0/to/1", Json(InlinePathBody));
             Assert.AreEqual(HttpStatusCode.Unauthorized, path.StatusCode,
-                "Authentication (401) must precede the capability answer (403).");
+                "With a key configured, an anonymous caller is 401 — auth is layered on the code endpoints like any other.");
 
             using var register = await client.PostAsync("/storedquery", Json(RegisterBody));
             Assert.AreEqual(HttpStatusCode.Unauthorized, register.StatusCode);
@@ -326,7 +276,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Anonymous_StoredEndpoints_RequireAuthentication()
         {
-            using var factory = new MatrixFactory(enableCode: false);
+            using var factory = new MatrixFactory();
             using var client = Client(factory, withKey: false);
 
             RegisterDirectlyOnEngine(factory, "auth-check", StoredQueryKind.Path);

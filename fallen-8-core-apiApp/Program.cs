@@ -259,20 +259,14 @@ namespace NoSQL.GraphDB.App
                     o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
                 }
 
-                // The dynamic code/plugin capability flags are the INDEPENDENT kill switch for the
-                // RCE surface, orthogonal to auth: the requirement is unmet when the flag is off
+                // The plugin/embedding capability flags are the INDEPENDENT kill switch for their
+                // opt-in surfaces, orthogonal to auth: the requirement is unmet when the flag is off
                 // (-> denied) regardless of whether a key is set. Auth is layered on the SAME way as
                 // every other endpoint - required only when a key is configured - so there is never a
-                // stranded state where the RCE endpoints reject a caller that every other endpoint
-                // would accept.
-                o.AddPolicy(Fallen8SecurityOptions.DynamicCodePolicy, p =>
-                {
-                    if (keyConfigured)
-                    {
-                        p.RequireAuthenticatedUser();
-                    }
-                    p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicCodeExecution));
-                });
+                // stranded state where these endpoints reject a caller that every other endpoint
+                // would accept. Dynamic code execution has NO capability flag: it is always on, so
+                // the compile endpoints (/path, /subgraph, /delegates/validate, /storedquery) carry
+                // only the standard fallback auth.
                 o.AddPolicy(Fallen8SecurityOptions.DynamicPluginPolicy, p =>
                 {
                     if (keyConfigured)
@@ -370,15 +364,15 @@ namespace NoSQL.GraphDB.App
             if (string.IsNullOrWhiteSpace(security.ApiKey))
             {
                 startupLogger.LogWarning("Fallen-8 is running UNAUTHENTICATED (no Fallen8:Security:ApiKey configured). " +
-                    "Configure an API key before exposing this server. The code/plugin endpoints stay disabled " +
-                    "unless explicitly enabled.");
+                    "Configure an API key before exposing this server - the code endpoints run arbitrary in-process " +
+                    "code unconditionally, so an unauthenticated server is an open code-execution surface.");
             }
-            if (security.EnableDynamicCodeExecution || security.EnableDynamicPluginLoading)
-            {
-                startupLogger.LogWarning("Fallen-8 dynamic code/plugin execution is ENABLED. Compiled filters and " +
-                    "loaded plugins run in-process with FULL TRUST - anyone permitted to reach these endpoints is " +
-                    "trusted as the server process. This is a trust boundary, not a sandbox.");
-            }
+            // Dynamic code execution is always on (compiled filter/cost fragments run in-process with
+            // FULL TRUST). Always state the trust boundary; note plugin loading separately when enabled.
+            startupLogger.LogWarning("Fallen-8 dynamic code execution is ALWAYS ENABLED: compiled filters/costs on " +
+                "/path and /subgraph run in-process with FULL TRUST - anyone permitted to reach these endpoints is " +
+                "trusted as the server process. This is a trust boundary, not a sandbox." +
+                (security.EnableDynamicPluginLoading ? " Plugin DLL loading is also ENABLED." : string.Empty));
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())

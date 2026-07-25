@@ -89,6 +89,6 @@ The OpenAPI document is standard OpenAPI 3, so any generator produces a typed cl
 
 - [Running Fallen-8](running.md) — launching the server for `dotnet run` (Development) vs. Docker (Production)
 - [Namespaces](namespaces.md) — the `/ns/{name}/…` routing scheme and management API
-- [Security](security.md) — the API key header, key configuration, and the dynamic-code flag
+- [Security](security.md) — the API key header and key configuration (dynamic code is always on)
 - [Graph model](graph-model.md) — elements, properties, and the `waitForCompletion` transaction contract
 - [Observability](observability.md) — `/status`, `/statistics`, `/metrics`, and the health probes

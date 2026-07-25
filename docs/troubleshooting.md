@@ -53,14 +53,15 @@ erases first.
 **Fix.** Save a checkpoint if you need the current data ([Save games](save-games.md)), then
 let the load erase, or point at a fresh [namespace](namespaces.md).
 
-## A path/subgraph request with an inline filter returns 403
+## A path/subgraph/storedquery request returns 401
 
-**Cause.** Inline C# [delegates](delegates.md) require dynamic code execution, which is off by
-default.
+**Cause.** An API key is configured on the instance and the request did not carry it. Dynamic
+code execution is always on — inline C# [delegates](delegates.md) are never refused for a
+"code disabled" reason — so the only gate on the code endpoints is authentication.
 
-**Fix.** Launch with `F8_ENABLE_DYNAMIC_CODE=true` ([Security](security.md)), or use a
-registered [stored query](stored-queries.md) or a code-free
-[semantic block](semantic-traversal.md) — both run with the switch off.
+**Fix.** Send the key in `X-Api-Key` (or `Authorization: Bearer <key>`) — see
+[Security](security.md). `GET /status` reports `apiKeyRequired`/`authenticated` so you can tell
+"reachable" from "authorized".
 
 ## No OpenAPI / Scalar at :8080
 
@@ -79,5 +80,5 @@ AMD note) lives in [Running](running.md#gpu-acceleration).
 ## See also
 
 - [Running](running.md) — models, GPU, and every launch option
-- [Security](security.md) — the API key and dynamic-code switch
+- [Security](security.md) — the API key (dynamic code execution is always on)
 - [Studio](studio.md) — where the assist and semantic features surface in the UI

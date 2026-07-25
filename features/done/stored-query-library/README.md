@@ -6,19 +6,28 @@ existing path/subgraph endpoints. Companion docs: [spec.md](./spec.md) (contract
 
 ## The operating model
 
-1. **Provisioning window** — turn the dynamic-code switch on
-   (`Fallen8:Security:EnableDynamicCodeExecution=true`) and register a vetted set of queries.
-2. **Day-to-day** — run with the switch **off**: inline C# fragments are rejected (403), but
-   invoking the registered set keeps working. The code surface shrinks from "arbitrary C# per
-   request" to a closed, operator-approved library.
+Register a vetted set of queries once, then reference them by name from the path/subgraph
+endpoints. The payoff is **reuse and curation**, not a security lockdown:
+
+1. **Compile once, invoke many** — each fragment is validated and compiled a single time at
+   registration; every invocation reuses the pinned artifact, so a hot query pays no
+   per-request Roslyn cost and callers send only a name plus bounds.
+2. **A curated catalog** — an operator registers named queries that agents/clients reference
+   instead of re-sending raw C#; `GET /storedquery` lists them for discovery, and the stored
+   specification JSON (`GET /storedquery/{name}`) is your migration path between instances.
+
+> **Update — dynamic code is always on.** An earlier revision let an operator lock the engine
+> down to stored-queries-only by turning `EnableDynamicCodeExecution` off. That flag has been
+> **removed**: inline C# fragments are always accepted (auth permitting), so the library is no
+> longer a way to shrink the code surface. It remains a reuse/curation convenience.
 
 > **Honesty note (as everywhere in this repo):** an invoked stored query still runs
-> in-process with **full trust**. The library narrows *who can introduce* code — a provenance
-> control, not a sandbox. And recompilation at load/WAL-replay is not gated by the switch:
-> the switch gates the REST *introduction* surface, not the engine rehydrating definitions
-> the operator already approved.
+> in-process with **full trust**. The library is not a sandbox. Registration carries the same
+> authentication as the inline code endpoints (the API key when one is configured);
+> recompilation at load/WAL-replay needs no flag — the engine simply rehydrates definitions the
+> operator already registered.
 
-## Registering (switch on)
+## Registering
 
 A `Path` query stores the `filter`/`cost` blocks of a path specification; the numeric bounds
 (`maxDepth`, `maxResults`, `maxPathWeight`) and algorithm name stay per-request:
@@ -64,7 +73,7 @@ own library, see [graph-namespaces](../graph-namespaces/)). A SubGraph template 
 pattern step's `semanticMinScore` (400): a template has no semantic query to bind — see the
 [element-embeddings README](../element-embeddings/README.md), "Semantic traversal".
 
-## Invoking (switch on **or** off)
+## Invoking
 
 ```jsonc
 POST /path/1/to/5
@@ -87,7 +96,7 @@ materialized specification, so deleting the stored query later never orphans the
 |---|---|---|
 | `GET /storedquery` | authenticated | Summaries incl. `compileState` |
 | `GET /storedquery/{name}` | authenticated | Full source + (if `Failed`) recompile diagnostics — also covers manual migration |
-| `DELETE /storedquery/{name}` | authenticated | Never gated by the switch; unpins the compiled artifact so its load context can unload |
+| `DELETE /storedquery/{name}` | authenticated | Unpins the compiled artifact so its load context can unload |
 
 Entries are immutable: to change one, delete and re-register.
 
@@ -103,14 +112,17 @@ invoke, recoverable by delete + re-register. Operator-registered state is never 
 dropped. An engine embedded without a hosting layer (no compiler registered) loads entries
 as `SourceOnly`.
 
-## Security matrix (authenticated caller)
+## Security matrix
 
-| Request | switch on | switch off |
-|---|---|---|
-| Register stored query | 201 | **403** |
-| `/path` / `/subgraph` with inline fragments | 2xx | **403** |
-| `/path` / `/subgraph` via `storedQuery` | 2xx | 2xx |
-| `/path` with no filter/cost at all | 200 | 200 |
-| List / get / delete stored queries | 2xx | 2xx |
+Dynamic code execution is always on, so the only gate on these endpoints is authentication —
+required when an API key is configured, open otherwise.
 
-Pinned by `StoredQuerySecurityMatrixTest` through the real pipeline in both switch states.
+| Request | key set, authenticated | key set, anonymous | no key |
+|---|---|---|---|
+| Register stored query | 201 | **401** | 201 |
+| `/path` / `/subgraph` with inline fragments | 2xx | **401** | 2xx |
+| `/path` / `/subgraph` via `storedQuery` | 2xx | **401** | 2xx |
+| `/path` with no filter/cost at all | 200 | **401** | 200 |
+| List / get / delete stored queries | 2xx | **401** | 2xx |
+
+Pinned by `StoredQuerySecurityMatrixTest` through the real pipeline.

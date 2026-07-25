@@ -14,8 +14,8 @@
  * Env:  NL_EVAL_MODEL     model name        (default phi4-mini; set to a fine-tuned
  *                                            model, e.g. phi4-f8-mini, to compare runs)
  *       NL_EVAL_ENDPOINT  Ollama endpoint   (default http://localhost:11434)
- *       NL_EVAL_F8        apiApp base URL   (default http://localhost:5000; must run
- *                                            with EnableDynamicCodeExecution=true)
+ *       NL_EVAL_F8        apiApp base URL   (default http://localhost:5000; the compile
+ *                                            authority — dynamic code is always on)
  *
  * Results are written per-row (resumable) to eval/results/baseline-<model>.json; the
  * summary numbers belong in features/done/nl-assist-finetune/plan.md's run ledger.

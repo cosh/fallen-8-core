@@ -24,7 +24,6 @@
 // SOFTWARE.
 
 using System;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -60,8 +59,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// A null/empty fragment is valid by definition (it means "match everything" / "no custom
         /// cost"). Warnings are reported but do not make the fragment invalid.
         ///
-        /// The endpoint sits behind the same dynamic-code authorization gate as the query
-        /// endpoints: compilation is the expensive half of that surface, and validation is only
+        /// The endpoint carries the same authentication as the query endpoints (required whenever an
+        /// API key is configured); dynamic code execution itself is always on. Validation is only
         /// useful where fragment submission is possible at all.
         ///
         /// Sample request:
@@ -76,10 +75,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="200">The validation result (also for invalid fragments - inspect "valid")</response>
         /// <response code="400">Unknown delegateKind or malformed request</response>
         /// <response code="401">Authentication required but missing/invalid</response>
-        /// <response code="403">Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)</response>
         /// <response code="429">Rate limit for sensitive endpoints exceeded</response>
         [HttpPost("/delegates/validate")]
-        [Authorize(Policy = Fallen8SecurityOptions.DynamicCodePolicy)]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [RequestSizeLimit(1_048_576)]
         [Consumes("application/json")]
@@ -87,7 +84,6 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(DelegateValidationREST), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public ActionResult<DelegateValidationREST> ValidateDelegate([FromBody] ValidateDelegateSpecification specification)
         {

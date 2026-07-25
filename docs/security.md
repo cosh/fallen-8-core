@@ -1,11 +1,11 @@
 # Security
 
-Fallen-8's hosted API has two independent security controls that compose: an **API key** gates *access* to the whole service (all or nothing), and the **dynamic-code switch** gates *compilation of arbitrary C#* (off by default). They are orthogonal — one decides who may call, the other decides whether anyone may run submitted code. The key defaults to unset (open, for localhost or a trusted network); the switch defaults to off (no submitted code runs until an operator opts in). This page is the one home for that posture; other docs reference it.
+Fallen-8's hosted API has one access control: an **API key** that gates *access* to the whole service (all or nothing). Set it and every request needs it; leave it unset and the whole service is open. There is no dynamic-code switch — compiling and running submitted C# fragments is Fallen-8's core "queries are C#" model and is **always available** (auth permitting). One opt-in capability, **plugin DLL loading**, is off by default and gated separately ([plugins](plugins.md)). This page is the one home for that posture; other docs reference it.
 
 | Control | Config key | Gates | Default |
 |---|---|---|---|
 | API key | `Fallen8:Security:ApiKey` | Access to every endpoint | unset → open |
-| Dynamic code | `Fallen8:Security:EnableDynamicCodeExecution` | Compiling submitted C# fragments | `false` → code refused |
+| Plugin loading | `Fallen8:Security:EnableDynamicPluginLoading` | Uploading + loading plugin DLLs ([plugins](plugins.md)) | `false` → refused |
 
 ## API key authentication
 
@@ -37,46 +37,36 @@ Invoke-RestMethod -Uri http://localhost:8080/status
 Invoke-RestMethod -Uri http://localhost:8080/storedquery -Headers @{ "X-Api-Key" = "<your-key>" }
 ```
 
-## Dynamic code execution switch
+## Dynamic code execution (always on)
 
-`EnableDynamicCodeExecution` is the kill switch for the one endpoint class that compiles arbitrary C# — the Roslyn compilation of filter/cost fragments described in [delegates](delegates.md). Off by default; independent of the API key.
+The path and subgraph endpoints compile inline C# filter/cost fragments with Roslyn and run them in-process — see [delegates](delegates.md). This is Fallen-8's query model, so **there is no switch to disable it**. The only gate is authentication: with a key configured, a code-introducing request needs the key like any other request (401 without it); with no key, anyone who can reach the service can run arbitrary in-process C#.
 
-| Key | Env (compose) | Default |
+| Endpoint class | Needs a credential (when a key is configured) | Notes |
 |---|---|---|
-| `Fallen8:Security:EnableDynamicCodeExecution` | `Fallen8__Security__EnableDynamicCodeExecution` (`F8_ENABLE_DYNAMIC_CODE`) | `false` |
+| Inline path fragments (`POST /path/...` with `filter`/`cost`) | yes | Compiled per request (cached by fragment). |
+| Inline subgraph fragments (`PUT /subgraph` with `vertexFilter`/`edgeFilter`/`patterns`) | yes | |
+| Stored-query **registration** (`POST /storedquery`) | yes | Compiled once at registration ([stored queries](stored-queries.md)). |
+| `POST /delegates/validate` | yes | Compile-checks a fragment without running it. |
+| Stored-query **invocation** by name, list / get / delete | as any request | No new code is introduced; the pre-compiled artifact runs. |
+| Filterless path search (`{}` body), the `semantic` block, analytics, change feed, reads/scans, mutations | as any request | Compile no C# at all. |
+| Plugin DLL upload | yes **and** `EnableDynamicPluginLoading=true` | A *separate* opt-in switch ([plugins](plugins.md)). |
 
-The gate is **request-shape-aware**: only a request that actually *introduces* inline C# is gated. Precisely what needs the switch ON, and what does not:
+**Honest limit.** A compiled fragment — inline or stored — runs in-process with the server's full authority. Authentication is *access control* (who may reach the code endpoints at all); it is **not a sandbox**. Anyone who can present the key has full code execution as the server process. Running genuinely untrusted code would need out-of-process or WASM isolation, which Fallen-8 does not provide. **Therefore: never expose an unauthenticated instance off-box — set an API key (or front the service with an authenticating proxy) before it is reachable beyond localhost or a trusted network.**
 
-| Gated — needs the switch ON | Ungated — works with the switch OFF |
-|---|---|
-| Inline path fragments (`POST /path/{from}/to/{to}` with a `filter`/`cost` fragment) | Stored-query **invocation** by name (`storedQuery` on `/path`, `/subgraph`) |
-| Inline subgraph fragments (`PUT /subgraph` with `vertexFilter`/`edgeFilter`/`patterns`) | Stored-query list / get / delete |
-| Stored-query **registration** (`POST /storedquery`) | Filterless path search (`{}` body) |
-| `POST /delegates/validate` | The `semantic` block (query-vector filters/costs are declarative) |
-| Plugin DLL upload — a *separate* switch, `EnableDynamicPluginLoading` ([plugins](plugins.md)) | Analytics, change feed, bulk import/export, all reads/scans, mutations |
+## How the key composes
 
-With the switch **off**, an authenticated caller posting a code-introducing request gets **403 Forbidden** before any compilation runs. A request that mixes a stored-query reference with an inline fragment is treated as introducing code, so it is also 403. Because these two mechanisms stack, **authentication is evaluated first**: an anonymous code request against a key-protected server is 401, never a 403 that would leak the switch state.
-
-Three neighbours lean on the ungated column and are documented there: stored-query registration needs the switch while invocation by name does not ([stored queries](stored-queries.md)); the `semantic` block is code-free and works with the switch off ([semantic traversal](semantic-traversal.md)); the change feed is declarative and works with the switch off ([change feed](change-feed.md)).
-
-## How they compose
-
-The switch gates code either way; the key gates access either way. The four combinations:
-
-| | Code switch OFF (default) | Code switch ON |
+| Posture | Who can reach it | Who can run in-process C# |
 |---|---|---|
-| **Key unset (open)** | **Default.** Anyone who can reach the service uses reads, mutations, stored-query invocation, analytics, change feed, and bulk; inline fragments, registration, and `/delegates/validate` return 403. | Anyone who can reach the service can compile and run arbitrary in-process C#. Localhost dev only. |
-| **Key set** | Every request needs the key; code-introducing requests still 403. The recommended exposed posture. | Every request needs the key; any key-holder can compile and run arbitrary in-process C#. Trusted single-tenant only. |
-
-**Honest limit.** A permitted fragment — inline or stored — runs in-process with the server's full authority. This is *provenance control* (who may introduce code, and whether code is accepted at all), **not a sandbox**. Anyone who can present the key while the switch is on has full code execution as the server process; a stored query provisioned during a switch-on window keeps that authority when invoked later. Running genuinely untrusted code would need out-of-process or WASM isolation, which Fallen-8 does not provide.
+| **Key unset (open)** — default | anyone who can reach the service | anyone who can reach the service. **Localhost / trusted network only.** |
+| **Key set** | only key-holders (reads exempted above) | only key-holders. The recommended exposed posture. |
 
 ## Deployment postures
 
-| Posture | API key | Code switch | TLS | Shape |
+| Posture | API key | Plugin loading | TLS | Shape |
 |---|---|---|---|---|
-| Localhost dev | unset (open) | on | none | `dotnet run`; iterate on fragments freely on your own machine. |
-| Trusted network | set | off (after provisioning) | none / optional | Register a vetted set of stored queries with the switch on, then run day-to-day with it off — only the approved set executes. |
-| Exposed | set | off | terminate upstream | Only vetted stored queries run; every request is authenticated. |
+| Localhost dev | unset (open) | off | none | `dotnet run`; iterate on fragments freely on your own machine. |
+| Trusted network | set | off | none / optional | Every request authenticated; code runs in-process — keep the network trusted. |
+| Exposed | set | off | terminate upstream | Every request authenticated behind a TLS-terminating reverse proxy. |
 
 **TLS.** The app serves plain HTTP (the container listens on `8080`, the dev profile on `5000`); it does **not** terminate TLS and ships no certificate, so `UseHttpsRedirection` is a no-op without an HTTPS port. When exposing the service, put a TLS-terminating reverse proxy in front of it.
 
@@ -94,12 +84,13 @@ Additional knobs under `Fallen8:Security`, applied to the sensitive (code/plugin
 
 ## See also
 
-- [Delegates](delegates.md) — the Roslyn-compiled C# fragments the switch gates, and `/delegates/validate`
-- [Stored queries](stored-queries.md) — registration needs the switch; invocation by name does not
-- [Semantic traversal](semantic-traversal.md) — the code-free `semantic` block that works with the switch off
-- [Change feed](change-feed.md) — declarative, works with the switch off
+- [Delegates](delegates.md) — the Roslyn-compiled C# fragments (always available), and `/delegates/validate`
+- [Stored queries](stored-queries.md) — named, pre-compiled queries: registration needs a credential, invocation reuses the artifact
+- [Semantic traversal](semantic-traversal.md) — the code-free `semantic` block
+- [Change feed](change-feed.md) — declarative, compiles no code
 - [Plugins](plugins.md) — the separate `EnableDynamicPluginLoading` switch
 - [Observability](observability.md) — metrics/health endpoints and whether `/metrics` requires the key
-- [Running Fallen-8](running.md) — setting `F8_API_KEY` and `F8_ENABLE_DYNAMIC_CODE` in compose
-- [Studio](studio.md) — registering an instance with its key; the fragment editor needs the switch
+- [Running Fallen-8](running.md) — setting `F8_API_KEY` in compose
+- [Studio](studio.md) — registering an instance with its key
 - [REST API](rest-api.md) — the auth header on the endpoint surface
+```

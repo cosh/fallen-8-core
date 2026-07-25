@@ -4,19 +4,19 @@ Fallen-8 has no query language — queries are C# delegates ([delegates](delegat
 
 ```mermaid
 flowchart LR
-    R["POST /storedquery<br/>compile + validate once<br/>(needs dynamic-code switch)"] --> L[("library<br/>per namespace, WAL-durable")]
+    R["POST /storedquery<br/>compile + validate once"] --> L[("library<br/>per namespace, WAL-durable")]
     L --> P["POST /path/{from}/to/{to}<br/>{ &quot;storedQuery&quot;: &quot;…&quot; }"]
-    L --> S["PUT /subgraph<br/>{ &quot;storedQuery&quot;: &quot;…&quot; }<br/>(switch may be off)"]
+    L --> S["PUT /subgraph<br/>{ &quot;storedQuery&quot;: &quot;…&quot; }"]
 ```
 
 ## REST surface
 
 | Route | Effect | Notable responses |
 |---|---|---|
-| `POST /storedquery` | Register: validate, compile once, publish | `201` summary · `400` malformed or compile failure (body carries compiler diagnostics) · `403` dynamic code disabled · `409` duplicate name or library quota · `413` body over 1 MiB · `429` rate-limited |
+| `POST /storedquery` | Register: validate, compile once, publish | `201` summary · `400` malformed or compile failure (body carries compiler diagnostics) · `401` no credential (when a key is configured) · `409` duplicate name or library quota · `413` body over 1 MiB · `429` rate-limited |
 | `GET /storedquery` | List summaries, ordered by name | `200` |
 | `GET /storedquery/{name}` | Full detail incl. the stored specification JSON (also your migration path between instances) and, for `Failed` entries, recompile diagnostics | `200` · `404` |
-| `DELETE /storedquery/{name}` | Deregister (never gated by the dynamic-code switch) | `204` · `404` |
+| `DELETE /storedquery/{name}` | Deregister | `204` · `404` |
 
 Entries are immutable: to change one, delete and re-register.
 
@@ -77,7 +77,7 @@ $spec = @{
 Invoke-RestMethod -Method Post -Uri http://localhost:8080/storedquery -ContentType "application/json" -Body $spec
 ```
 
-Invoke it — no code in the request, so this works with dynamic code execution disabled:
+Invoke it — the request carries no code, only the name and per-invocation bounds:
 
 ```bash
 curl -X POST http://localhost:8080/path/1/to/5 \
@@ -97,11 +97,15 @@ PUT /subgraph
 { "name": "adults-2026", "storedQuery": "person-net" }
 ```
 
-## Security payoff
+## What the library buys you
 
-Registration introduces code, so it requires an authenticated caller and `Fallen8:Security:EnableDynamicCodeExecution=true` — exactly like the inline code endpoints. Invocation by name is deliberately not gated: the path and subgraph endpoints check whether a request actually *carries* inline fragments, and a stored-query reference carries none. The operating model: register a vetted set while the switch is on, then run day-to-day with it off — inline fragments get `403`, stored queries keep working, and the code surface shrinks from arbitrary C# per request to a closed, operator-approved set.
+- **Compile once, invoke many.** A fragment is validated and compiled a single time at registration; every invocation reuses the pinned artifact, so a hot query pays no per-request Roslyn cost and callers send only a name plus bounds.
+- **A curated catalog.** An operator registers a vetted set of named queries that agents and clients reference by name instead of re-sending raw C#, and `GET /storedquery` lists them for discovery.
+- **Portable definitions.** `GET /storedquery/{name}` returns the stored specification JSON — your migration path between instances — and entries survive save/load via the WAL.
 
-Stated honestly: an invoked stored query still runs in-process with full trust. The library narrows *who can introduce* code — a provenance control, not a sandbox. The switch and the API key are documented in [security](security.md).
+Registration carries the same authentication as the inline code endpoints (the API key when one is configured, `401` without it); invocation by name is never gated, since it introduces no new code — the path and subgraph endpoints simply check whether a request *carries* inline fragments, and a stored-query reference carries none.
+
+Stated honestly: dynamic code execution is always on (there is no switch to lock the engine down to stored-queries-only), and an invoked stored query still runs in-process with full trust. The library is a reuse and curation convenience, **not** a sandbox. The API key is documented in [security](security.md).
 
 ## Durability and limits
 
@@ -116,7 +120,7 @@ Registrations and removals are transactions: they survive `PUT /save` / load and
 ## See also
 
 - [Delegates](delegates.md) — the no-query-language philosophy, fragment shape, compilation, `/delegates/validate`
-- [Security](security.md) — API key and the `EnableDynamicCodeExecution` switch
+- [Security](security.md) — the API key that gates access to the code endpoints
 - [Path finding](path-finding.md) · [Subgraphs](subgraphs.md) — the endpoints that accept `storedQuery`
 - [Semantic traversal](semantic-traversal.md) — the `semantic` block stored path queries can combine with
 - [Save games](save-games.md) — checkpoints and the write-ahead log

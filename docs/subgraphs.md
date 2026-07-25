@@ -27,7 +27,7 @@ The bare paths below target the `default` namespace and also answer under `/ns/{
 | `POST /subgraph/{name}/recalculate` | Re-extract against the current source | `200` summary · `404` · `409` not recalculable |
 | `DELETE /subgraph/{name}` | Deregister | `204` · `404` · `500` |
 
-**Gating:** a request carrying any inline fragment needs an authenticated caller and `EnableDynamicCodeExecution=true`, else `403`; a stored-query reference and the pure-data `semantic` block are never gated ([security](security.md)).
+**Gating:** dynamic code execution is always on, so a request carrying inline fragments just needs the credential when a key is configured ([security](security.md)); a stored-query reference and the pure-data `semantic` block introduce no code either way.
 
 ## The pattern model
 
@@ -127,7 +127,7 @@ Ids are the subgraph's own, not the source's.
 - [Delegates](delegates.md) — the no-query-language model, fragment shape, compilation, validation
 - [Stored queries](stored-queries.md) — register a subgraph template once, invoke by name with no code
 - [Semantic traversal](semantic-traversal.md) — the `semantic` block and score thresholds
-- [Security](security.md) — API key and the `EnableDynamicCodeExecution` switch
+- [Security](security.md) — the API key that gates access to these always-on code endpoints
 - [Save games](save-games.md) — checkpoints, the write-ahead log, and rebuild-on-load
 - [Namespaces](namespaces.md) — per-namespace isolation and the `/ns/{ns}/…` route twins
 - [Graph model](graph-model.md) — vertices, edges, properties, and transactions

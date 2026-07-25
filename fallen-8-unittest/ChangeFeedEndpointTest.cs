@@ -324,10 +324,10 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task WorksFully_WithTheDynamicCodeKillSwitchOff_AndPayloadsCarryNoValues()
+        public async Task WorksFully_WithNoCompiledFilters_AndPayloadsCarryNoValues()
         {
-            // The default host already runs with EnableDynamicCodeExecution=false - the feed's
-            // declarative filters never need it.
+            // The feed's kind filters are declarative - they compile no code, so the feed is
+            // unaffected by dynamic code execution either way.
             using var factory = new FeedFactory();
             using var client = factory.CreateClient();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));

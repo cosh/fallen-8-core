@@ -42,7 +42,7 @@ Each slot is a one-statement C# fragment of the form `return (<param>) => <expr>
 | `cost.vertexCost` | `VertexModel` | `double` | `return (v) => 0.0;` |
 | `cost.edgeCost` | `EdgeModel` | `double` | `return (e) => e.TryGetProperty<double>(out var w, "weight") ? w : 1.0;` |
 
-These fragments are compiled at runtime with Roslyn and run in-process; the full contract, the accessor surface, and the `POST /delegates/validate` compile-check live in [delegates.md](delegates.md). Because they introduce code, a request carrying **any** inline fragment requires dynamic code execution to be enabled, or it is rejected with `403` ([security.md](security.md)). Two code-free alternatives are **not** gated: a `storedQuery` reference ([stored-queries.md](stored-queries.md)) and the `semantic` block ([semantic-traversal.md](semantic-traversal.md)).
+These fragments are compiled at runtime with Roslyn and run in-process; the full contract, the accessor surface, and the `POST /delegates/validate` compile-check live in [delegates.md](delegates.md). Dynamic code execution is always on, so a request carrying inline fragments just needs the credential when a key is configured ([security.md](security.md)). Two code-free alternatives exist for callers that never compile C#: a `storedQuery` reference ([stored-queries.md](stored-queries.md)) and the `semantic` block ([semantic-traversal.md](semantic-traversal.md)).
 
 ## Cost model (DIJKSTRA)
 
@@ -143,7 +143,7 @@ Leaving `maxResults` at its default would instead return every loop-free `A → 
 |---|---|
 | `200` | Paths found — or none (`[]`); a missing `from`/`to` vertex or an unknown algorithm also returns `[]` |
 | `400` | Malformed body, a fragment that fails to compile (Roslyn diagnostics in the body), or `storedQuery` mixed with inline fragments |
-| `401` / `403` | No credential supplied / inline code sent while dynamic code execution is disabled ([security.md](security.md)) |
+| `401` | No credential supplied while a key is configured ([security.md](security.md)) |
 | `404` | The referenced `storedQuery` name does not exist |
 | `409` | The referenced `storedQuery` is not invocable (its recompile-on-load failed) |
 | `413` / `429` | Body over 1 MiB / sensitive-endpoint rate limit exceeded |
@@ -153,7 +153,7 @@ Leaving `maxResults` at its default would instead return every loop-free `A → 
 - [Delegates](delegates.md) — the no-query-language philosophy, the fragment contract, compilation, and `/delegates/validate`
 - [Stored queries](stored-queries.md) — precompiled `Path` queries invoked by name, no dynamic code required
 - [Semantic traversal](semantic-traversal.md) — the code-free `semantic` similarity block carried on `/path`
-- [Security](security.md) — the API key and the `EnableDynamicCodeExecution` gate
+- [Security](security.md) — the API key that gates access to these always-on code endpoints
 - [Graph model](graph-model.md) — vertices, edges, properties, and the transactions that build a graph
 - [Samples](samples.md) — weighted datasets to traverse (air-routes `km`, attack-surface `exploitCost`)
 - [Plugins](plugins.md) — how path algorithms are discovered

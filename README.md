@@ -54,8 +54,8 @@ Each feature has a deep-dive doc — follow the link.
 - **[MCP server](docs/mcp-server.md)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
   writes and three auth modes up to OAuth 2.1.
-- **[Security](docs/security.md)** — optional all-or-nothing API key; dynamic code execution is a
-  separate switch, off by default.
+- **[Security](docs/security.md)** — optional all-or-nothing API key; dynamic code execution is
+  always on (queries are C#), so set a key before exposing the service off-box.
 
 ## Architecture
 
@@ -126,7 +126,7 @@ For a real (off-box) deployment, set a token and enable the tiers you need — f
 
 ## Troubleshooting
 
-Common snags — first-start model pulls, the embedding provider, dynamic-code 403s, GPU
+Common snags — first-start model pulls, the embedding provider, missing-key 401s, GPU
 detection — and their fixes are in [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Documentation

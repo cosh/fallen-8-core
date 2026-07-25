@@ -113,8 +113,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   of inline <see cref="VertexFilter"/>/<see cref="EdgeFilter"/>/<see cref="Patterns"/>
         ///   fragments (feature stored-query-library). Mutually exclusive with them (400 when
         ///   mixed); <see cref="Name"/> (and optional <see cref="AdditionalInformation"/>) stay
-        ///   required per instance. A stored-query request compiles nothing and works with
-        ///   dynamic code execution disabled.
+        ///   required per instance. A stored-query request compiles nothing (the pinned template
+        ///   is instantiated).
         /// </summary>
         /// <example>person-net</example>
         [JsonPropertyName("storedQuery")]
@@ -127,8 +127,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The declarative semantic block (feature element-embeddings): the query vector the
         ///   compiled filters' traversal context carries, plus an optional code-free
         ///   <c>minScore</c> vertex pre-filter. Bound at REGISTRATION time - recalculation
-        ///   reuses the same delegates and never embeds anything. Pure data (not gated by the
-        ///   dynamic-code switch); mutually exclusive with <see cref="StoredQuery"/> and, when
+        ///   reuses the same delegates and never embeds anything. Pure data (it compiles no C#);
+        ///   mutually exclusive with <see cref="StoredQuery"/> and, when
         ///   <c>minScore</c> is set, with an inline <see cref="VertexFilter"/> fragment.
         /// </summary>
         [JsonPropertyName("semantic")]

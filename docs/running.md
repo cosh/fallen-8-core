@@ -63,7 +63,6 @@ for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 |---|---|---|
 | `F8_PORT` | `8080` | Host port for Studio + API (container always listens on 8080) |
 | `F8_API_KEY` | *(unset)* | Set it and the **entire** service requires the key; unset = open ([Security](security.md)) |
-| `F8_ENABLE_DYNAMIC_CODE` | `false` | Turn on to allow compiling inline C# [delegates](delegates.md) and Studio's editor validation |
 | `F8_EMBEDDINGS` | `true` | Text-in embeddings via the sidecar's `bge-m3`; `false` disables the provider (bring-your-own-vector still works) |
 | `F8_GPU` | *(auto)* | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects |
 | `F8_PULL_PHI4F8` | `0` | `1` also pulls the larger GPU-only `phi4-f8` assist model (~9 GB) |
@@ -72,12 +71,12 @@ for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 Examples:
 
 ```bash
-F8_API_KEY=change-me F8_ENABLE_DYNAMIC_CODE=true npm run env:up   # secured + editor on
-F8_PORT=9090 npm run env:up                                       # Studio on :9090
+F8_API_KEY=change-me npm run env:up   # secured (every request needs the key)
+F8_PORT=9090 npm run env:up           # Studio on :9090
 ```
 
 ```powershell
-$env:F8_API_KEY = "change-me"; $env:F8_ENABLE_DYNAMIC_CODE = "true"; npm run env:up
+$env:F8_API_KEY = "change-me"; npm run env:up
 $env:F8_PORT = "9090"; npm run env:up
 ```
 
@@ -128,7 +127,7 @@ form, or the command line). The defaults:
 | `Fallen8:Metadata:Directory` | storage dir | [Save games](save-games.md) |
 | `Fallen8:Namespaces:MaxNamespaces` | `10000` | [Namespaces](namespaces.md) |
 | `Fallen8:Security:ApiKey` | `null` (open) | [Security](security.md) |
-| `Fallen8:Security:EnableDynamicCodeExecution` | `false` | [Security](security.md) |
+| `Fallen8:Security:EnableDynamicPluginLoading` | `false` | [Plugins](plugins.md) |
 | `Fallen8:Embedding:Enabled` | `false` (bare run) | [Semantic traversal](semantic-traversal.md) |
 | `Fallen8:ChangeFeed:Enabled` | `true` | [Change feed](change-feed.md) |
 | `Fallen8:Analytics:DefaultTimeBudgetSeconds` | `30` | [Graph analytics](graph-analytics.md) |
@@ -164,7 +163,7 @@ AMD GPUs need the `ollama/ollama:rocm` image and are not covered by this compose
 ## See also
 
 - [Architecture](architecture.md) — how the container, engine, and sidecar fit together
-- [Security](security.md) — the API key and dynamic-code switch you set at launch
+- [Security](security.md) — the API key you set at launch
 - [Studio](studio.md) — the browser UI this serves
 - [Save games](save-games.md) — where durable data lives and how startup loads it
 - [REST API](rest-api.md) — OpenAPI/Scalar (Development only) and the endpoint map

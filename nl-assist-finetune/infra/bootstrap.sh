@@ -193,10 +193,9 @@ done
 log "GPU ready:"; nvidia-smi -L
 
 # --- start the apiApp (compile authority) on :5000 -------------------------------------------
-log "starting the apiApp (volatile + dynamic code) on http://localhost:5000 ..."
+log "starting the apiApp (volatile; dynamic code is always on) on http://localhost:5000 ..."
 cd "$WORK/repo"
 Fallen8__Durability__Volatile=true \
-Fallen8__Security__EnableDynamicCodeExecution=true \
 ASPNETCORE_URLS=http://localhost:5000 \
   dotnet run --project fallen-8-core-apiApp -c Release >/var/log/f8-apiapp.log 2>&1 &
 for _ in $(seq 1 100); do curl -sf http://localhost:5000/status >/dev/null 2>&1 && break; sleep 3; done

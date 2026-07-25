@@ -85,9 +85,9 @@ flowchart TB
         QV --> CTX["TraversalContext<br/>vector + embeddingName + metric"]
     end
 
-    CTX --> DECL["declarative closures<br/>minScore filter / costBySimilarity cost<br/>(no C#, dynamic code may stay OFF)"]
-    CTX --> FRAG["compiled C# fragments<br/>context.TrySimilarity(v, out s)<br/>(dynamic code ON)"]
-    CTX --> SQ["stored path query fragments<br/>(registration gated, invocation ungated)"]
+    CTX --> DECL["declarative closures<br/>minScore filter / costBySimilarity cost<br/>(no C#)"]
+    CTX --> FRAG["compiled C# fragments<br/>context.TrySimilarity(v, out s)<br/>(always available)"]
+    CTX --> SQ["stored path query fragments<br/>(compiled once at registration)"]
 
     subgraph during["per element DURING the traversal - no model, ever"]
         direction LR
@@ -134,8 +134,7 @@ The carrier is the `semantic` block, accepted by `POST /path/{from}/to/{to}` and
 
 ### Three ways to consume the vector
 
-**1. Declarative (no code, works with `EnableDynamicCodeExecution=false`).** The block is
-pure data and never touches the dynamic-code gate:
+**1. Declarative (no code).** The block is pure data and compiles no C#:
 
 - `minScore` installs a vertex filter: an element passes when its embedding scores **at
   least** `minScore` (`Cosine`/`DotProduct`) or **at most** `minScore` (`L2`, where lower
@@ -159,7 +158,7 @@ curl -sf -X POST http://localhost:5000/path/1/to/9 \
            "semantic": { "queryVector": [0.1, 0.2], "costBySimilarity": true } }'
 ```
 
-**2. C# fragments (dynamic code on).** Every compiled filter/cost fragment receives the
+**2. C# fragments (always available).** Every compiled filter/cost fragment receives the
 request's context as the `context` parameter (`TraversalContext`): `HasQueryVector`,
 `QueryVector`, `EmbeddingName`, `Metric`, and the one method that matters —
 `context.TrySimilarity(element, out float score)`, which is the accessor plus `VectorMath`
@@ -175,8 +174,8 @@ return (v) => context.TrySimilarity(v, out var s) ? 1.0 - s : 1.0;
 ```
 
 **3. Stored path queries.** A stored query's fragments may reference `context`; the
-*invocation* supplies the vector through the same `semantic` block — registration stays
-gated by the dynamic-code switch, invocation stays ungated. Invoking a context-using
+*invocation* supplies the vector through the same `semantic` block — the fragments are
+compiled once at registration, invocation compiles nothing. Invoking a context-using
 stored query **without** a vector is not an error: every `TrySimilarity` is `false`
 (the empty context), so a pure semantic filter simply matches nothing.
 
@@ -203,8 +202,7 @@ On a subgraph, semantic decisions are **vertex membership thresholds on filter s
   copied into the subgraph before pattern matching).
 - A vertex pattern step's `semanticMinScore` fills **that step's** filter slot — the same
   scoring rules against the same one-per-request query, so a fully declarative pattern
-  ("a vertex near the query −knows→ another vertex near the query") runs with dynamic
-  code execution OFF:
+  ("a vertex near the query −knows→ another vertex near the query") compiles no C# at all:
 
 ```jsonc
 {
@@ -247,7 +245,6 @@ One owner per delegate slot, and everything invalid is a 400 with a reason:
 | `queryVector` and `queryText` together | 400 (exactly one source) |
 | missing/empty vector, NaN/Infinity components, zero-norm under `Cosine`, bad name/metric | 400 |
 | `queryText` with the embedding provider disabled | 403 (the provider capability) |
-| inline fragments with `EnableDynamicCodeExecution=false` | 403 — the `semantic` block does **not** widen the dynamic-code gate in either direction |
 
 ## Memory math (the honest ~2×)
 
@@ -262,7 +259,7 @@ workloads (no index) and unbound-index workloads (no element copy) each pay once
   finiteness; NaN never enters a ranking or a traversal decision.
 - Embedding writes ride the single-writer transaction discipline; reads are lock-free
   (copy-on-write property store) — no new locks anywhere on the read path.
-- The declarative semantic block carries no code and does not widen the dynamic-code
-  gate; fragments and stored-query registration remain gated exactly as before.
+- The declarative semantic block carries no code (it compiles no C#); inline fragments and
+  stored-query registration carry the standard authentication like every code endpoint.
 - Pre-feature checkpoints and WALs load unchanged (new WAL entry type and index header
   are additive).

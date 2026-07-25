@@ -1,15 +1,25 @@
 # API Security Boundary — operator guide
 
-The hosted Fallen-8 API establishes an **authentication trust boundary** and keeps the
-remote-code-execution surface **off by default**. Configure it under `Fallen8:Security` in
+The hosted Fallen-8 API establishes an **authentication trust boundary**. Dynamic code
+execution (the Roslyn compile endpoints) is **always on** — running agent-emitted C# is
+Fallen-8's core "queries are C#" model, so there is no switch for it. Plugin DLL loading is a
+separate opt-in, off by default. Configure everything under `Fallen8:Security` in
 `appsettings.json`, environment variables, or user-secrets.
+
+> **Update (dynamic code is always on).** An earlier revision of this feature gated the compile
+> endpoints behind `EnableDynamicCodeExecution` (default off). That flag has been **removed**:
+> dynamic code execution is unconditional. The only gate on `POST /path`, `PUT /subgraph`,
+> `POST /storedquery`, and `POST /delegates/validate` is authentication (the API key when one is
+> configured). Plugin loading keeps its own kill switch (`EnableDynamicPluginLoading`).
 
 > **Honest limit (read this).** In-process Roslyn compilation and plugin loading **cannot be
 > sandboxed** — a compiled filter or a loaded plugin runs with the server process's full authority.
-> This feature is a *trust boundary* (who may reach the code endpoints) plus an operator *kill
-> switch*, **not a sandbox**. Anyone permitted to reach `POST /path`, `PUT /subgraph`, or
-> `PUT /plugin` with the capability enabled is **trusted as the process**. Running genuinely
-> untrusted submitted code would require out-of-process / WASM isolation (a separate, larger design).
+> Authentication is the *trust boundary* (who may reach the code endpoints), **not a sandbox**.
+> Anyone permitted to reach `POST /path`, `PUT /subgraph`, or `PUT /plugin` is **trusted as the
+> process**. Therefore an unauthenticated instance grants arbitrary in-process code execution to
+> anyone who can reach it — **set an API key before exposing the service off-box.** Running
+> genuinely untrusted submitted code would require out-of-process / WASM isolation (a separate,
+> larger design).
 
 ## Configuration keys (`Fallen8:Security`)
 
@@ -17,8 +27,7 @@ remote-code-execution surface **off by default**. Configure it under `Fallen8:Se
 |-----|---------|---------|
 | `ApiKey` | `null` | The secret required in the API-key header. **Supply via user-secrets/environment, never checked in.** When null the server runs **unauthenticated** (logs a warning) — only acceptable behind loopback. |
 | `ApiKeyHeader` | `X-Api-Key` | Header carrying the key. |
-| `EnableDynamicCodeExecution` | `false` | Master switch for the Roslyn compile endpoints (`POST /path`, `PUT /subgraph`). Off ⇒ **403**. |
-| `EnableDynamicPluginLoading` | `false` | Master switch for `PUT /plugin`. Off ⇒ **403**, nothing written. |
+| `EnableDynamicPluginLoading` | `false` | Master switch for `PUT /plugin`. Off ⇒ **403**, nothing written. (There is no equivalent switch for the Roslyn compile endpoints — those are always on.) |
 | `PluginDirectory` | `<base>/plugins` | Isolated directory uploaded DLLs are written to and discovered from — never the app's binary directory. |
 | `AllowedCorsOrigins` | `[]` | CORS allow-list. Empty ⇒ deny all cross-origin. No wildcard-with-credentials. |
 | `SensitiveRateLimitPermitPerWindow` | `30` | Requests allowed per window on the code/plugin endpoints (429 on breach). |
@@ -29,23 +38,27 @@ remote-code-execution surface **off by default**. Configure it under `Fallen8:Se
 
 - **Authentication.** With `ApiKey` set, every endpoint requires the key except those marked
   `[AllowAnonymous]` (`/status`, `/vertex/count`, `/edge/count`). Anonymous ⇒ **401**.
-- **RCE gates.** `POST /path`, `PUT /subgraph`, `PUT /plugin` require **both** an authenticated caller
-  **and** the matching capability flag. Anonymous ⇒ 401; authenticated but disabled ⇒ 403.
+- **Code endpoints.** `POST /path`, `PUT /subgraph`, `POST /storedquery`, `POST /delegates/validate`
+  compile and run C# unconditionally; they carry only the standard authentication (anonymous ⇒ 401
+  when a key is set). There is no capability flag and no 403 for a "code disabled" reason.
+- **Plugin loading.** `PUT /plugin` still requires **both** an authenticated caller **and**
+  `EnableDynamicPluginLoading=true`. Anonymous ⇒ 401; authenticated but disabled ⇒ 403.
 - **Perimeter.** Default-deny CORS; a fixed-window rate limiter on the sensitive endpoints (429);
   request-size limits (1 MiB code, 64 MiB plugin) ⇒ 413 on oversize.
 
-## Enabling code execution (trusted single-tenant only)
+## Securing an exposed instance
 
 ```jsonc
 "Fallen8": {
   "Security": {
-    "ApiKey": "<from user-secrets / env>",
-    "EnableDynamicCodeExecution": true
+    "ApiKey": "<from user-secrets / env>"
   }
 }
 ```
 
-Only do this where every caller who can present the key is trusted as the process.
+The code endpoints run in-process with full trust, so set the key (or front the service with an
+authenticating proxy) before it is reachable off-box. Only run unauthenticated behind loopback or
+a fully trusted network.
 
 ## Related
 

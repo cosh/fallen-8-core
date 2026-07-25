@@ -53,12 +53,10 @@ namespace NoSQL.GraphDB.Tests
 
         private sealed class ValidationFactory : WebApplicationFactory<Program>
         {
-            private readonly bool _enableCode;
             private readonly bool _withApiKey;
 
-            public ValidationFactory(bool enableCode = true, bool withApiKey = true)
+            public ValidationFactory(bool withApiKey = true)
             {
-                _enableCode = enableCode;
                 _withApiKey = withApiKey;
             }
 
@@ -66,7 +64,6 @@ namespace NoSQL.GraphDB.Tests
             {
                 // Volatile durability so booting the host writes no checkpoint/WAL.
                 builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                builder.UseSetting("Fallen8:Security:EnableDynamicCodeExecution", _enableCode ? "true" : "false");
                 if (_withApiKey)
                 {
                     builder.UseSetting("Fallen8:Security:ApiKey", ApiKey);
@@ -400,17 +397,6 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task DynamicCodeDisabled_Returns403()
-        {
-            using var factory = new ValidationFactory(enableCode: false);
-            using var client = Client(factory);
-
-            var response = await PostValidateRaw(client, "VertexFilter", "return (v) => true;");
-
-            Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode);
-        }
-
-        [TestMethod]
         public async Task BearerAuthorization_IsAccepted()
         {
             using var factory = new ValidationFactory();
@@ -435,32 +421,16 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task NoKeyConfigured_CodeEnabled_ValidatesAnonymously()
+        public async Task NoKeyConfigured_ValidatesAnonymously()
         {
             // Uniform-auth posture: with no API key the whole service is open, so the delegate editor
-            // works anonymously exactly like the read endpoints - as long as dynamic code is enabled.
-            using var factory = new ValidationFactory(enableCode: true, withApiKey: false);
+            // works anonymously exactly like the read endpoints (dynamic code is always on).
+            using var factory = new ValidationFactory(withApiKey: false);
             using var client = factory.CreateClient();
 
             var result = await PostValidate(client, "VertexFilter", "return (v) => v.Label == \"person\";");
 
             Assert.IsTrue(result.Valid);
-        }
-
-        [TestMethod]
-        public async Task NoKeyConfigured_CodeDisabled_IsDenied()
-        {
-            // The capability flag is the independent kill switch: even on a keyless (open) server,
-            // dynamic code OFF denies the RCE surface.
-            using var factory = new ValidationFactory(enableCode: false, withApiKey: false);
-            using var client = factory.CreateClient();
-
-            var response = await PostValidateRaw(client, "VertexFilter", "return (v) => true;");
-
-            Assert.IsFalse(response.IsSuccessStatusCode, "Dynamic code disabled must deny validation.");
-            Assert.IsTrue(
-                response.StatusCode == HttpStatusCode.Forbidden || response.StatusCode == HttpStatusCode.Unauthorized,
-                "Denial is 403 (capability off) or 401 (no credential); got " + response.StatusCode);
         }
 
         #endregion

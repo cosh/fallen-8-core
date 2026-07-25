@@ -67,14 +67,15 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 Name = Name,
                 Title = "Mutate",
                 Description =
-                    "Apply one graph mutation (transactional; success means the transaction applied). " +
-                    "set_property / remove_property / remove_element are no-ops for an absent-but-in-range id " +
-                    "(success does not assert the element existed). Creates do not return the new id — find it by search.",
+                    "Apply one graph mutation as a transaction (success means it applied). The batch ops " +
+                    "create_vertices/create_edges are atomic and RETURN the assigned ids; single creates do not " +
+                    "(find them by search). set_property/remove_property/remove_element are no-ops for an absent id.",
                 InputSchema = SchemaBuilder.Create()
                     .Str("namespace", "The namespace (graph). Defaults to 'default'.")
                     .Str("op", "The mutation.", required: true, choices: new[]
                     {
-                        "create_vertex", "create_edge", "set_property", "remove_property", "remove_element", "set_embedding",
+                        "create_vertex", "create_edge", "create_vertices", "create_edges",
+                        "set_property", "remove_property", "remove_element", "set_embedding",
                     })
                     .Int("id", "Target element id (set_property/remove_property/remove_element/set_embedding).")
                     .Str("label", "Element label (create_vertex/create_edge).")
@@ -82,6 +83,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     .Int("source", "Source vertex id (create_edge).")
                     .Int("target", "Target vertex id (create_edge).")
                     .Str("edgePropertyId", "Edge type/group key (create_edge).")
+                    .ObjArray("vertices", "Batch of {label?, properties?} (create_vertices); returns ids in order.")
+                    .ObjArray("edges", "Batch of {source, target, edgePropertyId, label?, properties?} (create_edges); returns ids.")
                     .Str("key", "Property key (set_property/remove_property).")
                     .Any("value", "Property value, JSON-native (set_property).")
                     .Str("name", "Embedding name (set_embedding).")
@@ -141,6 +144,69 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     };
                     await _bridge.RequestVoidAsync(HttpMethod.Put, @namespace, "edge" + Wait, body, cancellationToken).ConfigureAwait(false);
                     return Applied("create_edge", "edge created (id assigned server-side, not returned by REST).");
+                }
+
+                case "create_vertices":
+                {
+                    if (!ToolArgs.TryGetElement(arguments, "vertices", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                    {
+                        return ToolResults.Error(400, "Invalid arguments", "create_vertices requires a 'vertices' array.");
+                    }
+                    var specs = new List<VertexSpecDto>();
+                    foreach (var v in arr.EnumerateArray())
+                    {
+                        if (v.ValueKind != JsonValueKind.Object)
+                        {
+                            return ToolResults.Error(400, "Invalid arguments", "each vertex must be an object.");
+                        }
+                        if (!BuildPropertiesFrom(v, out var properties, out var error))
+                        {
+                            return ToolResults.Error(400, "Invalid arguments", error);
+                        }
+                        specs.Add(new VertexSpecDto { CreationDate = NowEpoch(), Label = ElementString(v, "label"), Properties = properties });
+                    }
+                    var vertexIds = await _bridge.RequestAsync<List<Int32>>(HttpMethod.Put, @namespace, "vertices" + Wait, specs, cancellationToken)
+                        .ConfigureAwait(false) ?? new List<Int32>();
+                    return AppliedIds("create_vertices", vertexIds, $"{vertexIds.Count} vertices created.");
+                }
+
+                case "create_edges":
+                {
+                    if (!ToolArgs.TryGetElement(arguments, "edges", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                    {
+                        return ToolResults.Error(400, "Invalid arguments", "create_edges requires an 'edges' array.");
+                    }
+                    var specs = new List<EdgeSpecDto>();
+                    foreach (var e in arr.EnumerateArray())
+                    {
+                        if (e.ValueKind != JsonValueKind.Object)
+                        {
+                            return ToolResults.Error(400, "Invalid arguments", "each edge must be an object.");
+                        }
+                        var src = ElementInt(e, "source");
+                        var tgt = ElementInt(e, "target");
+                        var epid = ElementString(e, "edgePropertyId");
+                        if (src is null || tgt is null || String.IsNullOrEmpty(epid))
+                        {
+                            return ToolResults.Error(400, "Invalid arguments", "each edge needs source, target, and edgePropertyId.");
+                        }
+                        if (!BuildPropertiesFrom(e, out var properties, out var error))
+                        {
+                            return ToolResults.Error(400, "Invalid arguments", error);
+                        }
+                        specs.Add(new EdgeSpecDto
+                        {
+                            CreationDate = NowEpoch(),
+                            SourceVertex = src.Value,
+                            TargetVertex = tgt.Value,
+                            EdgePropertyId = epid,
+                            Label = ElementString(e, "label"),
+                            Properties = properties,
+                        });
+                    }
+                    var edgeIds = await _bridge.RequestAsync<List<Int32>>(HttpMethod.Put, @namespace, "edges" + Wait, specs, cancellationToken)
+                        .ConfigureAwait(false) ?? new List<Int32>();
+                    return AppliedIds("create_edges", edgeIds, $"{edgeIds.Count} edges created.");
                 }
 
                 case "set_property":
@@ -207,13 +273,38 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
                 default:
                     return ToolResults.Error(400, "Invalid arguments",
-                        "op must be create_vertex, create_edge, set_property, remove_property, remove_element, or set_embedding.");
+                        "op must be create_vertex, create_edge, create_vertices, create_edges, set_property, " +
+                        "remove_property, remove_element, or set_embedding.");
             }
         }
 
         private static CallToolResult Applied(String op, String summary)
         {
             return ToolResults.Ok(summary, new JsonObject { ["op"] = op, ["applied"] = true });
+        }
+
+        private static CallToolResult AppliedIds(String op, List<Int32> ids, String summary)
+        {
+            var arr = new JsonArray();
+            foreach (var id in ids)
+            {
+                arr.Add(id);
+            }
+            return ToolResults.Ok(summary, new JsonObject { ["op"] = op, ["applied"] = true, ["ids"] = arr });
+        }
+
+        private static String? ElementString(JsonElement element, String name)
+        {
+            return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+        }
+
+        private static Int32? ElementInt(JsonElement element, String name)
+        {
+            return element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var i)
+                ? i
+                : null;
         }
 
         /// <summary>The current time as the Unix-second creation stamp Fallen-8 expects (rather
@@ -223,17 +314,36 @@ namespace NoSQL.GraphDB.Mcp.Tools
             return (UInt32)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         }
 
+        /// <summary>Properties from the tool's top-level <c>properties</c> argument (single create).</summary>
         private static Boolean BuildProperties(
             IReadOnlyDictionary<String, JsonElement> arguments,
             out List<PropertySpecDto> properties,
             out String error)
         {
+            var map = arguments.TryGetValue("properties", out var m) ? m : default;
+            return PropertiesFromMap(map, out properties, out error);
+        }
+
+        /// <summary>Properties from a batch element object's own <c>properties</c> key.</summary>
+        private static Boolean BuildPropertiesFrom(
+            JsonElement container,
+            out List<PropertySpecDto> properties,
+            out String error)
+        {
+            var map = container.ValueKind == JsonValueKind.Object && container.TryGetProperty("properties", out var m)
+                ? m
+                : default;
+            return PropertiesFromMap(map, out properties, out error);
+        }
+
+        private static Boolean PropertiesFromMap(JsonElement map, out List<PropertySpecDto> properties, out String error)
+        {
             properties = new List<PropertySpecDto>();
             error = String.Empty;
 
-            if (!arguments.TryGetValue("properties", out var map) || map.ValueKind != JsonValueKind.Object)
+            if (map.ValueKind != JsonValueKind.Object)
             {
-                return true; // properties are optional
+                return true; // properties are optional/absent
             }
 
             foreach (var property in map.EnumerateObject())

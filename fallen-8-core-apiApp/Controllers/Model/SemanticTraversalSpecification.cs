@@ -33,7 +33,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   The declarative semantic block of a path or subgraph request (feature
     ///   element-embeddings). Carries the query vector for the traversal context - embedded
     ///   ONCE, before the traversal starts - plus optional code-free filter/cost derivations.
-    ///   Pure data, so it needs no dynamic-code capability; conflicts with a C# fragment or a
+    ///   Pure data (it compiles no C#); conflicts with a C# fragment or a
     ///   stored query owning the same delegate slot are rejected (one owner per slot).
     /// </summary>
     /// <example>

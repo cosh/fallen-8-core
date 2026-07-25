@@ -73,6 +73,13 @@ namespace NoSQL.GraphDB.Mcp.Bridge
             return SendJsonAsync<T>(HttpMethod.Post, Scoped(@namespace, suffix), body, cancellationToken);
         }
 
+        /// <summary>Send a JSON body with an arbitrary method to a namespace-scoped resource and
+        /// deserialize the reply (e.g. the batch <c>PUT /vertices</c>/<c>/edges</c> returning ids).</summary>
+        public Task<T?> RequestAsync<T>(HttpMethod method, String? @namespace, String suffix, Object body, CancellationToken cancellationToken)
+        {
+            return SendJsonAsync<T>(method, Scoped(@namespace, suffix), body, cancellationToken);
+        }
+
         /// <summary>The connection probe used by <c>f8_overview</c> and <c>/healthz</c>.</summary>
         public Task<StatusDto?> GetStatusAsync(String? @namespace, CancellationToken cancellationToken)
         {

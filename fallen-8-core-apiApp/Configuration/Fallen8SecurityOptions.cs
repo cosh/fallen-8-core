@@ -29,21 +29,19 @@ namespace NoSQL.GraphDB.App.Configuration
 {
     /// <summary>
     ///   Security configuration for the hosted API, bound from the <c>Fallen8:Security</c> section
-    ///   (feature api-security-boundary). Establishes an authentication trust boundary and gates the
-    ///   in-process remote-code-execution surface (Roslyn filter compilation + plugin DLL loading).
+    ///   (feature api-security-boundary). Establishes an authentication trust boundary. Roslyn filter
+    ///   compilation is ALWAYS available (Fallen-8's "queries are C#" model has no off switch); plugin
+    ///   DLL loading stays an opt-in operator kill switch.
     ///
     ///   <para>HONEST LIMIT: in-process Roslyn compilation cannot be sandboxed - a compiled delegate
-    ///   runs with the server process's full authority. This is a trust boundary (who may reach the
-    ///   code endpoints) plus an operator kill switch, NOT a sandbox. Anyone allowed to post a filter
-    ///   is trusted as the process.</para>
+    ///   runs with the server process's full authority. Authentication is the trust boundary (who may
+    ///   reach the code endpoints), NOT a sandbox. Anyone allowed to post a filter is trusted as the
+    ///   process, so an internet-facing deployment MUST configure an API key (or OAuth).</para>
     /// </summary>
     public sealed class Fallen8SecurityOptions
     {
         /// <summary>The configuration section this binds from.</summary>
         public const String SectionName = "Fallen8:Security";
-
-        /// <summary>Authorization policy name gating the Roslyn compile endpoints (POST /path, PUT /subgraph).</summary>
-        public const String DynamicCodePolicy = "Fallen8.DynamicCodeExecution";
 
         /// <summary>Authorization policy name gating the plugin-DLL load endpoint (PUT /plugin).</summary>
         public const String DynamicPluginPolicy = "Fallen8.DynamicPluginLoading";
@@ -57,20 +55,14 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>
         ///   The API key required in the <see cref="ApiKeyHeader"/>. Supply from user-secrets or
         ///   environment - NEVER a checked-in default. When null/blank the API-key scheme authenticates
-        ///   nobody: the server logs a prominent warning and runs UNAUTHENTICATED (only mitigated by the
-        ///   code/plugin endpoints being off by default).
+        ///   nobody: the server logs a prominent warning and runs UNAUTHENTICATED - including the
+        ///   always-on in-process code endpoints, so only bind an unauthenticated instance to a
+        ///   trusted network.
         /// </summary>
         public String ApiKey { get; set; }
 
         /// <summary>Header carrying the API key. Defaults to <c>X-Api-Key</c>.</summary>
         public String ApiKeyHeader { get; set; } = "X-Api-Key";
-
-        /// <summary>
-        ///   Master switch for the Roslyn compile endpoints (POST /path, PUT /subgraph). Default false:
-        ///   a disabled server returns 403 before any compilation. Turning it on means an authenticated
-        ///   caller can run arbitrary in-process code (see the honest-limit note).
-        /// </summary>
-        public Boolean EnableDynamicCodeExecution { get; set; } = false;
 
         /// <summary>
         ///   Master switch for uploading + loading plugin DLLs (PUT /plugin). Default false: a disabled

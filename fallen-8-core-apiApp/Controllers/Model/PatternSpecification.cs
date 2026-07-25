@@ -84,7 +84,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   vertices without the embedding never match). Owns the step's filter slot - setting
         ///   it together with <see cref="VertexFilter"/> is a 400, as is setting it on an edge
         ///   pattern or without a request-level <c>semantic</c> block. Pure data: it compiles
-        ///   no code and works with dynamic code execution disabled.
+        ///   no C#.
         /// </summary>
         /// <example>0.7</example>
         [JsonPropertyName("semanticMinScore")]

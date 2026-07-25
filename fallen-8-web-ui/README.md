@@ -46,12 +46,11 @@ the active instance is reachable AND authorized, so a missing or wrong key shows
 "unauthorized" — never as a working connection (`src/app/AppShell.tsx`,
 tests in `tests/app-shell.test.tsx` and e2e scenario 11).
 
-Note: the delegate endpoints (`/path`, `/subgraph`, `/delegates/validate`) require
-`Fallen8:Security:EnableDynamicCodeExecution=true` — that capability flag is the
-independent kill switch for the code-execution surface. Authentication is separate and
-all-or-nothing: if an API key is configured the whole service (including these endpoints)
-needs it, and if not, the whole service is open. So the delegate editor works on a keyless
-instance as long as dynamic code is enabled.
+Note: the delegate endpoints (`/path`, `/subgraph`, `/delegates/validate`) run compiled C#
+in-process, and dynamic code execution is always on — there is no switch to enable. The only
+gate is authentication, which is all-or-nothing: if an API key is configured the whole service
+(including these endpoints) needs it, and if not, the whole service is open. So the delegate
+editor works on a keyless instance out of the box.
 
 ## NL assist (FR-26 + nl-assist-ux)
 
@@ -74,7 +73,7 @@ the same description asks the model for a distinct variant.
 ```bash
 npm test             # Vitest unit + component (Monaco/model calls mocked)
 npm run e2e          # Playwright; builds the SPA into the apiApp and launches it with
-                     # an API key ("e2e-key") + dynamic code enabled (volatile durability)
+                     # an API key ("e2e-key"), volatile durability (dynamic code always on)
                      # First time: npx playwright install chromium
 ```
 

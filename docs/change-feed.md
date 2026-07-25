@@ -14,7 +14,7 @@
 | `401` | A credential is required and none was supplied |
 | `503` | Feed disabled (`Fallen8:ChangeFeed:Enabled=false`) or the per-namespace subscriber limit is reached |
 
-Each namespace owns an independent feed — its own epoch, catch-up buffer, and subscriber limit; see [namespaces](namespaces.md). Filters are plain query parameters, never compiled code, so the feed is fully functional with dynamic code execution off (see [security](security.md)).
+Each namespace owns an independent feed — its own epoch, catch-up buffer, and subscriber limit; see [namespaces](namespaces.md). Filters are plain query parameters, never compiled code (see [security](security.md)).
 
 ## Filter grammar
 

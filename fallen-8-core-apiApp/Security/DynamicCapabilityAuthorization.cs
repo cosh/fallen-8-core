@@ -23,7 +23,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
@@ -41,7 +40,6 @@ namespace NoSQL.GraphDB.App.Security
     {
         public enum Capability
         {
-            DynamicCodeExecution,
             DynamicPluginLoading,
 
             /// <summary>The embedding provider (feature embedding-provider,
@@ -60,9 +58,9 @@ namespace NoSQL.GraphDB.App.Security
 
     /// <summary>
     ///   Succeeds the <see cref="DynamicCapabilityRequirement"/> only when the corresponding
-    ///   <see cref="Fallen8SecurityOptions"/> flag is enabled. When the flag is off the requirement is
-    ///   left unmet, so an authenticated caller is Forbidden (403) - the endpoint's compilation / DLL
-    ///   load is never reached.
+    ///   <see cref="Fallen8SecurityOptions"/> / <see cref="Fallen8EmbeddingOptions"/> flag is enabled.
+    ///   When the flag is off the requirement is left unmet, so an authenticated caller is Forbidden
+    ///   (403) - the endpoint's DLL load / embedding-model use is never reached.
     /// </summary>
     public sealed class DynamicCapabilityAuthorizationHandler : AuthorizationHandler<DynamicCapabilityRequirement>
     {
@@ -78,11 +76,18 @@ namespace NoSQL.GraphDB.App.Security
 
         protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, DynamicCapabilityRequirement requirement)
         {
+            // Dynamic code execution is UNCONDITIONAL and has no capability here: running
+            // agent-emitted C# fragments is Fallen-8's core "queries are C#" model, so the compile
+            // endpoints (/path, /subgraph, /delegates/validate, /storedquery) are never gated off -
+            // they carry only the standard auth (the fallback policy, required when an API key is
+            // configured). Plugin DLL loading and the embedding provider stay opt-in.
             var enabled = requirement.Which switch
             {
-                DynamicCapabilityRequirement.Capability.DynamicCodeExecution => _security.EnableDynamicCodeExecution,
+                DynamicCapabilityRequirement.Capability.DynamicPluginLoading => _security.EnableDynamicPluginLoading,
                 DynamicCapabilityRequirement.Capability.EmbeddingProvider => _embedding.Enabled,
-                _ => _security.EnableDynamicPluginLoading
+                // Explicit so a capability added later cannot silently inherit the plugin gate.
+                _ => throw new System.ArgumentOutOfRangeException(nameof(requirement),
+                    requirement.Which, "Unhandled dynamic capability")
             };
 
             if (enabled)
@@ -91,34 +96,6 @@ namespace NoSQL.GraphDB.App.Security
             }
 
             return Task.CompletedTask;
-        }
-    }
-
-    /// <summary>
-    ///   The single home for the imperative dynamic-code capability check shared by the
-    ///   request-shape-aware inline-code endpoints (<c>/path</c>, <c>/subgraph</c>). It evaluates the
-    ///   SAME <see cref="DynamicCapabilityRequirement"/> the declarative <c>DynamicCodePolicy</c> uses
-    ///   (one source of truth) and returns <see langword="true"/> when the request must be denied
-    ///   (the caller answers with <c>Forbid()</c>, the same 403 shape), <see langword="false"/> when
-    ///   the capability is enabled. A null authorization service means direct construction (unit
-    ///   tests bypass the pipeline exactly as they bypassed the former endpoint-level policy); the
-    ///   hosted pipeline always supplies the service. The awaited handler is synchronous (an options
-    ///   check), so blocking here cannot deadlock.
-    /// </summary>
-    public static class DynamicCodeCapabilityGate
-    {
-        public static bool IsDenied(IAuthorizationService authorizationService, ClaimsPrincipal user)
-        {
-            if (authorizationService == null)
-            {
-                return false;
-            }
-
-            var authorization = authorizationService.AuthorizeAsync(user, null,
-                    new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicCodeExecution))
-                .GetAwaiter().GetResult();
-
-            return !authorization.Succeeded;
         }
     }
 }

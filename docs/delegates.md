@@ -93,7 +93,7 @@ Fragments are wrapped into a provider class and compiled with **Roslyn** (`CodeG
 
 So repeating the same fragment set reuses one compiled artifact, and two path requests that differ only in a numeric bound share the same cached traverser. Compile timings and cache hit/miss counters are exported as metrics — see [observability.md](observability.md).
 
-There is no type/namespace allowlist and no sandbox: the compilation references the .NET core assemblies plus the engine assembly, and imports a fixed set of usings — `System`, `System.Linq`, `NoSQL.GraphDB.Core.Model`, `NoSQL.GraphDB.Core.Index.Vector` (subgraph fragments also get `NoSQL.GraphDB.Core.Algorithms`); `TraversalContext` resolves by simple name. Any reachable type may be used (fully qualified if not imported), and compiled code runs in-process with full trust. That is exactly why compiling arbitrary C# is gated — [security.md](security.md) owns the `EnableDynamicCodeExecution` flag. The only structural guards are size caps: a fragment over 100,000 characters, or a generated source over 1,000,000, is rejected before Roslyn runs. These runtime-compiled delegates are not [plugins](plugins.md) — that is a separate discovery mechanism.
+There is no type/namespace allowlist and no sandbox: the compilation references the .NET core assemblies plus the engine assembly, and imports a fixed set of usings — `System`, `System.Linq`, `NoSQL.GraphDB.Core.Model`, `NoSQL.GraphDB.Core.Index.Vector` (subgraph fragments also get `NoSQL.GraphDB.Core.Algorithms`); `TraversalContext` resolves by simple name. Any reachable type may be used (fully qualified if not imported), and compiled code runs in-process with full trust. That is exactly why the code endpoints sit behind authentication — [security.md](security.md) owns that posture (dynamic code execution itself is always on; the API key controls *access*). The only structural guards are size caps: a fragment over 100,000 characters, or a generated source over 1,000,000, is rejected before Roslyn runs. These runtime-compiled delegates are not [plugins](plugins.md) — that is a separate discovery mechanism.
 
 ## Where fragments are accepted
 
@@ -106,7 +106,7 @@ There is no type/namespace allowlist and no sandbox: the compilation references 
 
 ## Validating a fragment: `POST /delegates/validate`
 
-Compile-checks one fragment without running it — nothing is emitted, loaded, or executed. Use it to give an editor or agent instant feedback before submitting a query. It is gated by the same dynamic-code switch as the query endpoints ([security.md](security.md)): `401` without a credential, `403` when dynamic code is disabled, `429` when rate-limited.
+Compile-checks one fragment without running it — nothing is emitted, loaded, or executed. Use it to give an editor or agent instant feedback before submitting a query. It carries the same authentication as the query endpoints ([security.md](security.md)): `401` without a credential when a key is configured, `429` when rate-limited.
 
 Request: `{ "delegateKind": "<kind>", "fragment": "<C#>" }`, where `delegateKind` is one of the kinds above (case-insensitive). Response:
 
@@ -156,7 +156,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/delegates/validate `
 - [Subgraphs](subgraphs.md) — subgraph pattern filters
 - [Stored queries](stored-queries.md) — named, precompiled fragment sets
 - [Semantic traversal](semantic-traversal.md) — the code-free `semantic` block that populates `context`
-- [Security](security.md) — the API key and the `EnableDynamicCodeExecution` gate
+- [Security](security.md) — the API key that gates access to these always-on code endpoints
 - [Observability](observability.md) — codegen compile and cache metrics
 - [Studio](studio.md) — the browser delegate editor and NL-assist UI
 - [Graph model](graph-model.md) — elements, properties, and transactions the fragments read

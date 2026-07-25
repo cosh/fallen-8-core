@@ -47,9 +47,10 @@ services:
       # survive container recreation together (feature save-games).
       - Fallen8__Durability__StorageDirectory=/data
       - Fallen8__Metadata__Directory=/data/metadata
-      # Opt-in security posture; set a real key before exposing beyond localhost.
+      # Opt-in security posture; set a real key before exposing beyond localhost. (Dynamic code
+      # execution is always on — the "queries are C#" model — so there is no switch for it; set an
+      # API key before exposing the server, since the compile endpoints run in-process code.)
       - Fallen8__Security__ApiKey=${F8_API_KEY:-}
-      - Fallen8__Security__EnableDynamicCodeExecution=${F8_ENABLE_DYNAMIC_CODE:-false}
       # Text-in embeddings out of the box (feature embedding-out-of-box): the Ollama
       # sidecar serves bge-m3 (MIT, 1024-dim, Cosine). F8_EMBEDDINGS=false opts out
       # (embedding endpoints answer 403; bring-your-own-vector keeps working). Swapping

@@ -112,8 +112,9 @@ attach configuration. For everything else, local debugging is faster.
   (`"F8 Studio (API + built UI)"` on :5000, which matches the compose origin if `F8_PORT=5000`).
 - **Auth while debugging:** by default the local API runs with no key, so everything is
   open (register the Studio instance with an empty base URL and no key). To debug the
-  secured path, set `Fallen8__Security__ApiKey` (and `Fallen8__Security__EnableDynamicCodeExecution=true`
-  for the delegate editor) in the launch config's `env` and register the instance with that key.
+  secured path, set `Fallen8__Security__ApiKey` in the launch config's `env` and register the
+  instance with that key. Dynamic code execution (the delegate editor, inline fragments) is
+  always on and needs no extra setting.
 
 ## Ports at a glance
 

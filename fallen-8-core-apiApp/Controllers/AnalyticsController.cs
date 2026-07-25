@@ -51,8 +51,7 @@ namespace NoSQL.GraphDB.App.Controllers
     ///   CONSISTENCY (honest): a run is a lock-free read concurrent with the single writer -
     ///   there is no global snapshot, so the result is only exact for a quiescent graph; under
     ///   concurrent mutation it is a best-effort mixture of states. Requests are plain data
-    ///   (label/edge-property scoping, numeric knobs) - no dynamic code, so these endpoints
-    ///   work with EnableDynamicCodeExecution=false.
+    ///   (label/edge-property scoping, numeric knobs) - they compile no dynamic code at all.
     /// </remarks>
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]

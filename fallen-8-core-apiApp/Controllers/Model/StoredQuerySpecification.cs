@@ -33,7 +33,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// <summary>
     ///   Specification for registering a stored query (feature stored-query-library): a named,
     ///   validated, pre-compiled query definition that the path/subgraph endpoints can afterwards
-    ///   reference by name - including when dynamic code execution is disabled.
+    ///   reference by name - invocation compiles nothing (the pinned artifact runs).
     /// </summary>
     /// <remarks>
     ///   Exactly one of <see cref="Path"/> / <see cref="SubGraph"/> must be present and must match

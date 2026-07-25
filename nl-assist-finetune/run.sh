@@ -10,8 +10,8 @@
 #   - Python 3.10+ and a CUDA 12.x driver visible in WSL2 (`nvidia-smi` works)
 #   - Node.js + npx           (for the phase-2 dataset generator)
 #   - ollama                  (for `ollama create`; Windows or WSL install both work)
-#   - a reachable Fallen-8 apiApp with EnableDynamicCodeExecution=true, for dataset
-#     validation - set NL_EVAL_F8 if it isn't http://localhost:5000
+#   - a reachable Fallen-8 apiApp (the compile authority), for dataset validation - set
+#     NL_EVAL_F8 if it isn't http://localhost:5000
 #
 # Env overrides: VARIANT (phi4-f8-mini default | phi4-f8), CONFIG (override the config path),
 # VENV, LLAMA_CPP (existing llama.cpp checkout), NL_EVAL_F8, OLLAMA_MODEL, TORCH_VERSION,

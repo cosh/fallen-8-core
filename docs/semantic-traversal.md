@@ -4,8 +4,8 @@ Semantic traversal lets the path and subgraph engines make decisions by **vector
 to a query** instead of (or alongside) labels and properties. The query is embedded **once,
 before traversal starts**; each candidate element is then scored against its own stored
 embedding. Because the query rides a pure-data `semantic` block, similarity-driven traversal
-is how Fallen-8 answers "no query language" — it runs **code-free, with dynamic code
-execution disabled** (that philosophy lives in [delegates.md](delegates.md)). Every route
+is how Fallen-8 answers "no query language" — it runs **code-free** (it compiles no C#; that
+philosophy lives in [delegates.md](delegates.md)). Every route
 here also answers under `/ns/{ns}/…` for a specific graph ([namespaces.md](namespaces.md)).
 
 ```mermaid
@@ -93,12 +93,11 @@ Carried by `POST /path/{from}/to/{to}` and `PUT /subgraph` as the `semantic` fie
 | `minScore` | number | Installs a **vertex filter**: pass at >= (Cosine/DotProduct) or <= (L2) this score |
 | `costBySimilarity` | bool | **Path only**: installs a vertex cost, `Cosine`→`1-score`, `L2`→distance |
 
-`minScore` and `costBySimilarity` are **declarative** — pure data, never touching the
-dynamic-code gate. `costBySimilarity` needs a weighted algorithm (`DIJKSTRA`; the hop-count
-`BLS` ignores costs) and rejects `DotProduct` (no honest non-negative mapping). Compiled C#
-fragments can instead read the query off the `context` parameter
-(`context.TrySimilarity(element, out score)`) — see [delegates.md](delegates.md); the block
-never widens the dynamic-code gate in either direction.
+`minScore` and `costBySimilarity` are **declarative** — pure data, they compile no C# at all.
+`costBySimilarity` needs a weighted algorithm (`DIJKSTRA`; the hop-count `BLS` ignores costs)
+and rejects `DotProduct` (no honest non-negative mapping). Compiled C# fragments can instead
+read the query off the `context` parameter (`context.TrySimilarity(element, out score)`) — see
+[delegates.md](delegates.md).
 
 **One owner per delegate slot.** Common 400s (all carry a reason):
 
@@ -109,7 +108,6 @@ never widens the dynamic-code gate in either direction.
 | `queryVector` and `queryText` together | 400 |
 | empty/non-finite vector, zero-norm under Cosine, bad name/metric | 400 |
 | `queryText` with the provider disabled | 403 |
-| inline fragments with `EnableDynamicCodeExecution=false` | 403 (unchanged; [security.md](security.md)) |
 
 ```bash
 # Only vertices semantically close to the query may lie on the path:
@@ -132,8 +130,8 @@ the provider present ([subgraphs.md](subgraphs.md)).
 
 - `semantic.minScore` fills the top-level vertex pre-filter slot.
 - A vertex pattern step's `semanticMinScore` fills **that step's** filter slot, so a fully
-  declarative pattern ("near-query vertex -edge-> near-query vertex") runs with dynamic code
-  off. Setting it together with the step's `vertexFilter`, on an edge step, or without a
+  declarative pattern ("near-query vertex -edge-> near-query vertex") compiles no C#.
+  Setting it together with the step's `vertexFilter`, on an edge step, or without a
   request-level `semantic` block is a 400. `costBySimilarity` is rejected (a path concept).
 
 ## The embedding provider (text-in)
@@ -206,7 +204,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/path/1/to/9 -ContentTy
 - [vector-search.md](vector-search.md) — VectorIndex kNN mechanics (metrics, brute force, `/scan/index/vector`)
 - [delegates.md](delegates.md) — the no-query-language philosophy and the `context` parameter for compiled fragments
 - [path-finding.md](path-finding.md) / [subgraphs.md](subgraphs.md) — the traversal surfaces the block rides
-- [security.md](security.md) — API key and the dynamic-code flag
+- [security.md](security.md) — the API key (dynamic code is always on)
 - [stored-queries.md](stored-queries.md) — pre-compiled fragments that can read `context`
 - [samples.md](samples.md) — embedded datasets to try semantic queries against
 - [namespaces.md](namespaces.md) — per-namespace routing (`/ns/{ns}/…`)

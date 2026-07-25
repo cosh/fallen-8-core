@@ -102,10 +102,10 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        ///   The authorization service used for the request-shape-aware dynamic-code capability
-        ///   check on <see cref="CalculateShortestPath"/> (feature stored-query-library). Null when
-        ///   the controller is constructed directly (unit tests) - the hosted pipeline always
-        ///   supplies it, and the pipeline-level matrix tests pin the real gate behaviour.
+        ///   The authorization service used to check the embedding-provider capability when a
+        ///   request carries <c>semantic.queryText</c> (feature embedding-provider). Null when the
+        ///   controller is constructed directly (unit tests) - the hosted pipeline always supplies
+        ///   it. (Dynamic code execution itself is unconditional and needs no capability check.)
         /// </summary>
         private readonly IAuthorizationService _authorizationService;
 
@@ -132,10 +132,9 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        ///   Whether a path request INTRODUCES code: any non-blank inline filter/cost fragment.
-        ///   Only such a request requires the dynamic-code capability (feature
-        ///   stored-query-library); a storedQuery reference or a fragment-less request compiles no
-        ///   user-supplied code.
+        ///   Whether a path request carries any non-blank inline filter/cost fragment. Used to
+        ///   enforce that "storedQuery" is mutually exclusive with inline fragments (a request that
+        ///   both names a stored query AND supplies its own code is rejected 400).
         /// </summary>
         private static bool CarriesInlineCode(PathSpecification definition)
         {
@@ -165,6 +164,31 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             return Accepted();
+        }
+
+        /// <summary>
+        ///   Batch-write epilogue (feature mcp-followups): like <see cref="AwaitAndAccept"/>, but on
+        ///   a waited-on success it returns the ids the transaction assigned, in input order, so a
+        ///   caller (notably an agent) can act on the new elements - the single-element endpoints
+        ///   answer 202 with no id. Unwaited stays 202 (the ids are not known until the transaction
+        ///   commits). A rolled-back batch maps to the same status as the single path.
+        /// </summary>
+        private async Task<IActionResult> AwaitBatch(TransactionInformation transaction, bool waitForCompletion,
+            Func<IEnumerable<Int32>> createdIds)
+        {
+            if (!waitForCompletion)
+            {
+                return Accepted();
+            }
+
+            await transaction.Completion;
+
+            if (transaction.TransactionState == TransactionState.RolledBack)
+            {
+                return RolledBackResult(transaction.FailureReason);
+            }
+
+            return Ok(createdIds());
         }
 
         #region IDisposable Members

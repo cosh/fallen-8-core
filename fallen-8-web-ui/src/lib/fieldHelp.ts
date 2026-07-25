@@ -110,9 +110,9 @@ export const FIELD_HELP = {
   semanticMetric:
     "Similarity metric: Cosine/DotProduct (higher is closer) or L2 (lower is closer). Must suit the embeddings; bit-identical to the vector index's scoring.",
   semanticMinScore:
-    "Declarative filter: keep only elements whose similarity is at least this (Cosine/DotProduct) or at most this (L2). No C# needed — runs with dynamic code execution off.",
+    "Declarative filter: keep only elements whose similarity is at least this (Cosine/DotProduct) or at most this (L2). Pure data — it compiles no C#.",
   vertexSlotMode:
-    "How this vertex slot filters: match everything, a compiled C# fragment (needs dynamic code execution), or a semantic threshold against the request's semantic query (pure data — runs with dynamic code off). One owner per slot.",
+    "How this vertex slot filters: match everything, a compiled C# fragment, or a semantic threshold against the request's semantic query (pure data — no C#). One owner per slot.",
   slotSemanticThreshold:
     "Vertices pass this slot when their embedding scores at least this (Cosine/DotProduct) or at most this (L2) against the semantic query. Vertices without the embedding never pass.",
   semanticCostBySimilarity:
@@ -212,7 +212,7 @@ export const FIELD_HELP = {
 
   // ---- stored queries ----
   storedQuery:
-    "A named, pre-compiled filter set registered under POST /storedquery. Invoking by name works even when dynamic code execution is disabled on the server.",
+    "A named, pre-compiled filter set registered under POST /storedquery. Invoking by name compiles nothing — the pinned artifact runs.",
   storedQueryName:
     "Unique name the query is registered under and later invoked by. Allowed: letters, digits, underscore, dash; max 128 characters.",
   storedQueryDescription:
