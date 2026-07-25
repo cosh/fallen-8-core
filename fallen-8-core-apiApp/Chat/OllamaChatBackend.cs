@@ -1,0 +1,165 @@
+// MIT License
+//
+// OllamaChatBackend.cs
+//
+// Copyright (c) 2025 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using NoSQL.GraphDB.App.Configuration;
+using OllamaSharp;
+using OllamaSharp.Models;
+using OllamaSharp.Models.Chat;
+
+namespace NoSQL.GraphDB.App.Chat
+{
+    /// <summary>
+    ///   The Ollama-backed <see cref="IChatBackend" /> (feature instance-config): a thin wrapper
+    ///   over OllamaSharp's native <c>ChatAsync</c> (non-streaming) so it can forward the
+    ///   generation stats (token counts, durations) that the NL-assist UX renders - stats the
+    ///   generic <c>Microsoft.Extensions.AI</c> chat abstraction does not expose. The GPU probe
+    ///   reads <c>/api/ps</c> and matches the configured model's VRAM residency.
+    /// </summary>
+    internal sealed class OllamaChatBackend : IChatBackend
+    {
+        private readonly IOllamaApiClient _client;
+        private readonly String _model;
+
+        internal OllamaChatBackend(Fallen8ChatOptions.OllamaOptions options)
+        {
+            _client = new OllamaApiClient(new Uri(options.Endpoint), options.Model);
+            _model = options.Model;
+        }
+
+        public async Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages,
+            ChatBackendOptions options, CancellationToken cancellationToken)
+        {
+            var request = new ChatRequest
+            {
+                Model = _model,
+                Stream = false,
+                Messages = messages.Select(m => new Message(ParseRole(m.Role), m.Content)).ToList(),
+                Options = options?.Temperature is Double t
+                    ? new RequestOptions { Temperature = (Single)t }
+                    : null
+            };
+
+            var content = new StringBuilder();
+            ChatDoneResponseStream done = null;
+
+            // Stream=false yields a single terminal chunk; accumulate defensively in case a
+            // backend still chunks, and keep the last done-response for the stats.
+            await foreach (var chunk in _client.ChatAsync(request, cancellationToken))
+            {
+                if (chunk?.Message?.Content is { Length: > 0 } piece)
+                {
+                    content.Append(piece);
+                }
+
+                if (chunk is ChatDoneResponseStream doneChunk)
+                {
+                    done = doneChunk;
+                }
+            }
+
+            Double? tps = null;
+            if (done != null && done.EvalDuration > 0 && done.EvalCount > 0)
+            {
+                // EvalDuration is nanoseconds; tokens / seconds.
+                tps = done.EvalCount / (done.EvalDuration / 1_000_000_000.0);
+            }
+
+            return new ChatBackendResult
+            {
+                Content = content.ToString(),
+                Model = _model,
+                PromptTokens = done?.PromptEvalCount,
+                CompletionTokens = done?.EvalCount,
+                DurationMs = done != null ? done.TotalDuration / 1_000_000.0 : (Double?)null,
+                TokensPerSecond = tps
+            };
+        }
+
+        public async Task<Boolean?> TryDetectGpuAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                var running = await _client.ListRunningModelsAsync(cancellationToken);
+                if (running == null)
+                {
+                    return null;
+                }
+
+                // Match the configured model (Ollama tags may carry a :latest suffix); GPU is true
+                // when the resident model reports non-zero VRAM. Absent = we simply do not know.
+                foreach (var m in running)
+                {
+                    if (m?.Name == null || !ModelMatches(m.Name, _model))
+                    {
+                        continue;
+                    }
+
+                    return m.SizeVram > 0;
+                }
+
+                return null;
+            }
+            catch
+            {
+                // Best-effort: a probe failure never breaks a config read - report "unknown".
+                return null;
+            }
+        }
+
+        private static Boolean ModelMatches(String resident, String configured)
+        {
+            if (String.Equals(resident, configured, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // Tolerate a :tag on either side ("phi4-f8-mini" vs "phi4-f8-mini:latest").
+            var residentBase = resident.Split(':')[0];
+            var configuredBase = configured.Split(':')[0];
+            return String.Equals(residentBase, configuredBase, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static ChatRole ParseRole(String role)
+        {
+            switch (role?.Trim().ToLowerInvariant())
+            {
+                case "system":
+                    return ChatRole.System;
+                case "assistant":
+                    return ChatRole.Assistant;
+                case "tool":
+                    return ChatRole.Tool;
+                default:
+                    return ChatRole.User;
+            }
+        }
+    }
+}

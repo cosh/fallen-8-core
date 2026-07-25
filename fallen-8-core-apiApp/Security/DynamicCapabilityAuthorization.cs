@@ -47,7 +47,11 @@ namespace NoSQL.GraphDB.App.Security
             /// <summary>The embedding provider (feature embedding-provider,
             /// <c>Fallen8:Embedding:Enabled</c>) - default off: no model loads, nothing
             /// downloads, the embedding endpoints answer 403.</summary>
-            EmbeddingProvider
+            EmbeddingProvider,
+
+            /// <summary>The chat gateway (feature instance-config, <c>Fallen8:Chat:Enabled</c>) -
+            /// default off: no backend client is constructed and <c>POST /chat</c> answers 403.</summary>
+            Chat
         }
 
         public DynamicCapabilityRequirement(Capability which)
@@ -68,16 +72,19 @@ namespace NoSQL.GraphDB.App.Security
     {
         private readonly Fallen8SecurityOptions _security;
         private readonly Fallen8EmbeddingOptions _embedding;
+        private readonly Fallen8ChatOptions _chat;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly Fallen8Namespaces _namespaces;
 
         public DynamicCapabilityAuthorizationHandler(IOptions<Fallen8SecurityOptions> security,
             IOptions<Fallen8EmbeddingOptions> embedding,
+            IOptions<Fallen8ChatOptions> chat,
             IHttpContextAccessor httpContextAccessor,
             Fallen8Namespaces namespaces)
         {
             _security = security.Value;
             _embedding = embedding.Value;
+            _chat = chat.Value;
             _httpContextAccessor = httpContextAccessor;
             _namespaces = namespaces;
         }
@@ -97,6 +104,9 @@ namespace NoSQL.GraphDB.App.Security
                     break;
                 case DynamicCapabilityRequirement.Capability.EmbeddingProvider:
                     enabled = _embedding.Enabled;
+                    break;
+                case DynamicCapabilityRequirement.Capability.Chat:
+                    enabled = _chat.Enabled;
                     break;
                 // Explicit so a capability added later cannot silently inherit the plugin gate.
                 default:

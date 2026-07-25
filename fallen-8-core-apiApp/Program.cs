@@ -36,6 +36,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
+using NoSQL.GraphDB.App.Chat;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Embedding;
 using NoSQL.GraphDB.App.Helper;
@@ -290,6 +291,17 @@ namespace NoSQL.GraphDB.App
                     }
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.EmbeddingProvider));
                 });
+
+                // The chat gateway gate (feature instance-config): same shape as the embedding
+                // capability - off by default, orthogonal to auth, 403 when off.
+                o.AddPolicy(Fallen8ChatOptions.ChatPolicy, p =>
+                {
+                    if (keyConfigured)
+                    {
+                        p.RequireAuthenticatedUser();
+                    }
+                    p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Chat));
+                });
             });
 
             // Embedding provider (feature embedding-provider). The backend generator resolves
@@ -304,6 +316,17 @@ namespace NoSQL.GraphDB.App
                 sp.GetRequiredService<IOptions<Fallen8EmbeddingOptions>>(),
                 new Lazy<IEmbeddingGenerator<string, Embedding<float>>>(
                     () => sp.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>())));
+
+            // Chat gateway (feature instance-config): same lazy shape as the embedding provider -
+            // with the flag off (the default) nothing is constructed and no backend client opens.
+            // Tests replace the IChatBackend registration with a deterministic fake.
+            builder.Services.Configure<Fallen8ChatOptions>(
+                builder.Configuration.GetSection(Fallen8ChatOptions.SectionName));
+            builder.Services.AddSingleton<IChatBackend>(sp =>
+                ChatBackendFactory.Create(sp.GetRequiredService<IOptions<Fallen8ChatOptions>>().Value));
+            builder.Services.AddSingleton(sp => new Fallen8ChatProvider(
+                sp.GetRequiredService<IOptions<Fallen8ChatOptions>>(),
+                new Lazy<IChatBackend>(() => sp.GetRequiredService<IChatBackend>())));
 
             // CORS: one named policy, default deny. Only the configured origins are allowed; never a
             // wildcard-with-credentials.

@@ -658,6 +658,35 @@ namespace NoSQL.GraphDB.Tests
                     IntendedMetric = "Cosine",
                     Loaded = false
                 }, "EmbeddingProviderStatsREST"),
+                (new ChatSpecification
+                {
+                    Messages = new List<ChatMessageSpecification>
+                    {
+                        new ChatMessageSpecification { Role = "user", Content = "draft a filter" }
+                    },
+                    Options = new ChatOptionsSpecification { Temperature = 0.1 }
+                }, "ChatSpecification"),
+                (new ChatMessageSpecification { Role = "system", Content = "you are helpful" }, "ChatMessageSpecification"),
+                (new ChatOptionsSpecification { Temperature = 0.2 }, "ChatOptionsSpecification"),
+                (new ChatResultREST
+                {
+                    Content = "return (v) => v.Label == \"person\";",
+                    Model = "phi4-f8-mini",
+                    Stats = new ChatStatsREST
+                    {
+                        PromptTokens = 12,
+                        CompletionTokens = 9,
+                        DurationMs = 240.0,
+                        TokensPerSecond = 37.5
+                    }
+                }, "ChatResultREST"),
+                (new ChatStatsREST
+                {
+                    PromptTokens = 3,
+                    CompletionTokens = 7,
+                    DurationMs = 100.0,
+                    TokensPerSecond = 70.0
+                }, "ChatStatsREST"),
                 (new VectorIndexAddSpecification
                 {
                     GraphElementId = 42,

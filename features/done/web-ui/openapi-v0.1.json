@@ -741,6 +741,122 @@
         }
       }
     },
+    "/chat": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Runs a chat completion against the instance's configured model backend",
+        "description": "The instance proxies to its Ollama sidecar (feature instance-config). The model\r\n    is server-owned (Fallen8:Chat:Ollama:Model); clients cannot choose it on this path. A\r\n    custom endpoint is a browser-direct concern, never proxied here.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the backend call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The completion, with the backend's generation stats",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Empty message list or a message missing content",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The chat provider is disabled (Fallen8:Chat:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The backend returned no usable content",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The backend is unavailable (failed to init, or the sidecar is down)",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "504": {
+            "description": "The backend did not respond within Fallen8:Chat:TimeoutSeconds",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/delegates/validate": {
       "post": {
         "tags": [
@@ -14064,6 +14180,150 @@
         },
         "description": "Top-N names by count plus the distinct total. Sampling honestly UNDERCOUNTS\r\n    distinct values: when sampled=true, distinctTotal is distinct-within-the-sample - the\r\n    DTO documents that rather than pretending to estimate."
       },
+      "ChatMessageSpecification": {
+        "required": [
+          "content"
+        ],
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The role: `system`, `user`, `assistant`, or `tool`\r\n    (unknown values are treated as `user`).",
+            "example": "user"
+          },
+          "content": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The message content.",
+            "example": "Draft a vertex filter for label person"
+          }
+        },
+        "description": "One chat turn."
+      },
+      "ChatOptionsSpecification": {
+        "type": "object",
+        "properties": {
+          "temperature": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "Sampling temperature (backend default when omitted).",
+            "format": "double",
+            "example": 0.1
+          }
+        },
+        "description": "Optional per-request generation knobs."
+      },
+      "ChatResultREST": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The assistant message content."
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The model that produced it (the server-owned model).",
+            "example": "phi4-f8-mini"
+          },
+          "stats": {
+            "description": "Generation stats (token counts and durations); fields are null when the\r\n    backend does not report them.",
+            "$ref": "#/components/schemas/ChatStatsREST"
+          }
+        },
+        "description": "A chat completion plus the backend's generation stats."
+      },
+      "ChatSpecification": {
+        "required": [
+          "messages"
+        ],
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChatMessageSpecification"
+            },
+            "description": "The conversation turns, in order (at least one)."
+          },
+          "options": {
+            "description": "Optional generation knobs.",
+            "$ref": "#/components/schemas/ChatOptionsSpecification"
+          }
+        },
+        "description": "A chat completion request proxied to the instance's model backend (feature\r\n    instance-config). The model is SERVER-owned (`Fallen8:Chat:Ollama:Model`); there is no\r\n    client model field.",
+        "example": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Draft a vertex filter for label person"
+            }
+          ]
+        }
+      },
+      "ChatStatsREST": {
+        "type": "object",
+        "properties": {
+          "promptTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "Prompt (input) token count.",
+            "format": "int64"
+          },
+          "completionTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "Completion (output) token count.",
+            "format": "int64"
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "Total wall-clock generation time in milliseconds.",
+            "format": "double"
+          },
+          "tokensPerSecond": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "Output tokens per second.",
+            "format": "double"
+          }
+        },
+        "description": "Generation stats forwarded from the backend."
+      },
       "DegreeStatsREST": {
         "type": "object",
         "properties": {
@@ -17809,6 +18069,9 @@
     },
     {
       "name": "ChangeFeed"
+    },
+    {
+      "name": "Chat"
     },
     {
       "name": "Delegates"
