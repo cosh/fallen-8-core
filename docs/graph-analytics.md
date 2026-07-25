@@ -4,7 +4,7 @@ Fallen-8 runs whole-graph algorithms — PageRank, weakly connected components, 
 propagation, degree centrality, triangle counting — synchronously over the in-memory
 adjacency, under a wall-clock budget, via `POST /analytics/{algorithm}`. Requests are plain
 data (labels, numbers, flags): no [delegates](delegates.md) and no dynamic code, so
-analytics works with `EnableDynamicCodeExecution=false` (see [security.md](security.md)).
+analytics compiles no C# at all (see [security.md](security.md)).
 Analytics algorithms are the third plugin family next to path traversers and subgraph
 algorithms, discovered the same way (see [plugins.md](plugins.md)).
 

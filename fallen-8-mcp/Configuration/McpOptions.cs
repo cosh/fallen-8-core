@@ -99,8 +99,9 @@ namespace NoSQL.GraphDB.Mcp.Configuration
         public Boolean EnableAdmin { get; set; }
 
         /// <summary>The <c>code</c> capability: widens f8_paths/f8_subgraph with inline C#
-        /// fragment parameters. Effective only when the target also has
-        /// <c>EnableDynamicCodeExecution</c> (surfaced as its own 403 — spec §3.6).</summary>
+        /// fragment parameters. Off by default so the MCP surface stays token-frugal and does not
+        /// invite arbitrary C# from agents; the target engine always accepts inline fragments (auth
+        /// permitting), so this is purely an MCP-side exposure choice (spec §3.6).</summary>
         public Boolean EnableCode { get; set; }
     }
 

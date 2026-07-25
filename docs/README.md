@@ -24,7 +24,7 @@ New here? Start with [Running](running.md), open [F8 Studio](studio.md), and loa
 | [Delegates](delegates.md) | Why there is no query language; runtime-compiled C# fragments and their contracts |
 | [Indexes](indexes.md) | Dictionary, range, fulltext, spatial R-Tree, and vector index types and their scans |
 | [Namespaces](namespaces.md) | Many isolated graphs in one Fallen-8, addressable under `/ns/{name}/…` |
-| [Security](security.md) | The all-or-nothing API key and the dynamic-code-execution switch |
+| [Security](security.md) | The all-or-nothing API key; dynamic code execution is always on |
 | [Plugins](plugins.md) | The extension model behind indices, algorithms, and services |
 
 ## Query and traverse

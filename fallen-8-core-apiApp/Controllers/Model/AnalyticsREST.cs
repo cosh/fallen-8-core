@@ -32,7 +32,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// <summary>
     ///   One analytics run request (feature graph-analytics): data-only scoping, budgets,
     ///   algorithm parameters, the bounded-result knob and the opt-in property write-back.
-    ///   No dynamic code anywhere - these endpoints work with the dynamic-code switch off.
+    ///   No dynamic code anywhere - these endpoints compile no C#.
     /// </summary>
     /// <example>
     /// { "vertexLabel": "person", "maxResults": 10, "parameters": { "DampingFactor": 0.85 } }

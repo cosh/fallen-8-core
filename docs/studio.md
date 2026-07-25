@@ -70,9 +70,9 @@ A legend (categorical or gradient) reflects the active color mode. Selecting a n
 
 ![Path screen](images/screen-path.png)
 
-From/to vertex ids, algorithm **BLS** (hop count) or **Dijkstra** (weighted), `maxDepth`, `maxResults` (the K for Dijkstra's K-shortest-paths), and `maxPathWeight` (Dijkstra only; BLS ignores costs). Filters and costs come from **inline fragments or a stored query**, kept mutually exclusive by a source toggle. The inline advanced tier exposes five delegate slots — `filter.vertexFilter`, `filter.edgeFilter`, `filter.edgePropertyFilter`, `cost.vertexCost`, `cost.edgeCost` — each authored in the delegate editor, and the set can be saved as a stored query. A **semantic scoring** block (query vector + `minScore` filter + `costBySimilarity`) is pure data and works even with dynamic code execution off. Results list each path's hops and total weight with "Overlay on canvas".
+From/to vertex ids, algorithm **BLS** (hop count) or **Dijkstra** (weighted), `maxDepth`, `maxResults` (the K for Dijkstra's K-shortest-paths), and `maxPathWeight` (Dijkstra only; BLS ignores costs). Filters and costs come from **inline fragments or a stored query**, kept mutually exclusive by a source toggle. The inline advanced tier exposes five delegate slots — `filter.vertexFilter`, `filter.edgeFilter`, `filter.edgePropertyFilter`, `cost.vertexCost`, `cost.edgeCost` — each authored in the delegate editor, and the set can be saved as a stored query. A **semantic scoring** block (query vector + `minScore` filter + `costBySimilarity`) is pure data and compiles no C#. Results list each path's hops and total weight with "Overlay on canvas".
 
-Because fragments are validated in the editor before the query runs, an empty result here is a genuine "no paths found" rather than a swallowed compile error. If the instance has dynamic code off, submitting inline fragments returns 403 and the screen points you at using a stored query instead. Algorithm behavior: [path-finding.md](path-finding.md); semantic scoring: [semantic-traversal.md](semantic-traversal.md).
+Because fragments are validated in the editor before the query runs, an empty result here is a genuine "no paths found" rather than a swallowed compile error. Inline fragments always run (dynamic code execution is always on); on a key-protected instance they need the API key like any other request. Algorithm behavior: [path-finding.md](path-finding.md); semantic scoring: [semantic-traversal.md](semantic-traversal.md).
 
 ## Subgraph
 
@@ -106,7 +106,7 @@ Fallen-8-level. **Graph generation** adds random vertices with out-edges *on top
 
 ## The delegate editor
 
-Opened from every fragment slot on the Path and Subgraph screens (the Query screen uses no fragments). It is a Monaco C# editor with per-kind snippets for the five slot types — `VertexFilter`, `EdgeFilter`, `EdgePropertyFilter`, `VertexCost`, `EdgeCost`. It validates as you type against the server (`POST /delegates/validate`) and renders diagnostics inline at the returned positions; **Use fragment** is blocked until the exact text on screen has passed validation (an empty fragment means "match everything"). Validation and inline fragment execution require dynamic code execution to be enabled on the instance ([security.md](security.md)); the editor is otherwise usable for reading and snippets. The compilation model is owned by [delegates.md](delegates.md).
+Opened from every fragment slot on the Path and Subgraph screens (the Query screen uses no fragments). It is a Monaco C# editor with per-kind snippets for the five slot types — `VertexFilter`, `EdgeFilter`, `EdgePropertyFilter`, `VertexCost`, `EdgeCost`. It validates as you type against the server (`POST /delegates/validate`) and renders diagnostics inline at the returned positions; **Use fragment** is blocked until the exact text on screen has passed validation (an empty fragment means "match everything"). Validation and inline fragment execution are always available; they only need the instance's API key when one is configured ([security.md](security.md)). The compilation model is owned by [delegates.md](delegates.md).
 
 ### NL assist
 
@@ -118,7 +118,7 @@ The editor's side panel drafts a fragment from a natural-language description. I
 | endpoint / api | e.g. `http://localhost:11434`; api kind `ollama` or `openai`-compatible |
 | model | built-in default `phi4-f8-mini` (fine-tuned); presets for `phi4-f8` (GPU fine-tune), stock `phi4-mini` / `phi4`, OpenAI, Anthropic |
 
-The compose stack runs the Ollama sidecar and sets `OLLAMA_ORIGINS` to the Studio origin so the browser may call it; for your own Ollama, set it yourself. The panel shows an informational reachability check for the configured backend but never blocks on it. Each draft is inserted as ordinary editable text and run through the same validation the editor uses (so it, too, needs the dynamic-code flag), never auto-submitted; on an invalid draft the editor feeds the compiler diagnostics back to the model and retries a bounded number of times before stopping. A non-loopback endpoint shows a "text leaves this machine" notice first, and drafts can be rated 👍/👎 and exported as training examples. A model that is not present on the backend makes the call 404 ([troubleshooting.md](troubleshooting.md)).
+The compose stack runs the Ollama sidecar and sets `OLLAMA_ORIGINS` to the Studio origin so the browser may call it; for your own Ollama, set it yourself. The panel shows an informational reachability check for the configured backend but never blocks on it. Each draft is inserted as ordinary editable text and run through the same validation the editor uses, never auto-submitted; on an invalid draft the editor feeds the compiler diagnostics back to the model and retries a bounded number of times before stopping. A non-loopback endpoint shows a "text leaves this machine" notice first, and drafts can be rated 👍/👎 and exported as training examples. A model that is not present on the backend makes the call 404 ([troubleshooting.md](troubleshooting.md)).
 
 ## Server capabilities Studio uses
 
@@ -126,10 +126,10 @@ Studio degrades gracefully when a capability is off, but these features need ser
 
 | Studio capability | Needs on the server | Docs |
 |---|---|---|
-| Delegate validation + inline path/subgraph filters & costs | Dynamic code execution enabled | [security.md](security.md) |
-| NL assist drafting | A reachable model backend + `OLLAMA_ORIGINS`; draft validation also needs dynamic code | [security.md](security.md) |
+| Delegate validation + inline path/subgraph filters & costs | The API key when one is configured (dynamic code is always on) | [security.md](security.md) |
+| NL assist drafting | A reachable model backend + `OLLAMA_ORIGINS` | [security.md](security.md) |
 | Text-in embedding, semantic search, text query vectors | Embedding provider enabled | [semantic-traversal.md](semantic-traversal.md) |
-| Stored-query invocation (Path / Subgraph) | Nothing (only registration needs dynamic code) | [stored-queries.md](stored-queries.md) |
+| Stored-query invocation (Path / Subgraph) | Nothing (invocation is never gated) | [stored-queries.md](stored-queries.md) |
 | Live chip and push refreshes | Change feed enabled | [change-feed.md](change-feed.md) |
 | "Any GitHub repo" sample card | Internet access to GitHub's dependency graph | [samples.md](samples.md) |
 

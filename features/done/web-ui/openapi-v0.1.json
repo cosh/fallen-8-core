@@ -634,7 +634,7 @@
           "ChangeFeed"
         ],
         "summary": "Streams committed graph mutations as Server-Sent Events, with declarative server-side filtering and catch-up.",
-        "description": "The stream format per event:\r\n\r\n    id: &lt;epoch-guid&gt;:&lt;seq&gt;\r\n    event: &lt;kind&gt;\r\n    data: {\"seq\":4712,\"ts\":\"2026-07-15T12:34:56.789Z\",\"kind\":\"propertySet\",\"element\":\"vertex\",\"id\":42,\"label\":\"person\",\"key\":\"name\"}\r\n\r\nDelivery: events arrive in commit order (ascending seq), at most once per connection.\r\nA comment line (\": keepalive\") is written every KeepAliveSeconds so proxies do not idle\r\nthe stream out. Filters combine with AND across dimensions and OR within one dimension;\r\nresync events bypass every filter (continuity loss must always reach the client). On\r\nany resync, re-fetch the state you display; for reason trim/tabulaRasa/load, treat all\r\nheld element ids as invalid.\r\n\r\nThe feed is fully functional with dynamic code execution disabled - filters are\r\ndeclarative parameters, never compiled code. Payloads never contain property values;\r\nre-fetch the element when the value is needed.",
+        "description": "The stream format per event:\r\n\r\n    id: &lt;epoch-guid&gt;:&lt;seq&gt;\r\n    event: &lt;kind&gt;\r\n    data: {\"seq\":4712,\"ts\":\"2026-07-15T12:34:56.789Z\",\"kind\":\"propertySet\",\"element\":\"vertex\",\"id\":42,\"label\":\"person\",\"key\":\"name\"}\r\n\r\nDelivery: events arrive in commit order (ascending seq), at most once per connection.\r\nA comment line (\": keepalive\") is written every KeepAliveSeconds so proxies do not idle\r\nthe stream out. Filters combine with AND across dimensions and OR within one dimension;\r\nresync events bypass every filter (continuity loss must always reach the client). On\r\nany resync, re-fetch the state you display; for reason trim/tabulaRasa/load, treat all\r\nheld element ids as invalid.\r\n\r\nThe feed compiles no C# at all - filters are declarative parameters, never compiled\r\ncode. Payloads never contain property values;\r\nre-fetch the element when the value is needed.",
         "parameters": [
           {
             "name": "kinds",
@@ -747,7 +747,7 @@
           "Delegates"
         ],
         "summary": "Validates a single delegate fragment without executing it",
-        "description": "The fragment is wrapped and compiled exactly as the path (POST /path/{from}/to/{to})\r\nand subgraph (PUT /subgraph) endpoints would wrap it, but nothing is emitted, loaded,\r\nor executed - validation is side-effect free.\r\n\r\nDiagnostic positions are already mapped back to the submitted fragment (1-based; line 1\r\nis the fragment's first line), so an editor renders markers without further mapping.\r\nA null/empty fragment is valid by definition (it means \"match everything\" / \"no custom\r\ncost\"). Warnings are reported but do not make the fragment invalid.\r\n\r\nThe endpoint sits behind the same dynamic-code authorization gate as the query\r\nendpoints: compilation is the expensive half of that surface, and validation is only\r\nuseful where fragment submission is possible at all.\r\n\r\nSample request:\r\n\r\n    POST /delegates/validate\r\n    {\r\n       \"delegateKind\": \"VertexFilter\",\r\n       \"fragment\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\"\r\n    }",
+        "description": "The fragment is wrapped and compiled exactly as the path (POST /path/{from}/to/{to})\r\nand subgraph (PUT /subgraph) endpoints would wrap it, but nothing is emitted, loaded,\r\nor executed - validation is side-effect free.\r\n\r\nDiagnostic positions are already mapped back to the submitted fragment (1-based; line 1\r\nis the fragment's first line), so an editor renders markers without further mapping.\r\nA null/empty fragment is valid by definition (it means \"match everything\" / \"no custom\r\ncost\"). Warnings are reported but do not make the fragment invalid.\r\n\r\nThe endpoint carries the same authentication as the query endpoints (required whenever an\r\nAPI key is configured); dynamic code execution itself is always on. Validation is only\r\nuseful where fragment submission is possible at all.\r\n\r\nSample request:\r\n\r\n    POST /delegates/validate\r\n    {\r\n       \"delegateKind\": \"VertexFilter\",\r\n       \"fragment\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\"\r\n    }",
         "parameters": [
           {
             "name": "api-version",
@@ -805,17 +805,6 @@
           },
           "401": {
             "description": "Authentication required but missing/invalid",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": { }
-            }
-          },
-          "403": {
-            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -1164,6 +1153,117 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/edges": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates many edges in ONE atomic transaction (feature mcp-followups)",
+        "description": "The batch write path. If any referenced source/target vertex is missing, the WHOLE batch\r\nrolls back atomically and answers 404 (nothing is wired). A waited-on call returns the\r\nassigned edge ids. Edges reference vertices that already exist; to link vertices created in\r\nthe same session, create the vertices first, read their ids, then create the edges.",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits and returns the assigned ids in input order",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The edges to create (each references existing source/target vertex ids)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/EdgeSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/EdgeSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the assigned edge ids in input order (waitForCompletion=true)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "202": {
+            "description": "Batch accepted (waitForCompletion=false)",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, or a null/invalid edge specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "A referenced source or target vertex does not exist (only when waited)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)",
+            "content": {
               "application/json": { }
             }
           }
@@ -4040,7 +4140,7 @@
           "ChangeFeed"
         ],
         "summary": "Streams committed graph mutations as Server-Sent Events, with declarative server-side filtering and catch-up.",
-        "description": "The stream format per event:\r\n\r\n    id: &lt;epoch-guid&gt;:&lt;seq&gt;\r\n    event: &lt;kind&gt;\r\n    data: {\"seq\":4712,\"ts\":\"2026-07-15T12:34:56.789Z\",\"kind\":\"propertySet\",\"element\":\"vertex\",\"id\":42,\"label\":\"person\",\"key\":\"name\"}\r\n\r\nDelivery: events arrive in commit order (ascending seq), at most once per connection.\r\nA comment line (\": keepalive\") is written every KeepAliveSeconds so proxies do not idle\r\nthe stream out. Filters combine with AND across dimensions and OR within one dimension;\r\nresync events bypass every filter (continuity loss must always reach the client). On\r\nany resync, re-fetch the state you display; for reason trim/tabulaRasa/load, treat all\r\nheld element ids as invalid.\r\n\r\nThe feed is fully functional with dynamic code execution disabled - filters are\r\ndeclarative parameters, never compiled code. Payloads never contain property values;\r\nre-fetch the element when the value is needed.",
+        "description": "The stream format per event:\r\n\r\n    id: &lt;epoch-guid&gt;:&lt;seq&gt;\r\n    event: &lt;kind&gt;\r\n    data: {\"seq\":4712,\"ts\":\"2026-07-15T12:34:56.789Z\",\"kind\":\"propertySet\",\"element\":\"vertex\",\"id\":42,\"label\":\"person\",\"key\":\"name\"}\r\n\r\nDelivery: events arrive in commit order (ascending seq), at most once per connection.\r\nA comment line (\": keepalive\") is written every KeepAliveSeconds so proxies do not idle\r\nthe stream out. Filters combine with AND across dimensions and OR within one dimension;\r\nresync events bypass every filter (continuity loss must always reach the client). On\r\nany resync, re-fetch the state you display; for reason trim/tabulaRasa/load, treat all\r\nheld element ids as invalid.\r\n\r\nThe feed compiles no C# at all - filters are declarative parameters, never compiled\r\ncode. Payloads never contain property values;\r\nre-fetch the element when the value is needed.",
         "parameters": [
           {
             "name": "kinds",
@@ -4520,6 +4620,125 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/edges": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates many edges in ONE atomic transaction (feature mcp-followups)",
+        "description": "The batch write path. If any referenced source/target vertex is missing, the WHOLE batch\r\nrolls back atomically and answers 404 (nothing is wired). A waited-on call returns the\r\nassigned edge ids. Edges reference vertices that already exist; to link vertices created in\r\nthe same session, create the vertices first, read their ids, then create the edges.",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits and returns the assigned ids in input order",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The edges to create (each references existing source/target vertex ids)",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/EdgeSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/EdgeSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the assigned edge ids in input order (waitForCompletion=true)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "202": {
+            "description": "Batch accepted (waitForCompletion=false)",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, or a null/invalid edge specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "A referenced source or target vertex does not exist (only when waited)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)",
+            "content": {
               "application/json": { }
             }
           }
@@ -6428,17 +6647,6 @@
               "application/json": { }
             }
           },
-          "403": {
-            "description": "The request carries inline filter/cost fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery - or carrying no fragments at all - are NOT gated by that switch.",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "404": {
             "description": "Source or target vertex not found, or no stored query with the referenced name exists",
             "content": {
@@ -7384,17 +7592,6 @@
               "application/json": { }
             }
           },
-          "403": {
-            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) - registration introduces code and is always gated",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "409": {
             "description": "A stored query with the same name already exists, or the library quota (Fallen8:StoredQueries:MaxCount) was reached",
             "content": {
@@ -7553,7 +7750,7 @@
           "StoredQueries"
         ],
         "summary": "Deletes (deregisters) a stored query.",
-        "description": "Deletion drops the pinned compiled artifact so its collectible load context can unload\r\nonce in-flight invocations finish. NOT gated by the dynamic-code switch: removal\r\ncompiles nothing and must stay possible while the switch is off.",
+        "description": "Deletion drops the pinned compiled artifact so its collectible load context can unload\r\nonce in-flight invocations finish. Removal compiles nothing; it carries only the\r\nstandard authentication (the API key when one is configured).",
         "parameters": [
           {
             "name": "name",
@@ -7706,17 +7903,6 @@
           },
           "401": {
             "description": "No valid credential was supplied",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": { }
-            }
-          },
-          "403": {
-            "description": "The request carries inline filter/pattern fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery are NOT gated by that switch.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -9032,6 +9218,114 @@
         }
       }
     },
+    "/ns/{ns}/vertices": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates many vertices in ONE atomic transaction (feature mcp-followups)",
+        "description": "The batch write path: far fewer round-trips than one `PUT /vertex` per vertex, and -\r\nunlike the single endpoint (202, no body) - a waited-on call RETURNS the assigned vertex\r\nids so a caller can immediately reference them (e.g. to create edges).",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits and returns the assigned ids in input order",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The vertices to create",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/VertexSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/VertexSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the assigned vertex ids in input order (waitForCompletion=true)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "202": {
+            "description": "Batch accepted (waitForCompletion=false)",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, or a null/invalid vertex specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/path/{from}/to/{to}": {
       "post": {
         "tags": [
@@ -9127,17 +9421,6 @@
           },
           "401": {
             "description": "No valid credential was supplied",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": { }
-            }
-          },
-          "403": {
-            "description": "The request carries inline filter/cost fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery - or carrying no fragments at all - are NOT gated by that switch.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -10422,17 +10705,6 @@
               "application/json": { }
             }
           },
-          "403": {
-            "description": "Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) - registration introduces code and is always gated",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "409": {
             "description": "A stored query with the same name already exists, or the library quota (Fallen8:StoredQueries:MaxCount) was reached",
             "content": {
@@ -10575,7 +10847,7 @@
           "StoredQueries"
         ],
         "summary": "Deletes (deregisters) a stored query.",
-        "description": "Deletion drops the pinned compiled artifact so its collectible load context can unload\r\nonce in-flight invocations finish. NOT gated by the dynamic-code switch: removal\r\ncompiles nothing and must stay possible while the switch is off.",
+        "description": "Deletion drops the pinned compiled artifact so its collectible load context can unload\r\nonce in-flight invocations finish. Removal compiles nothing; it carries only the\r\nstandard authentication (the API key when one is configured).",
         "parameters": [
           {
             "name": "name",
@@ -10712,17 +10984,6 @@
           },
           "401": {
             "description": "No valid credential was supplied",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": { }
-            }
-          },
-          "403": {
-            "description": "The request carries inline filter/pattern fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery are NOT gated by that switch.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -11935,6 +12196,106 @@
           }
         }
       }
+    },
+    "/vertices": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Creates many vertices in ONE atomic transaction (feature mcp-followups)",
+        "description": "The batch write path: far fewer round-trips than one `PUT /vertex` per vertex, and -\r\nunlike the single endpoint (202, no body) - a waited-on call RETURNS the assigned vertex\r\nids so a caller can immediately reference them (e.g. to create edges).",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits and returns the assigned ids in input order",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The vertices to create",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/VertexSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/VertexSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the assigned vertex ids in input order (waitForCompletion=true)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "202": {
+            "description": "Batch accepted (waitForCompletion=false)",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, or a null/invalid vertex specification",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -12193,7 +12554,7 @@
             "example": "analytics.pagerank"
           }
         },
-        "description": "One analytics run request (feature graph-analytics): data-only scoping, budgets,\r\nalgorithm parameters, the bounded-result knob and the opt-in property write-back.\r\nNo dynamic code anywhere - these endpoints work with the dynamic-code switch off.",
+        "description": "One analytics run request (feature graph-analytics): data-only scoping, budgets,\r\nalgorithm parameters, the bounded-result knob and the opt-in property write-back.\r\nNo dynamic code anywhere - these endpoints compile no C#.",
         "example": {
           "vertexLabel": "person",
           "maxResults": 10,
@@ -14046,11 +14407,11 @@
               "null",
               "string"
             ],
-            "description": "The name of a registered stored query of kind `Path` to use instead of inline\r\nPathFilterSpecification PathSpecification.Filter/PathCostSpecification PathSpecification.Cost fragments (feature stored-query-library).\r\nMutually exclusive with them (400 when mixed). A stored-query request compiles\r\nnothing and works with dynamic code execution disabled; the numeric bounds and\r\nstring PathSpecification.PathAlgorithmName stay per-request.",
+            "description": "The name of a registered stored query of kind `Path` to use instead of inline\r\nPathFilterSpecification PathSpecification.Filter/PathCostSpecification PathSpecification.Cost fragments (feature stored-query-library).\r\nMutually exclusive with them (400 when mixed). A stored-query request compiles\r\nnothing (the pinned artifact runs); the numeric bounds and\r\nstring PathSpecification.PathAlgorithmName stay per-request.",
             "example": "adults-shortest"
           },
           "semantic": {
-            "description": "The declarative semantic block (feature element-embeddings): the query vector for\r\nthe traversal context plus optional code-free similarity filter/cost. Pure data -\r\nnever gated by the dynamic-code switch, and deliberately NOT part of the compile\r\ncache key (the context is a factory parameter, not source).",
+            "description": "The declarative semantic block (feature element-embeddings): the query vector for\r\nthe traversal context plus optional code-free similarity filter/cost. Pure data -\r\nit compiles no C#, and is deliberately NOT part of the compile\r\ncache key (the context is a factory parameter, not source).",
             "$ref": "#/components/schemas/SemanticTraversalSpecification"
           }
         },
@@ -14106,7 +14467,7 @@
               "number",
               "string"
             ],
-            "description": "Declarative semantic membership threshold for a `Vertex` pattern (feature\r\nsubgraph-semantic-thresholds): the vertex matches when its named embedding scores\r\npast this against the request's `semantic` query - the same scoring rules as\r\n`semantic.minScore` (at least, under Cosine/DotProduct; at most, under L2;\r\nvertices without the embedding never match). Owns the step's filter slot - setting\r\nit together with string PatternSpecification.VertexFilter is a 400, as is setting it on an edge\r\npattern or without a request-level `semantic` block. Pure data: it compiles\r\nno code and works with dynamic code execution disabled.",
+            "description": "Declarative semantic membership threshold for a `Vertex` pattern (feature\r\nsubgraph-semantic-thresholds): the vertex matches when its named embedding scores\r\npast this against the request's `semantic` query - the same scoring rules as\r\n`semantic.minScore` (at least, under Cosine/DotProduct; at most, under L2;\r\nvertices without the embedding never match). Owns the step's filter slot - setting\r\nit together with string PatternSpecification.VertexFilter is a 400, as is setting it on an edge\r\npattern or without a request-level `semantic` block. Pure data: it compiles\r\nno C#.",
             "format": "double",
             "example": 0.7
           },
@@ -14780,7 +15141,7 @@
             "example": true
           }
         },
-        "description": "The declarative semantic block of a path or subgraph request (feature\r\nelement-embeddings). Carries the query vector for the traversal context - embedded\r\nONCE, before the traversal starts - plus optional code-free filter/cost derivations.\r\nPure data, so it needs no dynamic-code capability; conflicts with a C# fragment or a\r\nstored query owning the same delegate slot are rejected (one owner per slot).",
+        "description": "The declarative semantic block of a path or subgraph request (feature\r\nelement-embeddings). Carries the query vector for the traversal context - embedded\r\nONCE, before the traversal starts - plus optional code-free filter/cost derivations.\r\nPure data (it compiles no C#); conflicts with a C# fragment or a\r\nstored query owning the same delegate slot are rejected (one owner per slot).",
         "example": {
           "queryVector": [
             0.1,
@@ -15055,7 +15416,7 @@
             "$ref": "#/components/schemas/StoredSubGraphQueryBlock"
           }
         },
-        "description": "Specification for registering a stored query (feature stored-query-library): a named,\r\nvalidated, pre-compiled query definition that the path/subgraph endpoints can afterwards\r\nreference by name - including when dynamic code execution is disabled.",
+        "description": "Specification for registering a stored query (feature stored-query-library): a named,\r\nvalidated, pre-compiled query definition that the path/subgraph endpoints can afterwards\r\nreference by name - invocation compiles nothing (the pinned artifact runs).",
         "example": {
           "name": "adults-shortest",
           "kind": "Path",
@@ -15294,11 +15655,11 @@
               "null",
               "string"
             ],
-            "description": "The name of a registered stored query of kind `SubGraph` to instantiate instead\r\nof inline string SubGraphSpecification.VertexFilter/string SubGraphSpecification.EdgeFilter/List&lt;PatternSpecification&gt; SubGraphSpecification.Patterns\r\nfragments (feature stored-query-library). Mutually exclusive with them (400 when\r\nmixed); string SubGraphSpecification.Name (and optional Dictionary&lt;string, string&gt; SubGraphSpecification.AdditionalInformation) stay\r\nrequired per instance. A stored-query request compiles nothing and works with\r\ndynamic code execution disabled.",
+            "description": "The name of a registered stored query of kind `SubGraph` to instantiate instead\r\nof inline string SubGraphSpecification.VertexFilter/string SubGraphSpecification.EdgeFilter/List&lt;PatternSpecification&gt; SubGraphSpecification.Patterns\r\nfragments (feature stored-query-library). Mutually exclusive with them (400 when\r\nmixed); string SubGraphSpecification.Name (and optional Dictionary&lt;string, string&gt; SubGraphSpecification.AdditionalInformation) stay\r\nrequired per instance. A stored-query request compiles nothing (the pinned template\r\nis instantiated).",
             "example": "person-net"
           },
           "semantic": {
-            "description": "The declarative semantic block (feature element-embeddings): the query vector the\r\ncompiled filters' traversal context carries, plus an optional code-free\r\n`minScore` vertex pre-filter. Bound at REGISTRATION time - recalculation\r\nreuses the same delegates and never embeds anything. Pure data (not gated by the\r\ndynamic-code switch); mutually exclusive with string SubGraphSpecification.StoredQuery and, when\r\n`minScore` is set, with an inline string SubGraphSpecification.VertexFilter fragment.",
+            "description": "The declarative semantic block (feature element-embeddings): the query vector the\r\ncompiled filters' traversal context carries, plus an optional code-free\r\n`minScore` vertex pre-filter. Bound at REGISTRATION time - recalculation\r\nreuses the same delegates and never embeds anything. Pure data (it compiles no C#);\r\nmutually exclusive with string SubGraphSpecification.StoredQuery and, when\r\n`minScore` is set, with an inline string SubGraphSpecification.VertexFilter fragment.",
             "$ref": "#/components/schemas/SemanticTraversalSpecification"
           }
         },

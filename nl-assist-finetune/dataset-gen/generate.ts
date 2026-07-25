@@ -26,7 +26,7 @@
  *   (c) optional base-model bootstrap           -> NL_GEN_BOOTSTRAP=1 (kept only if valid)
  *
  * Run:  npx tsx nl-assist-finetune/dataset-gen/generate.ts
- * Env:  NL_EVAL_F8        apiApp base URL (must run with EnableDynamicCodeExecution=true)
+ * Env:  NL_EVAL_F8        apiApp base URL (the compile authority — dynamic code is always on)
  *       NL_GEN_BOOTSTRAP  set to 1 to also mine base-model phrasings (needs Ollama)
  *       NL_GEN_OUT        output dir (default nl-assist-finetune/dataset)
  */

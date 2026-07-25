@@ -444,7 +444,7 @@ export const getStoredQuery = (i: InstanceConfig, name: string, signal?: AbortSi
     signal,
   });
 
-/** Requires EnableDynamicCodeExecution (403 otherwise); invocation by name does not. */
+/** Registration compiles C#, so it needs the API key when one is configured (401 otherwise). */
 export const registerStoredQuery = (i: InstanceConfig, spec: StoredQuerySpecification) =>
   apiRequest<StoredQuerySummaryREST>(i, "/storedquery", { method: "POST", body: spec });
 

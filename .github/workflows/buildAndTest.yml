@@ -95,7 +95,6 @@ jobs:
         docker run -d --name f8 -p 8080:8080 \
           -e Fallen8__Durability__Volatile=true \
           -e Fallen8__Security__ApiKey=ci-key \
-          -e Fallen8__Security__EnableDynamicCodeExecution=true \
           fallen-8:ci
         for i in $(seq 1 30); do
           curl -sf http://localhost:8080/ > /dev/null && break

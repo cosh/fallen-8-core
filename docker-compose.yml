@@ -47,9 +47,10 @@ services:
       # survive container recreation together (feature save-games).
       - Fallen8__Durability__StorageDirectory=/data
       - Fallen8__Metadata__Directory=/data/metadata
-      # Opt-in security posture; set a real key before exposing beyond localhost.
+      # Opt-in security posture; set a real key before exposing beyond localhost. (Dynamic code
+      # execution is always on — the "queries are C#" model — so there is no switch for it; set an
+      # API key before exposing the server, since the compile endpoints run in-process code.)
       - Fallen8__Security__ApiKey=${F8_API_KEY:-}
-      - Fallen8__Security__EnableDynamicCodeExecution=${F8_ENABLE_DYNAMIC_CODE:-false}
       # Text-in embeddings out of the box (feature embedding-out-of-box): the Ollama
       # sidecar serves bge-m3 (MIT, 1024-dim, Cosine). F8_EMBEDDINGS=false opts out
       # (embedding endpoints answer 403; bring-your-own-vector keeps working). Swapping
@@ -105,33 +106,32 @@ services:
       - f8-net
 
   # AI-agent surface (feature mcp-server): a SEPARATE deployable that bridges MCP to the
-  # fallen8 service over REST. OFF by default — it only starts under the "mcp" profile
-  # (F8_MCP=1 npm run env:up, or `docker compose --profile mcp up`), so a bare `up` is
-  # unchanged. Credentialed by construction: it binds 0.0.0.0 (a container must, to be
-  # reachable) and therefore REQUIRES a static bearer token (F8_MCP_TOKEN) — compose refuses
-  # to start the profile without one, matching the server's own fail-closed posture.
+  # fallen8 service over REST. Part of the default environment, on http://localhost:8090.
+  # LOCAL-DEV POSTURE: anonymous and read-only, matching the rest of this environment (fallen8
+  # itself runs with no API key here). The container must bind 0.0.0.0 to be reachable, so
+  # AcceptAnonymousRemote makes that an explicit, logged decision. For an OFF-BOX deployment do
+  # NOT reuse this: set F8_MCP_AUTH_MODE=StaticToken + F8_MCP_TOKEN (or OAuth) and enable only
+  # the tiers you need — see docs/mcp-server.md.
   f8-mcp:
     build:
       context: .
       dockerfile: fallen-8-mcp/Dockerfile
-    profiles: [mcp]
     restart: unless-stopped
     ports:
       - "${F8_MCP_PORT:-8090}:8090"
     environment:
-      # The downstream Fallen-8 this bridge points at (in-network) + its own single
-      # credential. The caller's token (below) is NEVER forwarded here.
+      # The downstream Fallen-8 this bridge points at (in-network) + its own single credential.
+      # A caller's token is NEVER forwarded here.
       - Fallen8Target__BaseUrl=http://fallen8:8080
       - Fallen8Target__ApiKey=${F8_API_KEY:-}
-      # Caller auth: a static bearer. F8_MCP_TOKEN is REQUIRED — but enforced at the server
-      # (it fails closed when StaticToken mode has no token) rather than with compose's ":?"
-      # required-variable syntax, which interpolates even for this inactive-by-default profiled
-      # service and would break a bare `docker compose up`. npm run env:up (F8_MCP=1) also
-      # refuses without it.
-      - Mcp__Auth__Mode=StaticToken
-      - Mcp__Auth__StaticToken=${F8_MCP_TOKEN:-}
+      # Reachable bind + explicit acceptance of an anonymous remote surface (the dev default).
+      - Mcp__Security__BindAddress=0.0.0.0
       - Mcp__Security__AllowRemoteAccess=true
-      # Tool tiers are least-privilege by default; opt in per deployment.
+      - Mcp__Security__AcceptAnonymousRemote=true
+      # Caller auth: None by default (dev). Off-box: F8_MCP_AUTH_MODE=StaticToken + F8_MCP_TOKEN.
+      - Mcp__Auth__Mode=${F8_MCP_AUTH_MODE:-None}
+      - Mcp__Auth__StaticToken=${F8_MCP_TOKEN:-}
+      # Tool tiers are least-privilege by default (read-only); opt in per deployment.
       - Mcp__Tools__EnableWrite=${F8_MCP_ENABLE_WRITE:-false}
       - Mcp__Tools__EnableAdmin=${F8_MCP_ENABLE_ADMIN:-false}
       - Mcp__Tools__EnableCode=${F8_MCP_ENABLE_CODE:-false}

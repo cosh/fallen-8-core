@@ -90,7 +90,7 @@ a dimension), matched case-sensitively; dimensions combine with AND:
 | `since` | `<epoch>:<seq>` or bare seq | replayed from the in-memory ring; out of window ⇒ leading `resync(seekOutOfRange)` |
 
 Unknown values are a **400** problem+json, never a silently-empty stream. Filters are
-declarative — the feed is fully functional with `EnableDynamicCodeExecution=false`.
+declarative — the feed compiles no C# at all.
 
 ## Configuration
 

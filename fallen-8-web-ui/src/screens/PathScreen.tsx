@@ -3,7 +3,6 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useInstanceStore } from "../instances/registry";
 import { findPaths, getGraphElement } from "../api/endpoints";
-import { ApiError } from "../api/client";
 import type { PathREST, VertexREST } from "../api/types";
 import {
   buildPathSpecification,
@@ -348,14 +347,6 @@ export function PathScreen() {
         {search.isError && (
           <div className="space-y-2 px-3 pb-3">
             <ErrorBox error={search.error} />
-            {search.error instanceof ApiError &&
-              search.error.status === 403 &&
-              draft.filterSource === "inline" && (
-                <p className="text-fg-dim text-[12px]" data-testid="path-403-hint">
-                  Dynamic code execution is off on this instance — switch filters to a
-                  stored query instead.
-                </p>
-              )}
           </div>
         )}
       </section>

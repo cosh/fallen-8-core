@@ -22,8 +22,8 @@ import { Field } from "./Field";
  * Dashboard's Stored queries panel — the picker only points there.
  */
 
-export const REGISTRATION_403 =
-  "registration requires EnableDynamicCodeExecution on this instance — invoking stored queries does not";
+export const REGISTRATION_401 =
+  "registration requires the instance's API key — configure it on the Connect screen";
 
 export function FilterSourceToggle({
   value,
@@ -206,8 +206,8 @@ export function SaveAsStoredQuery({
   const nameValid = STORED_QUERY_NAME.test(name.trim());
   const errorText = !save.isError
     ? null
-    : save.error instanceof ApiError && save.error.status === 403
-      ? REGISTRATION_403
+    : save.error instanceof ApiError && save.error.status === 401
+      ? REGISTRATION_401
       : save.error instanceof ApiError && save.error.status === 409
         ? `'${name.trim()}' already exists — stored queries are immutable; pick another name or delete the existing one first.`
         : (save.error as Error).message;

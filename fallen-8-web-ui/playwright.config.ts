@@ -4,9 +4,9 @@ import { defineConfig } from "@playwright/test";
  * E2E against a real apiApp serving the built SPA (scenarios in spec §9).
  *
  * Default mode: builds the SPA into ../fallen-8-core-apiApp/wwwroot and launches the
- * apiApp with volatile durability, an API key ("e2e-key"), and dynamic code execution
- * enabled - so the delegate-editor scenarios can run. Set F8_UI_URL to target an
- * already-running instance instead.
+ * apiApp with volatile durability and an API key ("e2e-key"). Dynamic code execution is
+ * always on, so the delegate-editor scenarios need no extra flag. Set F8_UI_URL to target
+ * an already-running instance instead.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -35,7 +35,6 @@ export default defineConfig({
         env: {
           Fallen8__Durability__Volatile: "true",
           Fallen8__Security__ApiKey: "e2e-key",
-          Fallen8__Security__EnableDynamicCodeExecution: "true",
         },
       },
 });

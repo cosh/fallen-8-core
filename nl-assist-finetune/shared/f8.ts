@@ -11,8 +11,8 @@
  * Env (shared by every script):
  *   NL_EVAL_MODEL     model name       (default phi4-mini)
  *   NL_EVAL_ENDPOINT  Ollama endpoint  (default http://localhost:11434)
- *   NL_EVAL_F8        apiApp base URL  (default http://localhost:5000; must run with
- *                                       Fallen8__Security__EnableDynamicCodeExecution=true)
+ *   NL_EVAL_F8        apiApp base URL  (default http://localhost:5000; the compile
+ *                                       authority — dynamic code is always on)
  */
 
 import type { DelegateKind } from "../../fallen-8-web-ui/src/api/types";
@@ -77,7 +77,7 @@ export async function validate(
   });
   if (!response.ok) {
     throw new Error(
-      `/delegates/validate returned HTTP ${response.status} - is the apiApp running with Fallen8__Security__EnableDynamicCodeExecution=true?`,
+      `/delegates/validate returned HTTP ${response.status} - is the apiApp reachable at NL_EVAL_F8 (${F8}) and running without an API key?`,
     );
   }
   return (await response.json()) as ValidationResult;

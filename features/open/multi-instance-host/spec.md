@@ -221,6 +221,10 @@ process" simply now includes the internal tenants — today's posture, one level
 - Dynamic code, stored-query registration, and plugins stay available, gated by a **per-instance
   capability grant** (a tenant with the `code` capability on their instance authors filters / cost /
   stored queries). It is the same `EnableDynamicCodeExecution` switch, now per instance.
+  > **Stale (2026-07-25):** `EnableDynamicCodeExecution` has since been removed — dynamic code
+  > execution is unconditional engine-wide, so a per-instance code-OFF grant is no longer
+  > expressible against today's engine. This superseded design would need re-speccing on top of
+  > namespaces if per-tenant code gating is ever required (it would have to be re-introduced).
 - **Accepted risk (documented, not mitigated):** trusted tenant code *can* technically reach a sibling
   instance's data and *can* crash the shared process. Acceptable **only** under the trusted-internal
   assumption — this is not a sandbox.
@@ -263,7 +267,8 @@ flowchart LR
   reaches the shared Ollama). The Roslyn compiler + the process-wide codegen cache are likewise shared,
   which is safe **only because tenant-supplied inline code is disallowed** — the cache holds
   host-trusted delegates, never tenant data.
-- **Per-instance config.** Durability path, capability flags (dynamic code OFF for tenants),
+- **Per-instance config.** Durability path, capability flags (dynamic code OFF for tenants — see
+  the 2026-07-25 stale note above; that per-tenant toggle no longer exists engine-wide),
   stored-query ceiling, change-feed — today global `Fallen8:*` options (`Program.cs:108-133,233,297`) —
   become per-instance `Fallen8InstanceOptions`, defaulted by a host template, overridable at create.
 - **Durability namespaced by GUID:** each instance under `…/instances/{guid}/`, so checkpoints never

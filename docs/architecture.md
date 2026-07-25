@@ -66,8 +66,8 @@ as a library (see the `Try*` API in [Graph model](graph-model.md)).
 A thin ASP.NET Core layer. It owns three things the engine deliberately does not:
 
 - **The HTTP surface** — versioned controllers, an OpenAPI document, and the Scalar reference
-  ([REST API](rest-api.md)), plus the [security](security.md) boundary (API key and the
-  dynamic-code switch).
+  ([REST API](rest-api.md)), plus the [security](security.md) boundary (the API key; dynamic
+  code execution is always on).
 - **Runtime delegate compilation.** Fallen-8 has [no query language](delegates.md): path and
   subgraph filters arrive as C# fragments, and the app compiles them with Roslyn into typed
   delegates and caches the result. This is the app's job, not the engine's, and it is gated

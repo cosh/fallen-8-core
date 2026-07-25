@@ -6,10 +6,10 @@ import { buildSemanticSpec, type SemanticDraft } from "../lib/semantic";
 /**
  * The Path screen's declarative semantic block (feature element-embeddings): the shared
  * query core (SemanticQueryEditor) plus the block-local minScore filter and
- * costBySimilarity cost. Pure data — it works with dynamic code execution OFF, which is
- * the whole point, so it stays enabled even where the C# fragment editors are
- * 403-disabled. The Subgraph screen does not use this block: there the thresholds live on
- * the vertex-filter slots themselves (feature subgraph-semantic-thresholds).
+ * costBySimilarity cost. Pure data — it compiles no C#, so it expresses similarity
+ * filtering without writing a fragment. The Subgraph screen does not use this block: there
+ * the thresholds live on the vertex-filter slots themselves (feature
+ * subgraph-semantic-thresholds).
  * Full rules: features/done/element-embeddings README.
  *
  * Controlled: the parent owns the SemanticDraft and derives which delegate slots to
@@ -69,7 +69,7 @@ export function SemanticBlockEditor({
           semantic scoring
         </label>
         <span className="text-fg-faint normal-case">
-          similarity filter/cost · pure data, runs with dynamic code off
+          similarity filter/cost · pure data, no C#
         </span>
       </div>
 

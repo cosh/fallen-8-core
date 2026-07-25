@@ -41,8 +41,9 @@ namespace NoSQL.GraphDB.Tests
     /// <summary>
     /// Pipeline tests for the API security boundary (feature api-security-boundary), through the real
     /// ASP.NET pipeline via WebApplicationFactory: anonymous requests to protected endpoints are 401,
-    /// a valid API key is accepted, the RCE code/plugin endpoints are 403 unless the operator enables
-    /// them, open reads stay reachable, and an uploaded plugin lands in the isolated directory. The
+    /// a valid API key is accepted, the plugin-load endpoint is 403 unless the operator enables it
+    /// (dynamic code execution is always on), open reads stay reachable, and an uploaded plugin lands
+    /// in the isolated directory. The
     /// controller unit tests new up controllers directly and bypass the pipeline, so they cannot see
     /// any of this - these do.
     /// </summary>
@@ -94,11 +95,10 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
-        private SecurityFactory NewHost(bool withApiKey = true, bool enableCode = false, bool enablePlugin = false)
+        private SecurityFactory NewHost(bool withApiKey = true, bool enablePlugin = false)
         {
             var settings = new Dictionary<string, string>
             {
-                ["Fallen8:Security:EnableDynamicCodeExecution"] = enableCode ? "true" : "false",
                 ["Fallen8:Security:EnableDynamicPluginLoading"] = enablePlugin ? "true" : "false",
                 ["Fallen8:Security:PluginDirectory"] = _pluginDir,
             };
@@ -216,41 +216,24 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
-        #region S2/S3/S4 - RCE opt-in gate
+        #region S2/S3/S4 - RCE surface (dynamic code always on; plugin loading opt-in)
 
         [TestMethod]
-        public async Task CodeEndpoints_Authenticated_GateOff_InlineFragments_Return403()
+        public async Task CodeEndpoint_Authenticated_InlineFragments_ReachTheActionNot403()
         {
-            // The gate is request-shape-aware since feature stored-query-library: a request that
-            // INTRODUCES code (inline fragments) is 403 with the switch off. (A fragment-less or
-            // storedQuery-referencing request passes - pinned by StoredQuerySecurityMatrixTest.)
-            using var factory = NewHost(enableCode: false);
+            // Dynamic code execution is unconditional: an authenticated caller submitting inline
+            // fragments reaches the action (200/400 by body) and is never 403. Auth still applies.
+            using var factory = NewHost();
             using var client = Client(factory, withKey: true);
 
             using var path = await client.PostAsync("/path/0/to/1",
                 new StringContent("{\"filter\":{\"vertexFilter\":\"return (v) => true;\"}}", Encoding.UTF8, "application/json"));
-            Assert.AreEqual(HttpStatusCode.Forbidden, path.StatusCode,
-                "Authenticated POST /path with inline fragments and dynamic code disabled must be 403 (gate closed).");
+            Assert.AreNotEqual(HttpStatusCode.Forbidden, path.StatusCode, "Dynamic code is always on — POST /path with fragments must not be 403.");
+            Assert.AreNotEqual(HttpStatusCode.Unauthorized, path.StatusCode, "With a valid key, POST /path must not be 401.");
 
             using var subgraph = await client.PutAsync("/subgraph",
                 new StringContent("{\"name\":\"gated\",\"vertexFilter\":\"return (ge) => true;\"}", Encoding.UTF8, "application/json"));
-            Assert.AreEqual(HttpStatusCode.Forbidden, subgraph.StatusCode,
-                "Authenticated PUT /subgraph with inline fragments and dynamic code disabled must be 403 (gate closed).");
-        }
-
-        [TestMethod]
-        public async Task CodeEndpoint_Authenticated_GateOn_ReachesTheActionNot403()
-        {
-            using var factory = NewHost(enableCode: true);
-            using var client = Client(factory, withKey: true);
-
-            // Gate open: the request reaches the action (which may 200/400 depending on the body), but
-            // must not be 401 (authenticated) or 403 (gate open). That the action runs at all is the
-            // proof the code path is reachable only when authenticated AND enabled.
-            using var path = await client.PostAsync("/path/0/to/1",
-                new StringContent("{}", Encoding.UTF8, "application/json"));
-            Assert.AreNotEqual(HttpStatusCode.Forbidden, path.StatusCode, "With the gate open, POST /path must not be 403.");
-            Assert.AreNotEqual(HttpStatusCode.Unauthorized, path.StatusCode, "With a valid key, POST /path must not be 401.");
+            Assert.AreNotEqual(HttpStatusCode.Forbidden, subgraph.StatusCode, "PUT /subgraph with fragments must not be 403.");
         }
 
         [TestMethod]

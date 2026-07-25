@@ -91,14 +91,11 @@ export function DelegateEditor({
         return final;
       } catch (error) {
         if (controller.signal.aborted) return null;
-        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        if (error instanceof ApiError && error.status === 401) {
           setValidation({
             phase: "gate",
             status: error.status,
-            message:
-              error.status === 403
-                ? "Dynamic code execution is disabled on this instance (Fallen8:Security:EnableDynamicCodeExecution)."
-                : "This instance requires an API key (configure it on the Connect screen).",
+            message: "This instance requires an API key (configure it on the Connect screen).",
           });
         } else {
           setValidation({

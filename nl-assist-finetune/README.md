@@ -29,18 +29,17 @@ dataset/ adapter/ merged/ *.gguf Modelfile PROVENANCE.*.md   generated, gitignor
 
 ## Prerequisites
 
-A Fallen-8 apiApp is the compile authority for the generator and the eval harness. Run it
-with dynamic code enabled:
+A Fallen-8 apiApp is the compile authority for the generator and the eval harness. Dynamic
+code execution is always on, so no security flag is needed — just run it (volatile keeps it
+throwaway):
 
 ```powershell
 $env:Fallen8__Durability__Volatile = "true"
-$env:Fallen8__Security__EnableDynamicCodeExecution = "true"
 dotnet run --project fallen-8-core-apiApp
 ```
 
 ```bash
 Fallen8__Durability__Volatile=true \
-Fallen8__Security__EnableDynamicCodeExecution=true \
 dotnet run --project fallen-8-core-apiApp
 ```
 
@@ -231,7 +230,7 @@ retrain folds your real-usage feedback in; re-run the eval gate to confirm it st
 ## Evaluation (baseline / comparison runs)
 
 This runs on the host (Windows PowerShell or bash) — it needs a model backend (the compose
-Ollama on `:11434`) and a dynamic-code apiApp, not a GPU.
+Ollama on `:11434`) and a running apiApp (the compile authority), not a GPU.
 
 ```bash
 npx tsx nl-assist-finetune/eval/baseline.ts                              # stock base model

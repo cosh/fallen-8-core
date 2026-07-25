@@ -57,17 +57,9 @@ namespace NoSQL.GraphDB.Tests
     {
         private sealed class SemanticFactory : WebApplicationFactory<Program>
         {
-            private readonly bool _enableDynamicCode;
-
-            public SemanticFactory(bool enableDynamicCode)
-            {
-                _enableDynamicCode = enableDynamicCode;
-            }
-
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
                 builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                builder.UseSetting("Fallen8:Security:EnableDynamicCodeExecution", _enableDynamicCode ? "true" : "false");
             }
         }
 
@@ -142,7 +134,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeMinScore_FiltersThePath_WithDynamicCodeOff()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -163,7 +155,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeCostBySimilarity_PrefersTheCloserRoute_WithDynamicCodeOff()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -182,7 +174,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeMinScore_UnderL2_IsADistanceCeiling_FiltersThePath()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -201,7 +193,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeCostBySimilarity_UnderL2_PrefersTheCloserRoute()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -221,7 +213,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeSemantic_400Table()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var (a, _, _, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -241,18 +233,19 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task DeclarativeSemantic_CarriesNoCode_SoTheDynamicCodeGateStaysShut()
+        public async Task DeclarativeSemantic_CarriesNoCode_AndInlineFragmentsRunUnconditionally()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var (a, _, _, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
-            // An inline fragment is still 403 with the switch off - the semantic block
-            // does not widen the gate.
-            using var forbidden = await PostJson(client, $"/path/{a}/to/{d}",
+            // The declarative semantic block is code-free, so it never needed a gate. Dynamic code
+            // execution is always on now, so an inline fragment reaches the action too (this host
+            // configures no API key, so anonymous access is permitted) - both paths run.
+            using var response = await PostJson(client, $"/path/{a}/to/{d}",
                 "{ \"filter\": { \"vertexFilter\": \"return (v) => true;\" }, " +
                 "  \"semantic\": { \"queryVector\": [1, 0] } }");
-            Assert.AreEqual(HttpStatusCode.Forbidden, forbidden.StatusCode);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
         }
 
         #endregion
@@ -262,7 +255,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ContextFragment_MatchesTheDeclarativeResult()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: true);
+            using var factory = new SemanticFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -281,7 +274,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task StoredPathQuery_ReadsTheInvocationContext()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: true);
+            using var factory = new SemanticFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -309,7 +302,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task OneOwnerPerSlot_Conflicts_Are400()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: true);
+            using var factory = new SemanticFactory();
             var (a, _, _, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -333,7 +326,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_DeclarativeMinScore_PreFilters_WithDynamicCodeOff()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var engine = EngineOf(factory);
             var (a, b, c, d) = Diamond(engine);
             using var client = factory.CreateClient();
@@ -350,7 +343,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_Semantic400Table()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: true);
+            using var factory = new SemanticFactory();
             Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -377,7 +370,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_SemanticBinding_SurvivesRecalculation_WithoutReEmbedding()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var engine = EngineOf(factory);
             var (a, b, c, d) = Diamond(engine);
             using var client = factory.CreateClient();
@@ -409,7 +402,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_AppliesAtItsStep_WithDynamicCodeOff()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var engine = EngineOf(factory);
             Diamond(engine);
             using var client = factory.CreateClient();
@@ -433,7 +426,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_MatchesContextFragmentParity()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: true);
+            using var factory = new SemanticFactory();
             var engine = EngineOf(factory);
             Diamond(engine);
             using var client = factory.CreateClient();
@@ -464,7 +457,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_400Table()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: true);
+            using var factory = new SemanticFactory();
             Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -544,7 +537,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_BindingSurvivesRecalculation_WithoutReEmbedding()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var engine = EngineOf(factory);
             var (a, b, c, d) = Diamond(engine);
             using var client = factory.CreateClient();
@@ -578,7 +571,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_UnderL2_IsADistanceCeiling()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var engine = EngineOf(factory);
             Diamond(engine);
             using var client = factory.CreateClient();
@@ -599,7 +592,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_MissingEmbedding_NeverMatches()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             var engine = EngineOf(factory);
             var (a, b, c, d) = Diamond(engine);
             using var client = factory.CreateClient();
@@ -628,7 +621,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_MixedOwnershipAcrossSteps()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: true);
+            using var factory = new SemanticFactory();
             var engine = EngineOf(factory);
             Diamond(engine);
             using var client = factory.CreateClient();
@@ -666,7 +659,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraphSummary_EchoesBoundSemanticState_NeverTheVector()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -692,7 +685,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraphSummary_NonSemanticSubgraph_CarriesNoEcho()
         {
-            using var factory = new SemanticFactory(enableDynamicCode: false);
+            using var factory = new SemanticFactory();
             Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 

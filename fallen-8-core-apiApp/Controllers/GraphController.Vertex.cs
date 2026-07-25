@@ -91,6 +91,54 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
+        /// Creates many vertices in ONE atomic transaction (feature mcp-followups)
+        /// </summary>
+        /// <param name="definitions">The vertices to create</param>
+        /// <param name="waitForCompletion">When true, waits and returns the assigned ids in input order</param>
+        /// <remarks>
+        /// The batch write path: far fewer round-trips than one <c>PUT /vertex</c> per vertex, and -
+        /// unlike the single endpoint (202, no body) - a waited-on call RETURNS the assigned vertex
+        /// ids so a caller can immediately reference them (e.g. to create edges).
+        /// </remarks>
+        /// <response code="200">Returns the assigned vertex ids in input order (waitForCompletion=true)</response>
+        /// <response code="202">Batch accepted (waitForCompletion=false)</response>
+        /// <response code="400">A null list, or a null/invalid vertex specification</response>
+        /// <response code="500">The transaction was rolled back with an internal error (only when waited)</response>
+        [HttpPut("/vertices")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> AddVertices([FromBody] List<VertexSpecification> definitions, [FromQuery] bool waitForCompletion = false)
+        {
+            if (definitions == null)
+            {
+                return BadRequest("A list of vertex specifications is required.");
+            }
+
+            var tx = new CreateVerticesTransaction();
+            foreach (var definition in definitions)
+            {
+                if (definition == null)
+                {
+                    return BadRequest("A vertex specification may not be null.");
+                }
+
+                tx.AddVertex(new VertexDefinition()
+                {
+                    CreationDate = definition.CreationDate,
+                    Label = definition.Label,
+                    Properties = ServiceHelper.GenerateProperties(definition.Properties)
+                });
+            }
+
+            return await AwaitBatch(_fallen8.EnqueueTransaction(tx), waitForCompletion,
+                () => tx.GetCreatedVertices().Select(v => v.Id));
+        }
+
+        /// <summary>
         /// Retrieves a vertex from the graph by its identifier
         /// </summary>
         /// <param name="vertexIdentifier">The ID of the vertex to retrieve</param>

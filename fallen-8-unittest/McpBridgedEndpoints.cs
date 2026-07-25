@@ -55,6 +55,8 @@ namespace NoSQL.GraphDB.Tests
             // Write tier.
             ("PUT", "/vertex"),
             ("PUT", "/edge"),
+            ("PUT", "/vertices"),
+            ("PUT", "/edges"),
             ("PUT", "/graphelement/{graphElementIdentifier}/{propertyIdString}"),
             ("DELETE", "/graphelement/{graphElementIdentifier}/{propertyIdString}"),
             ("DELETE", "/graphelement/{graphElementIdentifier}"),

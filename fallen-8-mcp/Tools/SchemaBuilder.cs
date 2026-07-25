@@ -89,6 +89,17 @@ namespace NoSQL.GraphDB.Mcp.Tools
             }, required);
         }
 
+        /// <summary>An array of free-form objects (e.g. a batch of vertex/edge specs).</summary>
+        public SchemaBuilder ObjArray(String name, String description, Boolean required = false)
+        {
+            return Add(name, new JsonObject
+            {
+                ["type"] = "array",
+                ["description"] = description,
+                ["items"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true },
+            }, required);
+        }
+
         /// <summary>A numeric array (e.g. an embedding/query vector).</summary>
         public SchemaBuilder NumArray(String name, String description, Boolean required = false)
         {

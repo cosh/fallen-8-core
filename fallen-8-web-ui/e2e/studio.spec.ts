@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * F8 Studio end-to-end scenarios (spec §9) against a live apiApp serving the built SPA.
- * The server runs with an API key ("e2e-key") and dynamic code enabled (see
+ * The server runs with an API key ("e2e-key"); dynamic code execution is always on (see
  * playwright.config.ts), so every test first registers a same-origin instance carrying
  * that key through the real Connect screen.
  */

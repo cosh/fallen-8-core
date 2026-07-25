@@ -28,7 +28,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -47,14 +46,15 @@ namespace NoSQL.GraphDB.App.Controllers
     ///   path/subgraph endpoints can reference by name.
     /// </summary>
     /// <remarks>
-    ///   The operating model (feature stored-query-library): register a vetted set of queries
-    ///   while dynamic code execution is enabled, then run day-to-day with
-    ///   <c>Fallen8:Security:EnableDynamicCodeExecution=false</c> - inline fragments are rejected
-    ///   while stored queries remain invocable, so the code surface shrinks from "arbitrary C# per
-    ///   request" to a closed, operator-approved set.
+    ///   The operating model (feature stored-query-library): register a vetted set of queries once,
+    ///   then reference them by name from the path/subgraph endpoints. Each fragment is validated
+    ///   and compiled a SINGLE time at registration (not per request), and an operator curates the
+    ///   catalog, so callers reuse named, pre-approved queries instead of re-sending raw C#.
     ///
-    ///   HONESTY NOTE: an invoked stored query still runs in-process with full trust. The library
-    ///   narrows WHO CAN INTRODUCE code (a provenance control); it is NOT a sandbox.
+    ///   HONESTY NOTE: an invoked stored query still runs in-process with full trust, and inline
+    ///   fragments remain available - dynamic code execution is always on. The library is a
+    ///   reuse/curation convenience (compile once, name once), NOT a sandbox or a lockdown: it does
+    ///   not disable inline code.
     /// </remarks>
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]
@@ -108,19 +108,16 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="201">The stored query was compiled and registered</response>
         /// <response code="400">The specification was malformed (name/kind/block), or a fragment failed to compile (the body carries the compiler diagnostics)</response>
         /// <response code="401">No valid credential was supplied</response>
-        /// <response code="403">Dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution) - registration introduces code and is always gated</response>
         /// <response code="409">A stored query with the same name already exists, or the library quota (Fallen8:StoredQueries:MaxCount) was reached</response>
         /// <response code="413">The request body exceeds the code-endpoint size limit</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         /// <response code="500">The registration transaction faulted with an internal error</response>
         /// <remarks>
         /// SECURITY: registration compiles C# fragments with Roslyn that later execute IN-PROCESS
-        /// WITH FULL TRUST. Registration is the trust decision, so it requires an authenticated
-        /// caller AND Fallen8:Security:EnableDynamicCodeExecution=true - exactly like the inline
-        /// code endpoints. Invocation by name is deliberately NOT gated by that switch.
+        /// WITH FULL TRUST. It carries the same authentication as the inline code endpoints
+        /// (required whenever an API key is configured); dynamic code execution itself is always on.
         /// </remarks>
         [HttpPost("/storedquery")]
-        [Authorize(Policy = Fallen8SecurityOptions.DynamicCodePolicy)]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [RequestSizeLimit(1_048_576)]
         [Consumes("application/json")]
@@ -128,7 +125,6 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(StoredQuerySummaryREST), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> RegisterStoredQuery([FromBody] StoredQuerySpecification specification)
@@ -275,8 +271,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="name">The stored query name</param>
         /// <remarks>
         /// Deletion drops the pinned compiled artifact so its collectible load context can unload
-        /// once in-flight invocations finish. NOT gated by the dynamic-code switch: removal
-        /// compiles nothing and must stay possible while the switch is off.
+        /// once in-flight invocations finish. Removal compiles nothing; it carries only the
+        /// standard authentication (the API key when one is configured).
         /// </remarks>
         /// <response code="204">The stored query was deleted</response>
         /// <response code="401">No valid credential was supplied</response>

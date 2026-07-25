@@ -12,22 +12,29 @@ another host. A bug in the agent surface cannot take the database down.
 
 ## Running it
 
-**With the compose environment (recommended).** The MCP surface is off by default; enable it
-with the `mcp` profile. It binds a network-reachable port, so it is **credentialed by
-construction** — you must supply a bearer token:
+**With the compose environment (the default).** The MCP server comes up with the rest of the
+environment on `http://localhost:8090`, **anonymous and read-only** — matching this
+environment's no-auth-in-the-way posture (the `fallen8` service itself runs with no API key
+here). Nothing extra to run:
 
 ```bash
-F8_MCP=1 F8_MCP_TOKEN="$(openssl rand -hex 32)" npm run env:up
-# f8-mcp is now on http://localhost:8090, fronting the fallen8 service.
+npm run env:up
+# f8-mcp is on http://localhost:8090, fronting the fallen8 service, read-only.
 ```
 
-Tool tiers are least-privilege by default (read-only). Opt in per deployment:
+This local-dev posture is **not** for a serious deployment — see "Securing it" below.
+
+**Securing it for a real (off-box) setup.** Everything is env-var configurable on the `f8-mcp`
+service, so a serious setup locks it down without code changes: set an auth mode + credential,
+and opt into only the tiers you need. Via the compose env:
 
 ```bash
-F8_MCP=1 F8_MCP_TOKEN=… F8_MCP_ENABLE_WRITE=true npm run env:up
+# static bearer + writes enabled, still on the compose network:
+F8_MCP_AUTH_MODE=StaticToken F8_MCP_TOKEN="$(openssl rand -hex 32)" \
+  F8_MCP_ENABLE_WRITE=true npm run env:up
 ```
 
-**Standalone, against a Fallen-8 on another host:**
+Or run the image standalone against a Fallen-8 on another host, fully credentialed:
 
 ```bash
 docker run --rm -p 8090:8090 \
@@ -38,6 +45,11 @@ docker run --rm -p 8090:8090 \
   fallen-8-mcp
 ```
 
+For OAuth 2.1 instead of a static token, set `Mcp__Auth__Mode=OAuth` +
+`Mcp__Auth__Issuer`/`Mcp__Auth__Audience` (see "Authentication"). The server **fails closed**:
+a non-loopback bind refuses to start anonymously unless you explicitly opt in
+(`Mcp__Security__AcceptAnonymousRemote=true`, which the demo compose sets and a real one must not).
+
 **Local development over stdio** (no network, loopback Fallen-8):
 
 ```bash
@@ -46,7 +58,13 @@ dotnet run --project fallen-8-mcp -- --stdio
 
 ## Connecting a client
 
-Claude Code, over Streamable HTTP with the bearer token:
+Claude Code, over Streamable HTTP — the default dev server is anonymous:
+
+```bash
+claude mcp add --transport http fallen8 http://localhost:8090
+```
+
+When you have secured it with a static bearer (above), add the header:
 
 ```bash
 claude mcp add --transport http fallen8 http://localhost:8090 \
@@ -85,9 +103,10 @@ Tools are grouped by the same opt-in tiers Fallen-8 uses everywhere:
 - **read** (on by default): discovery, fetch, search, paths, analytics.
 - **write** (`Mcp:Tools:EnableWrite`): mutations, subgraph define, namespace lifecycle.
 - **admin** (`Mcp:Tools:EnableAdmin`): save/load/trim/tabula_rasa.
-- **code** (`Mcp:Tools:EnableCode`, double opt-in): does **not** add tools — it *widens*
-  `f8_paths`/`f8_subgraph` with inline C# filter/cost fragments. Effective only when the target
-  Fallen-8 also has dynamic-code execution enabled (its own `403` surfaces otherwise).
+- **code** (`Mcp:Tools:EnableCode`): does **not** add tools — it *widens*
+  `f8_paths`/`f8_subgraph` with inline C# filter/cost fragments. Off by default so the MCP
+  surface stays token-frugal and does not invite arbitrary C# from agents; the target Fallen-8
+  always accepts inline fragments (auth permitting), so this is purely an MCP-side exposure choice.
 
 A disabled tier's tools are absent from the tool list **and** rejected if called anyway.
 

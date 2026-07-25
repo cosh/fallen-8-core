@@ -74,10 +74,10 @@ function describeCreateError(error: unknown): { title: string; body: string } {
           title: "Source subgraph not found (404)",
           body: "The fromSubGraph you referenced does not exist on this instance.",
         };
-      case 403:
+      case 401:
         return {
-          title: "Dynamic code execution is off (403)",
-          body: "Inline fragments cannot run on this instance — use a stored query (kind SubGraph) instead.",
+          title: "Authentication required (401)",
+          body: "This instance requires an API key — configure it on the Connect screen.",
         };
       case 409:
         return {

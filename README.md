@@ -51,8 +51,11 @@ Each feature has a deep-dive doc — follow the link.
 - **[Plugins](docs/plugins.md)** — indices, algorithms, and services are all discovered plugins.
 - **[F8 Studio](docs/studio.md)** — a browser UI to browse, query, visualize, and author the C#
   delegates, with an optional local natural-language assist.
-- **[Security](docs/security.md)** — optional all-or-nothing API key; dynamic code execution is a
-  separate switch, off by default.
+- **[MCP server](docs/mcp-server.md)** — a Model Context Protocol surface so AI agents call
+  Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
+  writes and three auth modes up to OAuth 2.1.
+- **[Security](docs/security.md)** — optional all-or-nothing API key; dynamic code execution is
+  always on (queries are C#), so set a key before exposing the service off-box.
 
 ## Architecture
 
@@ -81,18 +84,16 @@ Full details — the writer thread, plugin system, durability, and the model sid
 
 ## Running it
 
-One command brings up everything — engine, REST API, F8 Studio, and the model sidecar — with
-every feature on and no authentication in the way:
+One command brings up everything — engine, REST API, F8 Studio, the MCP server for agents, and
+the model sidecar — with every feature on and no authentication in the way (same on macOS,
+Linux, and Windows PowerShell):
 
 ```bash
 npm run env:up
 ```
 
-```powershell
-npm run env:up
-```
-
-Then open **F8 Studio at http://localhost:8080** and load a sample graph from the dashboard.
+Then open **F8 Studio at http://localhost:8080** and load a sample graph from the dashboard. The
+**MCP server is on http://localhost:8090** for AI-agent clients (read-only by default).
 
 Every other way to run it — a bare `dotnet run`, the configuration keys, the security
 switches, GPU acceleration, offline model pre-seeding — is in
@@ -113,17 +114,19 @@ Agents reach Fallen-8 through the **MCP server** — a separate deployable that 
 as [Model Context Protocol](https://modelcontextprotocol.io) tools any MCP client (Claude Code,
 Claude Desktop, IDE agents) can call. It is a small, token-frugal tool surface, read-only by
 default, with opt-in write/admin tiers and three auth modes (anonymous-loopback, static bearer,
-OAuth 2.1). Enable it in the compose environment with a token:
+OAuth 2.1). It comes up with `npm run env:up` on **http://localhost:8090** — anonymous and
+read-only, matching the local dev environment's no-auth posture. Point a client at it:
 
 ```bash
-F8_MCP=1 F8_MCP_TOKEN="$(openssl rand -hex 32)" npm run env:up   # MCP on http://localhost:8090
+claude mcp add --transport http fallen8 http://localhost:8090
 ```
 
-Full guide — tools, tiers, auth, connecting a client — in [docs/mcp-server.md](docs/mcp-server.md).
+For a real (off-box) deployment, set a token and enable the tiers you need — full guide in
+[docs/mcp-server.md](docs/mcp-server.md).
 
 ## Troubleshooting
 
-Common snags — first-start model pulls, the embedding provider, dynamic-code 403s, GPU
+Common snags — first-start model pulls, the embedding provider, missing-key 401s, GPU
 detection — and their fixes are in [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Documentation

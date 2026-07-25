@@ -37,21 +37,11 @@ function main() {
   const files = ['-f', 'docker-compose.yml'];
   if (gpu) files.push('-f', 'docker-compose.gpu.yml');
 
-  // The AI-agent MCP surface is opt-in (feature mcp-server): F8_MCP=1 activates the "mcp"
-  // compose profile so the f8-mcp service starts alongside the rest. It is credentialed by
-  // construction and refuses to start without F8_MCP_TOKEN.
-  const profiles = [];
-  if (process.env.F8_MCP === '1') {
-    if (!process.env.F8_MCP_TOKEN) {
-      console.error('F8_MCP=1 requires F8_MCP_TOKEN (a strong static bearer secret) — refusing to start the mcp profile.');
-      process.exit(1);
-    }
-    profiles.push('--profile', 'mcp');
-    console.log('MCP surface enabled (profile mcp): the f8-mcp service will start on port ' +
-      (process.env.F8_MCP_PORT || '8090') + ' with a static-bearer credential.');
-  }
-
-  const result = spawnSync('docker', ['compose', ...files, ...profiles, 'up', '-d', '--build'], {
+  // The AI-agent MCP surface (feature mcp-server) starts with the rest of the environment on
+  // http://localhost:8090 — anonymous + read-only for local dev. Securing it for an off-box
+  // setup is env-var config on the f8-mcp service (F8_MCP_AUTH_MODE / F8_MCP_TOKEN / tier
+  // flags); see docs/mcp-server.md.
+  const result = spawnSync('docker', ['compose', ...files, 'up', '-d', '--build'], {
     cwd: path.join(__dirname, '..'),
     stdio: 'inherit',
   });

@@ -17,7 +17,10 @@ Fallen-8 is an in-memory graph database written in C# (.NET 10). Namespaces are 
 deliberately decoupled from `features/` (no spec/plan/phase language, no links into
 `features/`). `docs/` is the home users read; `features/<name>/` remains the historical
 spec/plan record and the contributor "living doc". When a feature changes user-visible
-behaviour, update its `docs/*.md` page too.
+behaviour, update its `docs/*.md` page too — and **every user-facing key feature earns a
+one-line entry in the root `README.md` "Key features" list** (linking its `docs/*.md` page)
+and a row in the [`docs/`](docs/README.md) index. A feature is not "done" until it is
+discoverable from the README.
 
 ## Build & test
 
@@ -59,9 +62,11 @@ dotnet run --project fallen-8-core-apiApp
   `GeneratedCodeCache`. When adding a new dynamic-filter endpoint, follow this pattern.
 - **Stored queries are the pre-compiled alternative.** `POST /storedquery` registers a named,
   compile-validated path filter/cost set or subgraph template; the path and subgraph
-  endpoints then accept `"storedQuery": "<name>"` instead of inline fragments. Registration
-  requires `EnableDynamicCodeExecution`; invocation by name does not — the full gating story
-  lives in [features/done/stored-query-library/](features/done/stored-query-library/).
+  endpoints then accept `"storedQuery": "<name>"` instead of inline fragments. It is a
+  reuse/curation convenience (compile once, invoke by name), not a security lockdown —
+  dynamic code execution is always on and has no switch (a compiled fragment runs in-process
+  with full trust; authentication is the only boundary). The full story lives in
+  [features/done/stored-query-library/](features/done/stored-query-library/).
 - **Subgraph feature** lives in `fallen-8-core/Algorithms/SubGraph` (algorithm + pattern
   model) and `fallen-8-core/SubGraph/SubGraphFactory.cs` (registration, recalculation).
   Design docs are in [features/done/subgraph/](features/done/subgraph/).

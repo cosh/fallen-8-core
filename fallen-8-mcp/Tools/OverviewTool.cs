@@ -42,7 +42,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
     ///   it reports that graph's status: counts, index inventory, the available path/analytics
     ///   algorithms, and the embedding-provider state — everything an agent needs to know "what
     ///   is here and what can I do" in one round-trip. It reports only what <c>/status</c> truly
-    ///   exposes (so, deliberately, NOT the target's dynamic-code switch — spec §3.6).
+    ///   exposes; dynamic code execution is unconditional (no switch), so there is nothing to
+    ///   report for it — the MCP-side <c>code</c> capability is a surface toggle, not engine state.
     /// </summary>
     public sealed class OverviewTool : IMcpTool
     {

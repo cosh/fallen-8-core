@@ -386,9 +386,9 @@ export interface IndexAddToSpecification {
 /**
  * The declarative semantic block (feature element-embeddings) on POST /path and
  * PUT /subgraph. Carries the query vector (or queryText, embedded once by the provider —
- * mutually exclusive) plus code-free similarity filter/cost. Pure data: it runs with
- * dynamic code execution off. minScore filters vertices by similarity; costBySimilarity
- * (path only) weights a DIJKSTRA search by it. See the element-embeddings README.
+ * mutually exclusive) plus code-free similarity filter/cost. Pure data: it compiles no C#.
+ * minScore filters vertices by similarity; costBySimilarity (path only) weights a DIJKSTRA
+ * search by it. See the element-embeddings README.
  */
 export interface SemanticTraversalSpecification {
   queryVector?: number[];
@@ -419,7 +419,7 @@ export interface PathSpecification {
   cost?: PathCostSpecification;
   /** Stored query of kind Path — mutually exclusive with filter/cost (server 400s on mix). */
   storedQuery?: string;
-  /** Declarative semantic block (feature element-embeddings); pure data, dynamic-code-off safe. */
+  /** Declarative semantic block (feature element-embeddings); pure data, compiles no C#. */
   semantic?: SemanticTraversalSpecification;
 }
 

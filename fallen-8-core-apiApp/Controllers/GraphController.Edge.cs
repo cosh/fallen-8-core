@@ -24,6 +24,8 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using NoSQL.GraphDB.App.Controllers.Model;
@@ -116,6 +118,60 @@ namespace NoSQL.GraphDB.App.Controllers
             };
 
             return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
+        }
+
+        /// <summary>
+        /// Creates many edges in ONE atomic transaction (feature mcp-followups)
+        /// </summary>
+        /// <param name="definitions">The edges to create (each references existing source/target vertex ids)</param>
+        /// <param name="waitForCompletion">When true, waits and returns the assigned ids in input order</param>
+        /// <remarks>
+        /// The batch write path. If any referenced source/target vertex is missing, the WHOLE batch
+        /// rolls back atomically and answers 404 (nothing is wired). A waited-on call returns the
+        /// assigned edge ids. Edges reference vertices that already exist; to link vertices created in
+        /// the same session, create the vertices first, read their ids, then create the edges.
+        /// </remarks>
+        /// <response code="200">Returns the assigned edge ids in input order (waitForCompletion=true)</response>
+        /// <response code="202">Batch accepted (waitForCompletion=false)</response>
+        /// <response code="400">A null list, or a null/invalid edge specification</response>
+        /// <response code="404">A referenced source or target vertex does not exist (only when waited)</response>
+        /// <response code="500">The transaction was rolled back with an internal error (only when waited)</response>
+        [HttpPut("/edges")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> AddEdges([FromBody] List<EdgeSpecification> definitions, [FromQuery] bool waitForCompletion = false)
+        {
+            if (definitions == null)
+            {
+                return BadRequest("A list of edge specifications is required.");
+            }
+
+            var tx = new CreateEdgesTransaction();
+            foreach (var definition in definitions)
+            {
+                if (definition == null)
+                {
+                    return BadRequest("An edge specification may not be null.");
+                }
+
+                tx.AddEdge(new EdgeDefinition()
+                {
+                    CreationDate = definition.CreationDate,
+                    SourceVertexId = definition.SourceVertex,
+                    EdgePropertyId = definition.EdgePropertyId,
+                    TargetVertexId = definition.TargetVertex,
+                    Label = definition.Label,
+                    Properties = ServiceHelper.GenerateProperties(definition.Properties)
+                });
+            }
+
+            return await AwaitBatch(_fallen8.EnqueueTransaction(tx), waitForCompletion,
+                () => tx.GetCreatedEdges().Select(e => e.Id));
         }
 
         /// <summary>

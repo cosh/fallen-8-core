@@ -87,7 +87,6 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="200">Returns the found paths between the vertices</response>
         /// <response code="400">Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind</response>
         /// <response code="401">No valid credential was supplied</response>
-        /// <response code="403">The request carries inline filter/cost fragments and dynamic code execution is disabled on this server (Fallen8:Security:EnableDynamicCodeExecution). Requests referencing a storedQuery - or carrying no fragments at all - are NOT gated by that switch.</response>
         /// <response code="404">Source or target vertex not found, or no stored query with the referenced name exists</response>
         /// <response code="409">The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name})</response>
         /// <response code="413">The request body exceeds the code-endpoint size limit</response>
@@ -102,19 +101,17 @@ namespace NoSQL.GraphDB.App.Controllers
         /// a query vector (or, with the embedding provider enabled, a "queryText" embedded once,
         /// up front) plus code-free similarity options - "minScore" filters vertices by
         /// similarity against their named element embedding, "costBySimilarity" weights a
-        /// DIJKSTRA search by it. The block is pure data (not gated by the dynamic-code switch);
+        /// DIJKSTRA search by it. The block is pure data (it compiles no C#);
         /// compiled fragments and stored queries read the same vector via the "context"
         /// parameter. Example: { "semantic": { "queryVector": [0.1, 0.2], "minScore": 0.7 } }.
         /// Full rules: features/element-embeddings README, "Semantic traversal".
         ///
         /// SECURITY: inline filter/cost fragments are compiled with Roslyn and executed IN-PROCESS
         /// WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone permitted to
-        /// introduce code is trusted as the server process. The dynamic-code gate is
-        /// REQUEST-SHAPE-AWARE (feature stored-query-library): only a request that INTRODUCES code
-        /// (any inline fragment) requires Fallen8:Security:EnableDynamicCodeExecution=true; invoking
-        /// an operator-registered stored query - or a filterless search, which compiles no
-        /// user-supplied code - does not. An invoked stored query still runs with full trust: the
-        /// library narrows who can introduce code, it is not a sandbox.
+        /// introduce code is trusted as the server process. Dynamic code execution is ALWAYS ON -
+        /// there is no switch to disable it - so authentication (required whenever an API key is
+        /// configured) is the boundary. Invoking an operator-registered stored query narrows WHO can
+        /// introduce code, but the invoked query still runs with full trust; it is not a sandbox.
         /// </remarks>
         [HttpPost("/path/{from}/to/{to}")]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
@@ -124,7 +121,6 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(List<PathREST>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<ActionResult<List<PathREST>>> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
@@ -147,19 +143,6 @@ namespace NoSQL.GraphDB.App.Controllers
                 if (queryTextError != null)
                 {
                     return queryTextError;
-                }
-
-                // Request-shape-aware dynamic-code gate (feature stored-query-library): only a
-                // request that INTRODUCES code - any inline filter/cost fragment - requires the
-                // EnableDynamicCodeExecution capability. A storedQuery reference or a filterless
-                // request compiles no user-supplied code and passes with the switch off.
-                // Authentication itself is unchanged (the fallback policy applies as on every
-                // endpoint); this replaces the former endpoint-level DynamicCodePolicy, which
-                // gated the whole endpoint regardless of request shape.
-                if (CarriesInlineCode(definition) &&
-                    Security.DynamicCodeCapabilityGate.IsDenied(_authorizationService, User))
-                {
-                    return Forbid();
                 }
 
                 // Special case - when MaxDepth is 0, no paths can be found
@@ -217,8 +200,8 @@ namespace NoSQL.GraphDB.App.Controllers
                 {
                     // Declarative semantic block (feature element-embeddings): validates and
                     // builds the traversal context (the query vector, embedded once, up front)
-                    // plus the optional code-free filter/cost closures. Pure data - never gated
-                    // by the dynamic-code capability.
+                    // plus the optional code-free filter/cost closures. Pure data - it compiles
+                    // no C#.
                     var semanticError = SemanticTraversalHelper.TryBuild(definition.Semantic, allowCost: true, out var semantic);
                     if (semanticError != null)
                     {

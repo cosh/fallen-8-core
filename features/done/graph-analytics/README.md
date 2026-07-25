@@ -3,8 +3,7 @@
 Whole-graph analytics as a third plugin-discovered algorithm family
 (`fallen-8-core/Algorithms/Analytics/`), next to path finding and subgraph extraction:
 score or partition every in-scope vertex, over the flattened in-memory adjacency,
-synchronously under a wall-clock budget. Requests are plain data — no dynamic code, so all
-endpoints work with `EnableDynamicCodeExecution=false`.
+synchronously under a wall-clock budget. Requests are plain data — they compile no C# at all.
 
 ## The algorithms
 

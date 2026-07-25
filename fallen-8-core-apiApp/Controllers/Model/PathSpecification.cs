@@ -152,7 +152,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The name of a registered stored query of kind <c>Path</c> to use instead of inline
         ///   <see cref="Filter"/>/<see cref="Cost"/> fragments (feature stored-query-library).
         ///   Mutually exclusive with them (400 when mixed). A stored-query request compiles
-        ///   nothing and works with dynamic code execution disabled; the numeric bounds and
+        ///   nothing (the pinned artifact runs); the numeric bounds and
         ///   <see cref="PathAlgorithmName"/> stay per-request.
         /// </summary>
         /// <example>adults-shortest</example>
@@ -165,7 +165,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   The declarative semantic block (feature element-embeddings): the query vector for
         ///   the traversal context plus optional code-free similarity filter/cost. Pure data -
-        ///   never gated by the dynamic-code switch, and deliberately NOT part of the compile
+        ///   it compiles no C#, and is deliberately NOT part of the compile
         ///   cache key (the context is a factory parameter, not source).
         /// </summary>
         [JsonPropertyName("semantic")]

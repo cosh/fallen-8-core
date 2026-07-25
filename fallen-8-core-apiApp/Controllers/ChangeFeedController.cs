@@ -92,8 +92,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// any resync, re-fetch the state you display; for reason trim/tabulaRasa/load, treat all
         /// held element ids as invalid.
         ///
-        /// The feed is fully functional with dynamic code execution disabled - filters are
-        /// declarative parameters, never compiled code. Payloads never contain property values;
+        /// The feed compiles no C# at all - filters are declarative parameters, never compiled
+        /// code. Payloads never contain property values;
         /// re-fetch the element when the value is needed.
         /// </remarks>
         /// <response code="200">The SSE stream (text/event-stream); it stays open until the client disconnects</response>

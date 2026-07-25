@@ -6,7 +6,7 @@ import type { SemanticMetric, SemanticQueryDraft, SemanticSource } from "../lib/
  * The semantic QUERY fields (source, vector/text, embedding name, metric) — the one query
  * every semantic decision of a request scores against. Extracted so the Path screen's
  * block editor and the Subgraph screen's per-request query section render exactly one
- * implementation. Pure data — works with dynamic code execution off.
+ * implementation. Pure data — it compiles no C#.
  */
 export function SemanticQueryEditor({
   query,
