@@ -20,6 +20,8 @@ import type {
   PluginValidationResult,
   PluginValidationSpecification,
   ConfigREST,
+  ChatCompletionSpec,
+  ChatCompletionResultREST,
   EmbeddingSearchSpecification,
   EmbeddingWriteSpecification,
   SaveGame,
@@ -72,6 +74,19 @@ export const getStatus = (i: InstanceConfig, signal?: AbortSignal) =>
  */
 export const getConfig = (i: InstanceConfig, signal?: AbortSignal) =>
   apiRequest<ConfigREST>(i, "/config", { signal, scope: "fallen8" });
+
+/**
+ * Chat completion proxied through the instance (feature instance-config): browser -> F8 ->
+ * the model backend. Fallen-8-level; the model is server-owned so the request carries none.
+ * This is the DEFAULT NL-assist transport (custom endpoints stay browser-direct, off this path).
+ */
+export const postChat = (i: InstanceConfig, spec: ChatCompletionSpec, signal?: AbortSignal) =>
+  apiRequest<ChatCompletionResultREST>(i, "/chat", {
+    method: "POST",
+    body: spec,
+    scope: "fallen8",
+    signal,
+  });
 
 /** Authorized iff the instance needs no key or accepted ours (server contract on StatusREST.ApiKeyRequired). */
 export const isAuthorized = (s: StatusREST): boolean => !s.apiKeyRequired || s.authenticated === true;

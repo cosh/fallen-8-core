@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import {
-  BUILTIN_NL_BACKEND,
   DEFAULT_NL_CONFIG,
+  DEFAULT_NL_MODEL,
   effectiveNlConfig,
   isLoopbackEndpoint,
   isNlConfigured,
@@ -9,18 +9,17 @@ import {
   NL_PRESETS,
   usesApiKey,
 } from "../src/delegate/nl/config";
-import { chatWithModel, probeEndpoint } from "../src/delegate/nl/generate";
+import { chatWithModel, generateChat, probeEndpoint } from "../src/delegate/nl/generate";
 import { validateDelegate } from "../src/api/endpoints";
 import type { InstanceConfig } from "../src/instances/types";
 
-describe("NL assist enablement (FR-26.8 / nl-assist-ux FR-1)", () => {
-  it("builtin mode is always configured — zero-config default", () => {
-    expect(DEFAULT_NL_CONFIG.mode).toBe("builtin");
+describe("NL assist enablement (FR-26.8 / nl-assist-ux FR-1, feature instance-config)", () => {
+  it("instance mode is the always-configured zero-config default", () => {
+    expect(DEFAULT_NL_CONFIG.mode).toBe("instance");
     expect(isNlConfigured(DEFAULT_NL_CONFIG)).toBe(true);
-    // Pin the shipped default fine-tune (delegate-model-variants clean rename): the builtin/default
-    // model is 'phi4-f8-mini', NOT the retired 'f8-delegate'. A literal check (not vs a constant) so
-    // a regression fails CI instead of silently 404ing every builtin NL-assist call.
-    expect(BUILTIN_NL_BACKEND.model).toBe("phi4-f8-mini");
+    // Pin the shipped default fine-tune (delegate-model-variants clean rename): the default
+    // server model is 'phi4-f8-mini'. A literal check so a regression fails CI.
+    expect(DEFAULT_NL_MODEL).toBe("phi4-f8-mini");
     expect(DEFAULT_NL_CONFIG.model).toBe("phi4-f8-mini");
   });
 
@@ -44,19 +43,14 @@ describe("NL assist enablement (FR-26.8 / nl-assist-ux FR-1)", () => {
   });
 });
 
-describe("effective config resolution (nl-assist-ux FR-1/FR-3)", () => {
-  it("builtin pins the compose-shipped backend regardless of stored fields", () => {
+describe("effective config resolution (nl-assist-ux FR-1/FR-3, feature instance-config)", () => {
+  it("instance mode clears any stray key (transport goes via the instance, not this config)", () => {
     const effective = effectiveNlConfig({
       ...DEFAULT_NL_CONFIG,
-      mode: "builtin",
-      endpoint: "https://somewhere.example.com",
-      apiKind: "openai",
-      model: "other",
+      mode: "instance",
       apiKey: "SHOULD-NOT-SURVIVE",
     });
-    expect(effective.endpoint).toBe(BUILTIN_NL_BACKEND.endpoint);
-    expect(effective.apiKind).toBe("ollama");
-    expect(effective.model).toBe(BUILTIN_NL_BACKEND.model);
+    expect(effective.mode).toBe("instance");
     expect(effective.apiKey).toBeUndefined();
   });
 
@@ -84,16 +78,22 @@ describe("persisted-state migration (nl-assist-ux FR-4)", () => {
     expect(migrated.config?.maxRetries).toBe(DEFAULT_NL_CONFIG.maxRetries);
   });
 
-  it("moves unconfigured users to the builtin default", () => {
-    expect(migrateNlState({ config: { endpoint: "" } }).config?.mode).toBe("builtin");
-    expect(migrateNlState(undefined).config?.mode).toBe("builtin");
+  it("moves unconfigured users to the instance default", () => {
+    expect(migrateNlState({ config: { endpoint: "" } }).config?.mode).toBe("instance");
+    expect(migrateNlState(undefined).config?.mode).toBe("instance");
   });
 
-  it("never rewrites an explicit mode", () => {
+  it("migrates the legacy browser-direct 'builtin' mode to 'instance'", () => {
     const migrated = migrateNlState({
       config: { mode: "builtin", endpoint: "http://custom-left-over:1" },
     });
-    expect(migrated.config?.mode).toBe("builtin");
+    expect(migrated.config?.mode).toBe("instance");
+  });
+
+  it("keeps an explicit custom mode", () => {
+    expect(migrateNlState({ config: { mode: "custom", endpoint: "http://x:1" } }).config?.mode).toBe(
+      "custom",
+    );
   });
 });
 
@@ -144,7 +144,11 @@ describe("API key applicability (FR-26.12)", () => {
   });
 
   it("applies to OpenAI-compatible custom endpoints", () => {
-    expect(usesApiKey({ ...DEFAULT_NL_CONFIG, apiKind: "openai" })).toBe(true);
+    expect(usesApiKey({ ...DEFAULT_NL_CONFIG, mode: "custom", apiKind: "openai" })).toBe(true);
+  });
+
+  it("never applies in instance mode (the call goes through F8, not a keyed endpoint)", () => {
+    expect(usesApiKey({ ...DEFAULT_NL_CONFIG, mode: "instance", apiKind: "openai" })).toBe(false);
   });
 });
 
@@ -203,13 +207,37 @@ describe("transport, stats, and key isolation", () => {
     expect(JSON.stringify(f8Call)).not.toContain("MODEL-SECRET");
   });
 
-  it("uses the Ollama-native route for apiKind ollama", async () => {
+  it("uses the Ollama-native route for apiKind ollama (custom mode)", async () => {
     const result = await chatWithModel(
-      { ...DEFAULT_NL_CONFIG, endpoint: "http://localhost:11434" },
+      { ...DEFAULT_NL_CONFIG, mode: "custom", endpoint: "http://localhost:11434" },
       [{ role: "user", content: "hi" }],
     );
     expect(recorded[0].url).toBe("http://localhost:11434/api/chat");
     expect(result.content).toBe("return (v) => true;");
+  });
+
+  it("instance mode routes through the active instance /chat and maps stats (feature instance-config)", async () => {
+    responseBody = {
+      content: "return (v) => true;",
+      model: "phi4-f8-mini",
+      stats: { promptTokens: 5, completionTokens: 9, durationMs: 200, tokensPerSecond: 45 },
+    };
+    const instance: InstanceConfig = {
+      id: "t",
+      name: "t",
+      baseUrl: "http://f8.test",
+      auth: { kind: "none" },
+    };
+    const { content, stats } = await generateChat(
+      { ...DEFAULT_NL_CONFIG, mode: "instance" },
+      instance,
+      [{ role: "user", content: "hi" }],
+    );
+    expect(recorded[0].url).toBe("http://f8.test/chat");
+    expect(content).toBe("return (v) => true;");
+    expect(stats?.promptTokens).toBe(5);
+    expect(stats?.completionTokens).toBe(9);
+    expect(stats?.tokensPerSecond).toBe(45);
   });
 
   it("uses /v1/chat/completions for openai-compatible endpoints", async () => {

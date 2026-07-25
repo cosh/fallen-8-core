@@ -14,12 +14,13 @@ import {
 import { NlBackendConfig } from "../../delegate/nl/NlBackendConfig";
 import { downloadText, toTrainingJsonl, type Verdict } from "../../delegate/nl/feedback";
 import {
-  chatWithModel,
+  generateChat,
   initialMessages,
   probeEndpoint,
   type ChatTurn,
   type NlGenerationStats,
 } from "../../delegate/nl/generate";
+import { useActiveInstance } from "../../instances/registry";
 import { buildPluginGenerationPrompt, buildPluginRefinePrompt, extractType } from "./pluginPrompt";
 
 /**
@@ -61,6 +62,7 @@ export function PluginNlAssistPanel({
   drivingRef: React.MutableRefObject<boolean>;
 }) {
   const { config, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
+  const instance = useActiveInstance();
   const [intent, setIntent] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [attempts, setAttempts] = useState<PluginNlAttempt[]>([]);
@@ -69,13 +71,14 @@ export function PluginNlAssistPanel({
   const [reachable, setReachable] = useState<boolean | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const isInstance = config.mode === "instance";
   const effective = effectiveNlConfig(config);
-  const configured = isNlConfigured(config);
+  const configured = isInstance ? instance !== null : isNlConfigured(config);
   const needsLeaveNotice =
-    configured && !isLoopbackEndpoint(effective.endpoint) && !leaveNoticeAccepted;
+    !isInstance && configured && !isLoopbackEndpoint(effective.endpoint) && !leaveNoticeAccepted;
 
   useEffect(() => {
-    if (!configured) {
+    if (!configured || isInstance) {
       setReachable(null);
       return;
     }
@@ -85,7 +88,7 @@ export function PluginNlAssistPanel({
       if (!controller.signal.aborted) setReachable(ok);
     });
     return () => controller.abort();
-  }, [configured, effective.endpoint, effective.apiKind, effective.model, effective.apiKey]);
+  }, [configured, isInstance, effective.endpoint, effective.apiKind, effective.model, effective.apiKey]);
 
   const generate = async () => {
     setError(null);
@@ -99,9 +102,9 @@ export function PluginNlAssistPanel({
     const conversation: ChatTurn[] = initialMessages(prompt);
 
     try {
-      for (let attempt = 0; attempt <= effective.maxRetries; attempt++) {
-        setBusy(attempt === 0 ? "generating…" : `refining (${attempt}/${effective.maxRetries})…`);
-        const { content, stats } = await chatWithModel(effective, conversation, controller.signal);
+      for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+        setBusy(attempt === 0 ? "generating…" : `refining (${attempt}/${config.maxRetries})…`);
+        const { content, stats } = await generateChat(config, instance, conversation, controller.signal);
         const draft = extractType(content);
 
         // Insert as ordinary editable text (never auto-submit), then gate through the same
@@ -122,7 +125,7 @@ export function PluginNlAssistPanel({
         ]);
 
         if (result === null || result.valid) break;
-        if (attempt === effective.maxRetries) break;
+        if (attempt === config.maxRetries) break;
 
         conversation.push({ role: "assistant", content });
         conversation.push({
@@ -176,8 +179,16 @@ export function PluginNlAssistPanel({
       <div className="min-h-0 space-y-2 overflow-auto p-2 text-[12px]">
         {configured && (
           <p className="text-fg-faint text-[10px]" data-testid="plugin-nl-backend-status">
-            {config.mode === "builtin" ? "built-in" : "custom"} · {effective.endpoint} · {effective.model} —{" "}
-            {reachable === null ? "checking…" : reachable ? "reachable" : "not reachable"}
+            {isInstance ? (
+              <>
+                this instance · {instance?.name ?? "?"} → <code>/chat</code> (server-selected model)
+              </>
+            ) : (
+              <>
+                custom · {effective.endpoint} · {effective.model} —{" "}
+                {reachable === null ? "checking…" : reachable ? "reachable" : "not reachable"}
+              </>
+            )}
           </p>
         )}
 

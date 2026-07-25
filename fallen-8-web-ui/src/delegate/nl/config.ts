@@ -2,18 +2,23 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 /**
- * NL-assist model backend config (nl-assist spec FR-26.4, nl-assist-ux spec §2). GLOBAL
- * scope (not per-instance). The key is stored locally and is only ever sent to the
- * configured model endpoint - never to a Fallen-8 instance (FR-26.11).
+ * NL-assist model backend config (nl-assist spec FR-26.4, nl-assist-ux spec §2, feature
+ * instance-config). GLOBAL scope (not per-instance): it is a single browser preference for
+ * WHERE model calls go, and instance mode targets whichever instance is active.
  *
- * Two backend modes (nl-assist-ux FR-1/FR-3): "builtin" pins the local Ollama stack from
- * docker-compose.yml and defaults to the fine-tuned "phi4-f8-mini" model (nl-assist-finetune,
- * higher first-pass accuracy on the delegate surface, CPU-OK); "custom" uses the stored
- * endpoint fields. To use the stock base, or the larger GPU-only "phi4-f8" fine-tune, switch
- * to custom and pick the matching preset. Always resolve via effectiveNlConfig() before calls.
+ * Two modes:
+ * - "instance" (default): the call is proxied THROUGH the active Fallen-8 instance
+ *   (browser -> POST /chat -> the instance's model backend, e.g. the Ollama sidecar). The
+ *   model is server-owned (Fallen8:Chat); nothing is configured here, and the prompt travels
+ *   to the same instance the user already trusts with their graph, so there is no egress
+ *   notice. This replaces the old browser-direct "builtin" mode (feature instance-config
+ *   retired the "never through the instance" default; see docs/studio.md).
+ * - "custom": the browser calls a model endpoint DIRECTLY (Ollama-native or OpenAI-compatible),
+ *   with any API key held only in the browser and never sent to a Fallen-8 instance (FR-26.11).
+ *   A non-loopback custom endpoint shows the "text leaves this machine" notice.
  */
 
-export type NlBackendMode = "builtin" | "custom";
+export type NlBackendMode = "instance" | "custom";
 
 export interface NlAssistConfig {
   mode: NlBackendMode;
@@ -26,24 +31,18 @@ export interface NlAssistConfig {
 }
 
 /**
- * The local Ollama backend (docker-compose.yml `ollama` service) — not bundled in F8. The
- * default model is the fine-tuned "phi4-f8-mini" (produced by nl-assist-finetune); the
- * compose stack also pulls "phi4-mini" as its base and selectable fallback. The larger
- * "phi4-f8" (full Phi-4, GPU) is opt-in — see feature delegate-model-variants. If the chosen
- * model is not present on the Ollama host, create it with the training pipeline or switch to
- * the stock phi4-mini preset (custom mode) — otherwise calls 404.
+ * The default model the compose stack pulls for the instance's chat backend (produced by
+ * nl-assist-finetune). Shown as a hint only; in instance mode the server owns the model, and
+ * in custom mode the user picks one (see NL_PRESETS). If the chosen model is absent on the
+ * backend, calls 404 - create it with the training pipeline or pick the stock phi4-mini preset.
  */
-export const BUILTIN_NL_BACKEND = {
-  endpoint: "http://localhost:11434",
-  apiKind: "ollama",
-  model: "phi4-f8-mini",
-} as const;
+export const DEFAULT_NL_MODEL = "phi4-f8-mini";
 
 export const DEFAULT_NL_CONFIG: NlAssistConfig = {
-  mode: "builtin",
+  mode: "instance",
   endpoint: "",
   apiKind: "ollama",
-  model: "phi4-f8-mini",
+  model: DEFAULT_NL_MODEL,
   apiKey: undefined,
   temperature: 0.1,
   maxRetries: 2,
@@ -68,22 +67,32 @@ export const NL_PRESETS: NlPreset[] = [
 
 interface NlAssistState {
   config: NlAssistConfig;
-  /** FR-26.10: non-loopback endpoints show the "text leaves this machine" notice once. */
+  /** FR-26.10: non-loopback CUSTOM endpoints show the "text leaves this machine" notice once. */
   leaveNoticeAccepted: boolean;
   setConfig: (patch: Partial<NlAssistConfig>) => void;
   acceptLeaveNotice: () => void;
 }
 
 /**
- * Persist migration (nl-assist-ux FR-4): pre-mode configs derive it from the stored
- * endpoint — a user who had configured an endpoint keeps it (custom); everyone else
- * lands on the zero-config builtin default.
+ * Persist migration. The legacy browser-direct "builtin" mode becomes "instance" (feature
+ * instance-config): those users now route through the active instance rather than a fixed
+ * localhost Ollama. A pre-mode config with a stored endpoint stays "custom"; everyone else
+ * lands on the instance default.
  */
 export function migrateNlState(persisted: unknown): Partial<NlAssistState> {
   const state = (persisted ?? {}) as Partial<NlAssistState>;
   const stored = (state.config ?? {}) as Partial<NlAssistConfig>;
+  // Read the persisted mode as a raw string: it may be the legacy "builtin", which is no
+  // longer a member of NlBackendMode.
+  const raw = stored.mode as string | undefined;
   const mode: NlBackendMode =
-    stored.mode ?? ((stored.endpoint ?? "").trim() !== "" ? "custom" : "builtin");
+    raw === "custom"
+      ? "custom"
+      : raw === "builtin" || raw === "instance"
+        ? "instance"
+        : (stored.endpoint ?? "").trim() !== ""
+          ? "custom"
+          : "instance";
   return { ...state, config: { ...DEFAULT_NL_CONFIG, ...stored, mode } };
 }
 
@@ -105,36 +114,39 @@ export const useNlAssist = create<NlAssistState>()(
     }),
     {
       name: "f8.nl-assist",
-      version: 1,
+      version: 2,
       migrate: (persisted) => migrateNlState(persisted) as NlAssistState,
     },
   ),
 );
 
-/** The config to actually call with: builtin mode pins the compose-shipped backend. */
+/**
+ * The config to actually call a CUSTOM endpoint with. Instance mode does not go through this
+ * path (the transport routes to the active instance's /chat); it returns the config unchanged
+ * with any stray key cleared, so a status/probe read is harmless.
+ */
 export function effectiveNlConfig(config: NlAssistConfig): NlAssistConfig {
-  if (config.mode === "builtin") {
-    return { ...config, ...BUILTIN_NL_BACKEND, apiKey: undefined };
+  if (config.mode === "instance") {
+    return { ...config, apiKey: undefined };
   }
   return config;
 }
 
 /**
- * `enabled` is derived, not stored: builtin is always configured (nl-assist-ux FR-1);
- * custom needs an endpoint and model (FR-26.8).
+ * `enabled` is derived, not stored: instance mode is configured as long as an instance is
+ * active (checked by the caller); custom needs an endpoint and model (FR-26.8).
  */
 export function isNlConfigured(config: NlAssistConfig): boolean {
-  if (config.mode === "builtin") return true;
+  if (config.mode === "instance") return true;
   return config.endpoint.trim() !== "" && config.model.trim() !== "";
 }
 
 /**
- * FR-26.12: the native Ollama path (e.g. the builtin local phi4-mini setup) never
- * authenticates - the Ollama transport sends no Authorization header at all. Only
- * OpenAI-compatible custom endpoints can carry a key, so only they get the field.
+ * FR-26.12: the native Ollama path never authenticates - the Ollama transport sends no
+ * Authorization header. Only OpenAI-compatible custom endpoints can carry a key.
  */
 export function usesApiKey(config: NlAssistConfig): boolean {
-  return config.apiKind === "openai";
+  return config.mode === "custom" && config.apiKind === "openai";
 }
 
 /** FR-26.10: loopback endpoints never show the privacy notice - nothing leaves. */

@@ -238,6 +238,31 @@ export interface ConfigREST {
   apiKeyRequired: boolean;
 }
 
+// POST /chat request/response (feature instance-config): the chat completion proxied through
+// the instance. The model is server-owned, so the request carries no model field.
+export interface ChatMessageREST {
+  role: string;
+  content: string;
+}
+
+export interface ChatCompletionSpec {
+  messages: ChatMessageREST[];
+  options?: { temperature?: number };
+}
+
+export interface ChatCompletionStatsREST {
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  durationMs?: number | null;
+  tokensPerSecond?: number | null;
+}
+
+export interface ChatCompletionResultREST {
+  content: string;
+  model: string | null;
+  stats?: ChatCompletionStatsREST | null;
+}
+
 export interface GraphStatisticsREST {
   vertexCount: number;
   edgeCount: number;

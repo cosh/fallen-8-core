@@ -280,7 +280,7 @@ test("scenario 9: an unreachable instance shows the disconnected state, not a bl
   });
 });
 
-test("scenario 10 (builtin default): assist is usable with zero config; editor fully usable", async ({
+test("scenario 10 (instance default): assist is usable with zero config; editor fully usable", async ({
   page,
 }) => {
   await registerSecuredInstance(page);
@@ -288,12 +288,12 @@ test("scenario 10 (builtin default): assist is usable with zero config; editor f
   await page.getByTestId("toggle-advanced").click();
   await page.getByTestId("slot-filter-vertexfilter").click();
 
-  // nl-assist-ux FR-1: the builtin backend needs no configuration — the intent box and
-  // draft button are present immediately (whether the backend is running is reported by
-  // the status line, which is environment-dependent and not asserted here).
+  // nl-assist-ux FR-1 (feature instance-config): the default routes through the active
+  // instance, so the assist needs no configuration — the intent box and draft button are
+  // present immediately, and the status line names the instance path.
   await expect(page.getByTestId("nl-intent")).toBeVisible();
   await expect(page.getByTestId("nl-generate")).toBeVisible();
-  await expect(page.getByTestId("nl-backend-status")).toContainText("built-in");
+  await expect(page.getByTestId("nl-backend-status")).toContainText("this instance");
   const editor = page.locator(".monaco-editor").first();
   await editor.click();
   await page.keyboard.press("Control+a");

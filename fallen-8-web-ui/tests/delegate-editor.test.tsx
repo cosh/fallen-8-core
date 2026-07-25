@@ -45,7 +45,8 @@ vi.mock("../src/delegate/nl/generate", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/delegate/nl/generate")>();
   return {
     ...original,
-    chatWithModel: (...args: unknown[]) => chatMock(...args),
+    // The panel routes through generateChat (instance-gateway or custom); mock that seam.
+    generateChat: (...args: unknown[]) => chatMock(...args),
     probeEndpoint: () => probeMock(),
   };
 });
@@ -162,11 +163,11 @@ describe("delegate editor gating (FR-25)", () => {
 });
 
 describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
-  it("is usable with zero configuration — builtin default (nl-assist-ux FR-1)", () => {
+  it("is usable with zero configuration — instance default (nl-assist-ux FR-1, feature instance-config)", () => {
     renderEditor();
     expect(screen.getByTestId("nl-intent")).toBeInTheDocument();
     expect(screen.getByTestId("nl-generate")).toBeInTheDocument();
-    expect(screen.getByTestId("nl-backend-status")).toHaveTextContent("built-in");
+    expect(screen.getByTestId("nl-backend-status")).toHaveTextContent("this instance");
     expect(screen.queryByTestId("nl-disabled-hint")).not.toBeInTheDocument();
   });
 
@@ -207,8 +208,9 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     );
 
     // Two model turns: initial generation + one refine carrying the diagnostics.
+    // generateChat(config, instance, messages, signal) — messages is the 3rd arg.
     expect(chatMock).toHaveBeenCalledTimes(2);
-    const refineMessages = chatMock.mock.calls[1][1] as { content: string }[];
+    const refineMessages = chatMock.mock.calls[1][2] as { content: string }[];
     expect(refineMessages.some((m) => m.content.includes("CS1061"))).toBe(true);
 
     // The final (valid) draft is in the editor, editable - never auto-submitted.
@@ -247,7 +249,7 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     expect(screen.getByTestId("mock-editor")).toHaveValue("return (v) => v.Id < 30;");
 
     // The re-draft of the same intent asked for a distinct variant (FR-8).
-    const secondRunMessages = chatMock.mock.calls[1][1] as { content: string }[];
+    const secondRunMessages = chatMock.mock.calls[1][2] as { content: string }[];
     expect(
       secondRunMessages.some((m) => m.content.includes("return (v) => v.Id < 30;")),
     ).toBe(true);
@@ -415,13 +417,13 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
   });
 
-  it("builtin config shows no endpoint fields; a preset prefills custom (nl-assist-ux FR-3)", async () => {
+  it("instance config shows no endpoint fields; a preset prefills custom (nl-assist-ux FR-3)", async () => {
     const user = userEvent.setup();
     renderEditor();
     await user.click(screen.getByRole("button", { name: "configure" }));
 
-    // Builtin: nothing to configure.
-    expect(screen.getByTestId("nl-builtin-hint")).toBeInTheDocument();
+    // Instance mode: nothing to configure (routed through the active instance).
+    expect(screen.getByTestId("nl-instance-hint")).toBeInTheDocument();
     expect(screen.queryByLabelText("endpoint")).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("backend"), "custom");
