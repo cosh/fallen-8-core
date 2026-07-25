@@ -218,6 +218,18 @@ export const FIELD_HELP = {
   storedQueryDescription:
     "Optional human-readable note shown next to the query in the library list.",
 
+  // ---- plugin registration ----
+  pluginCategory:
+    "What you are authoring: an algorithm plugin (invoked transparently by name through the path/subgraph/analytics endpoints) or a graph function (a stored read procedure invoked by name).",
+  pluginContract:
+    "Which algorithm interface the source implements: Path (IShortestPathAlgorithm), SubGraph (ISubGraphAlgorithm) or Analytics (IGraphAnalyticsAlgorithm). Functions have a single fixed contract.",
+  pluginName:
+    "Unique name the plugin is registered under and invoked by (per namespace). Must equal the type's PluginName in the source. Allowed: letters, digits, underscore, dash; max 128 characters.",
+  pluginDescription:
+    "Optional human-readable note shown next to the plugin in the registry list.",
+  pluginParameters:
+    "Call-time parameters passed to the graph function. Values are strings in v1 (the function parses what it needs).",
+
   // ---- destructive-action confirmation ----
   confirmTyped:
     "Safety catch: type the target instance's name exactly to arm the destructive action. Nothing happens until it matches.",

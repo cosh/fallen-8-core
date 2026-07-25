@@ -7,10 +7,18 @@ import type {
   AnalyticsSpecification,
   BenchmarkResult,
   BulkImportResultREST,
+  AlgorithmPluginRegistration,
   DelegateKind,
   DelegateValidationResult,
   EdgeREST,
   EmbedElementSpecification,
+  FunctionPluginRegistration,
+  GraphFunctionResultREST,
+  PluginAuthoringCategory,
+  PluginDetailREST,
+  PluginSummaryREST,
+  PluginValidationResult,
+  PluginValidationSpecification,
   EmbeddingSearchSpecification,
   EmbeddingWriteSpecification,
   SaveGame,
@@ -450,6 +458,56 @@ export const registerStoredQuery = (i: InstanceConfig, spec: StoredQuerySpecific
 
 export const deleteStoredQuery = (i: InstanceConfig, name: string) =>
   apiRequest<void>(i, `/storedquery/${encodeURIComponent(name)}`, { method: "DELETE" });
+
+// ---- plugin registration (feature plugin-registration) ----
+// The whole-type sibling of the stored-query library: register C# source per namespace,
+// compile-validate it side-effect-free for the editor, and invoke a graph function by name.
+// All plugin routes are namespace-scoped (default scope), unlike the Fallen-8-level
+// /delegates/validate. Registration + validate require the dynamic-plugin gate (403 when
+// disabled); listing/getting/invoking/deleting carry only the standard auth.
+
+export const listPlugins = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<PluginSummaryREST[]>(i, "/plugins", { signal });
+
+export const getPlugin = (i: InstanceConfig, name: string, signal?: AbortSignal) =>
+  apiRequest<PluginDetailREST>(i, `/plugins/${encodeURIComponent(name)}`, { signal });
+
+/** Registration compiles C#, so it needs the API key when one is configured, plus the gate. */
+export const registerAlgorithmPlugin = (i: InstanceConfig, spec: AlgorithmPluginRegistration) =>
+  apiRequest<PluginSummaryREST>(i, "/plugins/algorithm", { method: "POST", body: spec });
+
+export const registerFunctionPlugin = (i: InstanceConfig, spec: FunctionPluginRegistration) =>
+  apiRequest<PluginSummaryREST>(i, "/plugins/function", { method: "POST", body: spec });
+
+export const deletePlugin = (i: InstanceConfig, name: string) =>
+  apiRequest<void>(i, `/plugins/${encodeURIComponent(name)}`, { method: "DELETE" });
+
+/** Runs a registered graph function by name; the result references existing elements. */
+export const invokeGraphFunction = (
+  i: InstanceConfig,
+  name: string,
+  parameters?: Record<string, string>,
+) =>
+  apiRequest<GraphFunctionResultREST>(i, `/plugins/function/${encodeURIComponent(name)}/invoke`, {
+    method: "POST",
+    body: { parameters: parameters ?? {} },
+  });
+
+/**
+ * Side-effect-free compile+contract check for the authoring editor. `category` selects the
+ * endpoint (`algorithm`/`function`); `contract` inside the spec is read only for algorithm.
+ */
+export const validatePlugin = (
+  i: InstanceConfig,
+  category: PluginAuthoringCategory,
+  spec: PluginValidationSpecification,
+  signal?: AbortSignal,
+) =>
+  apiRequest<PluginValidationResult>(i, `/plugins/${category}/validate`, {
+    method: "POST",
+    body: spec,
+    signal,
+  });
 
 // ---- mutations (FR-21) ----
 

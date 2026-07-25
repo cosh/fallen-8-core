@@ -542,6 +542,81 @@ export interface StoredQueryDetailREST extends StoredQuerySummaryREST {
 }
 
 /**
+ * Plugin registration (feature plugin-registration) — the whole-TYPE sibling of the
+ * stored-query library: C# source authored in the browser, compile-validated and
+ * registered per namespace, then invoked by name. An `algorithm` implements a contract
+ * (Path/SubGraph/Analytics) and runs transparently through the existing path/subgraph/
+ * analytics endpoints; a `function` implements IGraphFunction and is invoked here. Entries
+ * are immutable: delete + re-register is the edit flow. Registration + validate require the
+ * dynamic-plugin gate (server 403 when disabled).
+ */
+export type PluginAuthoringCategory = "algorithm" | "function";
+export type AlgorithmContract = "Path" | "SubGraph" | "Analytics";
+
+/** POST /plugins/algorithm body. */
+export interface AlgorithmPluginRegistration {
+  name: string;
+  contract: AlgorithmContract;
+  description?: string;
+  sourceCode: string;
+}
+
+/** POST /plugins/function body (the function category has one contract — no discriminator). */
+export interface FunctionPluginRegistration {
+  name: string;
+  description?: string;
+  sourceCode: string;
+}
+
+/**
+ * POST /plugins/{algorithm,function}/validate body: shares the registration fields, minus
+ * side effects. `contract` is read only on the algorithm endpoint (ignored for function).
+ */
+export interface PluginValidationSpecification {
+  name: string;
+  contract?: AlgorithmContract;
+  sourceCode: string;
+}
+
+/** POST /plugins/{algorithm,function}/validate result — side-effect-free compile check. */
+export interface PluginValidationResult {
+  valid: boolean;
+  error: string | null;
+}
+
+/** POST /plugins/function/{name}/invoke body — string-valued parameter bag in v1. */
+export interface GraphFunctionInvocation {
+  parameters?: Record<string, string>;
+}
+
+/**
+ * POST /plugins/function/{name}/invoke result — a view of existing elements, projected with
+ * the SAME Vertex/Edge DTOs as GET /vertex/{id} / GET /edge/{id}.
+ */
+export interface GraphFunctionResultREST {
+  vertices: VertexREST[];
+  edges: EdgeREST[];
+}
+
+/**
+ * category: "Algorithm" | "Function"; contract: "Path" | "SubGraph" | "Analytics" |
+ * "GraphFunction". compileState: Compiled (invocable) | Failed (invoking 409s) | SourceOnly.
+ */
+export interface PluginSummaryREST {
+  name: string | null;
+  category: string | null;
+  contract: string | null;
+  description: string | null;
+  createdAt: string;
+  compileState: string | null;
+}
+
+export interface PluginDetailREST extends PluginSummaryREST {
+  sourceCode: string | null;
+  compileDiagnostics: string | null;
+}
+
+/**
  * Graph analytics (feature graph-analytics; surfaced by studio-coverage). Runs are
  * synchronous one-shots with budgets — there is no job store, and the UI must not
  * fabricate one. Top-K/partition rows are the response; full results travel via

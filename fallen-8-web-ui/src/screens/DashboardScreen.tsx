@@ -24,6 +24,7 @@ import { Stat } from "../components/Stat";
 import { Truncated } from "../components/Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
+import { PluginsPanel } from "../components/PluginsPanel";
 import { SampleGraphsPanel } from "../components/SampleGraphsPanel";
 
 /**
@@ -409,6 +410,8 @@ export function DashboardScreen() {
       </section>
 
       <StoredQueriesPanel />
+
+      <PluginsPanel />
 
       <datalist id="dash-vertex-labels">
         {suggestions.vertexLabels.map((label) => (
