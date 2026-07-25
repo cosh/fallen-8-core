@@ -1,6 +1,6 @@
 # Fleet observability (consumer + producer identity): Specification
 
-> **Status:** Open (spec for sign-off). Branch `feature/fleet-observability`.
+> **Status:** Implemented and merged to `main` (branch `feature/fleet-observability`).
 > Renamed from the working title `observability-consumer`: the work is producer plus
 > consumer, so the name reflects the whole (a fleet of Fallen-8 instances observed in one
 > pane), not just the collector container.
