@@ -67,7 +67,8 @@ namespace NoSQL.GraphDB.Tests
                     // Keep durable-mode catalogs inside the test's temp storage directory; volatile
                     // collections never touch the catalog.
                     Directory = storageDirectory == null ? null : Path.Combine(storageDirectory, "metadata")
-                }));
+                }),
+                Options.Create(new Fallen8PluginOptions()));
         }
 
         private static void AddVertex(NoSQL.GraphDB.Core.Fallen8 engine)

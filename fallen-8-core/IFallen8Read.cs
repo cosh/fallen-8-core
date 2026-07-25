@@ -211,6 +211,20 @@ namespace NoSQL.GraphDB.Core
             string algorithmName,
             Algorithms.Analytics.GraphAnalyticsDefinition definition);
 
+        /// <summary>
+        ///   Invokes a runtime-registered graph function by name (feature plugin-registration): a
+        ///   stored graph procedure resolved from the per-namespace plugin registry (there are no
+        ///   built-in graph functions), activated fresh, and run against this graph. Returns false for
+        ///   an unknown/non-compiled function or an expected function-side failure. Read-only in v1.
+        /// </summary>
+        /// <param name="result"> The selected vertices/edges (a view of existing elements), or null. </param>
+        /// <param name="name"> The registered function name. </param>
+        /// <param name="parameters"> The call-time parameter bag (may be null/empty). </param>
+        bool TryInvokeGraphFunction(
+            out Plugins.GraphFunctionResult result,
+            string name,
+            IDictionary<String, Object> parameters);
+
         #endregion
     }
 }

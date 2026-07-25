@@ -141,6 +141,10 @@ namespace NoSQL.GraphDB.App
             builder.Services.Configure<Fallen8StoredQueryOptions>(
                 builder.Configuration.GetSection(Fallen8StoredQueryOptions.SectionName));
 
+            // Plugin registry configuration (feature plugin-registration).
+            builder.Services.Configure<Fallen8PluginOptions>(
+                builder.Configuration.GetSection(Fallen8PluginOptions.SectionName));
+
             // Namespace collection configuration (feature graph-namespaces).
             builder.Services.Configure<Fallen8NamespacesOptions>(
                 builder.Configuration.GetSection(Fallen8NamespacesOptions.SectionName));

@@ -100,6 +100,7 @@ namespace NoSQL.GraphDB.App.Namespaces
         private readonly Fallen8DurabilityOptions _durability;
         private readonly ChangeFeedOptions _changeFeedOptions;
         private readonly Int32 _storedQueryMaxCount;
+        private readonly Int32 _pluginMaxCount;
 
         /// <summary>The catalog file path; null in volatile mode (nothing is cataloged).</summary>
         private readonly String _catalogPath;
@@ -120,13 +121,15 @@ namespace NoSQL.GraphDB.App.Namespaces
             IOptions<Fallen8StoredQueryOptions> storedQueries,
             IOptions<Fallen8ChangeFeedOptions> changeFeed,
             IOptions<Fallen8NamespacesOptions> namespaces,
-            IOptions<Fallen8MetadataOptions> metadata)
+            IOptions<Fallen8MetadataOptions> metadata,
+            IOptions<Fallen8PluginOptions> plugins)
         {
             _loggerFactory = loggerFactory;
             _logger = loggerFactory.CreateLogger<Fallen8Namespaces>();
             _durability = durability.Value;
             _changeFeedOptions = changeFeed.Value.ToEngineOptions();
             _storedQueryMaxCount = storedQueries.Value.MaxCount;
+            _pluginMaxCount = plugins.Value.MaxCount;
             MaxNamespaces = namespaces.Value.MaxNamespaces;
 
             // The default namespace boots eagerly on the LEGACY paths (the storage directory and
@@ -610,7 +613,8 @@ namespace NoSQL.GraphDB.App.Namespaces
             {
                 engine = new Fallen8(_loggerFactory, _changeFeedOptions, metricsScopeId)
                 {
-                    StoredQueryCompiler = new StoredQueryCompiler()
+                    StoredQueryCompiler = new StoredQueryCompiler(),
+                    PluginCompiler = new PluginCompiler()
                 };
             }
             else
@@ -620,11 +624,15 @@ namespace NoSQL.GraphDB.App.Namespaces
                     new RecipeSubGraphCompiler(),
                     new StoredQueryCompiler(),
                     _changeFeedOptions,
-                    metricsScopeId);
+                    metricsScopeId,
+                    new PluginCompiler());
             }
 
             // Stored query library: apply the configured registration ceiling (per namespace).
             engine.StoredQueries.MaxCount = _storedQueryMaxCount;
+
+            // Plugin registry: apply the configured per-namespace registration ceiling.
+            engine.Plugins.MaxCount = _pluginMaxCount;
 
             return engine;
         }

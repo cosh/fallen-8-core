@@ -155,6 +155,9 @@ namespace NoSQL.GraphDB.Tests
                 return _inner.TryRunAnalytics(out result, algorithmName, definition);
             }
 
+            public bool TryInvokeGraphFunction(out NoSQL.GraphDB.Core.Plugins.GraphFunctionResult result, string name, IDictionary<string, object> parameters)
+                => _inner.TryInvokeGraphFunction(out result, name, parameters);
+
             public TransactionInformation EnqueueTransaction(ATransaction tx)
                 => FailWrites
                     ? new TransactionInformation(null) { Transaction = tx, TransactionState = TransactionState.RolledBack }

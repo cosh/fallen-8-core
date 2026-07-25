@@ -502,6 +502,16 @@ namespace NoSQL.GraphDB.Core
         private T ResolveCachedPlugin<T>(Microsoft.Extensions.Caching.Memory.IMemoryCache cache,
             string pluginName, Action<T> register) where T : class, Plugin.IPlugin
         {
+            // Runtime-registered plugins (feature plugin-registration) take precedence over the
+            // built-ins and are activated FRESH each time - never cached by name - so a delete or
+            // re-register is never served a stale instance. The built-in cache path below is
+            // unchanged (built-ins never change, so caching them is safe).
+            if (Plugins != null && Plugins.TryActivate<T>(out var registered, pluginName))
+            {
+                registered.Initialize(this, null);
+                return registered;
+            }
+
             if (cache.TryGetValue(pluginName, out Object cached))
             {
                 return (T)cached;
@@ -515,6 +525,34 @@ namespace NoSQL.GraphDB.Core
             }
 
             return null;
+        }
+
+        /// <summary>
+        ///   Invokes a runtime-registered graph function by name (feature plugin-registration).
+        ///   Resolves from the per-namespace <see cref="Plugins"/> registry only (no built-in
+        ///   functions), activates a fresh instance, initializes it against this graph, and runs it.
+        ///   The activated instance is disposed after the call; the returned result references live
+        ///   graph elements, so it stays valid after disposal.
+        /// </summary>
+        public override bool TryInvokeGraphFunction(out Plugins.GraphFunctionResult result, string name,
+            IDictionary<string, object> parameters)
+        {
+            result = null;
+
+            if (Plugins == null || !Plugins.TryActivate<Plugins.IGraphFunction>(out var function, name))
+            {
+                return false;
+            }
+
+            try
+            {
+                function.Initialize(this, null);
+                return function.TryInvoke(out result, parameters);
+            }
+            finally
+            {
+                try { function.Dispose(); } catch { /* a function's Dispose is best-effort */ }
+            }
         }
 
         public override bool TryCalculateShortestPath<T>(

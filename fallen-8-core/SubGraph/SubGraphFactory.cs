@@ -232,6 +232,25 @@ namespace NoSQL.GraphDB.Core.SubGraph
         {
             algo = null;
 
+            // Runtime-registered plugins (feature plugin-registration) take precedence over the
+            // built-ins and are activated FRESH from the source graph's registry (never cached by
+            // name), so a delete/re-register is never served a stale instance. Initialized against the
+            // requested source, exactly like the cached path.
+            if (fallen8.Plugins != null && fallen8.Plugins.TryActivate<ISubGraphAlgorithm>(out algo, algorithmTypeName))
+            {
+                try
+                {
+                    algo.Initialize(fallen8, parameter);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, String.Format("Failed to initialize registered subgraph algorithm \"{0}\".", algorithmTypeName));
+                    algo = null;
+                    return false;
+                }
+                return true;
+            }
+
             // Check cache first
             Object cachedAlgo;
             if (!_pluginCache.SubGraph.TryGetValue(algorithmTypeName, out cachedAlgo))

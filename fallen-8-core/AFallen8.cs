@@ -174,6 +174,7 @@ namespace NoSQL.GraphDB.Core
         public abstract bool TryCalculateShortestPath(out List<Path> result, string plugin, ShortestPathDefinition definition);
         public abstract bool TryCalculateShortestPath<T>(out List<Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm;
         public abstract bool TryRunAnalytics(out Algorithms.Analytics.GraphAnalyticsResult result, string algorithmName, Algorithms.Analytics.GraphAnalyticsDefinition definition);
+        public abstract bool TryInvokeGraphFunction(out Plugins.GraphFunctionResult result, string name, IDictionary<String, Object> parameters);
 
         #endregion
 

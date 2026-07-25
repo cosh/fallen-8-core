@@ -464,6 +464,9 @@ namespace NoSQL.GraphDB.Tests
                 => _inner.TryCalculateShortestPath<T>(out result, definition);
             public bool TryRunAnalytics(out NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsResult result, string algorithmName, NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsDefinition definition)
                 => _inner.TryRunAnalytics(out result, algorithmName, definition);
+
+            public bool TryInvokeGraphFunction(out NoSQL.GraphDB.Core.Plugins.GraphFunctionResult result, string name, IDictionary<string, object> parameters)
+                => _inner.TryInvokeGraphFunction(out result, name, parameters);
         }
     }
 }

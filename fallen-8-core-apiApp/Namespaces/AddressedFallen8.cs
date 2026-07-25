@@ -143,6 +143,10 @@ namespace NoSQL.GraphDB.App.Namespaces
             string algorithmName, Core.Algorithms.Analytics.GraphAnalyticsDefinition definition)
             => Engine.TryRunAnalytics(out result, algorithmName, definition);
 
+        public bool TryInvokeGraphFunction(out Core.Plugins.GraphFunctionResult result, string name,
+            IDictionary<String, Object> parameters)
+            => Engine.TryInvokeGraphFunction(out result, name, parameters);
+
         #endregion
 
         #region IFallen8Write

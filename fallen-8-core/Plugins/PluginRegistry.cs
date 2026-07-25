@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Transaction;
@@ -159,6 +160,50 @@ namespace NoSQL.GraphDB.Core.Plugins
                 result.Add(kv.Value);
             }
             return result;
+        }
+
+        /// <summary>
+        ///   Activates a FRESH instance of a registered, compiled plugin resolved by name, if one
+        ///   exists whose pinned type is assignable to <typeparamref name="T"/> (the requested contract
+        ///   interface). Returns false for an unknown name, a non-<see cref="PluginCompileState.Compiled"/>
+        ///   entry, a category/contract mismatch, or an activation failure. A fresh instance per call
+        ///   (never cached by name) means a delete/re-register is never served a stale instance - the
+        ///   resolution seam relied on by the path/subgraph/analytics endpoints and graph-function
+        ///   invocation (feature plugin-registration).
+        /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2072:Target parameter argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method.",
+            Justification = "The plugin type was produced by runtime compilation and validated to have a public parameterless constructor at registration; trimming is disabled for this application.")]
+        public bool TryActivate<T>(out T result, String name) where T : class
+        {
+            result = null;
+
+            if (!TryGet(out var entry, name))
+            {
+                return false;
+            }
+
+            if (entry.CompileState != PluginCompileState.Compiled || entry.Artifact == null)
+            {
+                return false;
+            }
+
+            if (!typeof(T).IsAssignableFrom(entry.Artifact))
+            {
+                return false;
+            }
+
+            try
+            {
+                result = Activator.CreateInstance(entry.Artifact) as T;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Activating registered plugin \"{Name}\" failed.", name);
+                result = null;
+                return false;
+            }
+
+            return result != null;
         }
 
         #endregion
