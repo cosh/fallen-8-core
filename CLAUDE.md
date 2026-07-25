@@ -17,7 +17,10 @@ Fallen-8 is an in-memory graph database written in C# (.NET 10). Namespaces are 
 deliberately decoupled from `features/` (no spec/plan/phase language, no links into
 `features/`). `docs/` is the home users read; `features/<name>/` remains the historical
 spec/plan record and the contributor "living doc". When a feature changes user-visible
-behaviour, update its `docs/*.md` page too.
+behaviour, update its `docs/*.md` page too — and **every user-facing key feature earns a
+one-line entry in the root `README.md` "Key features" list** (linking its `docs/*.md` page)
+and a row in the [`docs/`](docs/README.md) index. A feature is not "done" until it is
+discoverable from the README.
 
 ## Build & test
 
