@@ -25,6 +25,7 @@
 
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Index;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
@@ -80,6 +81,15 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Gets the per-namespace registry of runtime-registered plugins (feature
+        ///   plugin-registration).
+        /// </summary>
+        PluginRegistry Plugins
+        {
+            get;
+        }
+
+        /// <summary>
         ///   Gets the change feed, or null when the engine was constructed without one
         ///   (feature change-feed).
         /// </summary>
@@ -95,6 +105,17 @@ namespace NoSQL.GraphDB.Core
         ///   API) - the same bridge pattern as <see cref="SubGraphRecipeCompiler"/>.
         /// </summary>
         IStoredQueryCompiler StoredQueryCompiler
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   Gets or sets the compiler used to (re)build plugin artifacts from their persisted source
+        ///   (feature plugin-registration). When null, rehydrated plugins load as source-only. Set by
+        ///   the hosting layer that understands the specification format (for example the REST API) -
+        ///   the same bridge pattern as <see cref="StoredQueryCompiler"/>.
+        /// </summary>
+        IPluginCompiler PluginCompiler
         {
             get; set;
         }

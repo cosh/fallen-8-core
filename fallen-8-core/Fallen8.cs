@@ -33,6 +33,7 @@ using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.ChangeFeed;
 using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.StoredQueries;
@@ -142,6 +143,14 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   The per-namespace registry of runtime-registered plugins (feature plugin-registration).
+        /// </summary>
+        public override PluginRegistry Plugins
+        {
+            get; internal set;
+        }
+
+        /// <summary>
         ///   The change feed (feature change-feed), or null when the engine was constructed
         ///   without <see cref="ChangeFeedOptions"/> - the write path then pays only a null check.
         /// </summary>
@@ -155,6 +164,16 @@ namespace NoSQL.GraphDB.Core
         ///   Null unless set by the hosting layer (for example the REST API).
         /// </summary>
         public override IStoredQueryCompiler StoredQueryCompiler
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The compiler used to (re)build plugin artifacts from their persisted source
+        ///   (feature plugin-registration). Null unless set by the hosting layer (for example the
+        ///   REST API).
+        /// </summary>
+        public override IPluginCompiler PluginCompiler
         {
             get; set;
         }
@@ -325,6 +344,7 @@ namespace NoSQL.GraphDB.Core
             ServiceFactory = new ServiceFactory(this, serviceLogger);
             SubGraphFactory = new SubGraphFactory(this, subGraphLogger, _pluginCache);
             StoredQueries = new StoredQueryLibrary(loggerfactory.CreateLogger<StoredQueryLibrary>());
+            Plugins = new PluginRegistry(loggerfactory.CreateLogger<PluginRegistry>());
             IndexFactory.Indices.Clear();
             _txManager = new TransactionManager(this);
             _persistencyFactory = new PersistencyFactory(persistencyLogger);
@@ -382,7 +402,8 @@ namespace NoSQL.GraphDB.Core
             ISubGraphRecipeCompiler subGraphRecipeCompiler = null,
             IStoredQueryCompiler storedQueryCompiler = null,
             ChangeFeedOptions changeFeedOptions = null,
-            String metricsScopeId = null)
+            String metricsScopeId = null,
+            IPluginCompiler pluginCompiler = null)
             : this(loggerfactory, metricsScopeId)
         {
             if (changeFeedOptions != null)
@@ -401,6 +422,14 @@ namespace NoSQL.GraphDB.Core
             if (storedQueryCompiler != null)
             {
                 StoredQueryCompiler = storedQueryCompiler;
+            }
+
+            // Same rule for plugin entries (feature plugin-registration): an unanchored log's
+            // RegisterPlugin entries replay during construction, and only a compiler present then can
+            // recompile them.
+            if (pluginCompiler != null)
+            {
+                PluginCompiler = pluginCompiler;
             }
 
             if (writeAheadLogOptions != null && !String.IsNullOrWhiteSpace(writeAheadLogOptions.Path))
@@ -616,6 +645,9 @@ namespace NoSQL.GraphDB.Core
 
             StoredQueries.Clear();
             StoredQueries = null;
+
+            Plugins.Clear();
+            Plugins = null;
 
             // After the writer thread has stopped (no more publishes): stop the dispatcher and
             // complete every subscriber stream.

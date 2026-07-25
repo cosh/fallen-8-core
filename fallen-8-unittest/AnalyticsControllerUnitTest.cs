@@ -179,6 +179,12 @@ namespace NoSQL.GraphDB.Tests
                 get => _inner.StoredQueryCompiler;
                 set => _inner.StoredQueryCompiler = value;
             }
+            public NoSQL.GraphDB.Core.Plugins.PluginRegistry Plugins => _inner.Plugins;
+            public NoSQL.GraphDB.Core.Plugins.IPluginCompiler PluginCompiler
+            {
+                get => _inner.PluginCompiler;
+                set => _inner.PluginCompiler = value;
+            }
             public ILoggerFactory LoggerFactory => _inner.LoggerFactory;
             public void SetId(Guid id) => _inner.SetId(id);
             public void ConfigureAutoTrim(bool enabled, int tombstoneThreshold) => _inner.ConfigureAutoTrim(enabled, tombstoneThreshold);

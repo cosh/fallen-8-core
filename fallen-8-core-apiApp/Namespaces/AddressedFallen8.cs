@@ -34,6 +34,7 @@ using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.Service;
 using NoSQL.GraphDB.Core.StoredQueries;
 using NoSQL.GraphDB.Core.SubGraph;
@@ -170,12 +171,20 @@ namespace NoSQL.GraphDB.App.Namespaces
 
         public StoredQueryLibrary StoredQueries => Engine.StoredQueries;
 
+        public PluginRegistry Plugins => Engine.Plugins;
+
         public Core.ChangeFeed.ChangeFeedDispatcher ChangeFeed => Engine.ChangeFeed;
 
         public IStoredQueryCompiler StoredQueryCompiler
         {
             get => Engine.StoredQueryCompiler;
             set => Engine.StoredQueryCompiler = value;
+        }
+
+        public IPluginCompiler PluginCompiler
+        {
+            get => Engine.PluginCompiler;
+            set => Engine.PluginCompiler = value;
         }
 
         public ILoggerFactory LoggerFactory => Engine.LoggerFactory;
