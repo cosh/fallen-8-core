@@ -16386,6 +16386,7 @@
               "integer",
               "string"
             ],
+            "description": "The process's working set (physical RAM in use) when the save was taken, in bytes.",
             "format": "int64"
           },
           "indices": {
@@ -16784,7 +16785,7 @@
               "integer",
               "string"
             ],
-            "description": "The amount of memory currently used by the database process in bytes",
+            "description": "The database process's working set (physical RAM currently in use), in bytes — the\r\nfigure an operator reads as \"memory used\" (matches /statistics processWorkingSetBytes).\r\nNOT the reserved virtual address space, which modern .NET makes enormous.",
             "format": "int64",
             "default": 1073741824,
             "example": 1073741824

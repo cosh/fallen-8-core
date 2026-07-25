@@ -209,7 +209,7 @@ namespace NoSQL.GraphDB.App.Services
             {
                 VertexCount = fallen8.VertexCount,
                 EdgeCount = fallen8.EdgeCount,
-                UsedMemoryBytes = System.Diagnostics.Process.GetCurrentProcess().VirtualMemorySize64,
+                UsedMemoryBytes = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64,
             };
 
             var indexFactory = fallen8.IndexFactory;
@@ -377,7 +377,7 @@ namespace NoSQL.GraphDB.App.Services
                     {
                         VertexCount = entry.Namespaces.Sum(m => m.Kpis.VertexCount),
                         EdgeCount = entry.Namespaces.Sum(m => m.Kpis.EdgeCount),
-                        UsedMemoryBytes = System.Diagnostics.Process.GetCurrentProcess().VirtualMemorySize64,
+                        UsedMemoryBytes = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64,
                     };
                 }
 

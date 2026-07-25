@@ -46,6 +46,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
+        /// <summary>The process's working set (physical RAM in use) when the save was taken, in bytes.</summary>
         [JsonPropertyName("usedMemoryBytes")]
         public Int64 UsedMemoryBytes
         {

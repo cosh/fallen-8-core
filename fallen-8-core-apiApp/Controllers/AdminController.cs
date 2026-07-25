@@ -154,7 +154,11 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(StatusREST), StatusCodes.Status200OK)]
         public StatusREST Status()
         {
-            var totalBytesOfMemoryUsed = Process.GetCurrentProcess().VirtualMemorySize64;
+            // WorkingSet64 (physical RAM in use), NOT VirtualMemorySize64: modern .NET reserves a
+            // huge virtual address space (GC regions), so VirtualMemorySize64 reported hundreds of
+            // GiB as "used memory" - meaningless. The working set is what an operator reads as the
+            // process's memory (and matches /statistics' processWorkingSetBytes).
+            var totalBytesOfMemoryUsed = Process.GetCurrentProcess().WorkingSet64;
 
             var vertexCount = _fallen8.VertexCount;
             var edgeCount = _fallen8.EdgeCount;

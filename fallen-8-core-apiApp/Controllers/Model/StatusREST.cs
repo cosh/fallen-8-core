@@ -49,7 +49,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     public sealed class StatusREST
     {
         /// <summary>
-        ///   The amount of memory currently used by the database process in bytes
+        ///   The database process's working set (physical RAM currently in use), in bytes — the
+        ///   figure an operator reads as "memory used" (matches /statistics processWorkingSetBytes).
+        ///   NOT the reserved virtual address space, which modern .NET makes enormous.
         /// </summary>
         /// <example>1073741824</example>
         [DefaultValue(1073741824L)] // Using long literal by adding 'L' suffix
