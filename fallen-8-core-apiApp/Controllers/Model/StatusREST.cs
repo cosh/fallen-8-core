@@ -156,5 +156,16 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   The chat gateway state (feature instance-config) — a config read like
+        ///   <see cref="Embedding"/>, so it rides the cheap probe for capability discovery
+        ///   (e.g. the MCP overview's chatEnabled). Null when the host wired no provider. The
+        ///   GPU field stays null here; GET /config carries the probed value.
+        /// </summary>
+        public ChatProviderStatsREST Chat
+        {
+            get; set;
+        }
     }
 }

@@ -30,6 +30,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
@@ -100,6 +102,17 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly Embedding.Fallen8EmbeddingProvider _embeddingProvider;
 
+        /// <summary>
+        /// The chat gateway whose state /status and /config report (feature instance-config);
+        /// null under direct unit construction.
+        /// </summary>
+        private readonly Chat.Fallen8ChatProvider _chatProvider;
+
+        /// <summary>
+        /// The observability posture reported read-only by /config (feature instance-config).
+        /// </summary>
+        private readonly Fallen8ObservabilityOptions _observability;
+
         #endregion
 
         /// <summary>The namespace collection (feature graph-namespaces); null under direct unit
@@ -108,9 +121,12 @@ namespace NoSQL.GraphDB.App.Controllers
 
         public AdminController(ILogger<AdminController> logger, IFallen8 fallen8, IOptions<Fallen8SecurityOptions> security,
             Services.SaveGameRegistry saveGames, Embedding.Fallen8EmbeddingProvider embeddingProvider = null,
-            Fallen8Namespaces namespaces = null, IOptions<Fallen8DurabilityOptions> durability = null)
+            Fallen8Namespaces namespaces = null, IOptions<Fallen8DurabilityOptions> durability = null,
+            Chat.Fallen8ChatProvider chatProvider = null, IOptions<Fallen8ObservabilityOptions> observability = null)
         {
             _embeddingProvider = embeddingProvider;
+            _chatProvider = chatProvider;
+            _observability = observability?.Value ?? new Fallen8ObservabilityOptions();
 
             _namespaces = namespaces;
 
@@ -225,6 +241,48 @@ namespace NoSQL.GraphDB.App.Controllers
                 ApiKeyRequired = _apiKeyConfigured,
                 Authenticated = HttpContext?.User?.Identity?.IsAuthenticated == true,
                 Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider),
+                Chat = ChatProviderStatsREST.From(_chatProvider),
+            };
+        }
+
+        /// <summary>
+        /// Gets the instance's read-only configuration (semantic providers + observability)
+        /// </summary>
+        /// <param name="cancellationToken">Aborts the best-effort GPU probe</param>
+        /// <returns>The configuration view: embedding + chat providers and the observability posture</returns>
+        /// <remarks>The operator view behind the Studio Configuration section (feature
+        /// instance-config). Fallen-8-level and API-key gated like /statistics; config is
+        /// startup-bound, so this is display-only. Secrets are never emitted - only the boolean
+        /// apiKeyRequired reports the security posture, and the OTLP endpoint (operator config, not
+        /// a secret) is shown as configured.</remarks>
+        /// <response code="200">The configuration view</response>
+        /// <response code="401">No valid credential was supplied (when an API key is configured)</response>
+        [HttpGet("/config")]
+        [Fallen8Level]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(ConfigREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        public async Task<ConfigREST> Config(CancellationToken cancellationToken)
+        {
+            var chat = ChatProviderStatsREST.From(_chatProvider);
+            if (chat != null && _chatProvider != null)
+            {
+                // Best-effort GPU residency, bounded so a hung or absent sidecar never stalls the
+                // config read (the probe itself swallows failures and returns null).
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(TimeSpan.FromSeconds(3));
+                chat.Gpu = await _chatProvider.TryDetectGpuAsync(cts.Token);
+            }
+
+            return new ConfigREST
+            {
+                Semantic = new SemanticConfigREST
+                {
+                    Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider),
+                    Chat = chat,
+                },
+                Observability = ObservabilityConfigREST.From(_observability),
+                ApiKeyRequired = _apiKeyConfigured,
             };
         }
 

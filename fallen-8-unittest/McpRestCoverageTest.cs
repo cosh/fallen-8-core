@@ -103,6 +103,9 @@ namespace NoSQL.GraphDB.Tests
             new(op => op == "POST /chat",
                 "the chat gateway is Studio's model path (browser -> instance -> Ollama); agents bring " +
                 "their own model. Chat capability state is discoverable via f8_overview (chatEnabled)"),
+            new(op => op == "GET /config",
+                "instance configuration is an operator/setup surface (semantic providers + observability " +
+                "posture); agents read capability state via f8_overview, not this aggregate"),
         };
 
         [TestMethod]

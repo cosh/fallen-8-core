@@ -157,6 +157,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
             node["availableAnalyticsAlgorithms"] = ToJsonArray(status.AvailableAnalyticsPlugins);
             node["availableIndexPlugins"] = ToJsonArray(status.AvailableIndexPlugins);
             node["embeddingEnabled"] = status.Embedding?.Enabled ?? false;
+            node["chatEnabled"] = status.Chat?.Enabled ?? false;
 
             return node;
         }

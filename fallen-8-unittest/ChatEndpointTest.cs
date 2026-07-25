@@ -79,14 +79,16 @@ namespace NoSQL.GraphDB.Tests
             private readonly IChatBackend _backend;
             private readonly Int32 _timeoutSeconds;
             private readonly Boolean _withApiKey;
+            private readonly String _otlpEndpoint;
 
             public ChatFactory(Boolean enabled, IChatBackend backend = null, Int32 timeoutSeconds = 120,
-                Boolean withApiKey = false)
+                Boolean withApiKey = false, String otlpEndpoint = null)
             {
                 _enabled = enabled;
                 _backend = backend;
                 _timeoutSeconds = timeoutSeconds;
                 _withApiKey = withApiKey;
+                _otlpEndpoint = otlpEndpoint;
             }
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -99,6 +101,10 @@ namespace NoSQL.GraphDB.Tests
                 if (_withApiKey)
                 {
                     builder.UseSetting("Fallen8:Security:ApiKey", ApiKey);
+                }
+                if (_otlpEndpoint != null)
+                {
+                    builder.UseSetting("Fallen8:Observability:Otlp:Endpoint", _otlpEndpoint);
                 }
                 if (_backend != null)
                 {
@@ -204,6 +210,60 @@ namespace NoSQL.GraphDB.Tests
 
             using var response = await client.PostAsync("/chat", Json("{ \"messages\": [ { \"role\": \"user\", \"content\": \"hi\" } ] }"));
             Assert.AreEqual(HttpStatusCode.GatewayTimeout, response.StatusCode);
+        }
+
+        [TestMethod]
+        public async Task Status_IncludesChatCapabilityBlock_NoGpuProbe()
+        {
+            using var factory = new ChatFactory(enabled: true, backend: Returns("x", gpu: true));
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/status");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+
+            var chat = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("chat");
+            Assert.IsTrue(chat.GetProperty("enabled").GetBoolean());
+            Assert.AreEqual("Ollama", chat.GetProperty("backend").GetString());
+            Assert.AreEqual("fake-model", chat.GetProperty("model").GetString());
+            Assert.AreEqual(JsonValueKind.Null, chat.GetProperty("gpu").ValueKind,
+                "the cheap /status probe never calls the backend for GPU");
+        }
+
+        [TestMethod]
+        public async Task Config_ProjectsSemanticAndObservability_ProbesGpu_Redacts()
+        {
+            using var factory = new ChatFactory(enabled: true, backend: Returns("x", gpu: true),
+                withApiKey: true, otlpEndpoint: "http://otel-collector:4317");
+            using var client = factory.CreateClient();
+            client.DefaultRequestHeaders.Add("X-Api-Key", ApiKey);
+
+            using var response = await client.GetAsync("/config");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+
+            var raw = await response.Content.ReadAsStringAsync();
+            var body = JsonDocument.Parse(raw).RootElement;
+
+            var chat = body.GetProperty("semantic").GetProperty("chat");
+            Assert.IsTrue(chat.GetProperty("enabled").GetBoolean());
+            Assert.AreEqual(true, chat.GetProperty("gpu").GetBoolean(), "GET /config probes the backend for GPU");
+
+            var obs = body.GetProperty("observability");
+            Assert.IsTrue(obs.GetProperty("otlpEnabled").GetBoolean());
+            Assert.AreEqual("http://otel-collector:4317", obs.GetProperty("otlpEndpoint").GetString());
+            Assert.IsFalse(obs.GetProperty("prometheusEnabled").GetBoolean());
+
+            Assert.IsTrue(body.GetProperty("apiKeyRequired").GetBoolean());
+            Assert.IsFalse(raw.Contains(ApiKey), "the config view must never echo the API key");
+        }
+
+        [TestMethod]
+        public async Task Config_401_WithoutCredential_WhenKeyConfigured()
+        {
+            using var factory = new ChatFactory(enabled: true, backend: Returns("x"), withApiKey: true);
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/config");
+            Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
         [TestMethod]

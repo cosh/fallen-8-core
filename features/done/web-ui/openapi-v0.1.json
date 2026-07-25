@@ -857,6 +857,55 @@
         }
       }
     },
+    "/config": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Gets the instance's read-only configuration (semantic providers + observability)",
+        "description": "The operator view behind the Studio Configuration section (feature\r\n    instance-config). Fallen-8-level and API-key gated like /statistics; config is\r\n    startup-bound, so this is display-only. Secrets are never emitted - only the boolean\r\n    apiKeyRequired reports the security posture, and the OTLP endpoint (operator config, not\r\n    a secret) is shown as configured.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The configuration view",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied (when an API key is configured)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/delegates/validate": {
       "post": {
         "tags": [
@@ -14222,6 +14271,41 @@
         },
         "description": "Optional per-request generation knobs."
       },
+      "ChatProviderStatsREST": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the capability flag (Fallen8:Chat:Enabled) is on."
+          },
+          "backend": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The backend selector (config value), e.g. Ollama."
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The server-owned model."
+          },
+          "loaded": {
+            "type": "boolean",
+            "description": "Whether the backend client has been created (a chat call happened)."
+          },
+          "gpu": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "Best-effort GPU residency of the model: true/false when the backend reports it,\r\n    null when undeterminable (or not probed). A point-in-time read, only set on GET /config."
+          }
+        },
+        "description": "The chat gateway state (feature instance-config), mirroring the embedding block's\r\n    shape: it lives on the cheap /status probe (capability discovery) and on GET /config (the\r\n    operator view). No endpoint is exposed, matching the embedding block's tag hygiene."
+      },
       "ChatResultREST": {
         "type": "object",
         "properties": {
@@ -14323,6 +14407,24 @@
           }
         },
         "description": "Generation stats forwarded from the backend."
+      },
+      "ConfigREST": {
+        "type": "object",
+        "properties": {
+          "semantic": {
+            "description": "The semantic providers (embedding + chat).",
+            "$ref": "#/components/schemas/SemanticConfigREST"
+          },
+          "observability": {
+            "description": "The observability posture (OTLP / Prometheus / sampling).",
+            "$ref": "#/components/schemas/ObservabilityConfigREST"
+          },
+          "apiKeyRequired": {
+            "type": "boolean",
+            "description": "Whether an API key is configured (never the key itself)."
+          }
+        },
+        "description": "The instance's read-only configuration view (feature instance-config), the single home\r\nfor the Studio Configuration section: the semantic providers and the observability\r\nposture. Secrets are never emitted (no API key, no credentials); only the boolean\r\nbool ConfigREST.ApiKeyRequired reports the security posture. Fallen-8-level and API-key\r\ngated (like /statistics); config is startup-bound, so this is display-only."
       },
       "DegreeStatsREST": {
         "type": "object",
@@ -15794,6 +15896,58 @@
         },
         "description": "Request body for updating a namespace via `PATCH /ns/{name}`: rename it and/or set its\r\nplugin-registration override. Both fields are optional; supply at least one."
       },
+      "ObservabilityConfigREST": {
+        "type": "object",
+        "properties": {
+          "otlpEnabled": {
+            "type": "boolean",
+            "description": "Whether OTLP push export is on (an endpoint is configured)."
+          },
+          "otlpEndpoint": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The OTLP endpoint metrics/traces/logs are pushed to, as configured; null when off."
+          },
+          "prometheusEnabled": {
+            "type": "boolean",
+            "description": "Whether the Prometheus scrape endpoint (GET /metrics) is mapped."
+          },
+          "prometheusRequireApiKey": {
+            "type": "boolean",
+            "description": "Whether /metrics requires the API key (vs the anonymous default)."
+          },
+          "tracingSamplingRatio": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Root trace sampling ratio [0, 1].",
+            "format": "double"
+          },
+          "statisticsElementBudget": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The GET /statistics element budget before sampling kicks in.",
+            "format": "int32"
+          },
+          "statisticsTopN": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Top-N size for the statistics cardinality lists.",
+            "format": "int32"
+          }
+        },
+        "description": "The observability posture (feature observability), read-only. Endpoints are\r\n    operator config (never a secret); this codebase's OTLP options carry only an endpoint."
+      },
       "PartitionMembersREST": {
         "type": "object",
         "properties": {
@@ -16966,6 +17120,20 @@
           "distance": 5.0
         }
       },
+      "SemanticConfigREST": {
+        "type": "object",
+        "properties": {
+          "embedding": {
+            "description": "The embedding provider state (may be null when no provider is wired).",
+            "$ref": "#/components/schemas/EmbeddingProviderStatsREST"
+          },
+          "chat": {
+            "description": "The chat gateway state (may be null when no provider is wired).",
+            "$ref": "#/components/schemas/ChatProviderStatsREST"
+          }
+        },
+        "description": "The semantic providers (embedding + chat) grouped as one view."
+      },
       "SemanticTraversalSpecification": {
         "type": "object",
         "properties": {
@@ -17157,6 +17325,10 @@
           "embedding": {
             "description": "The embedding provider state (feature embedding-provider) — here on the cheap\r\ndiscovery surface because it is a config read, not a graph pass; null only when\r\nthe host wired no provider. See EmbeddingProviderStatsREST.",
             "$ref": "#/components/schemas/EmbeddingProviderStatsREST"
+          },
+          "chat": {
+            "description": "The chat gateway state (feature instance-config) — a config read like\r\nEmbeddingProviderStatsREST StatusREST.Embedding, so it rides the cheap probe for capability discovery\r\n(e.g. the MCP overview's chatEnabled). Null when the host wired no provider. The\r\nGPU field stays null here; GET /config carries the probed value.",
+            "$ref": "#/components/schemas/ChatProviderStatsREST"
           }
         },
         "description": "Represents the current status of the Fallen-8 database",
