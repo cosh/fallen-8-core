@@ -12,7 +12,7 @@ import { Truncated } from "./Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
 
 /**
- * Dashboard · Stored queries (concept spec §5.3): the library's ONE management home —
+ * Query screen · Stored queries (concept spec §5.3): the library's ONE management home —
  * list, read-only source, recompile diagnostics, delete (immutable entries: delete +
  * re-register is the edit flow), and Open-in cross-links that pre-select the entry on
  * the consuming screen. Registration deliberately lives on Path/Subgraph, where

@@ -55,6 +55,9 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
       scanSpatialMock(i, spec),
     getGraphElement: (i: InstanceConfig, id: number, signal?: AbortSignal) =>
       getGraphElementMock(i, id, signal),
+    // The Query screen now hosts the stored-query library; keep it empty so its list fetch
+    // never adds a second error alert to the scan-error assertions below.
+    listStoredQueries: () => Promise.resolve([]),
   };
 });
 

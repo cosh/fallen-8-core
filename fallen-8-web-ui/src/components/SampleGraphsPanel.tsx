@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import { useStatus } from "../state/status";
-import type { SampleManifestEntry } from "../lib/samples";
+import type { SampleBadge, SampleManifestEntry } from "../lib/samples";
 import {
   embeddingGate,
   fetchSamplesManifest,
@@ -22,11 +22,17 @@ import { ConfirmDialog } from "./ConfirmDialog";
 
 /**
  * Sample graphs (feature sample-graphs): a manifest-driven gallery of one-click demo
- * graphs plus the dynamic GitHub dependency card. Datasets are fetched from a public
- * GitHub raw URL and ingested via /bulk/import — embeddings are baked in, so no embedding
- * work happens here. Loading into a non-empty graph is gated behind a typed confirm and
- * runs Tabula rasa first (import requires an empty target).
+ * graphs plus the dynamic GitHub dependency card. Each card spans the full width and
+ * carries its "what you can test" steps up front; a tag bar filters the gallery by
+ * capability (canvas / path / analytics / semantic / spatial). Datasets are fetched from a
+ * public GitHub raw URL and ingested via /bulk/import — embeddings are baked in, so no
+ * embedding work happens here. Loading into a non-empty graph is gated behind a typed
+ * confirm and runs Tabula rasa first (import requires an empty target). Rendered by the
+ * Samples screen (its own rail entry).
  */
+
+/** Filter chips in a fixed order; only tags present in the manifest are offered. */
+const TAG_ORDER: readonly SampleBadge[] = ["canvas", "path", "analytics", "semantic", "spatial"];
 
 const STEP_LABEL: Record<LoadStep, string> = {
   wiping: "erasing current graph…",
@@ -59,6 +65,23 @@ export function SampleGraphsPanel() {
   const [confirm, setConfirm] = useState<Pending | null>(null);
   const [repoInput, setRepoInput] = useState("");
   const [githubInputError, setGithubInputError] = useState<string | null>(null);
+  // Tag filter (OR/union across selected tags); empty = show everything, including the two
+  // special cards (Scale, GitHub) that have no manifest tags to match on.
+  const [tags, setTags] = useState<Set<SampleBadge>>(new Set());
+
+  const samples = manifest.data?.samples ?? [];
+  const availableTags = TAG_ORDER.filter((t) => samples.some((s) => s.badges.includes(t)));
+  const filtered = useMemo(
+    () => samples.filter((s) => tags.size === 0 || s.badges.some((b) => tags.has(b))),
+    [samples, tags],
+  );
+  const toggleTag = (t: SampleBadge) =>
+    setTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
 
   // "Empty" for the no-wipe fast path means NOTHING to lose AND nothing that would clash:
   // import 409s on any element, and a leftover index of the same id would fail createIndex
@@ -161,31 +184,71 @@ export function SampleGraphsPanel() {
 
   return (
     <section className="panel" data-testid="sample-graphs">
-      <div className="panel-title">Sample graphs</div>
+      <div className="panel-title">
+        Sample graphs
+        <span className="text-fg-faint normal-case">
+          one-click demo datasets · loading replaces the active graph
+        </span>
+      </div>
       <div className="space-y-3 p-3">
         {manifest.isError && <ErrorBox error={manifest.error} onRetry={() => manifest.refetch()} />}
         {manifest.isPending && <div className="text-fg-faint text-[12px]">Loading gallery…</div>}
 
         {manifest.data && (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {manifest.data.samples.map((entry) => (
-              <SampleCard
-                key={entry.id}
-                entry={entry}
-                gate={embeddingGate(entry.embedding, status.data ?? null)}
-                busy={busy}
-                onLoad={() => startSample(entry)}
-              />
-            ))}
-            <ScaleCard busy={busy} />
-            <GithubCard
-              repoInput={repoInput}
-              setRepoInput={setRepoInput}
-              busy={busy}
-              onLoad={startGithub}
-              inputError={githubInputError}
-            />
-          </div>
+          <>
+            {availableTags.length > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-1.5"
+                data-testid="sample-tag-filter"
+                role="group"
+                aria-label="Filter samples by capability"
+              >
+                <span className="text-fg-faint mr-1 text-[10px] tracking-widest uppercase">
+                  filter
+                </span>
+                <TagChip label="all" active={tags.size === 0} onClick={() => setTags(new Set())} />
+                {availableTags.map((tag) => (
+                  <TagChip
+                    key={tag}
+                    label={tag}
+                    active={tags.has(tag)}
+                    onClick={() => toggleTag(tag)}
+                    testid={`sample-tag-${tag}`}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {filtered.map((entry) => (
+                <SampleCard
+                  key={entry.id}
+                  entry={entry}
+                  gate={embeddingGate(entry.embedding, status.data ?? null)}
+                  busy={busy}
+                  onLoad={() => startSample(entry)}
+                />
+              ))}
+              {filtered.length === 0 && (
+                <p className="text-fg-faint text-[12px]" data-testid="sample-no-match">
+                  No samples match the selected tags.
+                </p>
+              )}
+              {/* The special cards carry no manifest tags — only show them with no filter on. */}
+              {tags.size === 0 && (
+                <>
+                  <ScaleCard busy={busy} />
+                  <GithubCard
+                    repoInput={repoInput}
+                    setRepoInput={setRepoInput}
+                    busy={busy}
+                    onLoad={startGithub}
+                    inputError={githubInputError}
+                  />
+                </>
+              )}
+            </div>
+          </>
         )}
 
         {step && (
@@ -234,6 +297,35 @@ export function SampleGraphsPanel() {
   );
 }
 
+/** A filter pill matching the card-badge look; active state uses the accent border/text. */
+function TagChip({
+  label,
+  active,
+  onClick,
+  testid,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  testid?: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testid}
+      aria-pressed={active}
+      onClick={onClick}
+      className={`rounded border px-2 py-0.5 text-[10px] tracking-wide uppercase transition-colors ${
+        active
+          ? "border-accent text-accent"
+          : "border-line text-fg-faint hover:text-fg-dim"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 function SampleCard({
   entry,
   gate,
@@ -246,66 +338,95 @@ function SampleCard({
   onLoad: () => void;
 }) {
   return (
-    <div className="border-line flex flex-col gap-2 rounded border p-3" data-testid={`sample-card-${entry.id}`}>
-      <div className="flex items-baseline gap-2">
+    <div className="border-line rounded border p-4" data-testid={`sample-card-${entry.id}`}>
+      <div className="flex flex-wrap items-baseline gap-2">
         <span className="text-lg">{entry.emoji}</span>
         <span className="text-fg font-bold">{entry.title}</span>
-        <span className="text-fg-faint ml-auto text-[11px]">
+        <span className="text-fg-faint text-[11px]">
           {entry.vertexCount.toLocaleString()}V · {entry.edgeCount.toLocaleString()}E
         </span>
+        <div className="ml-auto flex flex-wrap gap-1">
+          {entry.badges.map((b) => (
+            <span
+              key={b}
+              className="border-line text-fg-faint rounded border px-1.5 py-0.5 text-[10px] uppercase"
+            >
+              {b}
+            </span>
+          ))}
+        </div>
       </div>
-      <p className="text-fg-dim text-[12px]">{entry.pitch}</p>
-      <div className="flex flex-wrap gap-1">
-        {entry.badges.map((b) => (
-          <span key={b} className="border-line text-fg-faint rounded border px-1.5 py-0.5 text-[10px] uppercase">
-            {b}
-          </span>
-        ))}
-      </div>
+      <p className="text-fg-dim mt-2 text-[12px]">{entry.pitch}</p>
       {gate.kind === "provider-off" && (
-        <p className="text-warn text-[11px]" data-testid="gate-provider-off">
+        <p className="text-warn mt-2 text-[11px]" data-testid="gate-provider-off">
           Vectors load and index scans work; text-in semantic search needs the embedding
           provider (off on this instance).
         </p>
       )}
       {gate.kind === "mismatch" && (
-        <p className="text-warn text-[11px]" data-testid="gate-mismatch">
+        <p className="text-warn mt-2 text-[11px]" data-testid="gate-mismatch">
           Vector scans work; text-in search is 409 here — {gate.detail}.
         </p>
       )}
-      <button
-        type="button"
-        className="btn btn-accent mt-auto"
-        data-testid={`load-sample-${entry.id}`}
-        disabled={busy}
-        onClick={onLoad}
-      >
-        Load
-      </button>
+      <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0">
+          <div className="text-fg-faint text-[10px] tracking-widest uppercase">
+            what you can test
+          </div>
+          <ul
+            className="text-fg-dim mt-1 list-inside list-disc space-y-0.5 text-[12px]"
+            data-testid={`sample-trysteps-${entry.id}`}
+          >
+            {entry.trySteps.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+        <button
+          type="button"
+          className="btn btn-accent shrink-0 md:w-32"
+          data-testid={`load-sample-${entry.id}`}
+          disabled={busy}
+          onClick={onLoad}
+        >
+          Load
+        </button>
+      </div>
     </div>
   );
 }
 
 function ScaleCard({ busy }: { busy: boolean }) {
   return (
-    <div className="border-line flex flex-col gap-2 rounded border border-dashed p-3" data-testid="sample-card-scale">
-      <div className="flex items-baseline gap-2">
+    <div
+      className="border-line rounded border border-dashed p-4"
+      data-testid="sample-card-scale"
+    >
+      <div className="flex flex-wrap items-baseline gap-2">
         <span className="text-lg">📈</span>
         <span className="text-fg font-bold">Scale: 100k × 1M</span>
-        <span className="text-fg-faint ml-auto text-[11px]">100,000V · ~1,000,000E</span>
+        <span className="text-fg-faint text-[11px]">100,000V · ~1,000,000E</span>
       </div>
-      <p className="text-fg-dim text-[12px]">
+      <p className="text-fg-dim mt-2 text-[12px]">
         A 100k-vertex, ~1M-edge preferential-attachment graph — ingest speed, memory
         footprint, and analytics at scale (real hubs).
       </p>
-      <p className="text-fg-faint mt-auto text-[11px]">
-        Generated server-side, not fetched — use the{" "}
-        <span className="text-fg-dim">Benchmark</span> tab's "scale" preset, then run
-        PAGERANK on the Analytics screen.
-      </p>
-      <button type="button" className="btn" disabled={busy} data-testid="scale-hint" aria-disabled>
-        On the Benchmark tab →
-      </button>
+      <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <p className="text-fg-faint text-[11px]">
+          Generated server-side, not fetched — use the{" "}
+          <span className="text-fg-dim">Benchmark</span> tab's "scale" preset, then run
+          PAGERANK on the Analytics screen.
+        </p>
+        <button
+          type="button"
+          className="btn shrink-0"
+          disabled={busy}
+          data-testid="scale-hint"
+          aria-disabled
+        >
+          On the Benchmark tab →
+        </button>
+      </div>
     </div>
   );
 }
@@ -324,17 +445,19 @@ function GithubCard({
   inputError: string | null;
 }) {
   return (
-    <div className="border-line flex flex-col gap-2 rounded border p-3" data-testid="sample-card-github">
-      <div className="flex items-baseline gap-2">
+    <div className="border-line rounded border p-4" data-testid="sample-card-github">
+      <div className="flex flex-wrap items-baseline gap-2">
         <span className="text-lg">🐙</span>
         <span className="text-fg font-bold">Any GitHub repo</span>
-        <span className="text-fg-faint ml-auto text-[11px]">live</span>
+        <span className="text-fg-faint text-[11px]">live</span>
       </div>
-      <p className="text-fg-dim text-[12px]">
+      <p className="text-fg-dim mt-2 text-[12px]">
         Fetch any public repository's dependency graph from GitHub just-in-time and ingest
-        it — the dynamic twin of the Fallen-8 Dependencies sample.
+        it — the dynamic twin of the Fallen-8 Dependencies sample. Color by{" "}
+        <span className="text-fg-dim">ecosystem</span>, size by in-degree, then run PAGERANK
+        on the Analytics screen for the most-depended-on packages.
       </p>
-      <div className="mt-auto flex gap-2">
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <input
           className="input flex-1"
           data-testid="github-repo-input"
@@ -347,7 +470,7 @@ function GithubCard({
         />
         <button
           type="button"
-          className="btn btn-accent"
+          className="btn btn-accent shrink-0 sm:w-32"
           data-testid="load-github"
           disabled={busy || !repoInput.trim()}
           onClick={onLoad}
@@ -356,7 +479,7 @@ function GithubCard({
         </button>
       </div>
       {inputError && (
-        <p className="text-warn text-[11px]" data-testid="github-input-error">
+        <p className="text-warn mt-2 text-[11px]" data-testid="github-input-error">
           {inputError}
         </p>
       )}

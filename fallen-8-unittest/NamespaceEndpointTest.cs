@@ -300,6 +300,8 @@ namespace NoSQL.GraphDB.Tests
                 "/plugin",
                 "/ns",
                 "/ns/{name}",
+                "/chat",
+                "/config",
             };
 
             using var factory = new NamespaceFactory();

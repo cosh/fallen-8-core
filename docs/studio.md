@@ -12,34 +12,39 @@ Connect, Save games, and Benchmark are Fallen-8-level (they can span namespaces)
 
 | Screen | Scope | Purpose |
 |---|---|---|
-| Connect | Fallen-8 | Register instances, manage namespaces |
-| Dashboard | namespace | Status, sample graphs, admin (save/load/erase, jsonl import/export), stored queries |
+| Connect | Fallen-8 | Register instances, instance configuration (semantic providers + observability), manage namespaces |
+| Dashboard | namespace | Status overview: vertex/edge counts, memory |
+| Samples | namespace | One-click demo-graph gallery with a capability tag filter |
+| Save games | Fallen-8 | Checkpoint registry (load / delete) + administration (save/load/erase, jsonl import/export) |
 | Browser | namespace | Look up an element, inspect properties/embeddings, adjacency, bulk view, mutations |
-| Query | namespace | Property scans and index queries (equality/range/fulltext/spatial/vector) |
-| Canvas | namespace | 2D/3D visualization of whatever you send to it |
+| Query | namespace | Property scans and index queries (equality/range/fulltext/spatial/vector) + the stored-query library |
+| Indexes | namespace | Create and manage indexes and their content |
 | Path | namespace | Route finding (BLS / Dijkstra) with filters, costs, semantic scoring |
 | Subgraph | namespace | Subgraph lifecycle + pattern builder |
 | Analytics | namespace | Graph shape + run algorithms with write-back |
-| Indexes | namespace | Create and manage indexes and their content |
-| Save games | Fallen-8 | Checkpoint registry: load / delete |
+| Plugins | namespace | Built-in plugin families + the runtime-authored plugin registry |
+| Canvas | namespace | 2D/3D visualization of whatever you send to it |
 | Benchmark | Fallen-8 | Generate a random graph, measure edge-traversal throughput |
 
 ## Connect
 
 ![Connect screen](images/screen-connect.png)
 
-Two panels. The **Instances** table lists registered servers with a radio to activate one, its endpoint and auth kind, and a live health cell (a lazy `GET /status` showing vertex/edge counts, or `unreachable` / `unauthorized`). "+ Register instance" takes a name, a base URL (empty = same origin as Studio), and an optional API key; keys are stored in this browser only and sent as a bearer/custom header ([security.md](security.md)). The **Namespaces** panel manages the active instance's namespaces — create, rename, switch to, drop, with counts and the `/ns/{name}/*` URL prefix; `default` aliases the bare routes and cannot be renamed or dropped ([namespaces.md](namespaces.md)).
+Three panels. The **Instances** table lists registered servers with a radio to activate one, its endpoint and auth kind, and a live health cell (a lazy `GET /status` showing vertex/edge counts, or `unreachable` / `unauthorized`). "+ Register instance" takes a name, a base URL (empty = same origin as Studio), and an optional API key; keys are stored in this browser only and sent as a bearer/custom header ([security.md](security.md)). The **Configuration** panel (below) shows the active instance's instance-wide config read-only. The **Namespaces** panel manages the active instance's namespaces — create, rename, switch to, drop, with counts and the `/ns/{name}/*` URL prefix; `default` aliases the bare routes and cannot be renamed or dropped ([namespaces.md](namespaces.md)).
+
+The **Configuration** panel is read-only (instance config is set at startup via env/appsettings, so it is display + guidance, not an editor). It sourced from `GET /config` and shows: the **semantic providers** — the embedding provider (backend / model / dimension / metric / loaded) and the **chat gateway** (backend / model / loaded, plus GPU when the Ollama backend reports VRAM residency); and the **observability** posture — a one-line status ("pushing metrics + traces + logs to `<endpoint>`" / "Prometheus at `/metrics`" / off) with a **Configure…** overlay that lists each value and its `Fallen8__…` env key. Secrets are never shown (only whether an API key is required). See [semantic-traversal.md](semantic-traversal.md) and [observability.md](observability.md).
 
 ## Dashboard
 
 ![Dashboard screen](images/screen-dashboard.png)
 
-Vertex/edge counts, used memory, and the index/path/analytics/service plugin inventories from `GET /status` ([observability.md](observability.md), [plugins.md](plugins.md)). Cards below:
+A lean status overview for the active namespace: vertex/edge counts and used memory from `GET /status` ([observability.md](observability.md)). Everything that used to crowd the Dashboard now has its own home — the sample gallery is **Samples**, the plugin inventories and registry are **Plugins**, persistence and administration are **Save games**, the stored-query library is on **Query**, and the semantic providers + observability moved to the Connect **Configuration** section.
 
-- **Embedding provider** — backend, model, dimension, metric, and load state, or a note when it is off or unreported ([semantic-traversal.md](semantic-traversal.md)).
-- **Sample graphs** — one-click demo datasets plus a live "any GitHub repo" dependency card; loading into a non-empty graph erases it first behind a typed confirm ([samples.md](samples.md)).
-- **Administration** — Save namespace, Save all namespaces, Trim, Load, Erase namespace, Factory reset (the destructive actions require typing the target name), plus jsonl Export (optionally filtered by label) and Import — import requires an empty graph ([bulk-import-export.md](bulk-import-export.md)).
-- **Stored queries** — register and inspect named path/subgraph queries ([stored-queries.md](stored-queries.md)).
+## Samples
+
+![Samples screen](images/screen-samples.png)
+
+The one-click demo-graph gallery. Each full-width card names a curated dataset, its vertex/edge counts, its capability badges, and a **what you can test** list; **Load** fetches the dataset, imports it, builds its indices, and drops it onto the canvas with the sample's style. A tag bar at the top filters the gallery by capability (canvas / path / analytics / semantic / spatial). A live **Any GitHub repo** card ingests any public repository's dependency graph just-in-time, and a **Scale** card points at the Benchmark tab's server-side generator. Loading into a non-empty graph erases it first behind a typed confirm — save a checkpoint or switch namespaces to keep the current data. Walkthrough with queries: [samples.md](samples.md).
 
 ## Browser
 
@@ -52,6 +57,8 @@ Look up a graph element, vertex, or edge by id. The inspector shows the label, t
 ![Query screen](images/screen-query.png)
 
 Two modes. A **property scan** takes a property id, a comparison operator, a typed literal, and a result type (Vertices / Edges / Both). **Ask an index** picks from the live inventory and offers only the forms the index answers: equality/operator, range, fulltext, spatial, or vector (kNN). A vector query is entered as a pasted vector or as text embedded server-side by the provider, with `k`, an element-kind filter, and a label constraint. Results report the id count, a vector metric legend (higher/lower is better), fulltext highlights, and a scored table. Index semantics live in [indexes.md](indexes.md) and [vector-search.md](vector-search.md).
+
+Below the query workspace, the **Stored queries** table is the named path/subgraph library's management home — list, read-only source, recompile diagnostics, delete, and Open-in cross-links that pre-select an entry on the Path or Subgraph screen. Registration itself happens on Path/Subgraph, where a fragment can be tested before it is captured ([stored-queries.md](stored-queries.md)).
 
 ## Canvas
 
@@ -86,6 +93,12 @@ A table lists existing subgraphs (with a badge for semantic ones) offering To ca
 
 **Graph shape** runs an on-demand `GET /statistics` pass — counts, top vertex/edge labels and property keys, degree percentiles, and the index list; its snapshot also feeds identifier suggestions across Studio. **Run** picks an algorithm from the live plugin list, scopes it by vertex label / edge property / direction, and sets max results, max iterations, and a time budget (PageRank adds damping and epsilon). Optional **write-back** stamps each score onto a vertex property (snapshot-durable only), which you can then color by on the Canvas to read results spatially. The result panel shows convergence, statistics, partitions with paged members, and a scored table. A run already in progress returns 429; an exhausted budget returns 408. Algorithms and semantics: [graph-analytics.md](graph-analytics.md).
 
+## Plugins
+
+![Plugins screen](images/screen-plugins.png)
+
+The one home for everything plugin-related. The top row shows the **built-in plugin families** discovered on the engine (index / path / analytics) from `GET /status`. Below it, the **registry** table lists the active namespace's runtime-authored, compile-validated plugins — name, category, contract, and compile-state badge — with read-only source and recompile diagnostics, a function runner for a registered graph function, and delete (entries are immutable: delete and re-register is the edit flow). **Register plugin…** opens the whole-type authoring editor. Registrations are per namespace. Concept and REST: [plugins.md](plugins.md).
+
 ## Indexes
 
 ![Indexes screen](images/screen-indexes.png)
@@ -96,7 +109,9 @@ The inventory table shows each index's id, type, query capabilities, key/value c
 
 ![Save games screen](images/screen-savegames.png)
 
-The persistent checkpoint registry as a Fallen-8-level table: saved-at, trigger, member namespaces, aggregate counts, file count, and size. "Save all namespaces" writes one entry spanning every namespace; **Load** restores the entire entry or a single namespace (typed confirm); **Delete** optionally removes the checkpoint files on disk. Semantics: [save-games.md](save-games.md).
+The persistence home. The top is the persistent checkpoint registry as a Fallen-8-level table: saved-at, trigger, member namespaces, aggregate counts, file count, and size. "Save all namespaces" writes one entry spanning every namespace; **Load** restores the entire entry or a single namespace (typed confirm); **Delete** optionally removes the checkpoint files on disk. Semantics: [save-games.md](save-games.md).
+
+Below it, the **Administration** section holds the namespace-scoped persistence and lifecycle actions (they act on the active namespace shown in the top bar): **Save namespace**, **Trim**, **Load** from a checkpoint path, **Erase namespace**, and the Fallen-8-wide **Factory reset** (the destructive actions require typing the target name). An **interchange (jsonl)** subsection exports the graph (optionally filtered by label) and imports jsonl into an empty graph — import requires an empty target, which the server enforces with a 409 ([bulk-import-export.md](bulk-import-export.md)).
 
 ## Benchmark
 
@@ -110,15 +125,17 @@ Opened from every fragment slot on the Path and Subgraph screens (the Query scre
 
 ### NL assist
 
-The editor's side panel drafts a fragment from a natural-language description. It calls a model backend **you run yourself, directly from the browser** — never through the Fallen-8 instance.
+The editor's side panel drafts a fragment from a natural-language description, calling a model through one of two backends:
 
 | Setting | Detail |
 |---|---|
-| backend | built-in (local Ollama) or custom |
-| endpoint / api | e.g. `http://localhost:11434`; api kind `ollama` or `openai`-compatible |
-| model | built-in default `phi4-f8-mini` (fine-tuned); presets for `phi4-f8` (GPU fine-tune), stock `phi4-mini` / `phi4`, OpenAI, Anthropic |
+| backend | **this Fallen-8 instance** (default) or **custom endpoint** (browser-direct) |
+| instance mode | browser → the active instance's `POST /chat` → its model backend (the Ollama sidecar). The model is server-owned (`Fallen8:Chat:Ollama:Model`, default `phi4-f8-mini`); nothing to configure. Needs the instance's chat gateway enabled (`Fallen8:Chat:Enabled` / `F8_CHAT`) — [semantic-traversal.md](semantic-traversal.md). |
+| custom mode | the browser calls the endpoint **directly**; api kind `ollama` or `openai`-compatible; presets for the fine-tuned `phi4-f8-mini`/`phi4-f8`, stock `phi4-mini`/`phi4`, OpenAI, Anthropic. Any API key is held only in the browser and never sent to a Fallen-8 instance. |
 
-The compose stack runs the Ollama sidecar and sets `OLLAMA_ORIGINS` to the Studio origin so the browser may call it; for your own Ollama, set it yourself. The panel shows an informational reachability check for the configured backend but never blocks on it. Each draft is inserted as ordinary editable text and run through the same validation the editor uses, never auto-submitted; on an invalid draft the editor feeds the compiler diagnostics back to the model and retries a bounded number of times before stopping. A non-loopback endpoint shows a "text leaves this machine" notice first, and drafts can be rated 👍/👎 and exported as training examples. A model that is not present on the backend makes the call 404 ([troubleshooting.md](troubleshooting.md)).
+Instance mode is the default because Fallen-8 is now the semantic gateway (embeddings and chat both proxy through the instance). **This retires the earlier "never through the Fallen-8 instance" rule for the default path** — the prompt travels to the same instance you already trust with your graph, so instance mode shows no egress notice; the surviving guarantee is that a **custom** endpoint and its key stay browser-direct and never reach F8. A non-loopback custom endpoint still shows the "text leaves this machine" notice.
+
+Each draft is inserted as ordinary editable text and run through the same validation the editor uses, never auto-submitted; on an invalid draft the editor feeds the compiler diagnostics back to the model and retries a bounded number of times before stopping. Drafts can be rated 👍/👎 and exported as training examples. A model that is not present on the backend makes the call 404 ([troubleshooting.md](troubleshooting.md)). The plugin authoring editor's NL panel works the same way.
 
 ## Server capabilities Studio uses
 
@@ -127,7 +144,8 @@ Studio degrades gracefully when a capability is off, but these features need ser
 | Studio capability | Needs on the server | Docs |
 |---|---|---|
 | Delegate validation + inline path/subgraph filters & costs | The API key when one is configured (dynamic code is always on) | [security.md](security.md) |
-| NL assist drafting | A reachable model backend + `OLLAMA_ORIGINS` | [security.md](security.md) |
+| NL assist drafting (instance mode, default) | The chat gateway enabled (`Fallen8:Chat:Enabled` / `F8_CHAT`) + its Ollama backend reachable | [semantic-traversal.md](semantic-traversal.md) |
+| NL assist drafting (custom mode) | A reachable model backend the browser calls directly (`OLLAMA_ORIGINS` for a browser-direct Ollama) | [security.md](security.md) |
 | Text-in embedding, semantic search, text query vectors | Embedding provider enabled | [semantic-traversal.md](semantic-traversal.md) |
 | Stored-query invocation (Path / Subgraph) | Nothing (invocation is never gated) | [stored-queries.md](stored-queries.md) |
 | Live chip and push refreshes | Change feed enabled | [change-feed.md](change-feed.md) |

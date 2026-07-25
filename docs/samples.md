@@ -1,12 +1,12 @@
 # Sample gallery
 
-[F8 Studio](studio.md)'s dashboard ships a gallery of curated graphs that load in one click.
-Each comes styled for the canvas, indexed where it helps, and paired with example queries, so
-every card is a short guided tour of a different Fallen-8 capability — analytics, weighted
-paths, semantic search, visualization. This doc walks through each one, with screenshots and
-queries you can run yourself.
+[F8 Studio](studio.md)'s **Samples** screen ships a gallery of curated graphs that load in one
+click. Each comes styled for the canvas, indexed where it helps, and paired with example
+queries, so every card is a short guided tour of a different Fallen-8 capability — analytics,
+weighted paths, semantic search, visualization. A tag bar at the top filters the gallery by
+capability. This doc walks through each one, with screenshots and queries you can run yourself.
 
-![The F8 Studio dashboard showing the sample-graph gallery.](images/screen-dashboard.png)
+![The F8 Studio Samples screen with its capability tag filter.](images/screen-samples.png)
 
 ## How loading works
 

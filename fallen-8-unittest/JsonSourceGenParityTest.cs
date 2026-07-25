@@ -658,6 +658,64 @@ namespace NoSQL.GraphDB.Tests
                     IntendedMetric = "Cosine",
                     Loaded = false
                 }, "EmbeddingProviderStatsREST"),
+                (new ChatSpecification
+                {
+                    Messages = new List<ChatMessageSpecification>
+                    {
+                        new ChatMessageSpecification { Role = "user", Content = "draft a filter" }
+                    },
+                    Options = new ChatOptionsSpecification { Temperature = 0.1 }
+                }, "ChatSpecification"),
+                (new ChatMessageSpecification { Role = "system", Content = "you are helpful" }, "ChatMessageSpecification"),
+                (new ChatOptionsSpecification { Temperature = 0.2 }, "ChatOptionsSpecification"),
+                (new ChatResultREST
+                {
+                    Content = "return (v) => v.Label == \"person\";",
+                    Model = "phi4-f8-mini",
+                    Stats = new ChatStatsREST
+                    {
+                        PromptTokens = 12,
+                        CompletionTokens = 9,
+                        DurationMs = 240.0,
+                        TokensPerSecond = 37.5
+                    }
+                }, "ChatResultREST"),
+                (new ChatStatsREST
+                {
+                    PromptTokens = 3,
+                    CompletionTokens = 7,
+                    DurationMs = 100.0,
+                    TokensPerSecond = 70.0
+                }, "ChatStatsREST"),
+                (new ChatProviderStatsREST
+                {
+                    Enabled = true,
+                    Backend = "Ollama",
+                    Model = "phi4-f8-mini",
+                    Loaded = false,
+                    Gpu = true
+                }, "ChatProviderStatsREST"),
+                (new ObservabilityConfigREST
+                {
+                    OtlpEnabled = true,
+                    OtlpEndpoint = "http://otel-collector:4317",
+                    PrometheusEnabled = false,
+                    PrometheusRequireApiKey = false,
+                    TracingSamplingRatio = 1.0,
+                    StatisticsElementBudget = 1_000_000,
+                    StatisticsTopN = 20
+                }, "ObservabilityConfigREST"),
+                (new SemanticConfigREST
+                {
+                    Embedding = null,
+                    Chat = new ChatProviderStatsREST { Enabled = false, Backend = "Ollama", Model = "phi4-f8-mini", Loaded = false }
+                }, "SemanticConfigREST"),
+                (new ConfigREST
+                {
+                    Semantic = new SemanticConfigREST { Embedding = null, Chat = null },
+                    Observability = new ObservabilityConfigREST { OtlpEnabled = false },
+                    ApiKeyRequired = true
+                }, "ConfigREST"),
                 (new VectorIndexAddSpecification
                 {
                     GraphElementId = 42,

@@ -100,6 +100,12 @@ namespace NoSQL.GraphDB.Tests
                 "collection-wide save/reset variants are deferred; the single-namespace forms are bridged"),
             new(op => op == "PUT /load",
                 "the file-path load is deferred; f8_admin load uses the id-based /savegames/{id}/load"),
+            new(op => op == "POST /chat",
+                "the chat gateway is Studio's model path (browser -> instance -> Ollama); agents bring " +
+                "their own model. Chat capability state is discoverable via f8_overview (chatEnabled)"),
+            new(op => op == "GET /config",
+                "instance configuration is an operator/setup surface (semantic providers + observability " +
+                "posture); agents read capability state via f8_overview, not this aggregate"),
         };
 
         [TestMethod]

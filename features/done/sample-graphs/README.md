@@ -12,11 +12,13 @@ avg/median/stddev TPS. A session-local run history keeps before/after numbers. T
 benchmark traverses the edges `/generate` creates (edge property `"A"`) — a
 generated-graph benchmark, not a measurement of an arbitrary loaded graph.
 
-## Sample graphs (Dashboard)
+## Sample graphs (Samples screen)
 
-A manifest-driven card grid. Each curated card shows counts, what it demonstrates, and a
-**Load** button; loading fetches the dataset from a **public GitHub raw URL** and ingests
-it, then applies a canvas style and shows suggested next steps.
+Left nav **Samples** (below Dashboard). A manifest-driven, full-width card list with a
+capability **tag filter** (canvas / path / analytics / semantic / spatial) at the top. Each
+curated card shows counts, capability badges, a **what you can test** list, and a **Load**
+button; loading fetches the dataset from a **public GitHub raw URL** and ingests it, then
+applies a canvas style and shows suggested next steps.
 
 | Sample | Shows off |
 | --- | --- |

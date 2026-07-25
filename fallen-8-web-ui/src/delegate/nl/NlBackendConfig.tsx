@@ -1,6 +1,6 @@
 import { Field } from "../../components/Field";
 import {
-  BUILTIN_NL_BACKEND,
+  DEFAULT_NL_MODEL,
   NL_PRESETS,
   usesApiKey,
   type NlAssistConfig,
@@ -10,7 +10,7 @@ import {
  * The model-backend configuration form (nl-assist spec §4 / nl-assist-ux). Extracted so the
  * fragment editor (NlAssistPanel) and the whole-type plugin editor (PluginNlAssistPanel) share
  * ONE backend config UI over the same persisted store — the "one home per explanation" rule.
- * Presentational only: it renders the built-in/custom switch, presets, endpoint/api/model/temp,
+ * Presentational only: it renders the instance/custom switch, presets, endpoint/api/model/temp,
  * and the optional key, and reports changes back through {@link setConfig}.
  */
 export function NlBackendConfig({
@@ -27,18 +27,18 @@ export function NlBackendConfig({
           id="nl-mode"
           className="input w-auto"
           value={config.mode}
-          onChange={(e) => setConfig({ mode: e.target.value as "builtin" | "custom" })}
+          onChange={(e) => setConfig({ mode: e.target.value as "instance" | "custom" })}
         >
-          <option value="builtin">built-in (local Ollama)</option>
-          <option value="custom">custom</option>
+          <option value="instance">this Fallen-8 instance</option>
+          <option value="custom">custom endpoint (browser-direct)</option>
         </select>
       </Field>
-      {config.mode === "builtin" ? (
-        <p className="text-fg-faint text-[10px]" data-testid="nl-builtin-hint">
-          Fixed to the stack this project ships in docker-compose.yml:{" "}
-          <code>{BUILTIN_NL_BACKEND.endpoint}</code> · ollama ·{" "}
-          <code>{BUILTIN_NL_BACKEND.model}</code> (MIT weights + MIT runtime). Nothing to
-          configure.
+      {config.mode === "instance" ? (
+        <p className="text-fg-faint text-[10px]" data-testid="nl-instance-hint">
+          Routed through the active instance: <code>POST /chat</code> proxies to the server's
+          model backend (default <code>{DEFAULT_NL_MODEL}</code>, chosen on the server via
+          Fallen8:Chat). Nothing to configure here; the prompt stays within the instance you
+          are already connected to.
         </p>
       ) : (
         <>

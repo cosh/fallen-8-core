@@ -58,6 +58,11 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
         /// opaque node the overview passes through; f8_overview reports whether it is present and
         /// enabled without re-modelling the whole provider stats shape.</summary>
         public EmbeddingStateDto? Embedding { get; set; }
+
+        /// <summary>Chat-gateway state (feature instance-config; null when the target wired no
+        /// provider). f8_overview reports chatEnabled from it, the agent-facing view of the
+        /// otherwise-deferred POST /chat capability.</summary>
+        public ChatStateDto? Chat { get; set; }
     }
 
     public sealed class IndexDto
@@ -82,5 +87,12 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
         public String? Model { get; set; }
 
         public Int32? Dimensions { get; set; }
+    }
+
+    public sealed class ChatStateDto
+    {
+        public Boolean Enabled { get; set; }
+
+        public String? Model { get; set; }
     }
 }

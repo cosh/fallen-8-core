@@ -1,11 +1,16 @@
-import type { NlAssistConfig } from "./config";
+import { effectiveNlConfig, type NlAssistConfig } from "./config";
 import type { NlPrompt } from "./prompt";
+import { postChat } from "../../api/endpoints";
+import type { InstanceConfig } from "../../instances/types";
 
 /**
- * Browser-to-model transport (nl-assist spec §4): Ollama-native or OpenAI-compatible
- * chat completions. F8 is never in this path; the API key (if any) goes only here
- * (FR-26.11). Each call also surfaces the provider's generation statistics
- * (nl-assist-ux FR-5) — normalized headline numbers plus the raw payload.
+ * Model transport (nl-assist spec §4, feature instance-config). Two paths, chosen by mode:
+ * - INSTANCE (default): browser -> the active Fallen-8 instance (POST /chat) -> its model
+ *   backend. Auth is the instance's own credential (the shared api client); no third-party
+ *   key is involved.
+ * - CUSTOM: browser DIRECTLY to an Ollama-native or OpenAI-compatible endpoint; F8 is never
+ *   in this path and the API key (if any) goes only here (FR-26.11).
+ * Either path surfaces the provider's generation statistics (nl-assist-ux FR-5).
  */
 
 export interface ChatTurn {
@@ -41,6 +46,53 @@ interface OpenAiChatResponse {
   model?: string;
   choices?: { message?: { content?: string } }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+}
+
+/**
+ * The single entry point both NL panels call. Routes to the instance gateway or a
+ * browser-direct custom endpoint per {@link NlAssistConfig.mode}.
+ */
+export async function generateChat(
+  config: NlAssistConfig,
+  instance: InstanceConfig | null,
+  messages: ChatTurn[],
+  signal?: AbortSignal,
+): Promise<NlChatResult> {
+  if (config.mode === "instance") {
+    if (!instance) {
+      throw new Error("No active instance to route the model call through.");
+    }
+    return chatViaInstance(instance, messages, config.temperature, signal);
+  }
+  return chatWithModel(effectiveNlConfig(config), messages, signal);
+}
+
+/** Instance-gateway path: browser -> F8 POST /chat -> the server's model backend. */
+export async function chatViaInstance(
+  instance: InstanceConfig,
+  messages: ChatTurn[],
+  temperature: number,
+  signal?: AbortSignal,
+): Promise<NlChatResult> {
+  const result = await postChat(
+    instance,
+    { messages: messages.map((m) => ({ role: m.role, content: m.content })), options: { temperature } },
+    signal,
+  );
+  if (!result) {
+    throw new Error("The instance returned no chat completion.");
+  }
+  const s = result.stats;
+  const stats: NlGenerationStats | null = s
+    ? {
+        promptTokens: s.promptTokens ?? undefined,
+        completionTokens: s.completionTokens ?? undefined,
+        durationMs: s.durationMs ?? undefined,
+        tokensPerSecond: s.tokensPerSecond ?? undefined,
+        raw: { model: result.model, ...s },
+      }
+    : null;
+  return { content: result.content, stats };
 }
 
 export async function chatWithModel(

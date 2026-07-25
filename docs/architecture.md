@@ -19,7 +19,7 @@ flowchart TB
         direction TB
         rest["REST controllers + OpenAPI"]:::sys
         roslyn["Roslyn delegate compiler<br/>+ code cache"]:::sys
-        embed["Embedding provider<br/>(optional, off by default)"]:::sys
+        semantic["Semantic gateway<br/>(embeddings + chat, optional)"]:::sys
         wwwroot["wwwroot (serves F8 Studio)"]:::sys
     end
     subgraph engine["fallen-8-core (in-memory engine)"]
@@ -36,12 +36,12 @@ flowchart TB
     mcp -->|HTTP| rest
     studio -->|HTTP| rest
     svc -->|HTTP| rest
-    studio -.->|assist calls, direct from browser| sidecar
+    studio -.->|custom model endpoint (optional, browser-direct)| sidecar
     wwwroot -.- studio
     rest --> ns
     rest --> roslyn
-    rest --> embed
-    embed -.-> sidecar
+    rest --> semantic
+    semantic -.->|embeddings + chat| sidecar
     ns --> writer --> model
     model --- plugins
     model --- durab
@@ -104,11 +104,15 @@ modes. The full story is in [MCP server](mcp-server.md).
 ## F8 Studio and the model sidecar
 
 [F8 Studio](studio.md) is a React single-page app. It talks to the REST API like any other
-client — it has no privileged channel. Its natural-language assist is the one exception to
-the "everything through the API" rule: the browser calls a **user-run model backend**
-(Ollama / llama.cpp) **directly**, so no model traffic passes through the engine. In the
-compose environment that backend is the Ollama sidecar, which also serves the embedding model
-the app's provider calls. F8 itself bundles no model weights or runtime.
+client — it has no privileged channel, including for models: the app is the **semantic
+gateway**. Both embeddings and the natural-language assist default to going **through the
+instance** — the browser calls `POST /embedding/text` / `POST /chat`, and the app proxies to
+its model backend. In the compose environment that backend is the Ollama sidecar, which
+serves both the embedding model and the chat model. F8 itself bundles no model weights or
+runtime. The one path that stays off the instance is a **custom** NL-assist endpoint: there
+the browser calls the model backend directly and any API key is held only in the browser
+(the earlier browser-only default was retired in favour of the gateway — see
+[studio.md](studio.md)).
 
 ## One deployable unit
 

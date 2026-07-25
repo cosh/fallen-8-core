@@ -12,12 +12,13 @@ import { downloadText, toTrainingJsonl, type TrainingExample, type Verdict } fro
 import { formatFragment } from "./format";
 import { buildGenerationPrompt, buildRefinePrompt, extractFragment } from "./prompt";
 import {
-  chatWithModel,
+  generateChat,
   initialMessages,
   probeEndpoint,
   type ChatTurn,
   type NlGenerationStats,
 } from "./generate";
+import { useActiveInstance } from "../../instances/registry";
 
 /**
  * NL assist (FR-26, nl-assist + nl-assist-ux specs): builtin-by-default model backend,
@@ -51,6 +52,7 @@ export function NlAssistPanel({
   drivingRef: React.MutableRefObject<boolean>;
 }) {
   const { config, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
+  const instance = useActiveInstance();
   const [intent, setIntent] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [attempts, setAttempts] = useState<NlAttempt[]>([]);
@@ -59,14 +61,17 @@ export function NlAssistPanel({
   const [reachable, setReachable] = useState<boolean | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const isInstance = config.mode === "instance";
   const effective = effectiveNlConfig(config);
-  const configured = isNlConfigured(config);
+  const configured = isInstance ? instance !== null : isNlConfigured(config);
+  // Instance mode targets the already-trusted instance, so it never shows an egress notice.
   const needsLeaveNotice =
-    configured && !isLoopbackEndpoint(effective.endpoint) && !leaveNoticeAccepted;
+    !isInstance && configured && !isLoopbackEndpoint(effective.endpoint) && !leaveNoticeAccepted;
 
-  // Informational reachability probe (FR-2) - never gates generation.
+  // Informational reachability probe (FR-2) - never gates generation. Custom mode only:
+  // instance mode's reachability is the instance connection itself (shown on Connect).
   useEffect(() => {
-    if (!configured) {
+    if (!configured || isInstance) {
       setReachable(null);
       return;
     }
@@ -78,7 +83,7 @@ export function NlAssistPanel({
     return () => controller.abort();
     // Deps are the effective backend's primitives - `effective` itself is a new object
     // every render and would re-probe in a loop.
-  }, [configured, effective.endpoint, effective.apiKind, effective.model, effective.apiKey]);
+  }, [configured, isInstance, effective.endpoint, effective.apiKind, effective.model, effective.apiKey]);
 
   const generate = async () => {
     setError(null);
@@ -96,10 +101,11 @@ export function NlAssistPanel({
     const conversation: ChatTurn[] = initialMessages(prompt);
 
     try {
-      for (let attempt = 0; attempt <= effective.maxRetries; attempt++) {
-        setBusy(attempt === 0 ? "generating…" : `refining (${attempt}/${effective.maxRetries})…`);
-        const { content, stats } = await chatWithModel(
-          effective,
+      for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+        setBusy(attempt === 0 ? "generating…" : `refining (${attempt}/${config.maxRetries})…`);
+        const { content, stats } = await generateChat(
+          config,
+          instance,
           conversation,
           controller.signal,
         );
@@ -120,7 +126,7 @@ export function NlAssistPanel({
         ]);
 
         if (result === null || result.valid) break;
-        if (attempt === effective.maxRetries) break;
+        if (attempt === config.maxRetries) break;
 
         conversation.push({ role: "assistant", content });
         conversation.push({
@@ -175,14 +181,15 @@ export function NlAssistPanel({
       <div className="space-y-2 p-2 text-[12px]">
         {configured && (
           <p className="text-fg-faint text-[10px]" data-testid="nl-backend-status">
-            {config.mode === "builtin" ? "built-in" : "custom"} · {effective.endpoint} ·{" "}
-            {effective.model} —{" "}
-            {reachable === null ? "checking…" : reachable ? "reachable" : "not reachable"}
-            {reachable === false && config.mode === "builtin" && (
+            {isInstance ? (
               <>
-                {" "}
-                (start it with <code>npm run env:up</code>; if models are still downloading
-                on first start, follow <code>npm run env:logs</code>)
+                this instance · {instance?.name ?? "?"} → <code>/chat</code> (server-selected
+                model)
+              </>
+            ) : (
+              <>
+                custom · {effective.endpoint} · {effective.model} —{" "}
+                {reachable === null ? "checking…" : reachable ? "reachable" : "not reachable"}
               </>
             )}
           </p>
