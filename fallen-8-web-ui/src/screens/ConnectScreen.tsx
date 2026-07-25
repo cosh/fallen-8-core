@@ -6,6 +6,7 @@ import { describeEndpoint } from "../instances/types";
 import { getStatus, isAuthorized } from "../api/endpoints";
 import { Field } from "../components/Field";
 import { NamespacesPanel } from "../components/NamespacesPanel";
+import { ConfigurationPanel } from "../components/ConfigurationPanel";
 import { Truncated } from "../components/Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
 
@@ -202,6 +203,8 @@ export function ConnectScreen() {
           )}
         </div>
       </section>
+
+      <ConfigurationPanel />
 
       <NamespacesPanel />
 

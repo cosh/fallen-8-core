@@ -19,6 +19,7 @@ import type {
   PluginSummaryREST,
   PluginValidationResult,
   PluginValidationSpecification,
+  ConfigREST,
   EmbeddingSearchSpecification,
   EmbeddingWriteSpecification,
   SaveGame,
@@ -63,6 +64,14 @@ const WAIT = { waitForCompletion: true } as const;
 
 export const getStatus = (i: InstanceConfig, signal?: AbortSignal) =>
   apiRequest<StatusREST>(i, "/status", { signal });
+
+/**
+ * Instance configuration (feature instance-config): the read-only operator view of the
+ * semantic providers + observability posture. Fallen-8-level (bare /config, never per
+ * namespace) and API-key gated like /statistics; secrets are redacted server-side.
+ */
+export const getConfig = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<ConfigREST>(i, "/config", { signal, scope: "fallen8" });
 
 /** Authorized iff the instance needs no key or accepted ours (server contract on StatusREST.ApiKeyRequired). */
 export const isAuthorized = (s: StatusREST): boolean => !s.apiKeyRequired || s.authenticated === true;

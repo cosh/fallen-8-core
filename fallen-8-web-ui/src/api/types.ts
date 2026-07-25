@@ -113,6 +113,9 @@ export interface StatusREST {
   // Embedding provider state on the cheap surface (feature embedding-out-of-box).
   // Optional so instances predating the field still parse.
   embedding?: EmbeddingProviderStatsREST | null;
+  // Chat gateway capability state (feature instance-config). Optional so instances
+  // predating the field still parse; the GPU field is only set on GET /config.
+  chat?: ChatProviderStatsREST | null;
 }
 
 export interface PropertyREST {
@@ -199,6 +202,40 @@ export interface EmbeddingProviderStatsREST {
   dimension: number;
   intendedMetric: string | null;
   loaded: boolean;
+}
+
+// The chat gateway state (feature instance-config); on /status (no gpu) and GET /config (gpu set).
+export interface ChatProviderStatsREST {
+  enabled: boolean;
+  backend: string | null;
+  model: string | null;
+  loaded: boolean;
+  // Best-effort GPU residency: true/false when the backend reports it, null/undefined = unknown.
+  gpu?: boolean | null;
+}
+
+// The observability posture surfaced read-only by GET /config (feature instance-config).
+export interface ObservabilityConfigREST {
+  otlpEnabled: boolean;
+  otlpEndpoint: string | null;
+  prometheusEnabled: boolean;
+  prometheusRequireApiKey: boolean;
+  tracingSamplingRatio: number;
+  statisticsElementBudget: number;
+  statisticsTopN: number;
+}
+
+export interface SemanticConfigREST {
+  embedding?: EmbeddingProviderStatsREST | null;
+  chat?: ChatProviderStatsREST | null;
+}
+
+// The instance's read-only configuration view (feature instance-config): the operator-facing
+// aggregate behind the Studio Configuration section. Secrets are never present.
+export interface ConfigREST {
+  semantic: SemanticConfigREST;
+  observability: ObservabilityConfigREST;
+  apiKeyRequired: boolean;
 }
 
 export interface GraphStatisticsREST {
