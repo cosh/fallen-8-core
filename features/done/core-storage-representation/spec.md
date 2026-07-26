@@ -1,6 +1,6 @@
 # Core Storage Representation — Specification
 
-> **Status:** Planned. The headline finding of the repository review, flagged independently by
+> **Status:** Implemented. The headline finding of the repository review, flagged independently by
 > four of six teams. This is the single biggest lever for both **performance** and **memory**,
 > and it underpins the `engine-performance` and `memory-footprint` themes.
 

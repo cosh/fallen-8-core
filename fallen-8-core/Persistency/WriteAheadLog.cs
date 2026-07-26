@@ -46,7 +46,7 @@ namespace NoSQL.GraphDB.Core.Persistency
     ///   or empty for a log that predates any snapshot). After the
     ///   header come the entries, each framed as <c>[Int32 length][payload][UInt32 CRC-32]</c>.</para>
     ///
-    ///   <para><b>Single-writer.</b> Every <see cref="Append" />, <see cref="ResetToSnapshot" /> and
+    ///   <para><b>Single-writer.</b> Every <see cref="AppendBuffered" />, <see cref="ResetToSnapshot" /> and
     ///   the fresh-header write happen only on the Fallen-8 single transaction-writer thread, after a
     ///   transaction has reached its committed terminal state. The log holds no persistent file
     ///   handle: each append opens the file in append mode, writes one framed entry, fsyncs
@@ -100,8 +100,8 @@ namespace NoSQL.GraphDB.Core.Persistency
         private bool _valid;
 
         /// <summary>
-        ///   Sticky failure fence (feature crash-durability-hardening D1). Once an <see cref="Append" />
-        ///   fails, it is set and every subsequent <see cref="Append" /> is a no-op (it does not touch
+        ///   Sticky failure fence (feature crash-durability-hardening D1). Once an <see cref="AppendBuffered" />
+        ///   fails, it is set and every subsequent <see cref="AppendBuffered" /> is a no-op (it does not touch
         ///   the file), so a torn frame is never followed by more frames that a later replay would
         ///   silently drop. Cleared only by <see cref="ResetToSnapshot" /> (a successful Save re-writes
         ///   the log fresh against the new snapshot - the sanctioned recovery from a degraded log).
@@ -233,7 +233,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
-        ///   Whether the sticky failure fence has tripped (a prior <see cref="Append" /> failed). While
+        ///   Whether the sticky failure fence has tripped (a prior <see cref="AppendBuffered" /> failed). While
         ///   set, the log is degraded: no further entries are written, and durability is restored only
         ///   by a successful Save (<see cref="ResetToSnapshot" />). Feature crash-durability-hardening D1.
         /// </summary>
@@ -512,7 +512,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 if (useTempAndRename)
                 {
-                    var temp = _path + Constants.TempSaveSuffix + "." + Guid.NewGuid().ToString("N");
+                    var temp = DurableFileIo.TempNameFor(_path);
                     try
                     {
                         WriteAllBytesDurably(temp, headerBytes);
@@ -661,29 +661,17 @@ namespace NoSQL.GraphDB.Core.Persistency
 
         #region io helpers
 
+        // The durable-write/atomic-rename/delete primitives live once in DurableFileIo (shared with the
+        // checkpoint writer) so the two atomic-write commit points cannot drift. The WAL header is a
+        // small single write, so it passes FileOptions.None.
         private static void WriteAllBytesDurably(string path, byte[] bytes)
         {
-            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None,
-                       Constants.BufferSize, FileOptions.None))
-            {
-                fs.Write(bytes, 0, bytes.Length);
-                fs.Flush(true);
-            }
+            DurableFileIo.WriteAllBytesDurably(path, bytes, FileOptions.None);
         }
 
         private void TryDeleteFile(string file)
         {
-            try
-            {
-                if (File.Exists(file))
-                {
-                    File.Delete(file);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not delete the temporary write-ahead-log file \"{File}\".", file);
-            }
+            DurableFileIo.TryDeleteFile(file, _logger);
         }
 
         private static bool ReadExactly(Stream stream, byte[] buffer, int count)

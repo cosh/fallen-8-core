@@ -368,10 +368,13 @@ namespace NoSQL.GraphDB.App.Controllers
                 return NotFound(String.Format("No subgraph named '{0}'.", name));
             }
 
+            // Bounded read (feature api-error-contract E6): clamp maxElements to [0, MaxPageSize] so
+            // an oversized value cannot materialize the whole subgraph, matching GetGraph's cap.
+            var take = Math.Clamp(maxElements, 0, GraphController.MaxPageSize);
             var graph = new Graph
             {
-                Edges = result.SubGraph.GetAllEdges().Take(maxElements).Select(e => new Edge(e)).ToList(),
-                Vertices = result.SubGraph.GetAllVertices().Take(maxElements).Select(v => new Vertex(v)).ToList()
+                Edges = result.SubGraph.GetAllEdges().Take(take).Select(e => new Edge(e)).ToList(),
+                Vertices = result.SubGraph.GetAllVertices().Take(take).Select(v => new Vertex(v)).ToList()
             };
 
             return Ok(graph);

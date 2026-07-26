@@ -44,7 +44,6 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 {
     public class ScaleFreeNetwork
     {
-        private int _numberOfToBeTestedVertices = 10000000;
         private IFallen8 _f8;
 
         private static string edgeProperty = "A";
@@ -71,10 +70,6 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             // in DateHelper alone - see the comment on DateHelper.GetModificationDate.
             var creationDate = DateHelper.GetNowStamp();
             var prng = new Random();
-            if (nodeCount < _numberOfToBeTestedVertices)
-            {
-                _numberOfToBeTestedVertices = nodeCount;
-            }
 
             CreateVerticesTransaction vertexTx = new CreateVerticesTransaction();
 

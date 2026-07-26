@@ -98,7 +98,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 {
                     var created = await _bridge.RequestRawAsync(HttpMethod.Put, null, $"ns/{encoded}", null, cancellationToken)
                         .ConfigureAwait(false);
-                    return ToolResults.Ok($"namespace '{name}' created.", Pass(created));
+                    return ToolResults.Ok($"namespace '{name}' created.", ToolResults.Pass(created));
                 }
 
                 case "rename":
@@ -110,7 +110,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     }
                     var renamed = await _bridge.RequestRawAsync(HttpMethod.Patch, null, $"ns/{encoded}",
                         new NamespaceRenameDto { Name = newName }, cancellationToken).ConfigureAwait(false);
-                    return ToolResults.Ok($"namespace '{name}' renamed to '{newName}'.", Pass(renamed));
+                    return ToolResults.Ok($"namespace '{name}' renamed to '{newName}'.", ToolResults.Pass(renamed));
                 }
 
                 case "drop":
@@ -123,11 +123,6 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 default:
                     return ToolResults.Error(400, "Invalid arguments", "op must be create, rename, or drop.");
             }
-        }
-
-        private static JsonNode Pass(JsonElement? raw)
-        {
-            return raw is null ? new JsonObject() : JsonNode.Parse(raw.Value.GetRawText())!;
         }
     }
 }

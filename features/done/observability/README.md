@@ -49,8 +49,10 @@ Meter `NoSQL.GraphDB.App`: `fallen8.codegen.cache.hits`/`.misses`,
 `path_traverser`|`subgraph`). Built-in meters enabled alongside:
 `Microsoft.AspNetCore.Hosting`, `Microsoft.AspNetCore.Server.Kestrel`, `System.Runtime`.
 
-**Tag hygiene (hard invariant, pinned by test):** no metric tag value originates from user
-input — tags are type/enum/artifact names only. Anything user-named (labels, index names,
+**Tag hygiene (invariant, pinned by test):** no metric tag value originates from GRAPH CONTENT
+— tags are type/enum/artifact names only. Identity dimensions (tenant / instance / namespace
+names) are the sole, deliberate exception, added by feature `fleet-observability` (which narrowed
+this rule from the original "no user input"). Anything else user-named (labels, index names,
 property keys) lives in `/statistics`, behind auth.
 
 Useful queries: `histogram_quantile(0.99, rate(fallen8_transaction_commit_duration_bucket[5m]))`

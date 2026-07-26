@@ -67,5 +67,20 @@ namespace NoSQL.GraphDB.Mcp.Tools
             var suffix = error.Retryable ? " (retryable)" : String.Empty;
             return Error(error.Status, error.Title, error.Detail + suffix);
         }
+
+        /// <summary>Relays a raw bridge reply body as a structured payload node, defaulting a null
+        /// reply (a 204 / literal-null soft-not-found) to an empty object. One home for the
+        /// previously per-tool-triplicated <c>Pass</c> helper (feature code-quality: no-duplication).</summary>
+        public static JsonNode Pass(JsonElement? raw)
+        {
+            return raw is null ? new JsonObject() : JsonNode.Parse(raw.Value.GetRawText())!;
+        }
+
+        /// <summary>As <see cref="Pass"/> but defaults a null reply to an empty ARRAY, for endpoints
+        /// whose success body is a JSON array (e.g. list / register replies).</summary>
+        public static JsonNode PassArray(JsonElement? raw)
+        {
+            return raw is null ? new JsonArray() : JsonNode.Parse(raw.Value.GetRawText())!;
+        }
     }
 }

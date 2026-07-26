@@ -169,6 +169,11 @@ namespace NoSQL.GraphDB.Tests
                     info.WaitUntilFinished();
                     Assert.AreEqual(TransactionState.Finished, info.TransactionState);
                     Assert.AreEqual(1, fallen8.VertexCount);
+                    // With the WAL enabled the composed mutations are NOT logged (mode a is snapshot-
+                    // durable only), so Durable must be false - not the misleading true that let a caller
+                    // believe the write survives a crash before the next snapshot (finding A4).
+                    Assert.IsFalse(info.Durable,
+                        "A WAL-enabled, non-logged DelegateTransaction must report Durable=false.");
                 }
 
                 using (var recovered = new Fallen8(_loggerFactory, new WriteAheadLogOptions(walPath)))

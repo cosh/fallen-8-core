@@ -116,17 +116,17 @@ namespace NoSQL.GraphDB.App.Controllers
             var feed = _fallen8.ChangeFeed;
             if (feed == null)
             {
-                return Problem(statusCode: StatusCodes.Status503ServiceUnavailable,
-                    title: "Change feed disabled",
-                    detail: "The change feed is disabled on this server (Fallen8:ChangeFeed:Enabled=false).");
+                return Helper.ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                    "Change feed disabled",
+                    "The change feed is disabled on this server (Fallen8:ChangeFeed:Enabled=false).");
             }
 
             // ---- filter parsing (declarative; a bad value is a 400, never a silently-empty stream)
             var parseError = ChangeFeedQueryParser.TryParseFilter(kinds, elements, labels, keys, out var filter);
             if (parseError != null)
             {
-                return Problem(statusCode: StatusCodes.Status400BadRequest,
-                    title: "Invalid change feed filter", detail: parseError);
+                return Helper.ProblemResults.Create(StatusCodes.Status400BadRequest,
+                    "Invalid change feed filter", parseError);
             }
 
             // ---- catch-up position: ?since= wins; the EventSource reconnect header fills in.
@@ -140,15 +140,15 @@ namespace NoSQL.GraphDB.App.Controllers
             var sinceError = ChangeFeedQueryParser.TryParseSince(sinceValue, out var sinceEpoch, out var sinceSeq);
             if (sinceError != null)
             {
-                return Problem(statusCode: StatusCodes.Status400BadRequest,
-                    title: "Invalid since position", detail: sinceError);
+                return Helper.ProblemResults.Create(StatusCodes.Status400BadRequest,
+                    "Invalid since position", sinceError);
             }
 
             if (!feed.TrySubscribe(filter, sinceEpoch, sinceSeq, out var subscription))
             {
-                return Problem(statusCode: StatusCodes.Status503ServiceUnavailable,
-                    title: "Subscriber limit reached",
-                    detail: String.Format("The maximum number of concurrent change feed subscribers ({0}) is reached.",
+                return Helper.ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                    "Subscriber limit reached",
+                    String.Format("The maximum number of concurrent change feed subscribers ({0}) is reached.",
                         feed.Options.MaxSubscribers));
             }
 

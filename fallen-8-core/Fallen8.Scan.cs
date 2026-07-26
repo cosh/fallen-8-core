@@ -356,7 +356,11 @@ namespace NoSQL.GraphDB.Core
                     Object property;
                     return aGraphElement.TryGetProperty(out property, propertyId) &&
                            finder(property as IComparable, literal);
-                });
+                },
+                // Forward the label filter: this overload previously dropped interestingLabel, so a
+                // GraphScan(..., interestingLabel) silently scanned ALL labels. Forwarding it makes the
+                // label filter functional end-to-end (the seeker overload applies it via CheckLabel).
+                interestingLabel);
         }
 
         /// <summary>

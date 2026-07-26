@@ -122,7 +122,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             // Step 3: Copy edges matching EdgeFilter (or all valid edges if null)
             var edgesAdded = CopyEdgesWithFilter(subgraph, definition.EdgeFilter, vertexIdMapping);
 
-            _logger?.LogInformation($"Initial subgraph created with {vertexIdMapping.Count} vertices and {edgesAdded} edges");
+            _logger?.LogInformation("Initial subgraph created with {VertexCount} vertices and {EdgeCount} edges", vertexIdMapping.Count, edgesAdded);
 
             // Step 4: If patterns are defined, evaluate them to filter the subgraph further
             if (definition.Pattern != null && definition.Pattern.Count > 0)
@@ -275,7 +275,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             // Find all valid paths that match the patterns
             var validPaths = FindAllValidPaths(subgraph, patterns);
 
-            _logger?.LogInformation($"Found {validPaths.Count} valid paths");
+            _logger?.LogInformation("Found {ValidPathCount} valid paths", validPaths.Count);
 
             // Remove vertices and edges that are not part of valid paths
             RemoveInvalidElementsFromSubgraph(subgraph, validPaths);
@@ -747,21 +747,6 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
             }
 
             return true;
-        }
-
-        /// <summary>
-        /// Helper class to track edge information
-        /// </summary>
-        private class EdgeInfo
-        {
-            public int OriginalEdgeId
-            {
-                get; set;
-            }
-            public string EdgePropertyId
-            {
-                get; set;
-            }
         }
 
         /// <summary>

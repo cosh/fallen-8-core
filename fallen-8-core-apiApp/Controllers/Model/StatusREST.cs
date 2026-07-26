@@ -108,6 +108,16 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
+        ///   List of available subgraph algorithm plugins (reflection-discovered built-ins unioned
+        ///   with the addressed namespace's runtime-registered subgraph plugins)
+        /// </summary>
+        /// <example>["Breadth First Search Subgraph Algorithm"]</example>
+        public List<String> AvailableSubGraphPlugins
+        {
+            get; set;
+        }
+
+        /// <summary>
         ///   List of available graph-analytics algorithm plugins
         /// </summary>
         /// <example>["PAGERANK", "WCC", "LABELPROPAGATION", "DEGREE", "TRIANGLECOUNT"]</example>

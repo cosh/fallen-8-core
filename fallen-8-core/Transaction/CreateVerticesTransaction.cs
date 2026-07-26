@@ -62,7 +62,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             // clean InvalidInput below, while a genuine exception (e.g. OOM) escapes to the worker,
             // which records it as Error/InternalError (B6) - instead of the old behaviour that hid
             // an id-space corruption behind a benign-looking clean rollback.
-            _verticesCreated = f8.CreateVertices_internal(Vertices, out var inputValid);
+            f8.CreateVertices_internal(Vertices, _verticesCreated, out var inputValid);
 
             if (!inputValid)
             {

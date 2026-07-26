@@ -40,11 +40,6 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.SpatialContainer
         {
             get;
         }
-        /// <summary>
-        /// Level of Node
-        /// </summary>
-        //  public int Level { get; set; }
-
         abstract public void Dispose();
     }
 }

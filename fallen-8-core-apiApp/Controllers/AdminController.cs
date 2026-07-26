@@ -241,6 +241,9 @@ namespace NoSQL.GraphDB.App.Controllers
                 Indices = indices,
                 AvailableIndexPlugins = new List<String>(availableIndices),
                 AvailablePathPlugins = new List<String>(availablePathAlgos),
+                // Subgraph algorithms are now discoverable too (feature: /status discovery parity with
+                // path/analytics/index). The factory accessor unions the built-ins with the registry.
+                AvailableSubGraphPlugins = new List<String>(_fallen8.SubGraphFactory.GetAvailableSubGraphPlugins()),
                 AvailableAnalyticsPlugins = new List<String>(availableAnalyticsAlgos),
                 AvailableServicePlugins = new List<String>(availableServices),
                 EdgeCount = edgeCount,
@@ -374,9 +377,9 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>
         /// Trims the database, releasing unused memory
         /// </summary>
-        /// <response code="204">Trim operation successfully initiated</response>
+        /// <response code="200">Trim operation successfully enqueued (this void action returns 200 with an empty body, not 204)</response>
         [HttpHead("/trim")]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public void Trim()
         {
             TrimTransaction tx = new TrimTransaction();
@@ -407,6 +410,13 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async System.Threading.Tasks.Task<IActionResult> Load([FromBody] LoadSpecification definition)
         {
+            // Null-guard the body so a JSON `null` yields a 400 (matching the documented 400 and the
+            // Save/AddVertex/... siblings) rather than an NRE surfaced as a 500.
+            if (definition == null)
+            {
+                return BadRequest("A load specification is required.");
+            }
+
             _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", definition.StartServices));
 
             LoadTransaction tx = new LoadTransaction();
@@ -515,9 +525,9 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Bare /tabularasa erases the "default" namespace; /ns/{ns}/tabularasa erases that
         /// namespace. The Fallen-8-wide factory reset is HEAD /tabularasa/all.
         /// </remarks>
-        /// <response code="204">Namespace successfully cleared</response>
+        /// <response code="200">Namespace clear successfully enqueued (this void action returns 200 with an empty body, not 204)</response>
         [HttpHead("/tabularasa")]
-        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public void TabulaRasa()
         {
             TabulaRasaTransaction tx = new TabulaRasaTransaction();
@@ -666,8 +676,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         /// <param name="definition">Plugin specification including type, ID and options</param>
         /// <returns>True if service was successfully created, false otherwise</returns>
-        /// <response code="200">Returns whether the service was successfully created</response>
-        /// <response code="400">Invalid plugin specification</response>
+        /// <response code="200">Returns true if the service was created; false if the plugin type is unknown or the id already exists</response>
+        /// <response code="400">The request body was missing or malformed</response>
         [HttpPost("/service")]
         [Consumes("application/json")]
         [Produces("application/json")]

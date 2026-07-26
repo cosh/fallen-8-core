@@ -97,7 +97,7 @@ namespace NoSQL.GraphDB.Tests
         private static long TimeSave(Fallen8 fallen8, string path)
         {
             var sw = Stopwatch.StartNew();
-            var tx = new SaveTransaction { Path = path, SavePartitions = (int)SaveTransaction.GetOptimalNumberOfPartitions() };
+            var tx = new SaveTransaction { Path = path, SavePartitions = 0 };
             fallen8.EnqueueTransaction(tx).WaitUntilFinished();
             sw.Stop();
             return sw.ElapsedMilliseconds;
@@ -155,7 +155,7 @@ namespace NoSQL.GraphDB.Tests
                 // Enqueue a save but DO NOT wait; then immediately enqueue a tiny write. Because there
                 // is exactly one writer and the queue is FIFO, the write runs only AFTER the save, so
                 // its WaitUntilFinished measures the stall a concurrent writer observes.
-                var saveTx = new SaveTransaction { Path = path, SavePartitions = (int)SaveTransaction.GetOptimalNumberOfPartitions() };
+                var saveTx = new SaveTransaction { Path = path, SavePartitions = 0 };
                 var saveSw = Stopwatch.StartNew();
                 var saveInfo = fallen8.EnqueueTransaction(saveTx);
 

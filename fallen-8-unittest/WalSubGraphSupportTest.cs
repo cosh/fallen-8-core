@@ -223,6 +223,42 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region manifest-write failure (D6)
+
+        [TestMethod]
+        public void D6_ManifestWriteFailureDuringSave_FailsTheSave_AndLeavesTheWalUnreset()
+        {
+            // D6 (crash-durability-hardening): a recipe-manifest write failure during Save must FAIL the
+            // whole Save (nothing committed) and leave the WAL UNRESET, so the logged CreateSubGraph
+            // survives for the next replay - instead of the old catch+log that "succeeded" with no
+            // recipes and a reset WAL, losing subgraphs from both durability paths. Fault injection: block
+            // the manifest sidecar path ("<savePath>" + Constants.SubGraphManifestString == "_subgraphs")
+            // with a DIRECTORY, so SaveSubGraphRecipes' atomic temp->File.Move throws.
+            var source = NewEngineWithWalAndCompiler();
+            AddPeopleGraph(source);
+            CreateSubGraphViaController(source, PersonKnowsPerson("people")); // logged; produces a recipe
+
+            var manifestPath = SavePath + "_subgraphs";
+            Directory.CreateDirectory(manifestPath);
+
+            var saveTx = new SaveTransaction { Path = SavePath, SavePartitions = 1 };
+            var saveInfo = source.EnqueueTransaction(saveTx);
+            saveInfo.WaitUntilFinished();
+            Assert.AreEqual(TransactionState.RolledBack, saveInfo.TransactionState,
+                "A manifest-write failure must FAIL the Save (rolled back), not be swallowed into a fake success.");
+            source.Dispose();
+
+            // The WAL was NOT reset by the failed Save: reopening replays the logged CreateSubGraph, so the
+            // subgraph recovers. (A reset WAL would have lost it - the exact D6 data-loss path.)
+            using (var recovered = NewEngineWithWalAndCompiler())
+            {
+                Assert.IsTrue(recovered.SubGraphFactory.TryGetSubGraph(out _, "people"),
+                    "The WAL must be left unreset on a failed Save, so the logged subgraph replays on reopen.");
+            }
+        }
+
+        #endregion
+
         #region snapshot-paired recovery
 
         [TestMethod]

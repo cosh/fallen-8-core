@@ -103,24 +103,28 @@ namespace NoSQL.GraphDB.Tests
         public void ProductCode_WritesNoConsoleOutput()
         {
             // Output goes through ILogger (operational) or Debug.WriteLine (debug-only dumps);
-            // stdout belongs to the host. Tests and benchmarks may print - product code not.
+            // stdout belongs to the host. Tests and benchmarks may print - product code not. The
+            // pattern also catches the Console.Out.Write*/Console.Error.Write* spellings, not only the
+            // bare Console.Write* one, so an alternate spelling cannot slip stdout/stderr past the gate.
             var violations = new List<string>();
             foreach (var file in SourceFiles(_productProjects))
             {
-                if (CodeLines(file).Any(l => l.Contains("Console.Write", StringComparison.Ordinal)))
+                if (CodeLines(file).Any(l => Regex.IsMatch(l, @"\bConsole\.(Out\.|Error\.)?Write")))
                 {
                     violations.Add(file);
                 }
             }
 
-            AssertNoViolations(violations, "no Console.Write* in product code");
+            AssertNoViolations(violations, "no Console.Write* / Console.Out.Write* / Console.Error.Write* in product code");
         }
 
         [TestMethod]
         public void ProductCode_UsesNoLocalClock_OutsideTheDocumentedAllowlist()
         {
             // DateTime.Now is local and DST-sensitive; new code uses UtcNow (or stays off wall
-            // clocks entirely). DateHelper is the documented exception: its epoch semantics are
+            // clocks entirely). DateTimeOffset.Now is the same local wall-clock read and is caught
+            // too, so an alternate spelling cannot reintroduce the local-clock class the gate exists
+            // to prevent. DateHelper is the documented exception: its epoch semantics are
             // load-bearing and consistently local - see the comment in the file and the
             // code-quality spec's non-goal (with its revisit trigger).
             var allowlist = new[] { Path.Combine("fallen-8-core", "Helper", "DateHelper.cs") };
@@ -135,13 +139,13 @@ namespace NoSQL.GraphDB.Tests
                     continue;
                 }
 
-                if (CodeLines(file).Any(l => Regex.IsMatch(l, @"\bDateTime\.Now\b")))
+                if (CodeLines(file).Any(l => Regex.IsMatch(l, @"\bDateTime(Offset)?\.Now\b")))
                 {
                     violations.Add(file);
                 }
             }
 
-            AssertNoViolations(violations, "no DateTime.Now in product code (allowlist: DateHelper.cs)");
+            AssertNoViolations(violations, "no DateTime.Now / DateTimeOffset.Now in product code (allowlist: DateHelper.cs)");
         }
 
         [TestMethod]

@@ -13,6 +13,7 @@ import type {
   EdgeREST,
   EmbedElementSpecification,
   FunctionPluginRegistration,
+  GraphFunctionInvocation,
   GraphFunctionResultREST,
   PluginAuthoringCategory,
   PluginDetailREST,
@@ -514,7 +515,9 @@ export const invokeGraphFunction = (
 ) =>
   apiRequest<GraphFunctionResultREST>(i, `/plugins/function/${encodeURIComponent(name)}/invoke`, {
     method: "POST",
-    body: { parameters: parameters ?? {} },
+    // Typed against the request-body contract (mirrors the sibling plugin endpoints); compile-time
+    // check only, the emitted value is unchanged.
+    body: { parameters: parameters ?? {} } satisfies GraphFunctionInvocation,
   });
 
 /**

@@ -25,6 +25,11 @@ defers one. The governing stance, unanimous across all three lenses:
   caveats surface as one caption/tooltip line each; the narratives stay in the feature
   READMEs.
 
+> Shipped-placement note: the Stored-queries panel lives on the **Query** screen and the jsonl
+> interchange row in **Save games → Administration**, not on the Dashboard (which stays lean -
+> memory/counts only); index management is on a dedicated **Indexes** screen. `docs/studio.md` is
+> the living rule. The Dashboard-centric placement described below is the original design.
+
 Net new surface: one screen (Analytics), two Dashboard additions (Stored queries panel,
 interchange row), one scan kind, one source toggle on two screens, and one shared
 `ElementTable` score column. Two capabilities get deliberately less: bulk import is a bare

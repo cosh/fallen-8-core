@@ -121,7 +121,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
             var summary = await _bridge.RequestRawAsync(HttpMethod.Put, @namespace, "subgraph", body, cancellationToken)
                 .ConfigureAwait(false);
-            var structured = summary is null ? new JsonObject() : JsonNode.Parse(summary.Value.GetRawText())!.AsObject();
+            var structured = ToolResults.Pass(summary).AsObject();
             var counts = summary is { } s && s.TryGetProperty("vertexCount", out var vc)
                 ? $" ({vc.GetInt32()} vertices)"
                 : String.Empty;

@@ -135,8 +135,13 @@ namespace NoSQL.GraphDB.Core.Index
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    // Log before returning false so a failed index creation (e.g. a bad parameter or
+                    // an invalid embeddingName/dimension/metric thrown by VectorIndex.Initialize)
+                    // leaves a diagnostic trail, matching the log-then-return-false discipline of the
+                    // sibling factories (feature vector-index: the failure is logged).
+                    _logger.LogError(ex, String.Format("The index with name \"{0}\" (type \"{1}\") could not be created.", indexName, indexTypeName));
                     index = null;
                     return false;
                 }

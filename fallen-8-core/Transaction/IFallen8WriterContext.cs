@@ -150,7 +150,8 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             EnsureValid();
             var list = definitions?.ToList() ?? new List<VertexDefinition>();
-            var created = _f8.CreateVertices_internal(list, out var inputValid);
+            var created = new List<VertexModel>();
+            _f8.CreateVertices_internal(list, created, out var inputValid);
             if (!inputValid)
             {
                 throw new ArgumentException("The vertex definitions were invalid (a null definition).", nameof(definitions));

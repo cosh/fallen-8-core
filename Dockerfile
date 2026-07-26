@@ -42,7 +42,7 @@ EXPOSE 8080
 # Security posture is opt-in via environment, exactly like a bare-metal run:
 #   Fallen8__Security__ApiKey=...                    (authentication — set before exposing; the
 #                                                     /path + /subgraph endpoints run in-process code)
-#   Fallen8__Security__EnableDynamicPluginLoading=true  (upload + load plugin DLLs)
+#   Fallen8__Security__EnableDynamicPluginLoading=true  (source plugin registration: POST /plugins/*)
 #   Fallen8__Security__AllowedCorsOrigins__0=...     (cross-origin instances)
 
 ENTRYPOINT ["dotnet", "fallen-8-core-apiApp.dll"]

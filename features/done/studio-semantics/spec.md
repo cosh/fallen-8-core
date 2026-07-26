@@ -48,8 +48,10 @@ consistent with how every other shape-derived datalist behaves.
 - provider **absent/disabled** → text-in controls render disabled with an honest hint
   ("embedding provider off — Fallen8:Embedding:Enabled"), vector-paste controls stay
   fully functional (bring-your-own-vector is first-class, never gated);
-- provider **enabled** → text inputs light up; the Dashboard shows a provider card
-  (backend, model stamp, dimension, metric, loaded state).
+- provider **enabled** → text inputs light up; a provider card is shown
+  (backend, model stamp, dimension, metric, loaded state). (Shipped placement: the card lives on the
+  **Connect** screen's Configuration section, not the Dashboard - feature `instance-config`;
+  `docs/studio.md` is the living rule.)
 
 ### 2. Element embeddings in the Browser
 

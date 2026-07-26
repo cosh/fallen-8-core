@@ -233,20 +233,24 @@ namespace NoSQL.GraphDB.Core
             return newVertex;
         }
 
-        internal List<VertexModel> CreateVertices_internal(List<VertexDefinition> definitions, out Boolean inputValid)
+        internal void CreateVertices_internal(List<VertexDefinition> definitions, List<VertexModel> createdVertices, out Boolean inputValid)
         {
             // Construct-then-commit (feature transaction-atomicity): nothing is mutated - not the id
             // counter, not VertexCount, not the store - until every model in the batch has been built
             // successfully. So a throw (or a structurally invalid definition) before the atomic append
             // leaves the engine byte-for-byte as it was, and the id == index invariant is preserved
             // under every failure path (the old code advanced _currentId/VertexCount per definition
-            // BEFORE the append, so a mid-loop throw left _currentId > Count permanently).
+            // BEFORE the append, so a mid-loop throw left _currentId > Count permanently). The appended
+            // vertices are recorded into the caller's <paramref name="createdVertices"/> list BEFORE the
+            // embedding projection, so a residual post-append throw (e.g. OOM in projection) stays fully
+            // recoverable: the transaction's Rollback removes exactly the vertices that reached the store
+            // (mirroring the edge path's createdEdges - previously they were only returned, so a throw
+            // before the return left Rollback with nothing to compensate and surplus vertices committed).
             inputValid = true;
-            var newVertices = new List<VertexModel>();
 
             if (definitions == null || definitions.Count == 0)
             {
-                return newVertices;
+                return;
             }
 
             // 1. Validate structure up front WITHOUT mutating: a null definition (a JSON array element
@@ -257,12 +261,13 @@ namespace NoSQL.GraphDB.Core
                 if (aVertexDef == null)
                 {
                     inputValid = false;
-                    return newVertices; // nothing built, nothing mutated
+                    return; // nothing built, nothing mutated
                 }
             }
 
             // 2. Build every model against a LOCAL id counter seeded from _currentId. A throw here
             //    (e.g. OOM) still leaves the engine untouched - no compensation needed.
+            var newVertices = new List<VertexModel>(definitions.Count);
             var nextId = _currentId;
             foreach (var aVertexDef in definitions)
             {
@@ -271,20 +276,20 @@ namespace NoSQL.GraphDB.Core
                 nextId++;
             }
 
-            // 3. Commit atomically: one append (one Count bump), THEN advance the counters. The append
-            //    publishes Count last, so a reader sees either none or all of the batch.
+            // 3. Commit atomically: one append (one Count bump), advance the counters, then RECORD the
+            //    now-committed vertices for rollback BEFORE projection. The append publishes Count last,
+            //    so a reader sees either none or all of the batch.
             AppendGraphElements(newVertices);
             _currentId = nextId;
             VertexCount += newVertices.Count;
+            createdVertices.AddRange(newVertices);
 
-            // Bound-index projection of creation-time embeddings (feature element-embeddings);
-            // a residual rollback compensates via the standard removal purge.
+            // Bound-index projection of creation-time embeddings (feature element-embeddings); recorded
+            // in createdVertices already, so a residual projection throw still purges these on rollback.
             foreach (var newVertex in newVertices)
             {
                 ProjectAllEmbeddingsOf(newVertex);
             }
-
-            return newVertices;
         }
 
         internal EdgeModel CreateEdge_internal(Int32 sourceVertexId, String edgePropertyId, Int32 targetVertexId,

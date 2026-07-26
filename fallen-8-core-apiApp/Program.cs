@@ -102,7 +102,7 @@ namespace NoSQL.GraphDB.App
                         "prefixed with /ns/{ns} to address a named namespace. A request naming an " +
                         "unknown namespace answers 404 application/problem+json with a " +
                         "\"namespace\" extension member. Fallen-8-level paths (the /ns management " +
-                        "routes, save games, benchmark, delegate validation, plugin upload) exist " +
+                        "routes, save games, benchmark, delegate validation) exist " +
                         "once and concern the whole collection of namespaces.";
 
                     var sorted = new Microsoft.OpenApi.OpenApiPaths();

@@ -1,6 +1,6 @@
 # Engine Performance — Specification
 
-> **Status:** Planned. Performance improvements surfaced by the review that are independent of
+> **Status:** Implemented. Performance improvements surfaced by the review that are independent of
 > (though amplified by) the `core-storage-representation` change.
 
 ## 1. Scope

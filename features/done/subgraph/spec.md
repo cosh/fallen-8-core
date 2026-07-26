@@ -53,6 +53,11 @@ All types live in `NoSQL.GraphDB.Core.Algorithms.SubGraph` unless noted.
 
 ### 3.1 Patterns
 
+> Superseded by feature `subgraph-typed-filters`: `GraphElementPattern` was removed and both the
+> `VertexFilter`/`EdgeFilter` slots (§3.2) were retyped to plain `Delegates.VertexFilter`/`EdgeFilter`;
+> the `graphElementFilter` / `(ge)` fragment form (§5) no longer exists. The hierarchy and examples
+> here are the original design - see `subgraph-typed-filters` for the current model.
+
 ```
 APattern (abstract)                         // Type: PatternType, PatternName: string
 └── GraphElementPattern (abstract)          // GraphElement: Delegates.GraphElementFilter

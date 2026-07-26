@@ -219,6 +219,40 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void GetAvailableSubGraphPlugins_DiscoversTheBuiltInBfsAlgorithm()
+        {
+            // Feature: subgraph discovery parity with path/analytics/index. The accessor (surfaced on
+            // GET /status via AvailableSubGraphPlugins) must include the built-in BFS algorithm by its
+            // registered plugin name; before wiring it was an unused, never-surfaced enumerator.
+            var available = _fallen8.SubGraphFactory.GetAvailableSubGraphPlugins().ToList();
+            Assert.IsTrue(available.Contains("Breadth First Search Subgraph Algorithm"),
+                "The built-in BFS subgraph algorithm must be discoverable. Got: " + string.Join(", ", available));
+        }
+
+        [TestMethod]
+        public void GetSubGraphContents_ClampsAndHandlesNegativeMaxElements()
+        {
+            // Feature api-error-contract E6: the bounded-read clamp is pinned for GetSubGraphContents,
+            // not only GetGraph. A huge maxElements must clamp (never an unbounded materialization) and
+            // a negative must not fall through to Take(negative) - mirroring GetGraph_ClampsAndHandlesNegativeMaxElements.
+            _ = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
+
+            var big = _controller.GetSubGraphContents("people", int.MaxValue) as OkObjectResult;
+            Assert.IsNotNull(big);
+            var bigGraph = big.Value as Graph;
+            Assert.IsNotNull(bigGraph);
+            Assert.AreEqual(2, bigGraph.Vertices.Count, "A clamped read still returns every available vertex here.");
+            Assert.AreEqual(1, bigGraph.Edges.Count);
+
+            var negative = _controller.GetSubGraphContents("people", -5) as OkObjectResult;
+            Assert.IsNotNull(negative);
+            var negGraph = negative.Value as Graph;
+            Assert.IsNotNull(negGraph);
+            Assert.AreEqual(0, negGraph.Vertices.Count, "A negative maxElements yields an empty page, not a Take(negative) crash.");
+            Assert.AreEqual(0, negGraph.Edges.Count);
+        }
+
+        [TestMethod]
         public void Recalculate_ReflectsSourceChanges()
         {
             _ = _controller.CreateSubGraph(AllPersons()).Result;
