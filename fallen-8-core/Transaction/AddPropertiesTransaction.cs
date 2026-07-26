@@ -86,7 +86,10 @@ namespace NoSQL.GraphDB.Core.Transaction
             return this;
         }
 
-        public AddPropertiesTransaction AddEdge(PropertyAddDefinition definition)
+        // Fluent overload taking a pre-built PropertyAddDefinition, mirroring
+        // CreateEdgesTransaction.AddEdge(EdgeDefinition) / CreateVerticesTransaction.AddVertex(VertexDefinition).
+        // (Formerly mis-named AddEdge - a copy-paste artifact - on a *properties* transaction.)
+        public AddPropertiesTransaction AddProperty(PropertyAddDefinition definition)
         {
             Properties.Add(definition);
 

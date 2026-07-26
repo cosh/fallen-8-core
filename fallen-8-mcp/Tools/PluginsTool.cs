@@ -121,7 +121,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 {
                     var raw = await _bridge.RequestRawAsync(HttpMethod.Get, @namespace, "plugins", null, cancellationToken)
                         .ConfigureAwait(false);
-                    var node = raw is null ? new JsonArray() : JsonNode.Parse(raw.Value.GetRawText())!;
+                    var node = ToolResults.PassArray(raw);
                     var count = node is JsonArray arr ? arr.Count : 0;
                     return ToolResults.Ok($"{count} plugin(s) registered.", new JsonObject { ["plugins"] = node });
                 }
@@ -138,7 +138,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     {
                         return ToolResults.Error(404, "Not found", $"No plugin named '{name}'.");
                     }
-                    return ToolResults.Ok($"plugin '{name}'.", JsonNode.Parse(raw.Value.GetRawText())!);
+                    return ToolResults.Ok($"plugin '{name}'.", ToolResults.Pass(raw));
                 }
 
                 case "invoke":
@@ -150,7 +150,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     var body = new JsonObject { ["parameters"] = BuildStringParameters(arguments) };
                     var raw = await _bridge.RequestRawAsync(HttpMethod.Post, @namespace,
                         $"plugins/function/{UrlSafety.EncodeSegment(name)}/invoke", body, cancellationToken).ConfigureAwait(false);
-                    var node = raw is null ? new JsonObject() : JsonNode.Parse(raw.Value.GetRawText())!;
+                    var node = ToolResults.Pass(raw);
                     var (v, e) = CountResult(node);
                     return ToolResults.Ok($"function '{name}' returned {v} vertex/vertices, {e} edge(s).", node);
                 }
@@ -191,7 +191,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     };
                     var raw = await _bridge.RequestRawAsync(HttpMethod.Post, @namespace, "plugins/algorithm", body, cancellationToken)
                         .ConfigureAwait(false);
-                    return ToolResults.Ok($"algorithm plugin '{name}' registered.", Pass(raw));
+                    return ToolResults.Ok($"algorithm plugin '{name}' registered.", ToolResults.Pass(raw));
                 }
 
                 case "register_function":
@@ -213,7 +213,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     };
                     var raw = await _bridge.RequestRawAsync(HttpMethod.Post, @namespace, "plugins/function", body, cancellationToken)
                         .ConfigureAwait(false);
-                    return ToolResults.Ok($"graph function '{name}' registered.", Pass(raw));
+                    return ToolResults.Ok($"graph function '{name}' registered.", ToolResults.Pass(raw));
                 }
 
                 default:
@@ -245,11 +245,6 @@ namespace NoSQL.GraphDB.Mcp.Tools
             var v = node is JsonObject o && o["vertices"] is JsonArray va ? va.Count : 0;
             var e = node is JsonObject o2 && o2["edges"] is JsonArray ea ? ea.Count : 0;
             return (v, e);
-        }
-
-        private static JsonNode Pass(JsonElement? raw)
-        {
-            return raw is null ? new JsonObject() : JsonNode.Parse(raw.Value.GetRawText())!;
         }
     }
 }

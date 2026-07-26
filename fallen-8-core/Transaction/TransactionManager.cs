@@ -490,6 +490,15 @@ namespace NoSQL.GraphDB.Core.Transaction
                 {
                     Activity.Current = previous;
                     span.SetTag("transaction.type", transactionType);
+
+                    // Surface the optional caller-supplied DelegateTransaction label (diagnostics only)
+                    // so the many otherwise-identical "DelegateTransaction" spans can be told apart
+                    // (e.g. the per-property analytics write-back chunks). Null/absent falls back to the
+                    // transaction.type tag alone, exactly as before.
+                    if (item.Tx is DelegateTransaction delegateTx && !String.IsNullOrEmpty(delegateTx.Name))
+                    {
+                        span.SetTag("transaction.name", delegateTx.Name);
+                    }
                 }
                 return span;
             }

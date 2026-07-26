@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "fallen-8-core-apiApp | v0.1",
-    "description": "A Fallen-8 hosts isolated graph namespaces. Every namespace-scoped path exists twice: bare, aliasing the reserved \"default\" namespace, and prefixed with /ns/{ns} to address a named namespace. A request naming an unknown namespace answers 404 application/problem+json with a \"namespace\" extension member. Fallen-8-level paths (the /ns management routes, save games, benchmark, delegate validation, plugin upload) exist once and concern the whole collection of namespaces.",
+    "description": "A Fallen-8 hosts isolated graph namespaces. Every namespace-scoped path exists twice: bare, aliasing the reserved \"default\" namespace, and prefixed with /ns/{ns} to address a named namespace. A request naming an unknown namespace answers 404 application/problem+json with a \"namespace\" extension member. Fallen-8-level paths (the /ns management routes, save games, benchmark, delegate validation) exist once and concern the whole collection of namespaces.",
     "version": "1.0.0"
   },
   "servers": [
@@ -2692,7 +2692,7 @@
         },
         "responses": {
           "200": {
-            "description": "Returns true if the index was created successfully",
+            "description": "Returns true if the index was created; false if the index type is unknown, the name already exists, or initialization failed (see server logs)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2703,7 +2703,7 @@
             }
           },
           "400": {
-            "description": "Invalid index specification",
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2851,7 +2851,7 @@
         },
         "responses": {
           "200": {
-            "description": "Returns true if the element was successfully added to the index",
+            "description": "Returns true if the element was added; false if the index or the graph element does not exist (a miss is reported as 200 with a false body, not a 404)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2862,7 +2862,7 @@
             }
           },
           "400": {
-            "description": "Invalid specification, index not found, or graph element not found",
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2907,22 +2907,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Returns true if the index was successfully deleted",
+            "description": "Returns true if the index was deleted; false if no index with that name exists (a miss is reported as 200 with a false body, not a 404)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
                   "type": "boolean"
-                }
-              },
-              "application/json": { }
-            }
-          },
-          "404": {
-            "description": "Index not found",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -2981,7 +2970,7 @@
         },
         "responses": {
           "200": {
-            "description": "Returns true if the key was successfully removed",
+            "description": "Returns true if the key was removed; false if the index does not exist (a miss is reported as 200 with a false body)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2992,7 +2981,7 @@
             }
           },
           "400": {
-            "description": "Invalid property specification or index not found",
+            "description": "The property specification was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3053,22 +3042,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Returns true if the element was successfully removed from the index",
+            "description": "Returns true if the element was removed; false if the index or the graph element does not exist (a miss is reported as 200 with a false body, not a 404)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
                   "type": "boolean"
-                }
-              },
-              "application/json": { }
-            }
-          },
-          "404": {
-            "description": "Index not found or graph element not found",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -6198,7 +6176,7 @@
         },
         "responses": {
           "200": {
-            "description": "Returns true if the index was created successfully",
+            "description": "Returns true if the index was created; false if the index type is unknown, the name already exists, or initialization failed (see server logs)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6209,7 +6187,7 @@
             }
           },
           "400": {
-            "description": "Invalid index specification",
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6373,7 +6351,7 @@
         },
         "responses": {
           "200": {
-            "description": "Returns true if the element was successfully added to the index",
+            "description": "Returns true if the element was added; false if the index or the graph element does not exist (a miss is reported as 200 with a false body, not a 404)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6384,7 +6362,7 @@
             }
           },
           "400": {
-            "description": "Invalid specification, index not found, or graph element not found",
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6437,22 +6415,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Returns true if the index was successfully deleted",
+            "description": "Returns true if the index was deleted; false if no index with that name exists (a miss is reported as 200 with a false body, not a 404)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
                   "type": "boolean"
-                }
-              },
-              "application/json": { }
-            }
-          },
-          "404": {
-            "description": "Index not found",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -6519,7 +6486,7 @@
         },
         "responses": {
           "200": {
-            "description": "Returns true if the key was successfully removed",
+            "description": "Returns true if the key was removed; false if the index does not exist (a miss is reported as 200 with a false body)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6530,7 +6497,7 @@
             }
           },
           "400": {
-            "description": "Invalid property specification or index not found",
+            "description": "The property specification was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6599,22 +6566,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Returns true if the element was successfully removed from the index",
+            "description": "Returns true if the element was removed; false if the index or the graph element does not exist (a miss is reported as 200 with a false body, not a 404)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
                   "type": "boolean"
-                }
-              },
-              "application/json": { }
-            }
-          },
-          "404": {
-            "description": "Index not found or graph element not found",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -6813,7 +6769,7 @@
             }
           },
           "404": {
-            "description": "Source or target vertex not found, or no stored query with the referenced name exists",
+            "description": "No stored query with the referenced name exists (a missing source/target vertex is not a 404: it yields a 200 with an empty path list)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6831,6 +6787,12 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "An unexpected runtime fault occurred while calculating the path (e.g. a compiled filter/cost fragment threw)",
+            "content": {
               "application/json": { }
             }
           }
@@ -7677,7 +7639,7 @@
           "Graph"
         ],
         "summary": "Scans the graph for elements with a specific property value",
-        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the scan to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to scan every element type.",
         "parameters": [
           {
             "name": "propertyId",
@@ -7911,19 +7873,14 @@
               "application/json": { }
             }
           },
-          "400": {
-            "description": "Invalid search specification or index not found",
+          "204": {
+            "description": "The index does not exist or is not a fulltext index (a miss yields 204 No Content, not a 404)",
             "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
               "application/json": { }
             }
           },
-          "404": {
-            "description": "Index not found or is not a fulltext index",
+          "400": {
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -8094,19 +8051,14 @@
               "application/json": { }
             }
           },
-          "400": {
-            "description": "Invalid search specification",
+          "204": {
+            "description": "The index does not exist, is not a spatial index, or the reference element does not exist (a miss yields 204 No Content, not a 404)",
             "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
               "application/json": { }
             }
           },
-          "404": {
-            "description": "Index not found, is not a spatial index, or reference element not found",
+          "400": {
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -8251,7 +8203,7 @@
         },
         "responses": {
           "200": {
-            "description": "Returns whether the service was successfully created",
+            "description": "Returns true if the service was created; false if the plugin type is unknown or the id already exists",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -8262,7 +8214,7 @@
             }
           },
           "400": {
-            "description": "Invalid plugin specification",
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -9240,8 +9192,8 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Namespace successfully cleared"
+          "200": {
+            "description": "Namespace clear successfully enqueued (this void action returns 200 with an empty body, not 204)"
           }
         }
       }
@@ -9277,8 +9229,8 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Trim operation successfully initiated"
+          "200": {
+            "description": "Trim operation successfully enqueued (this void action returns 200 with an empty body, not 204)"
           }
         }
       }
@@ -10351,7 +10303,7 @@
             }
           },
           "404": {
-            "description": "Source or target vertex not found, or no stored query with the referenced name exists",
+            "description": "No stored query with the referenced name exists (a missing source/target vertex is not a 404: it yields a 200 with an empty path list)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -10369,6 +10321,12 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "An unexpected runtime fault occurred while calculating the path (e.g. a compiled filter/cost fragment threw)",
+            "content": {
               "application/json": { }
             }
           }
@@ -11468,7 +11426,7 @@
           "Graph"
         ],
         "summary": "Scans the graph for elements with a specific property value",
-        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the scan to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to scan every element type.",
         "parameters": [
           {
             "name": "propertyId",
@@ -11678,19 +11636,14 @@
               "application/json": { }
             }
           },
-          "400": {
-            "description": "Invalid search specification or index not found",
+          "204": {
+            "description": "The index does not exist or is not a fulltext index (a miss yields 204 No Content, not a 404)",
             "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
               "application/json": { }
             }
           },
-          "404": {
-            "description": "Index not found or is not a fulltext index",
+          "400": {
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -11845,19 +11798,14 @@
               "application/json": { }
             }
           },
-          "400": {
-            "description": "Invalid search specification",
+          "204": {
+            "description": "The index does not exist, is not a spatial index, or the reference element does not exist (a miss yields 204 No Content, not a 404)",
             "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
               "application/json": { }
             }
           },
-          "404": {
-            "description": "Index not found, is not a spatial index, or reference element not found",
+          "400": {
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -11986,7 +11934,7 @@
         },
         "responses": {
           "200": {
-            "description": "Returns whether the service was successfully created",
+            "description": "Returns true if the service was created; false if the plugin type is unknown or the id already exists",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -11997,7 +11945,7 @@
             }
           },
           "400": {
-            "description": "Invalid plugin specification",
+            "description": "The request body was missing or malformed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -12863,8 +12811,8 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Namespace successfully cleared"
+          "200": {
+            "description": "Namespace clear successfully enqueued (this void action returns 200 with an empty body, not 204)"
           }
         }
       }
@@ -12942,8 +12890,8 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Trim operation successfully initiated"
+          "200": {
+            "description": "Trim operation successfully enqueued (this void action returns 200 with an empty body, not 204)"
           }
         }
       }
@@ -17299,6 +17247,19 @@
               "Dijkstra",
               "AStar",
               "BellmanFord"
+            ]
+          },
+          "availableSubGraphPlugins": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "List of available subgraph algorithm plugins (reflection-discovered built-ins unioned\r\nwith the addressed namespace's runtime-registered subgraph plugins)",
+            "example": [
+              "Breadth First Search Subgraph Algorithm"
             ]
           },
           "availableAnalyticsPlugins": {

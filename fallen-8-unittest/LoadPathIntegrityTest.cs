@@ -31,6 +31,7 @@ using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
 using NoSQL.GraphDB.Core.Transaction;
@@ -130,6 +131,23 @@ namespace NoSQL.GraphDB.Tests
                 var savePath = Path.Combine(_tempDir, "cb_" + iter + ".f8s");
                 var saveTx = new SaveTransaction { Path = savePath };
                 source.EnqueueTransaction(saveTx).WaitUntilFinished();
+
+                // Guard the test's own premise: cross-bunch rehydration only occurs when the save
+                // wrote MORE than one graph-element bunch (so an edge spans partitions). The bunch
+                // count is min(byWork, ProcessorCount), so on a 1-CPU environment it collapses to a
+                // single bunch and this test would pass VACUOUSLY without exercising the concurrent
+                // fix-up. Make that loud instead of silent (feature load-path-integrity L1).
+                var bunches = Directory.GetFiles(_tempDir)
+                    .Count(f => Path.GetFileName(f).StartsWith(
+                                    Path.GetFileName(saveTx.ActualPath) + Constants.GraphElementsSaveString,
+                                    StringComparison.Ordinal)
+                             && !f.Contains(Constants.TempSaveSuffix));
+                if (Environment.ProcessorCount < 2)
+                {
+                    Assert.Inconclusive("Cross-bunch adjacency needs more than one save partition, which requires at least 2 CPUs.");
+                }
+                Assert.IsTrue(bunches > 1,
+                    "Iteration " + iter + ": the save produced a single bunch (" + bunches + "), so no edge spans a partition and the cross-bunch fix-up is not exercised.");
 
                 var loaded = new Fallen8(_loggerFactory);
                 var loadInfo = loaded.EnqueueTransaction(new LoadTransaction { Path = saveTx.ActualPath });

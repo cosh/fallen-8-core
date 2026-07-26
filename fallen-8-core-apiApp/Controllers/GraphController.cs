@@ -75,9 +75,10 @@ namespace NoSQL.GraphDB.App.Controllers
 
         private readonly GeneratedCodeCache _cache;
 
-        /// <summary>Upper bound on how many elements a single page read (<see cref="GetGraph"/>) returns,
-        /// so a request cannot materialize the whole graph (feature api-error-contract E6).</summary>
-        private const int MaxPageSize = 100_000;
+        /// <summary>Upper bound on how many elements a single page read (<see cref="GetGraph"/>, and
+        /// <see cref="SubGraphController.GetSubGraphContents"/>) returns, so a request cannot
+        /// materialize the whole graph (feature api-error-contract E6). One home for the cap.</summary>
+        internal const int MaxPageSize = 100_000;
 
         #endregion
 

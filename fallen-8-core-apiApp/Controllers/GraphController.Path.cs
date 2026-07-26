@@ -87,10 +87,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="200">Returns the found paths between the vertices</response>
         /// <response code="400">Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind</response>
         /// <response code="401">No valid credential was supplied</response>
-        /// <response code="404">Source or target vertex not found, or no stored query with the referenced name exists</response>
+        /// <response code="404">No stored query with the referenced name exists (a missing source/target vertex is not a 404: it yields a 200 with an empty path list)</response>
         /// <response code="409">The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name})</response>
         /// <response code="413">The request body exceeds the code-endpoint size limit</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
+        /// <response code="500">An unexpected runtime fault occurred while calculating the path (e.g. a compiled filter/cost fragment threw)</response>
         /// <remarks>
         /// Instead of inline fragments, the body may reference a registered stored query of kind
         /// "Path" via "storedQuery" (mutually exclusive with "filter"/"cost"): the pre-compiled
@@ -123,6 +124,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<List<PathREST>>> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
         {
             // Always initialize with empty list to avoid returning null
@@ -261,8 +263,15 @@ namespace NoSQL.GraphDB.App.Controllers
             }
             catch (Exception ex)
             {
-                // Log the exception but don't let it propagate
+                // A runtime fault while executing the traversal or a compiled filter/cost fragment
+                // must NOT be masked as a 200-empty "no path" result (feature api-error-contract E5):
+                // an empty 200 is indistinguishable from a genuine no-path and misleads REST clients
+                // and the MCP f8_paths tool. A compile failure is already a 400 (handled above) and a
+                // genuine no-path is still a 200 with []; only an unexpected runtime fault reaches
+                // here, and it is surfaced as a real 500 (mirroring /subgraph).
                 _logger?.LogError(ex, "Error calculating path between vertices {0} and {1}", from, to);
+                return StatusCode(StatusCodes.Status500InternalServerError,
+                    String.Format("An unexpected error occurred while calculating a path between vertices {0} and {1}.", from, to));
             }
 
             return result; // Always return the initialized list, never null

@@ -33,6 +33,7 @@ using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.Cache;
 using NoSQL.GraphDB.Core.Plugin;
+using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Core.SubGraph
@@ -50,8 +51,6 @@ namespace NoSQL.GraphDB.Core.SubGraph
         private readonly ConcurrentDictionary<String, SubGraphResult> _subGraphsByName;
 
         private readonly ConcurrentDictionary<Guid, SubGraphResult> _subGraphsById;
-
-        private readonly ConcurrentDictionary<Guid, Guid> _subGraphDependencies;
 
         /// <summary>
         /// The logger
@@ -87,7 +86,6 @@ namespace NoSQL.GraphDB.Core.SubGraph
         {
             _subGraphsByName = new ConcurrentDictionary<String, SubGraphResult>();
             _subGraphsById = new ConcurrentDictionary<Guid, SubGraphResult>();
-            _subGraphDependencies = new ConcurrentDictionary<Guid, Guid>();
             _logger = logger;
             _fallen8 = myF8;
             _pluginCache = pluginCache;
@@ -139,11 +137,20 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns>The available subgraph algorithm plugins.</returns>
         public IEnumerable<String> GetAvailableSubGraphPlugins()
         {
-            IEnumerable<String> result;
+            // Reflection-discovered built-ins UNIONED with the addressed namespace's runtime-registered
+            // subgraph plugins (feature plugin-registration §4.4), so a registered subgraph algorithm is
+            // DISCOVERABLE (surfaced on GET /status), not merely invocable-by-name - matching how the
+            // Path/Analytics discovery lists union the registry.
+            PluginFactory.TryGetAvailablePlugins<ISubGraphAlgorithm>(out var builtins);
+            IEnumerable<String> result = builtins ?? Enumerable.Empty<String>();
 
-            PluginFactory.TryGetAvailablePlugins<ISubGraphAlgorithm>(out result);
+            var registry = _fallen8.Plugins;
+            if (registry != null)
+            {
+                result = result.Concat(registry.NamesForContract(PluginContract.SubGraph)).Distinct();
+            }
 
-            return result;
+            return result.ToList();
         }
 
         /// <summary>
@@ -463,21 +470,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, String.Format("Exception occurred while creating subgraph \"{0}\": {1}", subGraphName, ex.Message));
+                _logger.LogError(ex, "Exception occurred while creating subgraph {SubGraphName}", subGraphName);
                 subGraph = null;
                 reason = TransactionFailureReason.InternalError;
                 return false;
             }
-        }
-
-        private bool TrackSubgraphDependency(Guid subGraphId, Guid sourceGraphId)
-        {
-            return _subGraphDependencies.TryAdd(subGraphId, sourceGraphId);
-        }
-
-        private bool UnTrackSubgraphDependency(Guid subGraphId, Guid sourceGraphId)
-        {
-            return _subGraphDependencies.TryRemove(subGraphId, out _);
         }
 
         /// <summary>
@@ -494,7 +491,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 return false;
             }
 
-            return _subGraphsByName.TryAdd(subGraph.Definitions.Name, subGraph) && _subGraphsById.TryAdd(subGraph.SubGraph.Id, subGraph) && TrackSubgraphDependency(subGraph.SubGraph.Id, subGraph.SourceFallen8Id);
+            return _subGraphsByName.TryAdd(subGraph.Definitions.Name, subGraph) && _subGraphsById.TryAdd(subGraph.SubGraph.Id, subGraph);
         }
 
         /// <summary>
@@ -506,7 +503,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         {
             if (_subGraphsByName.TryGetValue(subGraphName, out var subGraph))
             {
-                return _subGraphsByName.TryRemove(subGraphName, out _) && _subGraphsById.TryRemove(subGraph.SubGraph.Id, out _) && UnTrackSubgraphDependency(subGraph.SubGraph.Id, subGraph.SourceFallen8Id);
+                return _subGraphsByName.TryRemove(subGraphName, out _) && _subGraphsById.TryRemove(subGraph.SubGraph.Id, out _);
             }
 
             return false;
@@ -535,7 +532,6 @@ namespace NoSQL.GraphDB.Core.SubGraph
         {
             _subGraphsByName.Clear();
             _subGraphsById.Clear();
-            _subGraphDependencies.Clear();
         }
 
         /// <summary>

@@ -427,13 +427,7 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         #region Insert of the data
         private void InsertData(IRTreeDataContainer container)
         {
-
-            //  for (int i = 1; i < this.levelForOverflowStrategy.Count; i++)
-            //      levelForOverflowStrategy[i] = true;
             Insert(container, _levelForOverflowStrategy.Count - 1);
-            //      for (int i = 1; i < this.levelForOverflowStrategy.Count; i++)
-            //          levelForOverflowStrategy[i] = false;
-
         }
         #endregion
 

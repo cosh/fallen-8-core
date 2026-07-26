@@ -520,28 +520,18 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <summary>Monotonic guard for <see cref="NextVersionStamp"/>.</summary>
         private static long _lastVersionStamp;
 
-        /// <summary>
-        /// The temporary name a checkpoint file is written under before it is fsync'd and atomically
-        /// renamed into place (finding C2). The GUID makes it unique per attempt, so a crashed prior
-        /// save's leftover temp can never be confused with this one's.
-        /// </summary>
+        /// <summary>See <see cref="DurableFileIo.TempNameFor"/> - the one home for the temp-name +
+        /// fsync-before-rename primitives, shared with the WAL so the two atomic-write paths cannot drift.</summary>
         private static string TempNameFor(string finalPath)
         {
-            return finalPath + Constants.TempSaveSuffix + "." + Guid.NewGuid().ToString("N");
+            return DurableFileIo.TempNameFor(finalPath);
         }
 
-        /// <summary>
-        /// Writes bytes to a file and fsyncs them to disk before returning, so a subsequent atomic
-        /// rename cannot expose a file whose contents are still only in the OS write cache.
-        /// </summary>
+        /// <summary>See <see cref="DurableFileIo.WriteAllBytesDurably"/>. Checkpoint sidecars are read
+        /// back sequentially, so this path passes <see cref="FileOptions.SequentialScan"/>.</summary>
         private static void WriteAllBytesDurably(string path, byte[] bytes)
         {
-            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None,
-                       Constants.BufferSize, FileOptions.SequentialScan))
-            {
-                fs.Write(bytes, 0, bytes.Length);
-                fs.Flush(true);
-            }
+            DurableFileIo.WriteAllBytesDurably(path, bytes, FileOptions.SequentialScan);
         }
 
         /// <summary>
@@ -838,23 +828,11 @@ namespace NoSQL.GraphDB.Core.Persistency
             return result;
         }
 
-        /// <summary>
-        /// Best-effort delete of a temporary or stale file. A cleanup failure must never mask or
-        /// escalate the operation that triggered it.
-        /// </summary>
+        /// <summary>See <see cref="DurableFileIo.TryDeleteFile"/> (best-effort; a cleanup failure never
+        /// masks or escalates the operation that triggered it).</summary>
         private void TryDeleteFile(string file)
         {
-            try
-            {
-                if (File.Exists(file))
-                {
-                    File.Delete(file);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, String.Format("Could not delete the file \"{0}\".", file));
-            }
+            DurableFileIo.TryDeleteFile(file, _logger);
         }
 
         #endregion

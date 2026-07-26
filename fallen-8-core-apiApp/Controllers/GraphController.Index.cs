@@ -171,8 +171,8 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        }
         ///     }
         /// </remarks>
-        /// <response code="200">Returns true if the index was created successfully</response>
-        /// <response code="400">Invalid index specification</response>
+        /// <response code="200">Returns true if the index was created; false if the index type is unknown, the name already exists, or initialization failed (see server logs)</response>
+        /// <response code="400">The request body was missing or malformed</response>
         [HttpPost("/index")]
         [Consumes("application/json")]
         [Produces("application/json")]
@@ -203,8 +203,8 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        }
         ///     }
         /// </remarks>
-        /// <response code="200">Returns true if the element was successfully added to the index</response>
-        /// <response code="400">Invalid specification, index not found, or graph element not found</response>
+        /// <response code="200">Returns true if the element was added; false if the index or the graph element does not exist (a miss is reported as 200 with a false body, not a 404)</response>
+        /// <response code="400">The request body was missing or malformed</response>
         [HttpPut("/index/{indexId}")]
         [Consumes("application/json")]
         [Produces("application/json")]
@@ -222,7 +222,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     return true;
                 }
 
-                _logger.LogError(String.Format("Could not find graph element {0}.", definition.GraphElementId));
+                _logger.LogError("Could not find graph element {GraphElementId}.", definition.GraphElementId);
                 return false;
             }
             _logger.LogError(String.Format("Could not find index {0}.", indexId));
@@ -244,8 +244,8 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        "fullQualifiedTypeName": "System.String"
         ///     }
         /// </remarks>
-        /// <response code="200">Returns true if the key was successfully removed</response>
-        /// <response code="400">Invalid property specification or index not found</response>
+        /// <response code="200">Returns true if the key was removed; false if the index does not exist (a miss is reported as 200 with a false body)</response>
+        /// <response code="400">The property specification was missing or malformed</response>
         [HttpDelete("/index/{indexId}/propertyValue")]
         [Consumes("application/json")]
         [Produces("application/json")]
@@ -273,12 +273,10 @@ namespace NoSQL.GraphDB.App.Controllers
         ///
         ///     DELETE /index/nameIndex/123
         /// </remarks>
-        /// <response code="200">Returns true if the element was successfully removed from the index</response>
-        /// <response code="404">Index not found or graph element not found</response>
+        /// <response code="200">Returns true if the element was removed; false if the index or the graph element does not exist (a miss is reported as 200 with a false body, not a 404)</response>
         [HttpDelete("/index/{indexId}/{graphElementId}")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public bool RemoveGraphElementFromIndex([FromRoute] String indexId, [FromRoute] Int32 graphElementId)
         {
             IIndex idx;
@@ -308,12 +306,10 @@ namespace NoSQL.GraphDB.App.Controllers
         ///
         ///     DELETE /index/nameIndex
         /// </remarks>
-        /// <response code="200">Returns true if the index was successfully deleted</response>
-        /// <response code="404">Index not found</response>
+        /// <response code="200">Returns true if the index was deleted; false if no index with that name exists (a miss is reported as 200 with a false body, not a 404)</response>
         [HttpDelete("/index/{indexId}")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public bool DeleteIndex([FromRoute] String indexId)
         {
             return _fallen8.IndexFactory.TryDeleteIndex(indexId);

@@ -60,6 +60,9 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        },
         ///        "resultType": "Vertices"
         ///     }
+        ///
+        /// The optional "label" field restricts the scan to elements whose label matches exactly
+        /// (e.g. "person"); omit it to scan every element type.
         /// </remarks>
         /// <response code="200">Returns the matching element IDs</response>
         /// <response code="400">Invalid scan specification</response>
@@ -82,7 +85,9 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             List<AGraphElementModel> graphElements;
-            return _fallen8.GraphScan(out graphElements, propertyId, value, definition.Operator)
+            // Pass the optional label filter through (feature: functional GraphScan label filter). null
+            // scans all labels; a value restricts the scan to elements with that exact label.
+            return _fallen8.GraphScan(out graphElements, propertyId, value, definition.Operator, definition.Label)
                        ? new ActionResult<IEnumerable<int>>(CreateResult(graphElements, definition.ResultType))
                        : new ActionResult<IEnumerable<int>>(Enumerable.Empty<Int32>());
         }
@@ -205,13 +210,13 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <response code="200">Returns the search results with highlighting</response>
-        /// <response code="400">Invalid search specification or index not found</response>
-        /// <response code="404">Index not found or is not a fulltext index</response>
+        /// <response code="204">The index does not exist or is not a fulltext index (a miss yields 204 No Content, not a 404)</response>
+        /// <response code="400">The request body was missing or malformed</response>
         [HttpPost("/scan/index/fulltext")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(FulltextSearchResultREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public FulltextSearchResultREST FulltextIndexScan([FromBody] FulltextIndexScanSpecification definition)
         {
             #region initial checks
@@ -321,13 +326,13 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <response code="200">Returns the element IDs within the specified distance</response>
-        /// <response code="400">Invalid search specification</response>
-        /// <response code="404">Index not found, is not a spatial index, or reference element not found</response>
+        /// <response code="204">The index does not exist, is not a spatial index, or the reference element does not exist (a miss yields 204 No Content, not a 404)</response>
+        /// <response code="400">The request body was missing or malformed</response>
         [HttpPost("/scan/index/spatial")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         public IEnumerable<int> SpatialIndexScanSearchDistance([FromBody] SearchDistanceSpecification definition)
         {
             #region initial checks

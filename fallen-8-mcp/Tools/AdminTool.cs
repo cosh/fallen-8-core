@@ -104,7 +104,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     };
                     var saved = await _bridge.RequestRawAsync(HttpMethod.Put, @namespace, "save", body, cancellationToken)
                         .ConfigureAwait(false);
-                    return ToolResults.Ok("save-game written.", Pass(saved));
+                    return ToolResults.Ok("save-game written.", ToolResults.Pass(saved));
                 }
 
                 case "list_savegames":
@@ -112,7 +112,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     // Fallen-8-level: no namespace scoping.
                     var list = await _bridge.RequestRawAsync(HttpMethod.Get, null, "savegames", null, cancellationToken)
                         .ConfigureAwait(false);
-                    var node = list is null ? new JsonArray() : JsonNode.Parse(list.Value.GetRawText())!;
+                    var node = ToolResults.PassArray(list);
                     var count = node is JsonArray arr ? arr.Count : 0;
                     return ToolResults.Ok($"{count} save-game(s).", new JsonObject { ["saveGames"] = node });
                 }
@@ -132,7 +132,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     }
                     var loaded = await _bridge.RequestRawAsync(HttpMethod.Put, null, suffix, null, cancellationToken)
                         .ConfigureAwait(false);
-                    return ToolResults.Ok($"save-game '{id}' loaded.", Pass(loaded));
+                    return ToolResults.Ok($"save-game '{id}' loaded.", ToolResults.Pass(loaded));
                 }
 
                 case "trim":
@@ -153,11 +153,6 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     return ToolResults.Error(400, "Invalid arguments",
                         "op must be save, load, list_savegames, trim, or tabula_rasa.");
             }
-        }
-
-        private static JsonNode Pass(JsonElement? raw)
-        {
-            return raw is null ? new JsonObject() : JsonNode.Parse(raw.Value.GetRawText())!;
         }
     }
 }

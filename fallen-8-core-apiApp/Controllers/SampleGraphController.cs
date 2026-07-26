@@ -74,7 +74,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             _fallen8.EnqueueTransaction(tx);
 
-            _logger.LogInformation($"It took {sw.Elapsed.TotalMilliseconds}ms to create a Fallen-8 graph with {stats.VertexCount} nodes and {stats.EdgeCount} edges per node.");
+            _logger.LogInformation("It took {ElapsedMs}ms to create a Fallen-8 graph with {VertexCount} nodes and {EdgeCount} edges per node.", sw.Elapsed.TotalMilliseconds, stats.VertexCount, stats.EdgeCount);
         }
 
         #region not implemented

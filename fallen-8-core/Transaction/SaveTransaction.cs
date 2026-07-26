@@ -73,11 +73,6 @@ namespace NoSQL.GraphDB.Core.Transaction
             return true;
         }
 
-        public static UInt32 GetOptimalNumberOfPartitions()
-        {
-            return Convert.ToUInt32(Environment.ProcessorCount * 3 / 2);
-        }
-
         internal override void Cleanup()
         {
             //NOOP

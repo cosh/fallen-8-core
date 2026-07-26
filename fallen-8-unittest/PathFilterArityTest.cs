@@ -200,5 +200,35 @@ namespace NoSQL.GraphDB.Tests
 
             fallen8.Dispose();
         }
+
+        // ---- api-error-contract E5: a fragment that COMPILES but THROWS at runtime is a 500, not a
+        //      masked 200-empty "no path" (the /path broad-catch-to-200 defect). --------------------
+
+        [TestMethod]
+        public void Controller_WhenCompiledFragmentThrowsAtRuntime_Returns500_NotSilentEmpty200()
+        {
+            var (fallen8, a, b) = TwoConnectedVertices();
+            var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
+
+            // This vertex filter COMPILES (returns a bool) but throws a NullReferenceException the
+            // moment it is invoked during traversal. Before the fix, the broad catch swallowed it and
+            // returned 200 with [], indistinguishable from a genuine no-path result.
+            var spec = new PathSpecification
+            {
+                PathAlgorithmName = "BLS",
+                MaxDepth = 3,
+                MaxResults = 1,
+                Filter = new PathFilterSpecification { Vertex = "return (v) => ((string)null).Length == 0;" }
+            };
+
+            var result = controller.CalculateShortestPath(a, b, spec).Result;
+
+            Assert.IsNull(result.Value, "A runtime fault must not be reported as a 200 body.");
+            var objectResult = result.Result as ObjectResult;
+            Assert.IsNotNull(objectResult, "A runtime fault in a compiled fragment must surface as a status result, not a silent empty 200.");
+            Assert.AreEqual(500, objectResult.StatusCode, "The masked empty-200 is now a real 500 (mirroring /subgraph).");
+
+            fallen8.Dispose();
+        }
     }
 }
