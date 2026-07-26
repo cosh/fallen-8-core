@@ -86,7 +86,7 @@ so a client loads few schemas and each result stays compact. Every tool takes an
 | read | `f8_get` | Fetch a vertex/edge by id with optional neighbourhood (`include`) and property projection (`fields`). Compact by default — scalar values only, vectors omitted. |
 | read | `f8_search` | Find elements: `mode` = `index` \| `property` (un-indexed) \| `fulltext` \| `vector` \| `semantic`. Returns ids (+score); `fields` enriches with properties. Paginated (`limit`/`cursor`). |
 | read | `f8_paths` | Find paths between two vertices (unfiltered or by a registered stored query). |
-| read | `f8_analytics` | Run a whole-graph algorithm (PageRank, WCC, communities, centrality, triangle-count), or omit `algorithm` to list them. |
+| read | `f8_analytics` | Run a whole-graph algorithm (PageRank, WCC, communities, centrality, triangle-count), or omit `algorithm` to list them. Optional per-run knobs: `maxIterations` and a numeric `parameters` map (e.g. `{"DampingFactor": 0.85}`). |
 | read | `f8_plugins` | The per-namespace plugin registry: `list`/`get`/`invoke` (a graph function by name); `delete` needs the write capability; `register_algorithm`/`register_function` (from C# source) need the code capability. Registered algorithms are invoked by name through `f8_paths`/`f8_analytics`/`f8_subgraph`. |
 | write | `f8_mutate` | One transactional mutation: `create_vertex`, `create_edge`, `create_vertices`, `create_edges` (atomic batch creates), `set_property`, `remove_property`, `remove_element`, `set_embedding`. Property values are JSON-native. |
 | write | `f8_subgraph` | Define a subgraph from a stored template (or inline filters when the code capability is on). |

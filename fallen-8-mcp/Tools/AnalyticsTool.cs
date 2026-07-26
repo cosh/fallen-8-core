@@ -73,6 +73,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     .Str("edgePropertyId", "Restrict traversal to this edge type (default: all edges).")
                     .Str("direction", "Edge direction to follow.", choices: new[] { "in", "out", "both" })
                     .Int("maxResults", "Max scored vertices to return (default 25).")
+                    .Int("maxIterations", "Iteration cap for iterative algorithms (e.g. PAGERANK, LABELPROPAGATION); 0 = the algorithm's default.")
+                    .Obj("parameters", "Algorithm-specific numeric knobs, e.g. {\"DampingFactor\": 0.85} for PAGERANK.")
                     .Build(),
                 Annotations = new ToolAnnotations
                 {
@@ -112,6 +114,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 EdgePropertyId = ToolArgs.GetString(arguments, "edgePropertyId"),
                 Direction = ToolArgs.GetString(arguments, "direction"),
                 MaxResults = ToolArgs.GetInt(arguments, "maxResults") ?? DefaultMaxResults,
+                MaxIterations = ToolArgs.GetInt(arguments, "maxIterations") ?? 0,
+                Parameters = ParseNumericParameters(arguments),
                 WriteBack = false,
             };
 
@@ -166,6 +170,27 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 (result.Results is not null ? $"{result.Results.Count} scored" : $"{result.Partitions?.Count ?? 0} partitions") +
                 $" ({result.ElapsedMs:F0} ms).";
             return ToolResults.Ok(summary, structured);
+        }
+
+        /// <summary>Reads the optional free-form "parameters" object into the numeric knob map the REST
+        /// analytics endpoint accepts (e.g. { "DampingFactor": 0.85 }); non-numeric entries are dropped
+        /// and an empty/absent map becomes null (the algorithm default).</summary>
+        private static Dictionary<String, Double>? ParseNumericParameters(IReadOnlyDictionary<String, JsonElement> arguments)
+        {
+            if (!ToolArgs.TryGetElement(arguments, "parameters", out var element) || element.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var result = new Dictionary<String, Double>();
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetDouble(out var value))
+                {
+                    result[property.Name] = value;
+                }
+            }
+            return result.Count > 0 ? result : null;
         }
     }
 }
