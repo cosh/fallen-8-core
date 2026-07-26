@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPluginGenerationPrompt,
   buildPluginRefinePrompt,
+  ensureRequiredUsings,
   extractType,
 } from "../src/plugin/nl/pluginPrompt";
 import { scaffoldFor } from "../src/plugin/scaffolds";
@@ -63,6 +64,8 @@ describe("buildPluginGenerationPrompt", () => {
     expect(system).toContain("TryInvoke");
     expect(system).toContain("GraphFunctionResult.FromElements");
     expect(system).toContain("READ-ONLY");
+    // The exact using that the field failure dropped is pinned verbatim in the prompt.
+    expect(system).toContain("using NoSQL.GraphDB.Core.Plugins;");
   });
 
   it("lists prior drafts so a re-draft asks for a different variant", () => {
@@ -91,5 +94,78 @@ describe("buildPluginRefinePrompt", () => {
     expect(out).toContain("CS0535");
     expect(out).toContain("IGraphAnalyticsAlgorithm");
     expect(out).toContain('PluginName == "Ranker"');
+  });
+});
+
+describe("ensureRequiredUsings", () => {
+  const functionScaffold = scaffoldFor("function", "Path", "Lala");
+
+  it("re-adds NoSQL.GraphDB.Core.Plugins when the model dropped it (the field failure)", () => {
+    // The exact screenshot: four usings, the .Plugins line (IGraphFunction/GraphFunctionResult) gone.
+    const draft = `using System;
+using System.Collections.Generic;
+using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Plugin;
+
+public sealed class Lala : IGraphFunction { }`;
+    const out = ensureRequiredUsings(draft, functionScaffold);
+    expect(out).toContain("using NoSQL.GraphDB.Core.Plugins;");
+    // ...inserted with the other usings, before the type declaration.
+    expect(out.indexOf("using NoSQL.GraphDB.Core.Plugins;")).toBeLessThan(
+      out.indexOf("public sealed class"),
+    );
+  });
+
+  it("leaves a draft that already carries every required using unchanged", () => {
+    // The scaffold has all its own usings and no LINQ, so it is a fixed point.
+    expect(ensureRequiredUsings(functionScaffold, functionScaffold)).toBe(functionScaffold);
+  });
+
+  it("does not reorder existing usings, only appends the missing one", () => {
+    const draft = `using System.Collections.Generic;
+using System;
+using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Plugin;
+
+public sealed class Lala : IGraphFunction { }`;
+    const out = ensureRequiredUsings(draft, functionScaffold);
+    expect(out.startsWith("using System.Collections.Generic;")).toBe(true);
+    expect(out).toContain("using NoSQL.GraphDB.Core.Plugins;");
+    // No duplicates introduced.
+    expect(out.match(/using System;/g)).toHaveLength(1);
+    expect(out.match(/using NoSQL\.GraphDB\.Core\.Plugins;/g)).toHaveLength(1);
+  });
+
+  it("prepends the whole required set when the model emitted no usings at all", () => {
+    const draft = "public sealed class Lala : IGraphFunction { }";
+    const out = ensureRequiredUsings(draft, functionScaffold);
+    expect(out.startsWith("using System;")).toBe(true);
+    expect(out).toContain("using NoSQL.GraphDB.Core.Plugins;");
+    expect(out.indexOf("using")).toBeLessThan(out.indexOf("public sealed class"));
+  });
+
+  it("adds System.Linq when the body calls a LINQ operator without importing it", () => {
+    const draft = `${functionScaffold}
+// var m = items.Where(x => x.Id > 1).Select(x => x.Label);`;
+    const out = ensureRequiredUsings(draft, functionScaffold);
+    expect(out).toContain("using System.Linq;");
+  });
+
+  it("does not add System.Linq for a body that uses no LINQ", () => {
+    const out = ensureRequiredUsings(functionScaffold, functionScaffold);
+    expect(out).not.toContain("using System.Linq;");
+  });
+
+  it("never duplicates System.Linq when it is already imported", () => {
+    const draft = `using System;
+using System.Linq;
+using System.Collections.Generic;
+using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Plugin;
+using NoSQL.GraphDB.Core.Plugins;
+
+public sealed class Lala { void M() { var x = items.Any(y => y > 1); } }`;
+    const out = ensureRequiredUsings(draft, functionScaffold);
+    expect(out.match(/using System\.Linq;/g)).toHaveLength(1);
   });
 });

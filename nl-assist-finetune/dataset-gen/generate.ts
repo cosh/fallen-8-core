@@ -138,12 +138,18 @@ const bucketOf = (row: { category: PluginAuthoringCategory; contract?: Algorithm
  * (usings, IPlugin members, parameterless ctor, PluginName == the type name), with a real
  * READ-ONLY TryInvoke body inserted. Kept in lockstep with plugin/scaffolds.ts:functionScaffold
  * so what we author matches what compiles; `name` doubles as PluginName and the C# identifier,
- * so every seed name below is already a valid identifier.
+ * so every seed name below is already a valid identifier. `extraUsings` adds imports a richer
+ * body needs beyond the scaffold set (e.g. `using System.Linq;` for a property-scanning body).
  */
-const functionSource = (name: string, description: string, invokeBody: string): string =>
+const functionSource = (
+  name: string,
+  description: string,
+  invokeBody: string,
+  extraUsings: string[] = [],
+): string =>
   `using System;
 using System.Collections.Generic;
-using NoSQL.GraphDB.Core;
+${extraUsings.length > 0 ? extraUsings.join("\n") + "\n" : ""}using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Plugins;
 
@@ -249,6 +255,43 @@ const pluginSeeds: PluginSeed[] = [
       "PersonVertices",
       "Returns the vertices labelled person.",
       `        result = GraphFunctionResult.FromElements(_graph.GetAllVertices("person"), edges: null);`,
+    ),
+  },
+  // Property-predicate functions: the whole-graph property scan a fragment slot can't express,
+  // exercising GetAllProperties()/TryGetProperty and LINQ (the exact shape a small model got wrong
+  // in the field: it dropped `using System.Linq;` and the Plugins using). Both are READ-ONLY.
+  {
+    category: "function",
+    contract: "Path",
+    name: "VerticesWithPropertyValue",
+    intent: "match vertices that carry any property whose value equals the 'value' parameter",
+    source: functionSource(
+      "VerticesWithPropertyValue",
+      "Returns vertices carrying any property equal to the 'value' parameter.",
+      `        if (parameters == null || !parameters.TryGetValue("value", out var value))
+        {
+            result = null;
+            return false;
+        }
+        var matches = _graph.GetAllVertices()
+            .Where(v => v.GetAllProperties().Values.Any(p => Equals(p, value)));
+        result = GraphFunctionResult.FromElements(matches, edges: null);`,
+      ["using System.Linq;"],
+    ),
+  },
+  {
+    category: "function",
+    contract: "Path",
+    name: "VerticesAboveAge",
+    intent: "return vertices whose age property is greater than the 'min' parameter",
+    source: functionSource(
+      "VerticesAboveAge",
+      "Returns vertices whose age exceeds the 'min' parameter (default 0).",
+      `        var min = parameters != null && parameters.TryGetValue("min", out var m) && m is int i ? i : 0;
+        var matches = _graph.GetAllVertices()
+            .Where(v => v.TryGetProperty(out int age, "age") && age > min);
+        result = GraphFunctionResult.FromElements(matches, edges: null);`,
+      ["using System.Linq;"],
     ),
   },
   // Analytics — a real degree-scoring algorithm, plus the compiling skeleton floor.

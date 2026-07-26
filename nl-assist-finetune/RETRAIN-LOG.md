@@ -83,3 +83,31 @@ the operator's bootstrap + captured-feedback loop, where they are verified again
 validator; hand-authoring complex traversal/subgraph bodies here without a live compile gate would
 only add rows that silently drop. Entry stays PENDING until an actual fine-tune run absorbs these
 examples — close it then with the produced model version.
+
+## 2026-07-26 - plugin-registration (NL draft hardening) - PENDING
+
+**Why:** in the field the local model drafting an `IGraphFunction` dropped
+`using NoSQL.GraphDB.Core.Plugins;` (so `IGraphFunction`/`GraphFunctionResult` "could not be
+found") and wrote a LINQ body without `using System.Linq;`, on top of body mistakes
+(`out string` on an `object` bag, a malformed expression). The prior function corpus was three
+trivial label scans, none exercising a whole-graph property scan or LINQ.
+
+**Prompt (drift hash bumped -> regenerate):** `buildPluginGenerationPrompt` now pins the required
+using directives explicitly and tells the model to add `System.Linq` for a LINQ body. This edits
+`plugin/nl/pluginPrompt.ts`, one of the drift-hash sources, so the committed
+`dataset/dataset.meta.json` is now stale by design; the next run regenerates it.
+
+**Dataset:** two new READ-ONLY function seeds in `dataset-gen/generate.ts` exercise the
+property-predicate shape the fragment surface can't express and the corpus lacked:
+`VerticesWithPropertyValue` (`GetAllProperties().Values.Any(...)`) and `VerticesAboveAge`
+(`Where(v => v.TryGetProperty(out int age, "age") && age > min)`), both importing `System.Linq`.
+
+**Eval:** `eval/plugin-eval-set.json` adds `fn-property-equals`, a held-out compile-only row for a
+predicate function (a distinct phrasing from the seeds).
+
+**Not blocking:** the Studio runtime already re-anchors every draft to the scaffold's required
+usings (+ `System.Linq` when the body uses LINQ) via `pluginPrompt.ts:ensureRequiredUsings`, so the
+"could not be found" class is fixed today without the model. The retrain improves the body quality
+that deterministic import-repair cannot (the `out object` / malformed-expression mistakes).
+
+**Closed by:** (open)

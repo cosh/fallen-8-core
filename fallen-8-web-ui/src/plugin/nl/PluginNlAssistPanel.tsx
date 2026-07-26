@@ -21,7 +21,12 @@ import {
   type NlGenerationStats,
 } from "../../delegate/nl/generate";
 import { useActiveInstance } from "../../instances/registry";
-import { buildPluginGenerationPrompt, buildPluginRefinePrompt, extractType } from "./pluginPrompt";
+import {
+  buildPluginGenerationPrompt,
+  buildPluginRefinePrompt,
+  ensureRequiredUsings,
+  extractType,
+} from "./pluginPrompt";
 
 /**
  * NL assist for WHOLE-TYPE plugin authoring (feature plugin-registration §6): the same
@@ -105,7 +110,10 @@ export function PluginNlAssistPanel({
       for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
         setBusy(attempt === 0 ? "generating…" : `refining (${attempt}/${config.maxRetries})…`);
         const { content, stats } = await generateChat(config, instance, conversation, controller.signal);
-        const draft = extractType(content);
+        // The whole-type surface is the only NL path where the model emits its own usings; a small
+        // model routinely drops one (most damagingly NoSQL.GraphDB.Core.Plugins), so re-anchor the
+        // draft to the scaffold's required usings before it is shown or compile-checked.
+        const draft = ensureRequiredUsings(extractType(content), scaffold);
 
         // Insert as ordinary editable text (never auto-submit), then gate through the same
         // compile-check the author's own source goes through.

@@ -16,6 +16,13 @@
       "reference": "using System;\nusing System.Collections.Generic;\nusing NoSQL.GraphDB.Core;\nusing NoSQL.GraphDB.Core.Plugin;\nusing NoSQL.GraphDB.Core.Plugins;\n\npublic sealed class AllElements : IGraphFunction\n{\n    private IFallen8 _graph;\n\n    public string PluginName    => \"AllElements\";\n    public Type   PluginCategory => typeof(IGraphFunction);\n    public string Description   => \"Returns every vertex and edge in the graph.\";\n    public string Manufacturer  => \"you\";\n\n    public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) => _graph = fallen8;\n    public void Dispose() { }\n\n    public bool TryInvoke(out GraphFunctionResult result, IDictionary<string, object> parameters)\n    {\n        result = GraphFunctionResult.FromElements(_graph.GetAllVertices(), _graph.GetAllEdges());\n        return true;\n    }\n}\n"
     },
     {
+      "id": "fn-property-equals",
+      "category": "function",
+      "name": "VerticesByPropertyValue",
+      "intent": "return every vertex that has a property whose value equals the 'value' parameter",
+      "reference": "using System;\nusing System.Collections.Generic;\nusing System.Linq;\nusing NoSQL.GraphDB.Core;\nusing NoSQL.GraphDB.Core.Plugin;\nusing NoSQL.GraphDB.Core.Plugins;\n\npublic sealed class VerticesByPropertyValue : IGraphFunction\n{\n    private IFallen8 _graph;\n\n    public string PluginName    => \"VerticesByPropertyValue\";\n    public Type   PluginCategory => typeof(IGraphFunction);\n    public string Description   => \"Returns vertices carrying a property equal to the 'value' parameter.\";\n    public string Manufacturer  => \"you\";\n\n    public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) => _graph = fallen8;\n    public void Dispose() { }\n\n    public bool TryInvoke(out GraphFunctionResult result, IDictionary<string, object> parameters)\n    {\n        if (parameters == null || !parameters.TryGetValue(\"value\", out var value))\n        {\n            result = null;\n            return false;\n        }\n        var matches = _graph.GetAllVertices().Where(v => v.GetAllProperties().Values.Any(p => Equals(p, value)));\n        result = GraphFunctionResult.FromElements(matches, edges: null);\n        return true;\n    }\n}\n"
+    },
+    {
       "id": "an-outdegree",
       "category": "algorithm",
       "contract": "Analytics",

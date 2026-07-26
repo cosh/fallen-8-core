@@ -21,6 +21,19 @@ interface PluginPromptInput {
   priorDrafts?: string[];
 }
 
+/** A plain `using Some.Namespace;` directive (not `using static`, not an alias). */
+const USING_DIRECTIVE = /^\s*using\s+([A-Za-z_][\w.]*)\s*;\s*$/;
+
+/** The namespaces imported by plain using directives in `source`, in source order. */
+function usingNamespaces(source: string): string[] {
+  const namespaces: string[] = [];
+  for (const line of source.split("\n")) {
+    const match = USING_DIRECTIVE.exec(line);
+    if (match) namespaces.push(match[1]);
+  }
+  return namespaces;
+}
+
 /** The contract method to implement + how to read the graph / build the result, per contract. */
 function contractGuidance(category: PluginAuthoringCategory, contract: AlgorithmContract): string {
   if (category === "function") {
@@ -43,6 +56,9 @@ function contractGuidance(category: PluginAuthoringCategory, contract: Algorithm
 export function buildPluginGenerationPrompt(input: PluginPromptInput): NlPrompt {
   const { category, contract, name, scaffold, intent, priorDrafts = [] } = input;
   const iface = contractInterface(category, contract);
+  const requiredUsings = usingNamespaces(scaffold)
+    .map((ns) => `using ${ns};`)
+    .join(" ");
 
   const system = [
     "You author a COMPLETE C# source file for a Fallen-8 runtime plugin (a whole type, not a fragment).",
@@ -50,6 +66,7 @@ export function buildPluginGenerationPrompt(input: PluginPromptInput): NlPrompt 
     `The class MUST implement ${iface}, have a public parameterless constructor, and its PluginName property MUST return exactly "${name}" — the server rejects any other name.`,
     contractGuidance(category, contract),
     "Complete this scaffold: keep its usings, class name, PluginName and the other IPlugin members exactly; replace only the TODO body with a real implementation of the request. Add usings only for engine types you actually use, and never invent members that do not exist.",
+    `Reproduce these using directives verbatim at the top of the file: ${requiredUsings} The contract interface and its result type live in those namespaces; dropping one makes them "could not be found". Add "using System.Linq;" as well if the body uses LINQ.`,
     "```csharp\n" + scaffold + "\n```",
   ].join("\n\n");
 
@@ -103,4 +120,50 @@ export function extractType(raw: string): string {
     }
   }
   return (cut > 0 ? candidate.slice(cut) : candidate).trim();
+}
+
+/**
+ * LINQ operators a plugin body commonly reaches for. A small model that writes `.Where`/`.Any`/
+ * `.SelectMany` in the body but forgets `using System.Linq;` produces the exact CS1061 "does not
+ * contain a definition for ..." seen in the field; ensureRequiredUsings adds the import when it
+ * sees one of these called as `.Op(` or `.Op<`.
+ */
+const LINQ_OPERATORS = [
+  "Select", "SelectMany", "Where", "Any", "All", "First", "FirstOrDefault",
+  "Single", "SingleOrDefault", "Last", "LastOrDefault", "OrderBy", "OrderByDescending",
+  "ThenBy", "GroupBy", "Distinct", "Take", "Skip", "Count", "Sum", "Min", "Max",
+  "Average", "Aggregate", "ToList", "ToArray", "ToDictionary", "ToHashSet",
+  "Concat", "Union", "Intersect", "Except", "Reverse", "Zip",
+];
+
+const LINQ_CALL = new RegExp(`\\.(?:${LINQ_OPERATORS.join("|")})\\s*[(<]`);
+
+/**
+ * Guarantees a model draft carries the usings its contract needs, whatever the model dropped
+ * (feature plugin-registration §6). The whole-type plugin surface is the ONLY NL path where the
+ * model authors its own using directives (the delegate/fragment path emits a bare lambda body and
+ * the server harness supplies the usings), and a small model routinely regenerates the scaffold
+ * minus one line, most damagingly `NoSQL.GraphDB.Core.Plugins`, which holds IGraphFunction and
+ * GraphFunctionResult, so the type "could not be found". This unions the scaffold's known-required
+ * usings into the draft (adding usings never breaks the compile: the scaffold's own set compiles,
+ * so a subset re-added to a draft cannot introduce an ambiguity the scaffold does not already
+ * have), and adds System.Linq when the body calls a LINQ operator without it. It repairs only the
+ * import lines; genuine body mistakes still surface through the compile-and-refine loop.
+ */
+export function ensureRequiredUsings(draft: string, scaffold: string): string {
+  const present = new Set(usingNamespaces(draft));
+  const missing = usingNamespaces(scaffold).filter((ns) => !present.has(ns));
+  if (LINQ_CALL.test(draft) && !present.has("System.Linq") && !missing.includes("System.Linq")) {
+    missing.push("System.Linq");
+  }
+  if (missing.length === 0) return draft;
+
+  const lines = draft.split("\n");
+  // Insert after the last existing using directive; if the draft has none, at the very top.
+  let insertAt = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (USING_DIRECTIVE.test(lines[i])) insertAt = i + 1;
+  }
+  lines.splice(insertAt, 0, ...missing.map((ns) => `using ${ns};`));
+  return lines.join("\n");
 }
