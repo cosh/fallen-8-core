@@ -93,6 +93,11 @@ describe("Connect Configuration panel", () => {
     const overlay = await screen.findByTestId("config-observability-overlay");
     expect(overlay).toHaveTextContent("Fallen8__Observability__Otlp__Endpoint");
     expect(overlay).toHaveTextContent("http://otel-collector:4317");
+    // Grouped into three labelled sections so push (the live path) is not confused with the
+    // off-by-default Prometheus scrape endpoint (feature studio-obs-config).
+    expect(overlay).toHaveTextContent("Push (OTLP)");
+    expect(overlay).toHaveTextContent("Pull (Prometheus scrape)");
+    expect(overlay).toHaveTextContent("Statistics snapshot");
   });
 
   it("hides GPU when unknown, shows off states, and reports no exporter", async () => {
