@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useActiveInstance } from "../instances/registry";
 import { useConfig } from "../state/status";
@@ -229,6 +229,16 @@ function EnvRow({ label, value, envKey }: { label: string; value: string; envKey
   );
 }
 
+function ObsSection({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
+  return (
+    <div>
+      <div className="text-accent text-[10px] font-bold tracking-widest uppercase">{title}</div>
+      <p className="text-fg-faint mt-0.5 mb-1 text-[11px]">{hint}</p>
+      <div>{children}</div>
+    </div>
+  );
+}
+
 function ObservabilityOverlay({
   open,
   observability,
@@ -246,39 +256,56 @@ function ObservabilityOverlay({
           <Dialog.Title className="text-fg text-sm font-bold">Observability</Dialog.Title>
           <Dialog.Description className="text-fg-dim mt-1 text-[12px]">
             Set at startup via environment variables (or appsettings). Changes take effect on
-            restart — this view is read-only.
+            restart; this view is read-only.
           </Dialog.Description>
-          <div className="mt-3" data-testid="config-observability-overlay">
-            <EnvRow
-              label="OTLP endpoint"
-              value={observability.otlpEnabled ? (observability.otlpEndpoint ?? "(set)") : "off"}
-              envKey="Fallen8__Observability__Otlp__Endpoint"
-            />
-            <EnvRow
-              label="Prometheus /metrics"
-              value={observability.prometheusEnabled ? "on" : "off"}
-              envKey="Fallen8__Observability__Prometheus__Enabled"
-            />
-            <EnvRow
-              label="/metrics needs key"
-              value={observability.prometheusRequireApiKey ? "yes" : "no"}
-              envKey="Fallen8__Observability__Prometheus__RequireApiKey"
-            />
-            <EnvRow
-              label="trace sampling"
-              value={observability.tracingSamplingRatio.toString()}
-              envKey="Fallen8__Observability__TracingSamplingRatio"
-            />
-            <EnvRow
-              label="statistics budget"
-              value={observability.statisticsElementBudget.toLocaleString()}
-              envKey="Fallen8__Observability__StatisticsElementBudget"
-            />
-            <EnvRow
-              label="statistics top-N"
-              value={observability.statisticsTopN.toString()}
-              envKey="Fallen8__Observability__StatisticsTopN"
-            />
+          <div className="mt-3 space-y-4" data-testid="config-observability-overlay">
+            <ObsSection
+              title="Push (OTLP)"
+              hint="Metrics, traces, and logs pushed to a collector. This is the live path in the default environment."
+            >
+              <EnvRow
+                label="OTLP endpoint"
+                value={observability.otlpEnabled ? (observability.otlpEndpoint ?? "(set)") : "off"}
+                envKey="Fallen8__Observability__Otlp__Endpoint"
+              />
+              <EnvRow
+                label="trace sampling"
+                value={observability.tracingSamplingRatio.toString()}
+                envKey="Fallen8__Observability__TracingSamplingRatio"
+              />
+            </ObsSection>
+
+            <ObsSection
+              title="Pull (Prometheus scrape)"
+              hint="An optional GET /metrics endpoint a Prometheus server scrapes. Off by default and independent of the push above; leave it off when pushing."
+            >
+              <EnvRow
+                label="scrape endpoint"
+                value={observability.prometheusEnabled ? "on (GET /metrics)" : "off"}
+                envKey="Fallen8__Observability__Prometheus__Enabled"
+              />
+              <EnvRow
+                label="requires API key"
+                value={observability.prometheusRequireApiKey ? "yes" : "no"}
+                envKey="Fallen8__Observability__Prometheus__RequireApiKey"
+              />
+            </ObsSection>
+
+            <ObsSection
+              title="Statistics snapshot"
+              hint="Bounds for the on-demand GET /statistics graph-shape snapshot. Not an exporter."
+            >
+              <EnvRow
+                label="element budget"
+                value={observability.statisticsElementBudget.toLocaleString()}
+                envKey="Fallen8__Observability__StatisticsElementBudget"
+              />
+              <EnvRow
+                label="top-N"
+                value={observability.statisticsTopN.toString()}
+                envKey="Fallen8__Observability__StatisticsTopN"
+              />
+            </ObsSection>
           </div>
           <div className="mt-4 flex justify-end">
             <button type="button" className="btn" onClick={onClose}>
