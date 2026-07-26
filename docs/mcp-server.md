@@ -76,7 +76,7 @@ binary) and set `Fallen8Target__BaseUrl` in its environment.
 
 ## The tools
 
-Nine consolidated, capability-oriented tools cover the whole surface (not one per REST route),
+Ten consolidated, capability-oriented tools cover the whole surface (not one per REST route),
 so a client loads few schemas and each result stays compact. Every tool takes an optional
 `namespace` (a Fallen-8 hosts many isolated graphs; it defaults to `default`).
 
@@ -88,7 +88,7 @@ so a client loads few schemas and each result stays compact. Every tool takes an
 | read | `f8_paths` | Find paths between two vertices (unfiltered or by a registered stored query). |
 | read | `f8_analytics` | Run a whole-graph algorithm (PageRank, WCC, communities, centrality, triangle-count), or omit `algorithm` to list them. |
 | read | `f8_plugins` | The per-namespace plugin registry: `list`/`get`/`invoke` (a graph function by name); `delete` needs the write capability; `register_algorithm`/`register_function` (from C# source) need the code capability. Registered algorithms are invoked by name through `f8_paths`/`f8_analytics`/`f8_subgraph`. |
-| write | `f8_mutate` | One transactional mutation: `create_vertex`, `create_edge`, `set_property`, `remove_property`, `remove_element`, `set_embedding`. Property values are JSON-native. |
+| write | `f8_mutate` | One transactional mutation: `create_vertex`, `create_edge`, `create_vertices`, `create_edges` (atomic batch creates), `set_property`, `remove_property`, `remove_element`, `set_embedding`. Property values are JSON-native. |
 | write | `f8_subgraph` | Define a subgraph from a stored template (or inline filters when the code capability is on). |
 | write | `f8_namespace` | Create, rename, or drop a namespace. |
 | admin | `f8_admin` | Durability & maintenance: `save`, `load`, `list_savegames`, `trim`, `tabula_rasa`. |

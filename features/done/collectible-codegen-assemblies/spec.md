@@ -1,6 +1,6 @@
 # Collectible Runtime-Compiled Assemblies — Specification
 
-> **Status:** Planned. Originates from limitations in
+> **Status:** Implemented. Originates from limitations in
 > [../subgraph/spec.md](../subgraph/spec.md) (§9) and the REST/API review. Tracked by its
 > GitHub feature issue.
 

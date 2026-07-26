@@ -72,7 +72,10 @@ change `fallen-8-core`, that is the signal the concern is in the wrong layer.
   belongs to `Fallen8Namespaces` alone.)
 - **Reserved `default` namespace.** Always exists, cannot be renamed or dropped, owns all
   pre-namespace data, and is what bare URLs address.
-- **Names** match `^[a-z0-9-]{1,63}$` and are unique per Fallen-8. Names are display/address keys
+- **Names** match `^[a-z0-9-]{1,63}$` and are unique per Fallen-8. (Later relaxed: the shipped
+  `Fallen8Namespaces.IsValidName` is a permissive blocklist rejecting only empty/whitespace-padded,
+  over-63-char, `.`/`..`, and path-hazard (`/`, `\`, control-char) names - the README and code are
+  the living rule.) Names are display/address keys
   only — on disk every namespace lives under an immutable, collection-assigned id (see §6), so
   rename is a pure metadata operation and user-supplied names never become filesystem paths
   (Windows reserved device names like `con` stay harmless).

@@ -107,7 +107,7 @@ singleton) but **not** its identity/latch machinery (non-goal):
 ConfigREST {
   semantic: {
     embedding: EmbeddingProviderStatsREST,   // reused verbatim
-    chat:      ChatProviderStatsREST { enabled, backend, endpoint, model, loaded, gpu? },
+    chat:      ChatProviderStatsREST { enabled, backend, model, loaded, gpu? },
   },
   observability: {
     otlp:       { enabled, endpoint },        // endpoint emitted as configured; never a secret

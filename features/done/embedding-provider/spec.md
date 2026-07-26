@@ -291,6 +291,8 @@ failure) so the observability feature's exporters pick them up unchanged.
 - Every FR-8 mismatch (dimension, model identity, non-finite, zero-norm) surfaces as the
   specified hard error; nothing coerces, truncates, or pads.
 - `GET /statistics` reports the active provider and identity; `GET /status` is untouched.
+  (Superseded: the later feature `embedding-out-of-box` added the provider block to `GET /status`
+  too - see `docs/semantic-traversal.md` / `docs/observability.md`, the living docs.)
 - Full suite green; build 0 warnings/0 errors; OpenAPI snapshot regenerated (additions
   only); the engine csproj diff is **empty**.
 

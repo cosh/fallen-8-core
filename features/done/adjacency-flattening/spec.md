@@ -1,6 +1,6 @@
 # Adjacency Flattening — Specification
 
-> **Status:** Planned. This is `core-storage-representation` **Phase 4**, deferred there (and gestured
+> **Status:** Implemented. This is `core-storage-representation` **Phase 4**, deferred there (and gestured
 > at by `memory-footprint`) because it changes the **public** `VertexModel` surface and the tests +
 > consumers bound to it — so it needs its own feature and a **public-API-version bump**. It is the
 > single biggest *remaining* memory lever after the master-store change already landed.

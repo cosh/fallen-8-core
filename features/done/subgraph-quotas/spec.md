@@ -28,8 +28,11 @@ bug.
   - (optional) maximum total materialized elements across all subgraphs.
 - Exceeding a quota fails cleanly (REST `409 Conflict` or `413`-style error with a clear
   message), leaves the source graph untouched, and does not register a partial subgraph.
-- Sensible defaults that don't break existing usage/tests; quotas configurable and
-  effectively unlimited when unset for trusted/embedded use.
+- Sensible defaults that don't break existing usage/tests; quotas configurable and, when unset,
+  a generous-but-bounded default (shipped decision M6: 1024 subgraphs / 10,000,000 elements per
+  subgraph / 25,000,000 total) so trusted/embedded use is unaffected while a runaway caller cannot
+  exhaust memory. (This spec originally proposed an int.MaxValue "unlimited" default; M6 shipped the
+  bounded default instead - the code and `SubGraphQuotaTest` are the current rule.)
 
 **Non-goals**
 - Per-caller quotas / authentication changes (the API's auth model is out of scope here).
@@ -38,7 +41,7 @@ bug.
 ## 3. Design sketch
 
 - Add a `SubGraphQuota` (or options) with `MaxSubGraphCount`, `MaxElementsPerSubGraph`,
-  `MaxTotalElements`, defaulting to unlimited. Surface it on the `SubGraphFactory` (settable
+  `MaxTotalElements`, defaulting to generous-but-bounded values (M6; see above). Surface it on the `SubGraphFactory` (settable
   by the host; the REST app sets conservative defaults).
 - Enforce count before creation; enforce size during/after materialization. Because size is
   only known after the algorithm runs, either (a) check the post-materialization count and
