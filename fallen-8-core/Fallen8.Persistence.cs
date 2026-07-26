@@ -174,8 +174,15 @@ namespace NoSQL.GraphDB.Core
 
             if (!WalTransactionCodec.TryGetEntryType(tx, out var type))
             {
-                // Not a loggable transaction (e.g. Save/Load); durability is via the snapshot.
-                return true;
+                // The codec covers every standard mutation transaction; the only omissions are the
+                // Save/Load LIFECYCLE transactions (not data mutations - their durability IS the
+                // snapshot, so they are legitimately durable) and the DelegateTransaction, which
+                // COMPOSES real graph mutations the codec does not serialize. With the WAL enabled a
+                // DelegateTransaction's mutations are only in memory (snapshot-recoverable, NOT
+                // log-recoverable), so it is not WAL-durable: report false so a caller reading
+                // TransactionInformation.Durable is not misled into thinking the write survives a
+                // crash-before-next-snapshot (finding A4). Lifecycle transactions stay durable=true.
+                return !(tx is DelegateTransaction);
             }
 
             // Buffer the frame for the current commit group (feature write-path-throughput); it becomes
