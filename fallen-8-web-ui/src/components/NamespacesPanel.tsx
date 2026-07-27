@@ -13,7 +13,7 @@ import type { NamespaceEntry } from "../api/types";
 import { ApiError } from "../api/client";
 import { migrateInstanceStore, purgeInstanceStore } from "../state/instanceStore";
 import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
-import { LIST_CAP, capList } from "../lib/listCaps";
+import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 import { isValidNamespaceName } from "../lib/namespaceName";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
@@ -99,7 +99,7 @@ export function NamespacesPanel() {
 
   const entries = list.data?.namespaces ?? [];
   // Cap + scroll the inventory so a large namespace set never grows the panel without bound.
-  const shownNamespaces = capList(entries, LIST_CAP.namespaces);
+  const shownNamespaces = capList(entries);
   const failed = [create, rename, drop].find((m) => m.isError);
   const newNameValid = isValidNamespaceName(newName);
 
@@ -133,7 +133,7 @@ export function NamespacesPanel() {
           {/* Scroll within the panel rather than spilling the actions column past its right
               edge when a row's content (long name + url prefix + 3 action buttons) is wide;
               `scroll-list` also caps the height so a large inventory never grows the page. */}
-          <div className="scroll-list">
+          <div className="scroll-list" style={scrollRows(SCROLL_ROWS.namespaces)}>
           <table className="w-full text-[12px]">
             <thead>
               <tr className="text-fg-faint">

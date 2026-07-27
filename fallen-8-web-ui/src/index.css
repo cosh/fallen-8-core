@@ -72,14 +72,17 @@ body {
 }
 
 /* ---- List height cap (Studio-wide policy) ----
-   No in-app list grows the page without bound. A collection table lives in a wrapper with this
-   class so it scrolls WITHIN a fixed height instead of pushing the layout down forever, with the
-   header pinned while the body scrolls (`overflow: auto` keeps the horizontal scroll the old
-   `overflow-x-auto` wrappers gave too). The companion row-count cap is LIST_CAP in
-   lib/listCaps.ts; together they bound every list in both axes. */
+   A collection table lives in a wrapper with this class so it never grows the page without bound:
+   its height is capped to roughly N rows and a scrollbar takes over past that, with the header
+   pinned while the body scrolls (`overflow: auto` also keeps the horizontal scroll the old
+   `overflow-x-auto` wrappers gave). N comes per list from the `--scroll-rows` custom property
+   (see SCROLL_ROWS / scrollRows in lib/listCaps.ts); `--scroll-row-h` estimates one row's height.
+   Because it is a max-height, a list SHORTER than N rows shrinks to fit and shows no scrollbar;
+   only a longer one caps here and scrolls. No rows are hidden (the only ceiling is LIST_MAX_ROWS).
+   The `+ 1` leaves room for the sticky header so about N DATA rows show before scrolling. */
 .scroll-list {
   @apply overflow-auto;
-  max-height: 60vh;
+  max-height: calc((var(--scroll-rows, 12) + 1) * var(--scroll-row-h, 2.5rem));
 }
 .scroll-list thead th {
   position: sticky;

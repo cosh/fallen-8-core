@@ -26,7 +26,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ListCapNote } from "../components/ListCapNote";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
-import { LIST_CAP, capList } from "../lib/listCaps";
+import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
  * Save games (feature save-games + graph-namespaces): the persistence home. The top is the
@@ -35,8 +35,9 @@ import { LIST_CAP, capList } from "../lib/listCaps";
  * the top bar), so they run through the namespace-bound instance. Below it is the Fallen-8-level
  * checkpoint registry (using the raw Fallen-8-level instance) — an entry can span several
  * namespaces ("Save all" creates one), and loading restores exactly the namespaces an entry
- * contains (or one of them). The registry is capped and scrolls (LIST_CAP.saveGames) so a long
- * save history never grows the page. Sits under Dashboard in the rail.
+ * contains (or one of them). The registry lists every entry (up to the LIST_MAX_ROWS ceiling) and
+ * caps its height / scrolls once it grows past SCROLL_ROWS.saveGames rows, so a long save history
+ * never grows the page. Sits under Dashboard in the rail.
  */
 
 function formatBytes(bytes: number): string {
@@ -244,7 +245,7 @@ export function SaveGamesScreen() {
 
   const confirmingMembers = confirming ? effectiveNamespaces(confirming.game) : [];
   // Cap + scroll the registry so a long save history never grows the page unbounded.
-  const games = capList(list.data ?? [], LIST_CAP.saveGames);
+  const games = capList(list.data ?? []);
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -451,7 +452,7 @@ export function SaveGamesScreen() {
             <ErrorBox error={list.error} onRetry={() => list.refetch()} />
           </div>
         )}
-        <div className="scroll-list">
+        <div className="scroll-list" style={scrollRows(SCROLL_ROWS.saveGames)}>
           <table className="w-full text-[12px]">
             <thead>
               <tr className="text-fg-faint">

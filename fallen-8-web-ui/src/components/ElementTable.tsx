@@ -2,6 +2,7 @@ import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
 import { previewVector } from "../lib/embeddingProperties";
 import { DISPLAY_CAP } from "../lib/truncate";
+import { SCROLL_ROWS, scrollRows } from "../lib/listCaps";
 import { Truncated } from "./Truncated";
 
 /**
@@ -26,7 +27,7 @@ export function ElementTable({
   return (
     // Height-capped + scrolls (the count is already bounded by every caller — e.g. the Browser's
     // "first 200 shown"); `.scroll-list` keeps a large result set from growing the page.
-    <div className="scroll-list">
+    <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-fg-faint">

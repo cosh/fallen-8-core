@@ -10,7 +10,7 @@ import { ConfigurationPanel } from "../components/ConfigurationPanel";
 import { Truncated } from "../components/Truncated";
 import { ListCapNote } from "../components/ListCapNote";
 import { DISPLAY_CAP } from "../lib/truncate";
-import { LIST_CAP, capList } from "../lib/listCaps";
+import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
  * Connect / Instances (FR-1a): registry with add/edit/remove, lazy health overview via
@@ -115,13 +115,13 @@ export function ConnectScreen() {
     useRegistry();
   const [editing, setEditing] = useState<string | "new" | null>(null);
   // Cap + scroll the registry so it can never grow the panel without bound.
-  const shownInstances = capList(instances, LIST_CAP.instances);
+  const shownInstances = capList(instances);
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <section className="panel">
         <div className="panel-title">Instances</div>
-        <div className="scroll-list">
+        <div className="scroll-list" style={scrollRows(SCROLL_ROWS.instances)}>
         <table className="w-full text-[12px]">
           <thead>
             <tr className="text-fg-faint">
