@@ -46,6 +46,9 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
     {
         private IFallen8 _f8;
 
+        // The edge-property-id GENERATION writes. Arbitrary and generation-only: the benchmark
+        // (TryBench) follows every out-edge regardless of property, so this label is not part of
+        // the benchmark contract.
         private static string edgeProperty = "A";
 
         public ScaleFreeNetwork(IFallen8 fallen8)
@@ -57,8 +60,9 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// Creates a benchmark graph. Despite the class name, the default edge distribution is
         /// UNIFORM random (no hubs); pass <paramref name="preferentialAttachment"/> for a real
         /// Barabási–Albert-style scale-free network whose analytics show structure at scale
-        /// (feature sample-graphs). Both distributions write edge property "A" — the exact
-        /// edges <see cref="TryBench"/> traverses.
+        /// (feature sample-graphs). Both distributions write edge property "A"; that label is an
+        /// implementation detail of generation, not a benchmark contract - <see cref="TryBench"/>
+        /// follows every out-edge regardless of edge-property-id, so it benchmarks any loaded graph.
         /// </summary>
         /// <param name="nodeCount">The number of nodes to create</param>
         /// <param name="edgeCountPerVertex">The number of edges per vertex</param>
@@ -272,11 +276,16 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         }
 
         /// <summary>
-        /// Counter
+        /// Follows every outgoing edge of every vertex in parallel and returns the number
+        /// traversed. Schema-agnostic: it walks ALL out-edge groups of each vertex regardless of
+        /// edge-property-id, so it measures traversal throughput on whatever graph is loaded - not
+        /// only the edges <see cref="CreateScaleFreeNetworkAsync"/> writes under property "A". Each
+        /// edge's <see cref="EdgeModel.TargetVertex"/> is dereferenced so the pass does the real
+        /// pointer-following work of a traversal rather than reading a cached degree count.
         /// </summary>
-        /// <param name="vertices"></param>
-        /// <param name="vertexRange"></param>
-        /// <returns></returns>
+        /// <param name="vertices">The vertices to traverse</param>
+        /// <param name="vertexRange">Partition size handed to <see cref="Partitioner"/></param>
+        /// <returns>The total number of outgoing edges followed</returns>
         private static long CountAllEdgesParallelPartitioner(IReadOnlyList<VertexModel> vertices, Int32 vertexRange)
         {
             var lockObject = new object();
@@ -291,13 +300,22 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
                     for (var i = range.Item1; i < range.Item2; i++)
                     {
-                        IReadOnlyList<EdgeModel> outEdge;
-                        if (vertices[i].TryGetOutEdge(out outEdge, edgeProperty))
+                        var vertex = vertices[i];
+
+                        // Every out-edge group, whatever its edge-property-id. GetOutgoingEdgeIds
+                        // costs one key-list per vertex; the per-group span read is then
+                        // allocation-free, so the inner edge-following loop stays tight. (The fully
+                        // allocation-free adjacency enumerator is engine-internal, not reachable here.)
+                        var edgePropertyIds = vertex.GetOutgoingEdgeIds();
+                        for (var k = 0; k < edgePropertyIds.Count; k++)
                         {
-                            for (int j = 0; j < outEdge.Count; j++)
+                            if (vertex.TryGetOutEdgesSpan(out var outEdges, edgePropertyIds[k]))
                             {
-                                var vertex = outEdge[j].TargetVertex;
-                                localCount++;
+                                for (var j = 0; j < outEdges.Length; j++)
+                                {
+                                    var target = outEdges[j].TargetVertex;
+                                    localCount++;
+                                }
                             }
                         }
                     }

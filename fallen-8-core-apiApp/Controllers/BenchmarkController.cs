@@ -80,9 +80,9 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <remarks>
         /// Fallen-8-level: generation targets the "default" namespace, whatever namespace a
         /// client is otherwise working in (feature graph-namespaces). The generated vertices are
-        /// unlabeled and the edges carry edge property "A" — exactly what GET /benchmark
-        /// traverses, so generate-then-benchmark is the intended pairing regardless of the
-        /// distribution.
+        /// unlabeled and the edges carry edge property "A". This endpoint is a convenience for
+        /// conjuring a graph to measure - GET /benchmark follows every out-edge regardless of
+        /// edge-property-id, so it benchmarks any loaded graph, not only generated ones.
         /// </remarks>
         /// <response code="200">A human-readable timing summary</response>
         /// <response code="400">A non-numeric or negative count, or an unknown distribution</response>
@@ -135,6 +135,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <returns>Per-iteration TPS statistics (average, median, standard deviation)</returns>
         /// <remarks>
         /// Fallen-8-level: the benchmark traverses the "default" namespace (feature graph-namespaces).
+        /// It follows every outgoing edge of every vertex regardless of edge-property-id, so it
+        /// works on any loaded graph and reports edges traversed per second (not query latency).
         /// </remarks>
         /// <response code="200">The benchmark statistics</response>
         /// <response code="400">Empty graph, non-positive or non-numeric iteration count</response>

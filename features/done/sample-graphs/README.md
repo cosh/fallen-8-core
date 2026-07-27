@@ -9,8 +9,9 @@ Left nav **Benchmark** (below Canvas). Generate a random graph (`nodeCount`,
 `edgesPerVertex`, presets incl. a 100k×1M "scale" preset), pick the edge **distribution**
 (uniform or preferential), then run the edge-traversal benchmark (`iterations`) and read
 avg/median/stddev TPS. A session-local run history keeps before/after numbers. The
-benchmark traverses the edges `/generate` creates (edge property `"A"`) — a
-generated-graph benchmark, not a measurement of an arbitrary loaded graph.
+benchmark follows every out-edge of every vertex regardless of edge label, so it measures
+whatever graph is currently loaded — a sample, your own data, or a generated one (feature
+schema-agnostic-benchmark); generation is just a convenient way to conjure a sized graph.
 
 ## Sample graphs (Samples screen)
 
