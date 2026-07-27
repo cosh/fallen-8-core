@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useInstanceStore } from "../instances/registry";
@@ -57,6 +57,7 @@ import {
   SaveAsStoredQuery,
   StoredQueryPicker,
 } from "../components/StoredQueryControls";
+import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { Truncated } from "../components/Truncated";
@@ -171,16 +172,6 @@ export function SubgraphScreen() {
   const semanticQueryBuild = semanticSlotActive
     ? buildSemanticQuery(semanticQuery, { providerEnabled })
     : null;
-
-  // Consume a one-shot prefill (Dashboard → Stored queries → "Open in Subgraph").
-  const subgraphPrefill = store((s) => s.subgraphPrefill);
-  const setSubgraphPrefill = store((s) => s.setSubgraphPrefill);
-  useEffect(() => {
-    if (subgraphPrefill) {
-      setSubgraphDraft({ filterSource: "stored", storedQuery: subgraphPrefill.storedQuery });
-      setSubgraphPrefill(null);
-    }
-  }, [subgraphPrefill, setSubgraphPrefill, setSubgraphDraft]);
 
   const sequenceError = filterSource === "inline" ? validatePatternSequence(patterns) : null;
 
@@ -745,6 +736,16 @@ export function SubgraphScreen() {
           </div>
         )}
       </section>
+
+      {/* Scenario-scoped stored-query home: only SubGraph templates; Use selects one into the
+          picker above (concept spec §5.3). Capture is the "Save as stored query…" button in
+          the inline builder. */}
+      <StoredQueriesPanel
+        kind="SubGraph"
+        onUse={(name) =>
+          setSubgraphDraft({ filterSource: "stored", storedQuery: name })
+        }
+      />
     </div>
   );
 }

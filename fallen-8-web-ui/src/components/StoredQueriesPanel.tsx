@@ -25,11 +25,10 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import { deleteStoredQuery, getStoredQuery, listStoredQueries } from "../api/endpoints";
-import { getInstanceStore } from "../state/instanceStore";
+import type { StoredQueryKind } from "../api/types";
 import { describeStoredSpecification } from "../lib/storedQueries";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
@@ -39,18 +38,26 @@ import { DISPLAY_CAP } from "../lib/truncate";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
- * Query screen · Stored queries (concept spec §5.3): the library's ONE management home —
- * list, read-only source, recompile diagnostics, delete (immutable entries: delete +
- * re-register is the edit flow), and Open-in cross-links that pre-select the entry on
- * the consuming screen. Registration deliberately lives on Path/Subgraph, where
- * fragments can be tested before they are captured.
+ * Kind-scoped stored-query management (concept spec §5.3): a stored query is unique to its
+ * scenario — Path or SubGraph — so its management home lives on that scenario's screen, next
+ * to the fragments it captures. The panel lists ONLY entries of `kind`, with read-only source,
+ * recompile diagnostics, delete (immutable entries: delete + re-register is the edit flow),
+ * and a **Use** action that selects the entry into this screen's own filter picker. Capture
+ * ("Save as stored query…") lives in the inline advanced tier of the same screen.
  */
-export function StoredQueriesPanel() {
+export function StoredQueriesPanel({
+  kind,
+  onUse,
+}: {
+  kind: StoredQueryKind;
+  /** Select this entry into the host screen's filter picker (stored source + name). */
+  onUse: (name: string) => void;
+}) {
   const { instance } = useInstanceStore();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const label = kind === "Path" ? "path" : "subgraph";
 
   const list = useQuery({
     queryKey: [instance.id, "storedqueries"],
@@ -70,18 +77,8 @@ export function StoredQueriesPanel() {
     },
   });
 
-  const openInPath = (name: string) => {
-    getInstanceStore(instance.id)
-      .getState()
-      .setPathDraft({ filterSource: "stored", storedQuery: name });
-    navigate({ to: "/path" });
-  };
-  const openInSubgraph = (name: string) => {
-    getInstanceStore(instance.id).getState().setSubgraphPrefill({ storedQuery: name });
-    navigate({ to: "/subgraphs" });
-  };
-
-  const entries = list.data ?? [];
+  // One shared library, scenario-scoped view: keep only this screen's kind.
+  const entries = (list.data ?? []).filter((entry) => entry.kind === kind);
   const shownEntries = capList(entries);
   const preview =
     expanded && detail.data
@@ -89,11 +86,11 @@ export function StoredQueriesPanel() {
       : null;
 
   return (
-    <section className="panel">
+    <section className="panel" data-testid={`stored-queries-${kind}`}>
       <div className="panel-title">
-        Stored queries
+        Stored {label} queries
         <span className="text-fg-faint normal-case">
-          registered on Path / Subgraph via “Save as stored query…”
+          registered here via “Save as stored query…”
         </span>
       </div>
       {list.isError && (
@@ -106,10 +103,9 @@ export function StoredQueriesPanel() {
         <thead>
           <tr className="text-fg-faint">
             <th className="table-cell">name</th>
-            <th className="table-cell">kind</th>
             <th className="table-cell">state</th>
             <th className="table-cell">registered</th>
-            <th className="table-cell w-72">actions</th>
+            <th className="table-cell w-64">actions</th>
           </tr>
         </thead>
         <tbody>
@@ -118,7 +114,6 @@ export function StoredQueriesPanel() {
               <td className="table-cell font-semibold">
                 <Truncated text={entry.name ?? "—"} max={DISPLAY_CAP.name} />
               </td>
-              <td className="table-cell text-fg-dim">{entry.kind}</td>
               <td
                 className={`table-cell ${
                   entry.compileState === "Compiled" ? "text-fg-dim" : "text-warn"
@@ -140,24 +135,20 @@ export function StoredQueriesPanel() {
                   >
                     {expanded === entry.name ? "Hide" : "Source"}
                   </button>
-                  {entry.kind === "Path" && (
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => openInPath(entry.name!)}
-                    >
-                      Open in Path
-                    </button>
-                  )}
-                  {entry.kind === "SubGraph" && (
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => openInSubgraph(entry.name!)}
-                    >
-                      Open in Subgraph
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn"
+                    data-testid={`stored-query-use-${entry.name}`}
+                    disabled={entry.compileState === "Failed"}
+                    title={
+                      entry.compileState === "Failed"
+                        ? "recompile failed on this instance — delete and re-register"
+                        : "select into the filter picker above"
+                    }
+                    onClick={() => onUse(entry.name!)}
+                  >
+                    Use
+                  </button>
                   <button
                     type="button"
                     className="btn btn-danger"
@@ -171,8 +162,9 @@ export function StoredQueriesPanel() {
           ))}
           {shownEntries.total === 0 && !list.isError && (
             <tr>
-              <td className="table-cell text-fg-faint" colSpan={5}>
-                no stored queries on this instance
+              <td className="table-cell text-fg-faint" colSpan={4}>
+                no stored {label} queries on this instance — author fragments above, then
+                “Save as stored query…”
               </td>
             </tr>
           )}
