@@ -3,7 +3,7 @@ import type { PropertyREST } from "../api/types";
 import { help } from "../lib/fieldHelp";
 import { isReservedEmbeddingProperty, previewVector } from "../lib/embeddingProperties";
 import { DISPLAY_CAP } from "../lib/truncate";
-import { LIST_CAP, capList } from "../lib/listCaps";
+import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 import { ListCapNote } from "./ListCapNote";
 import { Truncated } from "./Truncated";
 
@@ -13,11 +13,11 @@ export function PropertiesTab({ properties }: { properties: PropertyREST[] }) {
     ? properties
     : properties.filter((p) => !isReservedEmbeddingProperty(p.propertyId));
   const hasReserved = properties.some((p) => isReservedEmbeddingProperty(p.propertyId));
-  const shownProps = capList(visible, LIST_CAP.default);
+  const shownProps = capList(visible);
 
   return (
     <div className="space-y-2" data-testid="properties-tab">
-      <div className="scroll-list">
+      <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
       <table className="w-full">
         <thead>
           <tr className="text-fg-faint">

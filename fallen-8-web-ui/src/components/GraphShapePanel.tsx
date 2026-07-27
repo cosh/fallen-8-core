@@ -10,7 +10,7 @@ import { Stat } from "./Stat";
 import { ErrorBox } from "./ErrorBox";
 import { ListCapNote } from "./ListCapNote";
 import { Truncated } from "./Truncated";
-import { LIST_CAP, capList } from "../lib/listCaps";
+import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 function CardinalityColumn({
   title,
@@ -96,7 +96,7 @@ export function GraphShapePanel() {
   const navigate = useNavigate();
   const data = shape.data;
   // Cap + scroll the indices sub-table so a large index set never grows the panel.
-  const shownShapeIndices = capList(data?.indices ?? [], LIST_CAP.default);
+  const shownShapeIndices = capList(data?.indices ?? []);
 
   return (
     <section className="panel">
@@ -154,7 +154,7 @@ export function GraphShapePanel() {
 
           <div className="panel">
             <div className="panel-title">indices</div>
-            <div className="scroll-list">
+            <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="text-fg-faint">

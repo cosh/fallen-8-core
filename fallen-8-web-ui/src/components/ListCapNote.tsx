@@ -1,7 +1,8 @@
 /**
- * Honest footer for a capped list: renders "showing N of M" ONLY when the list was actually
- * truncated (see LIST_CAP / capList in lib/listCaps.ts), so a bounded list never hides rows
- * silently. Nothing renders when everything fits.
+ * Honest footer for the hard row ceiling: renders "showing N of M" ONLY when a list is actually
+ * truncated at LIST_MAX_ROWS (see capList in lib/listCaps.ts) — a rare safety cap, never the
+ * everyday scroll threshold — so a list that big never hides the overflow silently. Nothing
+ * renders when everything fits (the normal case: the list just scrolls).
  */
 export function ListCapNote({ shown, total }: { shown: number; total: number }) {
   if (total <= shown) return null;

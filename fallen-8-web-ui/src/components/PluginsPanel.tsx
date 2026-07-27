@@ -18,7 +18,7 @@ import { Field } from "./Field";
 import { ListCapNote } from "./ListCapNote";
 import { Truncated } from "./Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
-import { LIST_CAP, capList } from "../lib/listCaps";
+import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
  * Plugins screen · registry table (feature plugin-registration): the registry's ONE
@@ -56,7 +56,7 @@ export function PluginsPanel() {
   });
 
   const entries = list.data ?? [];
-  const shownEntries = capList(entries, LIST_CAP.default);
+  const shownEntries = capList(entries);
 
   return (
     <section className="panel">
@@ -79,7 +79,7 @@ export function PluginsPanel() {
           <ErrorBox error={list.error} onRetry={() => list.refetch()} />
         </div>
       )}
-      <div className="scroll-list">
+      <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
         <table className="w-full text-[12px]">
           <thead>
             <tr className="text-fg-faint">

@@ -11,7 +11,7 @@ import { ErrorBox } from "./ErrorBox";
 import { ListCapNote } from "./ListCapNote";
 import { Truncated } from "./Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
-import { LIST_CAP, capList } from "../lib/listCaps";
+import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
  * Query screen · Stored queries (concept spec §5.3): the library's ONE management home —
@@ -57,7 +57,7 @@ export function StoredQueriesPanel() {
   };
 
   const entries = list.data ?? [];
-  const shownEntries = capList(entries, LIST_CAP.default);
+  const shownEntries = capList(entries);
   const preview =
     expanded && detail.data
       ? describeStoredSpecification(detail.data.kind, detail.data.specificationJson)
@@ -76,7 +76,7 @@ export function StoredQueriesPanel() {
           <ErrorBox error={list.error} onRetry={() => list.refetch()} />
         </div>
       )}
-      <div className="scroll-list">
+      <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-fg-faint">

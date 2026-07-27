@@ -17,7 +17,7 @@ import type {
 import { hydrateElements, isEdge, type HydrationProgress } from "../lib/hydrate";
 import { Stat } from "./Stat";
 import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
-import { LIST_CAP, capList } from "../lib/listCaps";
+import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 import { ElementTable } from "./ElementTable";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
@@ -158,7 +158,7 @@ export function AnalyticsRunner() {
 
   const result = run.data;
   // Cap + scroll the partitions table so a high-cardinality result never grows the page.
-  const shownPartitions = capList(result?.partitions ?? [], LIST_CAP.default);
+  const shownPartitions = capList(result?.partitions ?? []);
   const runHint = describeRunError(run.error);
 
   return (
@@ -438,7 +438,7 @@ export function AnalyticsRunner() {
                     members re-run the specification — exact only on a quiescent graph
                   </span>
                 </div>
-                <div className="scroll-list">
+                <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
                 <table className="w-full text-[12px]">
                   <thead>
                     <tr className="text-fg-faint">
