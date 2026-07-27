@@ -57,10 +57,10 @@ export function FirstRunOverlay() {
   return (
     <Dialog.Root open={replayOpen} onOpenChange={(o) => !o && closeReplay()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/70" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/70" />
         <Dialog.Content
           data-testid="first-run-overlay"
-          className="panel fixed top-1/2 left-1/2 flex h-[min(680px,88vh)] w-[min(1000px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col p-4"
+          className="panel modal-center flex h-[min(680px,88vh)] w-[min(1000px,92vw)] flex-col p-4"
         >
           <div className="mb-2 flex items-center gap-2">
             <Dialog.Title className="text-fg-dim text-[11px] font-semibold tracking-widest uppercase">

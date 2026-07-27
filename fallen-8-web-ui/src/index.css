@@ -69,6 +69,17 @@ body {
   @apply text-fg-dim border-line flex items-center gap-2 border-b px-3 py-2 text-[11px] font-semibold tracking-widest uppercase;
 }
 
+/* Modal dialogs (Radix Dialog) must sit above everything, including the sticky list headers
+   (`.scroll-list thead th`, z-index 1) that otherwise bleed through the panel. This is the one
+   home for the modal stacking order: scrim at z-40, panel at z-50. Every `Dialog.Overlay` uses
+   `.modal-overlay`; a centered dialog adds `.modal-center` alongside `.panel` on its content. */
+.modal-overlay {
+  @apply fixed inset-0 z-40 bg-black/60;
+}
+.modal-center {
+  @apply fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2;
+}
+
 .btn {
   @apply border-line bg-panel-2 text-fg hover:border-fg-faint inline-flex cursor-pointer items-center gap-1.5 rounded border px-2.5 py-1 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-40;
 }

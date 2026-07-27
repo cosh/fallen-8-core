@@ -176,7 +176,7 @@ export function DelegateEditor({
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onCancel()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60" />
+        <Dialog.Overlay className="modal-overlay" />
         {/* Centered via inset+m-auto, NOT translate: a transform here would become the
             containing block for Monaco's fixedOverflowWidgets (suggest/hover), shifting
             them away from the cursor. */}
