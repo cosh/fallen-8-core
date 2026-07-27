@@ -31,7 +31,11 @@ import type { StyleConfig } from "./styleConfig";
  * Sectioned canvas style configuration (studio-canvas-viz FR-8). Pure controls: reads
  * the config, emits patches; persistence and resolution live elsewhere. Property
  * pickers suggest keys seen on the canvas but accept free text (properties may arrive
- * with later merges).
+ * with later merges); switching a control to "property" seeds the field with the first
+ * such key (see defaultProperty) so it is never blank, and the user edits from there.
+ * The property field stacks on its OWN full-width line under the picker (space-y-1): the
+ * shared `.input` class is unlayered so it wins over a `w-*` utility, so a side-by-side
+ * narrow select would keep 100% width and clip the field out of the 320px panel.
  */
 
 function PropertyInput({
@@ -55,6 +59,16 @@ function PropertyInput({
       onChange={(e) => onChange(e.target.value)}
     />
   );
+}
+
+/**
+ * Seed value for a control that has just switched to "property": keep what the user
+ * already typed, otherwise default to the first property key seen on the canvas so the
+ * field is never blank (empty only when the canvas has no properties yet). The user then
+ * customizes it freely — the input stays free text.
+ */
+function defaultProperty(current: string, suggestedKeys: string[]): string {
+  return current || suggestedKeys[0] || "";
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -138,14 +152,20 @@ export function StylePanel({
 
       <Section title="nodes">
         <Field helpKey="canvasNodeColor" label="color by" htmlFor="style-node-color-mode">
-          <div className="flex gap-1">
+          <div className="space-y-1">
             <select
               id="style-node-color-mode"
-              className="input w-28 shrink-0"
+              className="input"
               value={config.nodeColorMode}
-              onChange={(e) =>
-                onChange({ nodeColorMode: e.target.value as StyleConfig["nodeColorMode"] })
-              }
+              onChange={(e) => {
+                const mode = e.target.value as StyleConfig["nodeColorMode"];
+                onChange({
+                  nodeColorMode: mode,
+                  ...(mode === "property"
+                    ? { nodeColorProperty: defaultProperty(config.nodeColorProperty, nodePropertyKeys) }
+                    : {}),
+                });
+              }}
             >
               <option value="label">label</option>
               <option value="property">property</option>
@@ -161,14 +181,20 @@ export function StylePanel({
           </div>
         </Field>
         <Field helpKey="canvasNodeSize" label="size by" htmlFor="style-node-size-mode">
-          <div className="flex gap-1">
+          <div className="space-y-1">
             <select
               id="style-node-size-mode"
-              className="input w-28 shrink-0"
+              className="input"
               value={config.nodeSizeMode}
-              onChange={(e) =>
-                onChange({ nodeSizeMode: e.target.value as StyleConfig["nodeSizeMode"] })
-              }
+              onChange={(e) => {
+                const mode = e.target.value as StyleConfig["nodeSizeMode"];
+                onChange({
+                  nodeSizeMode: mode,
+                  ...(mode === "property"
+                    ? { nodeSizeProperty: defaultProperty(config.nodeSizeProperty, nodePropertyKeys) }
+                    : {}),
+                });
+              }}
             >
               <option value="fixed">fixed</option>
               <option value="property">property</option>
@@ -198,14 +224,20 @@ export function StylePanel({
 
       <Section title="edges">
         <Field helpKey="canvasEdgeColor" label="color by" htmlFor="style-edge-color-mode">
-          <div className="flex gap-1">
+          <div className="space-y-1">
             <select
               id="style-edge-color-mode"
-              className="input w-28 shrink-0"
+              className="input"
               value={config.edgeColorMode}
-              onChange={(e) =>
-                onChange({ edgeColorMode: e.target.value as StyleConfig["edgeColorMode"] })
-              }
+              onChange={(e) => {
+                const mode = e.target.value as StyleConfig["edgeColorMode"];
+                onChange({
+                  edgeColorMode: mode,
+                  ...(mode === "property"
+                    ? { edgeColorProperty: defaultProperty(config.edgeColorProperty, edgePropertyKeys) }
+                    : {}),
+                });
+              }}
             >
               <option value="label">label</option>
               <option value="property">property</option>
@@ -221,14 +253,20 @@ export function StylePanel({
           </div>
         </Field>
         <Field helpKey="canvasEdgeWidth" label="width by" htmlFor="style-edge-width-mode">
-          <div className="flex gap-1">
+          <div className="space-y-1">
             <select
               id="style-edge-width-mode"
-              className="input w-28 shrink-0"
+              className="input"
               value={config.edgeWidthMode}
-              onChange={(e) =>
-                onChange({ edgeWidthMode: e.target.value as StyleConfig["edgeWidthMode"] })
-              }
+              onChange={(e) => {
+                const mode = e.target.value as StyleConfig["edgeWidthMode"];
+                onChange({
+                  edgeWidthMode: mode,
+                  ...(mode === "property"
+                    ? { edgeWidthProperty: defaultProperty(config.edgeWidthProperty, edgePropertyKeys) }
+                    : {}),
+                });
+              }}
             >
               <option value="fixed">fixed</option>
               <option value="property">property</option>

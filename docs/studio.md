@@ -76,12 +76,16 @@ Below the query workspace, the **Stored queries** table is the named path/subgra
 
 Renders exactly what you send from the Browser, Query, Path, Subgraph, or Analytics screens — it never auto-loads the whole graph. The style panel is sectioned:
 
+![Canvas style panel: node color and size driven by a graph property, each with an editable property-name field](images/screen-canvas-style.png)
+
 | Section | Controls |
 |---|---|
 | renderer & layout | 2D (Sigma, WebGL) or 3D (three.js); 2D layouts force/circular/circle-pack/grid/random, 3D force/dag-top-down/dag-radial |
 | nodes | color by label or property; size fixed, by property, or by in-/out-/total degree; image or emoji from a property |
 | edges | color by label or property; width fixed or by property; directed arrowheads |
 | labels & effects | node and edge label toggles |
+
+When you switch **color by** or **size by** (and the edge equivalents) to **property**, a text field appears directly under the picker for the property key. It is seeded with the first property present on the canvas so it is never blank, suggests the other keys as you type, and stays free text — you set the key yourself. You do not hand-pick the colors: each distinct value gets a stable color from a fixed palette, unless every value is numeric, in which case elements shade along a cyan→pink gradient; missing or blank values render grey. Sizes and widths from a numeric property are min-max scaled into a range.
 
 A legend (categorical or gradient) reflects the active color mode. Selecting a node or edge opens a detail panel with its properties; **Expand neighbors** merges a vertex's 1-hop neighborhood, and **Remove from view** affects only the canvas — it never deletes from the database. A path found on the Path screen arrives as a highlighted overlay.
 
