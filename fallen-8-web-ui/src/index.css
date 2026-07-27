@@ -70,3 +70,356 @@ body {
 .table-cell {
   @apply border-line border-b px-2.5 py-1.5 text-left align-top;
 }
+
+/* ---- First-run show (feature studio-first-run) ----
+   A code-driven SVG walkthrough of the "Asymmetric Cyber Warfare" mock graph. Nodes are emoji;
+   edges are directed with arrowheads. All colour comes from the theme tokens so it is native to
+   the chrome; all motion is transform/opacity so it stays razor-sharp (vector) and GPU-composited.
+   The caption sits in its own row BELOW the stage (never overlapping the graph). Reduced motion
+   and hidden-tab pause are honoured below. */
+.f8fr-svg {
+  display: block;
+}
+/* The region is programmatically focused so arrow-key stepping works without a first Tab; its
+   own controls carry the visible focus rings, so the container outline would just be a big box. */
+.f8fr:focus {
+  outline: none;
+}
+
+/* Directed edges reveal a beat behind the vertices (a gentle cascade); arrowheads inherit the
+   line colour via the marker's context-stroke fill. */
+.f8fr-edge {
+  stroke: var(--color-line);
+  stroke-width: 2;
+  opacity: 0.85;
+  animation: f8fr-edge-in 0.5s ease backwards;
+  animation-delay: calc(320ms + var(--i) * 45ms);
+  transition: opacity 0.4s ease;
+}
+.f8fr-edge.is-path {
+  stroke: var(--color-accent);
+  stroke-width: 3.5;
+  stroke-dasharray: 6 8;
+  opacity: 1;
+  animation: f8fr-flow 1.1s linear infinite;
+}
+.f8fr-edge.is-subgraph {
+  stroke: var(--color-accent-2);
+  stroke-width: 3;
+  opacity: 1;
+}
+.f8fr-edge.is-expand {
+  stroke: var(--color-accent-2);
+  stroke-width: 3;
+  opacity: 1;
+}
+.f8fr-edge.is-dim {
+  opacity: 0.16;
+}
+
+/* Vertices bloom outward with spring easing, staggered by index. */
+.f8fr-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: f8fr-bloom 0.55s cubic-bezier(0.2, 1.3, 0.5, 1) backwards;
+  animation-delay: calc(var(--i) * 55ms);
+  transition: opacity 0.4s ease;
+}
+.f8fr-node.is-dim {
+  opacity: 0.28;
+}
+/* The mark (subtle disc + emoji) carries the rank/near sizing; the label below stays put. */
+.f8fr-mark {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(var(--mark-scale, 1));
+  transition: transform 0.8s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+/* Analytics beat: a PageRank "bubble" behind each glyph; the biggest bubble = what matters most.
+   The single top node's bubble is brighter and pulses so the eye lands on it instantly. */
+.f8fr-halo {
+  fill: color-mix(in srgb, var(--color-accent) 28%, transparent);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: f8fr-halo-in 0.5s ease backwards;
+}
+.f8fr-node.is-top .f8fr-halo {
+  fill: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  animation:
+    f8fr-halo-in 0.5s ease backwards,
+    f8fr-halo-pulse 1.6s ease-in-out 0.5s infinite;
+}
+.f8fr-dot {
+  fill: var(--color-panel-2);
+  fill-opacity: 0.55;
+  stroke: var(--color-line);
+  stroke-width: 1.5;
+  transition:
+    stroke 0.4s ease,
+    stroke-width 0.4s ease;
+}
+.f8fr-emoji {
+  font-size: 30px;
+}
+.f8fr-label {
+  fill: var(--color-fg-dim);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+/* Path beat: highlighted route ring. */
+.f8fr-node.is-onpath .f8fr-dot {
+  stroke: var(--color-accent);
+  stroke-width: 3;
+}
+/* Subgraph beat: members ringed in accent-2. */
+.f8fr-node.is-subgraph .f8fr-dot {
+  stroke: var(--color-accent-2);
+  stroke-width: 3;
+}
+/* Semantic beat: nearest glow, the expanded neighbor pulses. */
+.f8fr-node.is-near .f8fr-dot {
+  stroke: var(--color-accent-2);
+  stroke-width: 2.5;
+}
+.f8fr-node.is-near .f8fr-emoji {
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--color-accent-2) 75%, transparent));
+}
+.f8fr-node.is-expand .f8fr-dot {
+  stroke: var(--color-accent-2);
+  animation: f8fr-pulse 1.2s ease-in-out infinite;
+}
+
+/* Semantic beat: the query origin and thin kNN links to its nearest neighbors. */
+.f8fr-knn {
+  stroke: var(--color-accent-2);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 5;
+  opacity: 0.55;
+}
+.f8fr-query-dot {
+  fill: color-mix(in srgb, var(--color-accent-2) 18%, var(--color-panel-2));
+  stroke: var(--color-accent-2);
+  stroke-width: 2;
+}
+.f8fr-query-emoji {
+  font-size: 20px;
+}
+
+/* Subgraph "extraction" box drawn around the member nodes. */
+.f8fr-hull {
+  fill: color-mix(in srgb, var(--color-accent-2) 9%, transparent);
+  stroke: var(--color-accent-2);
+  stroke-width: 1.5;
+  stroke-dasharray: 9 6;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: f8fr-hull-in 0.5s ease backwards;
+}
+
+/* One subtle radial ripple on the opening bloom. */
+.f8fr-ripple {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: f8fr-ripple 1.1s ease-out 0.15s 1;
+}
+
+/* Caption row: its OWN space below the stage, fixed min-height so beats do not jump the layout. */
+.f8fr-caption {
+  min-height: 66px;
+  padding: 8px 12px 0;
+  text-align: center;
+}
+.f8fr-caption-line {
+  color: var(--color-fg);
+  font-size: 15px;
+}
+.f8fr-caption-endpoint {
+  margin-top: 2px;
+  color: var(--color-accent);
+  font-size: 12px;
+}
+.f8fr-caption-note {
+  margin-top: 2px;
+  color: var(--color-fg-dim);
+  font-size: 11px;
+}
+
+.f8fr-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+}
+.f8fr-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.f8fr-navbtn {
+  padding: 1px 9px;
+  font-size: 16px;
+  line-height: 1.1;
+}
+.f8fr-dots {
+  display: flex;
+  gap: 7px;
+}
+.f8fr-dot-tick {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-line);
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+.f8fr-dot-tick:hover {
+  background: var(--color-fg-faint);
+}
+.f8fr-dot-tick.is-done {
+  background: var(--color-fg-faint);
+}
+.f8fr-dot-tick.is-active {
+  background: var(--color-accent);
+}
+
+.f8fr-handoff {
+  margin-top: 8px;
+  padding: 14px;
+}
+.f8fr-handoff-title {
+  color: var(--color-fg);
+  font-size: 14px;
+  font-weight: 700;
+}
+.f8fr-handoff-sub {
+  margin-top: 4px;
+  color: var(--color-fg-dim);
+  font-size: 12px;
+}
+.f8fr-handoff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+}
+.f8fr-handoff-action {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.f8fr-handoff-hint {
+  color: var(--color-fg-faint);
+  font-size: 11px;
+}
+
+@keyframes f8fr-bloom {
+  from {
+    opacity: 0;
+    transform: scale(0.15);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes f8fr-edge-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes f8fr-flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+@keyframes f8fr-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes f8fr-ripple {
+  from {
+    opacity: 0.8;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 0;
+    transform: scale(6);
+  }
+}
+@keyframes f8fr-hull-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+@keyframes f8fr-halo-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+@keyframes f8fr-halo-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Hidden tab: hold every animation so the show never plays unseen (the beat timeline pauses too). */
+.f8fr.is-paused .f8fr-stage * {
+  animation-play-state: paused !important;
+}
+
+/* Reduced motion: render the final rested composition with no large motion and no flashing.
+   Driven both by the OS media query and the JS-applied .reduced class (test determinism). */
+@media (prefers-reduced-motion: reduce) {
+  .f8fr-node,
+  .f8fr-edge,
+  .f8fr-dot,
+  .f8fr-mark,
+  .f8fr-halo,
+  .f8fr-hull,
+  .f8fr-ripple {
+    animation: none !important;
+    transition: none !important;
+  }
+  .f8fr-node {
+    opacity: 1;
+    transform: none;
+  }
+  .f8fr-ripple {
+    display: none;
+  }
+}
+.f8fr-stage.reduced .f8fr-node,
+.f8fr-stage.reduced .f8fr-edge,
+.f8fr-stage.reduced .f8fr-dot,
+.f8fr-stage.reduced .f8fr-mark,
+.f8fr-stage.reduced .f8fr-halo,
+.f8fr-stage.reduced .f8fr-hull,
+.f8fr-stage.reduced .f8fr-ripple {
+  animation: none !important;
+  transition: none !important;
+}
+.f8fr-stage.reduced .f8fr-node {
+  opacity: 1;
+  transform: none;
+}
+.f8fr-stage.reduced .f8fr-ripple {
+  display: none;
+}

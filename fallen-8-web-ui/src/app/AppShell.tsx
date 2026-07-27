@@ -12,6 +12,8 @@ import { ApiError } from "../api/client";
 import { getStatus, isAuthorized, listNamespaces } from "../api/endpoints";
 import { useLiveChangeFeed, type LiveFeedStatus } from "../state/liveFeed";
 import { NamespaceSwitcher } from "../components/NamespaceSwitcher";
+import { FirstRunOverlay } from "../firstrun/FirstRunOverlay";
+import { useFirstRun } from "../firstrun/firstRunStore";
 import { help } from "../lib/fieldHelp";
 
 /**
@@ -121,6 +123,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const setActiveNamespace = useRegistry((s) => s.setActiveNamespace);
   const active = useActiveInstance();
   const ns = useActiveNamespace();
+  const openReplay = useFirstRun((s) => s.openReplay);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // One change feed stream per ACTIVE instance + namespace, torn down on either switch
@@ -239,6 +242,23 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           );
         })}
+
+        {/* Persistent, always-available replay of the first-run show (feature studio-first-run).
+            Not gated by the connection state, the dismissed flag, or the graph being empty: it
+            opens the SAME <FirstRunShow> as an overlay on the mock graph and creates nothing. */}
+        <button
+          type="button"
+          data-testid="nav-replay-intro"
+          title="Replay intro: the Fallen-8 walkthrough (creates nothing)"
+          aria-label="Replay intro"
+          onClick={openReplay}
+          className="text-fg-dim hover:text-fg mt-auto flex w-14 cursor-pointer flex-col items-center gap-0.5 rounded px-1 py-2 text-center transition-colors"
+        >
+          <span aria-hidden className="text-base leading-none">
+            ✦
+          </span>
+          <span className="text-[9px] tracking-wide uppercase">Intro</span>
+        </button>
       </nav>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -335,6 +355,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         </main>
       </div>
+
+      {/* Rendered once; portals to <body>. Opened by the rail's Replay intro, closed on
+          Escape/overlay-click/Close (Radix focus trap + restore). */}
+      <FirstRunOverlay />
     </div>
   );
 }

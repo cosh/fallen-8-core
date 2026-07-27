@@ -55,6 +55,13 @@ dotnet run --project fallen-8-core-apiApp
 - **Algorithms are plugins.** Path and subgraph algorithms implement `IPlugin`
   (`IPathTraverser` / `ISubGraphAlgorithm`) and are discovered via `PluginFactory` and
   cached in `PluginCache`.
+- **`PUT /unittest` is for the test suite only; never in F8 Studio.** The
+  `SampleGraphController` canned graph (`TestGraphGenerator`) exists so tests have a graph to run
+  against. **Never surface it as a user action in the Studio UI**: no "load the unittest graph"
+  button, no client wrapper. When the UI moves a newcomer from an empty graph to a populated one,
+  it sends them to the **Sample gallery** (the Samples screen), which loads curated, styled
+  datasets. (The endpoint stays documented as a low-level REST/CLI convenience in the API docs;
+  the rule is about not pushing test scaffolding at Studio users.)
 - **Dynamic filters over REST are compiled C# fragments.** The path and subgraph APIs take
   filter/cost predicates as strings like `"return (v) => v.Label == \"person\";"`. These
   are compiled at runtime with Roslyn in `App/Helper/CodeGenerationHelper.cs` into the

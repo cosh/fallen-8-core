@@ -10,9 +10,12 @@ capability. This doc walks through each one, with screenshots and queries you ca
 
 ## How loading works
 
-Clicking **Load** fetches the dataset from a public URL, imports it, builds the sample's
-indices, and re-reads the elements onto the canvas with the sample's style — no embedding
-work happens at load time, because the vectors are baked into the file.
+Clicking **Load** fetches the dataset, imports it, builds the sample's indices, and re-reads the
+elements onto the canvas with the sample's style — no embedding work happens at load time,
+because the vectors are baked into the file. The datasets ship with the app and are served
+same-origin from `/samples` by default, so the gallery shows exactly the samples the app was
+built with and works offline; set `VITE_F8_SAMPLES_BASE` to fetch them from a remote mirror or a
+fork instead.
 
 - **Import needs an empty graph** (ids must not clash). Loading into a non-empty instance is
   gated behind a typed-name confirm that erases first — save a checkpoint
@@ -27,6 +30,30 @@ work happens at load time, because the vectors are baked into the file.
   [semantic traversal](semantic-traversal.md).
 
 ## The samples
+
+### 🛡️ Asymmetric Cyber Warfare — 6 vertices, 5 edges
+
+![The Asymmetric Cyber Warfare graph in the 3D canvas with a radial-DAG layout, emoji nodes with directed edges.](images/sample-cyber-warfare.png)
+
+A tiny, story-driven graph: a nation-state actor weaponizes a compromised software supply-chain
+tool to deliver a payload to two targets (critical infrastructure and a government agency), while
+a SOC and its analyst investigate. Six entities, five directed relationships, emoji nodes, and
+labelled edges. It is the same graph the [first-run walkthrough](studio.md) animates. The point:
+the full blast radius of a compromise is a single native traversal here, versus the brittle
+multi-table joins a relational store forces.
+
+The same graph in the 3D renderer with a force layout:
+
+![The Asymmetric Cyber Warfare graph in the 3D canvas, force layout.](images/sample-cyber-warfare-3d.png)
+
+Try it:
+
+- **[Path](path-finding.md)** from the Nation State Actor to the Critical Infrastructure to see
+  the blast radius of a supply-chain compromise (look ids up on the Browser screen).
+- **[Subgraph](subgraphs.md)** capturing the Software Supply Chain Tool and everything it
+  delivers to, then recalculate it as the graph changes.
+- **[Analytics](graph-analytics.md) → `PAGERANK`**, then color the canvas by the score: the
+  compromised tool and the critical target rank highest.
 
 ### 🥋 Zachary's Karate Club — 34 vertices, 78 edges
 

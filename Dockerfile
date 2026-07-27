@@ -14,6 +14,9 @@ RUN npm ci --no-fund --no-audit
 COPY fallen-8-web-ui/ ./
 # The client contract test imports the OpenAPI snapshot relative to the repo layout.
 COPY features/done/web-ui/openapi-v0.1.json /src/features/done/web-ui/openapi-v0.1.json
+# Sample datasets (feature sample-graphs) ship with the app: the build copies them into the SPA
+# output and the apiApp serves them same-origin at /samples. The plugin reads them from ../samples.
+COPY samples/ /src/samples/
 RUN npm run build
 
 # ---- API build ----

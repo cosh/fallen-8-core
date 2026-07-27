@@ -12,15 +12,15 @@ import { createIndex, getGraph, importBulk, tabulaRasa } from "../api/endpoints"
 import type { SampleEmbeddingInfo, SampleManifestEntry, SamplesManifest } from "./samples";
 
 /**
- * Where the datasets live. Default is this repo's committed samples/ on `main`, served by
- * GitHub raw (CORS-open, anonymous). Override with VITE_F8_SAMPLES_BASE — e.g. a feature
- * branch during development, a fork, or a same-origin mirror. No trailing slash.
+ * Where the datasets live. Default is SAME-ORIGIN /samples: the datasets ship with the app
+ * (Vite serves the repo samples/ in dev and copies it into wwwroot at build; the apiApp serves
+ * it), so the gallery shows the samples the app was built with, a newly added sample appears on
+ * rebuild without a GitHub round-trip, and it works offline. Override with VITE_F8_SAMPLES_BASE
+ * to point at a remote mirror (e.g. GitHub raw `.../<ref>/samples`) or a fork. No trailing slash.
  */
 export function samplesBaseUrl(): string {
   const override = (import.meta.env.VITE_F8_SAMPLES_BASE as string | undefined)?.trim();
-  return (
-    override || "https://raw.githubusercontent.com/cosh/fallen-8-core/main/samples"
-  ).replace(/\/$/, "");
+  return (override || "/samples").replace(/\/$/, "");
 }
 
 /** Upper bound on elements re-read into the canvas after import (all file samples fit). */
