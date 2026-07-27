@@ -65,7 +65,7 @@ function PropertyInput({
  * Seed value for a control that has just switched to "property": keep what the user
  * already typed, otherwise default to the first property key seen on the canvas so the
  * field is never blank (empty only when the canvas has no properties yet). The user then
- * customizes it freely — the input stays free text.
+ * customizes it freely; the input stays free text.
  */
 function defaultProperty(current: string, suggestedKeys: string[]): string {
   return current || suggestedKeys[0] || "";
