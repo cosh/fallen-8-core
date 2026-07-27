@@ -121,9 +121,9 @@ The inventory table shows each index's id, type, query capabilities, key/value c
 
 ![Save games screen](images/screen-savegames.png)
 
-The persistence home. The top is the persistent checkpoint registry as a Fallen-8-level table: saved-at, trigger, member namespaces, aggregate counts, file count, and size. "Save all namespaces" writes one entry spanning every namespace; **Load** restores the entire entry or a single namespace (typed confirm); **Delete** optionally removes the checkpoint files on disk. Semantics: [save-games.md](save-games.md).
+The persistence home. The top is the **Administration** section, holding the namespace-scoped persistence and lifecycle actions (they act on the active namespace shown in the top bar): **Save namespace**, **Trim**, **Load** from a checkpoint path, **Erase namespace**, and the Fallen-8-wide **Factory reset** (the destructive actions require typing the target name). An **interchange (jsonl)** subsection exports the graph (optionally filtered by label) and imports jsonl into an empty graph — import requires an empty target, which the server enforces with a 409 ([bulk-import-export.md](bulk-import-export.md)).
 
-Below it, the **Administration** section holds the namespace-scoped persistence and lifecycle actions (they act on the active namespace shown in the top bar): **Save namespace**, **Trim**, **Load** from a checkpoint path, **Erase namespace**, and the Fallen-8-wide **Factory reset** (the destructive actions require typing the target name). An **interchange (jsonl)** subsection exports the graph (optionally filtered by label) and imports jsonl into an empty graph — import requires an empty target, which the server enforces with a 409 ([bulk-import-export.md](bulk-import-export.md)).
+Below it is the persistent checkpoint registry as a Fallen-8-level table: saved-at, trigger, member namespaces, aggregate counts, file count, and size. "Save all namespaces" writes one entry spanning every namespace; **Load** restores the entire entry or a single namespace (typed confirm); **Delete** optionally removes the checkpoint files on disk. The registry shows the 50 most recent entries and scrolls within a fixed height so a long save history never grows the page. Semantics: [save-games.md](save-games.md).
 
 ## Benchmark
 

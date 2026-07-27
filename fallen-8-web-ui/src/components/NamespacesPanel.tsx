@@ -13,9 +13,11 @@ import type { NamespaceEntry } from "../api/types";
 import { ApiError } from "../api/client";
 import { migrateInstanceStore, purgeInstanceStore } from "../state/instanceStore";
 import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
+import { LIST_CAP, capList } from "../lib/listCaps";
 import { isValidNamespaceName } from "../lib/namespaceName";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
+import { ListCapNote } from "./ListCapNote";
 import { Truncated } from "./Truncated";
 
 /**
@@ -96,6 +98,8 @@ export function NamespacesPanel() {
     list.isError && list.error instanceof ApiError && list.error.status === 404;
 
   const entries = list.data?.namespaces ?? [];
+  // Cap + scroll the inventory so a large namespace set never grows the panel without bound.
+  const shownNamespaces = capList(entries, LIST_CAP.namespaces);
   const failed = [create, rename, drop].find((m) => m.isError);
   const newNameValid = isValidNamespaceName(newName);
 
@@ -127,8 +131,9 @@ export function NamespacesPanel() {
       ) : (
         <>
           {/* Scroll within the panel rather than spilling the actions column past its right
-              edge when a row's content (long name + url prefix + 3 action buttons) is wide. */}
-          <div className="overflow-x-auto">
+              edge when a row's content (long name + url prefix + 3 action buttons) is wide;
+              `scroll-list` also caps the height so a large inventory never grows the page. */}
+          <div className="scroll-list">
           <table className="w-full text-[12px]">
             <thead>
               <tr className="text-fg-faint">
@@ -142,7 +147,7 @@ export function NamespacesPanel() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry) => (
+              {shownNamespaces.shown.map((entry) => (
                 <tr key={entry.name} data-testid={`namespace-row-${entry.name}`}>
                   <td className="table-cell">
                     <span
@@ -246,6 +251,7 @@ export function NamespacesPanel() {
             </tbody>
           </table>
           </div>
+          <ListCapNote shown={shownNamespaces.shown.length} total={shownNamespaces.total} />
 
           <div className="border-line space-y-2 border-t p-3">
             <form

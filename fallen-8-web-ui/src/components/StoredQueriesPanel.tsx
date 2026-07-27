@@ -8,8 +8,10 @@ import { getInstanceStore } from "../state/instanceStore";
 import { describeStoredSpecification } from "../lib/storedQueries";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
+import { ListCapNote } from "./ListCapNote";
 import { Truncated } from "./Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
+import { LIST_CAP, capList } from "../lib/listCaps";
 
 /**
  * Query screen · Stored queries (concept spec §5.3): the library's ONE management home —
@@ -55,6 +57,7 @@ export function StoredQueriesPanel() {
   };
 
   const entries = list.data ?? [];
+  const shownEntries = capList(entries, LIST_CAP.default);
   const preview =
     expanded && detail.data
       ? describeStoredSpecification(detail.data.kind, detail.data.specificationJson)
@@ -73,7 +76,7 @@ export function StoredQueriesPanel() {
           <ErrorBox error={list.error} onRetry={() => list.refetch()} />
         </div>
       )}
-      <div className="overflow-x-auto">
+      <div className="scroll-list">
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-fg-faint">
@@ -85,7 +88,7 @@ export function StoredQueriesPanel() {
           </tr>
         </thead>
         <tbody>
-          {entries.map((entry) => (
+          {shownEntries.shown.map((entry) => (
             <tr key={entry.name ?? "—"}>
               <td className="table-cell font-semibold">
                 <Truncated text={entry.name ?? "—"} max={DISPLAY_CAP.name} />
@@ -141,7 +144,7 @@ export function StoredQueriesPanel() {
               </td>
             </tr>
           ))}
-          {entries.length === 0 && !list.isError && (
+          {shownEntries.total === 0 && !list.isError && (
             <tr>
               <td className="table-cell text-fg-faint" colSpan={5}>
                 no stored queries on this instance
@@ -151,6 +154,7 @@ export function StoredQueriesPanel() {
         </tbody>
       </table>
       </div>
+      <ListCapNote shown={shownEntries.shown.length} total={shownEntries.total} />
 
       {expanded && (
         <div className="border-line space-y-1 border-t p-3" data-testid="stored-query-source">

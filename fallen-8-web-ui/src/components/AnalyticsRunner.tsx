@@ -17,9 +17,11 @@ import type {
 import { hydrateElements, isEdge, type HydrationProgress } from "../lib/hydrate";
 import { Stat } from "./Stat";
 import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
+import { LIST_CAP, capList } from "../lib/listCaps";
 import { ElementTable } from "./ElementTable";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
+import { ListCapNote } from "./ListCapNote";
 import { Field } from "./Field";
 import { help } from "../lib/fieldHelp";
 
@@ -155,6 +157,8 @@ export function AnalyticsRunner() {
   });
 
   const result = run.data;
+  // Cap + scroll the partitions table so a high-cardinality result never grows the page.
+  const shownPartitions = capList(result?.partitions ?? [], LIST_CAP.default);
   const runHint = describeRunError(run.error);
 
   return (
@@ -427,13 +431,14 @@ export function AnalyticsRunner() {
             )}
 
             {result.partitions && result.partitions.length > 0 && (
-              <div className="panel overflow-x-auto">
+              <div className="panel">
                 <div className="panel-title">
                   partitions — {result.partitions.length}
                   <span className="text-fg-faint normal-case">
                     members re-run the specification — exact only on a quiescent graph
                   </span>
                 </div>
+                <div className="scroll-list">
                 <table className="w-full text-[12px]">
                   <thead>
                     <tr className="text-fg-faint">
@@ -443,7 +448,7 @@ export function AnalyticsRunner() {
                     </tr>
                   </thead>
                   <tbody>
-                    {result.partitions.map((partition) => (
+                    {shownPartitions.shown.map((partition) => (
                       <tr key={partition.partitionId}>
                         <td className="table-cell font-semibold">
                           {partition.partitionId}
@@ -470,6 +475,11 @@ export function AnalyticsRunner() {
                     ))}
                   </tbody>
                 </table>
+                </div>
+                <ListCapNote
+                  shown={shownPartitions.shown.length}
+                  total={shownPartitions.total}
+                />
               </div>
             )}
 
