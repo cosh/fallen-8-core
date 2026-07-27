@@ -252,13 +252,16 @@ function ObservabilityOverlay({
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60" />
-        <Dialog.Content className="panel fixed top-1/2 left-1/2 w-[34rem] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 p-4">
+        <Dialog.Content className="panel fixed top-1/2 left-1/2 flex max-h-[90vh] w-[34rem] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 flex-col p-4">
           <Dialog.Title className="text-fg text-sm font-bold">Observability</Dialog.Title>
           <Dialog.Description className="text-fg-dim mt-1 text-[12px]">
             Set at startup via environment variables (or appsettings). Changes take effect on
             restart; this view is read-only.
           </Dialog.Description>
-          <div className="mt-3 space-y-4" data-testid="config-observability-overlay">
+          <div
+            className="mt-3 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1"
+            data-testid="config-observability-overlay"
+          >
             <ObsSection
               title="Push (OTLP)"
               hint="Metrics, traces, and logs pushed to a collector. This is the live path in the default environment."
