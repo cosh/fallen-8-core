@@ -40,8 +40,9 @@ import { formatCompact, formatExact } from "../lib/format";
 /**
  * Benchmark workspace (feature sample-graphs): graph generation + the traversal
  * benchmark, moved out of the Dashboard playground into their own growing tab. The
- * benchmark times passes over the edges /generate creates (edge property "A") — it is a
- * generated-graph benchmark, not a measurement of whatever graph happens to be loaded.
+ * benchmark follows every out-edge of every vertex regardless of edge-property-id
+ * (feature schema-agnostic-benchmark), so it measures whatever graph is currently loaded;
+ * generation is just a convenient way to conjure a graph of a chosen size to measure.
  */
 
 type Distribution = "uniform" | "preferential";
@@ -189,7 +190,8 @@ export function BenchmarkScreen() {
           </div>
           <p className="text-fg-faint text-[11px]">
             Adds vertices with random out-edges ON TOP of the current graph (no wipe).
-            The benchmark below traverses exactly these generated edges.
+            Optional: the benchmark below traverses every edge of whatever graph is
+            loaded, so you can also just point it at a sample or your own data.
           </p>
           {generateMessage && (
             <div className="text-accent text-[12px]" data-testid="generate-message">
@@ -223,6 +225,10 @@ export function BenchmarkScreen() {
               {benchmark.isPending ? "Running…" : "Run benchmark"}
             </button>
           </div>
+          <p className="text-fg-faint text-[11px]">
+            Follows every out-edge of every vertex in the currently loaded graph, regardless
+            of label — no fixed schema required.
+          </p>
 
           {benchmark.data && (
             <div

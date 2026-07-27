@@ -26,7 +26,7 @@ A low-key **Replay intro** button is pinned to the bottom of the rail and is alw
 | Analytics | namespace | Graph shape + run algorithms with write-back |
 | Plugins | namespace | Built-in plugin families + the runtime-authored plugin registry |
 | Canvas | namespace | 2D/3D visualization of whatever you send to it |
-| Benchmark | Fallen-8 | Generate a random graph, measure edge-traversal throughput |
+| Benchmark | Fallen-8 | Optionally generate a random graph, measure edge-traversal throughput on any loaded graph |
 
 ## First run
 
@@ -133,7 +133,7 @@ Below it is the persistent checkpoint registry as a Fallen-8-level table: saved-
 
 ![Benchmark screen](images/screen-benchmark.png)
 
-Fallen-8-level. **Graph generation** adds random vertices with out-edges *on top of* the current graph (no wipe), with small/medium/scale presets and uniform or preferential distribution. The **edge-traversal** benchmark times repeated passes over the edges `generate` creates (edge property `A`) and reports edges per run and average/median/stddev TPS, with a per-session history. It measures generated-edge traversal throughput only — not query latency, not analytics, and not whatever graph happens to be loaded.
+Fallen-8-level. **Graph generation** adds random vertices with out-edges *on top of* the current graph (no wipe), with small/medium/scale presets and uniform or preferential distribution. The **edge-traversal** benchmark follows every out-edge of every vertex in the currently loaded graph — regardless of edge label, so it needs no fixed schema — and reports edges per run and average/median/stddev TPS, with a per-session history. It measures raw edge-traversal throughput, not query latency or analytics. Generation is a convenience for conjuring a graph of a chosen size to measure; you can equally point the benchmark at a sample dataset or your own data.
 
 ## The delegate editor
 

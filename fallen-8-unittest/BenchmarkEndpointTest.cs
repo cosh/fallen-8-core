@@ -134,7 +134,8 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(maxInDegree >= 10 * edgesPerVertex,
                 $"expected a hub (in-degree >= {10 * edgesPerVertex}), got max {maxInDegree}");
 
-            // The generated edges carry property "A", so the benchmark pairing holds.
+            // The benchmark follows every out-edge, so it counts exactly the generated edges
+            // (schema-agnostic; see Bench_FollowsEveryOutEdge_RegardlessOfSchema for a non-"A" graph).
             var benchmark = await client.GetAsync("/benchmark?iterations=1");
             Assert.AreEqual(HttpStatusCode.OK, benchmark.StatusCode);
             using var body = JsonDocument.Parse(await benchmark.Content.ReadAsStringAsync());

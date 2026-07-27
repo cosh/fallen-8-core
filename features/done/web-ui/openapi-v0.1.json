@@ -376,7 +376,7 @@
           "Benchmark"
         ],
         "summary": "Runs the edge-traversal benchmark and returns structured statistics",
-        "description": "Fallen-8-level: the benchmark traverses the \"default\" namespace (feature graph-namespaces).",
+        "description": "Fallen-8-level: the benchmark traverses the \"default\" namespace (feature graph-namespaces).\r\nIt follows every outgoing edge of every vertex regardless of edge-property-id, so it\r\nworks on any loaded graph and reports edges traversed per second (not query latency).",
         "parameters": [
           {
             "name": "iterations",
@@ -1914,7 +1914,7 @@
           "Benchmark"
         ],
         "summary": "Generates a random benchmark graph on top of the current one",
-        "description": "Fallen-8-level: generation targets the \"default\" namespace, whatever namespace a\r\nclient is otherwise working in (feature graph-namespaces). The generated vertices are\r\nunlabeled and the edges carry edge property \"A\" — exactly what GET /benchmark\r\ntraverses, so generate-then-benchmark is the intended pairing regardless of the\r\ndistribution.",
+        "description": "Fallen-8-level: generation targets the \"default\" namespace, whatever namespace a\r\nclient is otherwise working in (feature graph-namespaces). The generated vertices are\r\nunlabeled and the edges carry edge property \"A\". This endpoint is a convenience for\r\nconjuring a graph to measure - GET /benchmark follows every out-edge regardless of\r\nedge-property-id, so it benchmarks any loaded graph, not only generated ones.",
         "parameters": [
           {
             "name": "nodeCount",

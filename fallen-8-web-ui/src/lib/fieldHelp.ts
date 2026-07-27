@@ -194,7 +194,7 @@ export const FIELD_HELP = {
   benchDistribution:
     "How edge targets are drawn: uniform (flat, no hubs) or preferential (Barabási–Albert rich-get-richer — hubs emerge, analytics show structure).",
   benchIterations:
-    "Timed passes over the generated graph's edges; more iterations tighten the median/stddev.",
+    "Timed passes over every edge of the currently loaded graph; more iterations tighten the median/stddev.",
 
   // ---- dashboard ----
   loadPath:
