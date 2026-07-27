@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SampleManifestEntry, SamplesManifest } from "../src/lib/samples";
 import { F8_BASE, type BuiltSample } from "./samples/shared";
+import { buildCyberWarfare } from "./samples/cyberWarfare";
 import { buildKarateClub } from "./samples/karateClub";
 import { buildAttackSurface } from "./samples/attackSurface";
 import { buildMovieNight } from "./samples/movieNight";
@@ -34,6 +35,7 @@ const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "sampl
 
 /** Build order = card order in the Studio gallery. */
 const REGISTRY: Record<string, () => BuiltSample | Promise<BuiltSample>> = {
+  "cyber-warfare": buildCyberWarfare,
   "karate-club": buildKarateClub,
   "attack-surface": buildAttackSurface,
   "movie-night": buildMovieNight,

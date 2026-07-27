@@ -22,6 +22,25 @@ async function registerSecuredInstance(page: Page, name = "e2e") {
 }
 
 /**
+ * On an empty namespace the Dashboard shows the first-run walkthrough (feature
+ * studio-first-run) in place of the stat tiles. Scenarios that land on an empty Dashboard and
+ * assert the tiles dismiss it first (Skip to the handoff, then Explore on my own). A no-op when
+ * the graph is already populated (no show) or on a fresh context where it never appeared.
+ */
+async function dismissFirstRunIfPresent(page: Page) {
+  const show = page.getByTestId("first-run-show");
+  try {
+    await show.waitFor({ state: "visible", timeout: 8_000 });
+  } catch {
+    return; // no show (populated graph), nothing to dismiss
+  }
+  const skip = page.getByTestId("first-run-skip");
+  if (await skip.count()) await skip.click().catch(() => {});
+  await page.getByTestId("first-run-explore").click();
+  await show.waitFor({ state: "hidden" });
+}
+
+/**
  * PUT /vertex returns 202 with no id, so the created vertex is found the way a user
  * finds it: create with a unique label, load the bulk view, read the id off its row.
  */
@@ -55,6 +74,7 @@ test("scenario 1: connect, dashboard, health, disconnected overview", async ({ p
   ).toBeVisible({ timeout: 20_000 });
 
   await page.goto("/dashboard");
+  await dismissFirstRunIfPresent(page);
   await expect(page.getByTestId("stat-vertices")).toBeVisible();
   await expect(page.getByTestId("health-chip")).toHaveText("online");
 });
@@ -257,8 +277,9 @@ test("scenario 8: erasing a namespace demands its typed NAME (feature graph-name
     timeout: 20_000,
   });
 
-  // The count reads 0 back on the Dashboard.
+  // The count reads 0 back on the Dashboard (the empty graph shows the first-run walkthrough).
   await page.goto("/dashboard");
+  await dismissFirstRunIfPresent(page);
   await expect(page.getByTestId("stat-vertices")).toHaveText("0");
 });
 
@@ -398,5 +419,6 @@ test("scenario 11: nav stays locked until the active instance is connected AND a
   const dashboard = page.getByTestId("nav-dashboard");
   await expect(dashboard).not.toHaveAttribute("aria-disabled", "true");
   await dashboard.click();
+  await dismissFirstRunIfPresent(page);
   await expect(page.getByTestId("stat-vertices")).toBeVisible();
 });

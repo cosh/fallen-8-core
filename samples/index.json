@@ -2,6 +2,35 @@
   "version": 1,
   "samples": [
     {
+      "id": "cyber-warfare",
+      "title": "Asymmetric Cyber Warfare",
+      "emoji": "🛡️",
+      "pitch": "Six entities, five directed relationships: a nation-state actor weaponizes a supply-chain tool to hit multiple targets while a SOC investigates. The full blast radius is one native traversal, not a pile of brittle joins.",
+      "vertexCount": 6,
+      "edgeCount": 5,
+      "badges": [
+        "canvas",
+        "path",
+        "analytics"
+      ],
+      "trySteps": [
+        "Path: Dijkstra from the Nation State Actor to the Critical Infrastructure using edge cost 'exploitCost'. The cheapest chain runs through the compromised supply-chain tool (look ids up on the Browser screen).",
+        "Subgraph: a Vertex, Edge, Vertex pattern that captures the Software Supply Chain Tool and everything it 'deliversPayloadTo' (the blast radius); recalculate after adding data.",
+        "Analytics: PAGERANK, then color the canvas by the score. The compromised tool and the critical target rank highest.",
+        "Query: property scan on 'riskScore' (GreaterThan, 80) for the crown-jewel assets; or color the canvas by 'role' to split adversary, targets, and defenders."
+      ],
+      "file": "cyber-warfare.jsonl",
+      "styleConfig": {
+        "nodeColorMode": "label",
+        "nodeSizeMode": "degree",
+        "nodeImageProperty": "icon",
+        "showEdgeLabels": true,
+        "edgeArrows": true
+      },
+      "indexRecipes": [],
+      "embedding": null
+    },
+    {
       "id": "karate-club",
       "title": "Zachary's Karate Club",
       "emoji": "🥋",

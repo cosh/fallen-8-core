@@ -476,7 +476,12 @@ namespace NoSQL.GraphDB.App
                 app.Environment.ContentRootPath, "wwwroot", "index.html"));
             if (spaIndexPresent)
             {
-                app.UseStaticFiles();
+                // The bundled sample datasets (feature sample-graphs) ship under wwwroot/samples and
+                // are served same-origin at /samples. .json is a known type; .jsonl is not, so map it
+                // explicitly - otherwise the SPA fallback would answer .jsonl requests with index.html.
+                var contentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+                contentTypes.Mappings[".jsonl"] = "application/x-ndjson";
+                app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = contentTypes });
             }
 
             app.UseCors();

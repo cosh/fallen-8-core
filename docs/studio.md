@@ -10,6 +10,8 @@ Each screen's input form and the Canvas contents are remembered per instance-and
 
 Connect, Save games, and Benchmark are Fallen-8-level (they can span namespaces); the rest operate on the active namespace and live under `/q/{ns}/…`.
 
+A low-key **Replay intro** button is pinned to the bottom of the rail and is always available: it plays the first-run walkthrough (below) on demand.
+
 | Screen | Scope | Purpose |
 |---|---|---|
 | Connect | Fallen-8 | Register instances, instance configuration (semantic providers + observability), manage namespaces |
@@ -26,6 +28,14 @@ Connect, Save games, and Benchmark are Fallen-8-level (they can span namespaces)
 | Canvas | namespace | 2D/3D visualization of whatever you send to it |
 | Benchmark | Fallen-8 | Generate a random graph, measure edge-traversal throughput |
 
+## First run
+
+![First-run walkthrough](images/screen-first-run.png)
+
+On an empty namespace the Dashboard opens with a short animated walkthrough instead of three zeroed tiles. It plays through five beats on a small built-in mock graph ("Asymmetric Cyber Warfare": a threat actor, a compromised supply-chain tool, its targets, and the defenders, drawn with emoji nodes and directed arrows), each with one line of caption: a graph is entities and typed relationships; trace the blast radius from one entity to the next (`POST /path/{from}/to/{to}`); rank what matters with analytics (`POST /analytics/PAGERANK`); extract a matched pattern as its own recalculable graph (`PUT /subgraph`); and search by meaning then expand (`POST /scan/index/vector`). It then rests on a handoff: **Browse sample graphs** (opens the curated Sample gallery), **Import your own data** (JSONL to `POST /bulk/import`), or **Explore on my own**.
+
+Each beat holds for about ten seconds, and **Prev / Next / the step dots** (plus the Left/Right arrow keys) let you step through the features at your own pace; a manual step pauses the autoplay. The show is entirely client-side and read-only: it draws the mock as SVG and animates it, and it creates nothing. Only the handoff buttons act, and only on click. It is skippable and replayable, pauses when the tab is hidden, and honours `prefers-reduced-motion` by rendering the final framed state with no motion. Dismissing it is remembered per namespace, but it reappears if that namespace is genuinely empty again. **Replay intro** in the rail reopens the same walkthrough at any time, on the mock graph, over whatever screen you are on, without touching your data or the dismissed state. The same graph ships as the **Asymmetric Cyber Warfare** [sample](samples.md) so you can load the real thing in one click.
+
 ## Connect
 
 ![Connect screen](images/screen-connect.png)
@@ -40,7 +50,7 @@ The **Configuration** panel is read-only (instance config is set at startup via 
 
 ![Dashboard screen](images/screen-dashboard.png)
 
-A lean status overview for the active namespace: vertex/edge counts and used memory from `GET /status` ([observability.md](observability.md)). Everything that used to crowd the Dashboard now has its own home — the sample gallery is **Samples**, the plugin inventories and registry are **Plugins**, persistence and administration are **Save games**, the stored-query library is on **Query**, and the semantic providers + observability moved to the Connect **Configuration** section.
+A lean status overview for the active namespace: vertex/edge counts and used memory from `GET /status` ([observability.md](observability.md)). On an empty namespace it opens with the first-run walkthrough (above) instead of zeroed tiles. Everything that used to crowd the Dashboard now has its own home — the sample gallery is **Samples**, the plugin inventories and registry are **Plugins**, persistence and administration are **Save games**, the stored-query library is on **Query**, and the semantic providers + observability moved to the Connect **Configuration** section.
 
 ## Samples
 
