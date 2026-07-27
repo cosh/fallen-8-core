@@ -50,7 +50,7 @@ The **Configuration** panel is read-only (instance config is set at startup via 
 
 ![Dashboard screen](images/screen-dashboard.png)
 
-A lean status overview for the active namespace: vertex/edge counts and used memory from `GET /status` ([observability.md](observability.md)). On an empty namespace it opens with the first-run walkthrough (above) instead of zeroed tiles. Everything that used to crowd the Dashboard now has its own home — the sample gallery is **Samples**, the plugin inventories and registry are **Plugins**, persistence and administration are **Save games**, the stored-query library is on **Query**, and the semantic providers + observability moved to the Connect **Configuration** section.
+A lean status overview for the active namespace: vertex/edge counts and used memory from `GET /status` ([observability.md](observability.md)). On an empty namespace it opens with the first-run walkthrough (above) instead of zeroed tiles. Everything that used to crowd the Dashboard now has its own home — the sample gallery is **Samples**, the plugin inventories and registry are **Plugins**, persistence and administration are **Save games**, stored queries are managed per scenario on **Path** and **Subgraph**, and the semantic providers + observability moved to the Connect **Configuration** section.
 
 ## Samples
 
@@ -70,7 +70,7 @@ Look up a graph element, vertex, or edge by id. The inspector shows the label, t
 
 Two modes. A **property scan** takes a property id, a comparison operator, a typed literal, and a result type (Vertices / Edges / Both). **Ask an index** picks from the live inventory and offers only the forms the index answers: equality/operator, range, fulltext, spatial, or vector (kNN). A vector query is entered as a pasted vector or as text embedded server-side by the provider, with `k`, an element-kind filter, and a label constraint. Results report the id count, a vector metric legend (higher/lower is better), fulltext highlights, and a scored table. Index semantics live in [indexes.md](indexes.md) and [vector-search.md](vector-search.md).
 
-Below the query workspace, the **Stored queries** table is the named path/subgraph library's management home — list, read-only source, recompile diagnostics, delete, and Open-in cross-links that pre-select an entry on the Path or Subgraph screen. Registration itself happens on Path/Subgraph, where a fragment can be tested before it is captured ([stored-queries.md](stored-queries.md)).
+Stored queries are not managed here: a stored query is unique to its scenario (`Path` or `SubGraph`), so it is registered and managed on the **Path** and **Subgraph** screens ([stored-queries.md](stored-queries.md)).
 
 ## Canvas
 
@@ -89,7 +89,7 @@ A legend (categorical or gradient) reflects the active color mode. Selecting a n
 
 ![Path screen](images/screen-path.png)
 
-From/to vertex ids, algorithm **BLS** (hop count) or **Dijkstra** (weighted), `maxDepth`, `maxResults` (the K for Dijkstra's K-shortest-paths), and `maxPathWeight` (Dijkstra only; BLS ignores costs). Filters and costs come from **inline fragments or a stored query**, kept mutually exclusive by a source toggle. The inline advanced tier exposes five delegate slots — `filter.vertexFilter`, `filter.edgeFilter`, `filter.edgePropertyFilter`, `cost.vertexCost`, `cost.edgeCost` — each authored in the delegate editor, and the set can be saved as a stored query. A **semantic scoring** block (query vector + `minScore` filter + `costBySimilarity`) is pure data and compiles no C#. Results list each path's hops and total weight with "Overlay on canvas".
+From/to vertex ids, algorithm **BLS** (hop count) or **Dijkstra** (weighted), `maxDepth`, `maxResults` (the K for Dijkstra's K-shortest-paths), and `maxPathWeight` (Dijkstra only; BLS ignores costs). Filters and costs come from **inline fragments or a stored query**, kept mutually exclusive by a source toggle. The inline advanced tier exposes five delegate slots — `filter.vertexFilter`, `filter.edgeFilter`, `filter.edgePropertyFilter`, `cost.vertexCost`, `cost.edgeCost` — each authored in the delegate editor, and the set can be saved as a stored query. A **semantic scoring** block (query vector + `minScore` filter + `costBySimilarity`) is pure data and compiles no C#. Results list each path's hops and total weight with "Overlay on canvas". A **Stored path queries** panel below manages this instance's `Path` entries — read-only source, recompile diagnostics, delete, and a **Use** action that loads one back into the filter picker.
 
 Because fragments are validated in the editor before the query runs, an empty result here is a genuine "no paths found" rather than a swallowed compile error. Inline fragments always run (dynamic code execution is always on); on a key-protected instance they need the API key like any other request. Algorithm behavior: [path-finding.md](path-finding.md); semantic scoring: [semantic-traversal.md](semantic-traversal.md).
 
@@ -97,7 +97,7 @@ Because fragments are validated in the editor before the query runs, an empty re
 
 ![Subgraph builder](images/screen-subgraph-builder.png)
 
-A table lists existing subgraphs (with a badge for semantic ones) offering To canvas / Recalculate / Delete. The create form takes a name and an optional `fromSubGraph` for nesting, an inline-or-stored source toggle, a top-level `vertexFilter` (fragment or semantic mode) and `edgeFilter`, and a **pattern sequence builder**: add Vertex, Edge, or Variable-length edge steps with type, name, direction, and min/max length. Vertex↔edge alternation is validated as you build. A **semantic query** section appears when any vertex slot is in semantic mode (one query per request, bound at creation), and the whole specification can be saved as a stored query. Concept and rules: [subgraphs.md](subgraphs.md).
+A table lists existing subgraphs (with a badge for semantic ones) offering To canvas / Recalculate / Delete. The create form takes a name and an optional `fromSubGraph` for nesting, an inline-or-stored source toggle, a top-level `vertexFilter` (fragment or semantic mode) and `edgeFilter`, and a **pattern sequence builder**: add Vertex, Edge, or Variable-length edge steps with type, name, direction, and min/max length. Vertex↔edge alternation is validated as you build. A **semantic query** section appears when any vertex slot is in semantic mode (one query per request, bound at creation), and the whole specification can be saved as a stored query. A **Stored subgraph queries** panel below manages this instance's `SubGraph` templates — read-only source, recompile diagnostics, delete, and a **Use** action that loads one into the picker. Concept and rules: [subgraphs.md](subgraphs.md).
 
 ## Analytics
 

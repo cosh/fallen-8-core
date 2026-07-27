@@ -49,6 +49,7 @@ import {
   SaveAsStoredQuery,
   StoredQueryPicker,
 } from "../components/StoredQueryControls";
+import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { Truncated } from "../components/Truncated";
@@ -444,6 +445,14 @@ export function PathScreen() {
           )}
         </section>
       )}
+
+      {/* Scenario-scoped stored-query home: only Path entries; Use selects one into the
+          picker above (concept spec §5.3). Capture is the "Save as stored query…" button
+          in the inline advanced tier. */}
+      <StoredQueriesPanel
+        kind="Path"
+        onUse={(name) => setDraft({ filterSource: "stored", storedQuery: name })}
+      />
     </div>
   );
 }

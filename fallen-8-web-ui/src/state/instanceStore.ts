@@ -325,10 +325,6 @@ export interface ScanPrefill {
   indexId: string;
 }
 
-/** One-shot navigation intent: "open Subgraph with this stored query selected". */
-export interface SubgraphPrefill {
-  storedQuery: string;
-}
 
 export interface WorkspaceState {
   canvasNodes: Record<number, CanvasNode>;
@@ -342,7 +338,6 @@ export interface WorkspaceState {
   browserDraft: BrowserDraft;
   analyticsDraft: AnalyticsDraft;
   scanPrefill: ScanPrefill | null;
-  subgraphPrefill: SubgraphPrefill | null;
 
   mergeIntoCanvas: (vertices: VertexREST[], edges: CanvasEdgeInput[]) => void;
   removeFromCanvas: (kind: "node" | "edge", id: number) => void;
@@ -362,7 +357,6 @@ export interface WorkspaceState {
   setAnalyticsDraft: (patch: Partial<AnalyticsDraft>) => void;
   resetAnalyticsDraft: () => void;
   setScanPrefill: (prefill: ScanPrefill | null) => void;
-  setSubgraphPrefill: (prefill: SubgraphPrefill | null) => void;
 }
 
 function createWorkspaceStore(instanceId: string) {
@@ -380,7 +374,6 @@ function createWorkspaceStore(instanceId: string) {
         browserDraft: { ...DEFAULT_BROWSER_DRAFT },
         analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT },
         scanPrefill: null,
-        subgraphPrefill: null,
 
         mergeIntoCanvas: (vertices, edges) =>
           set((s) => {
@@ -457,8 +450,6 @@ function createWorkspaceStore(instanceId: string) {
         resetAnalyticsDraft: () => set({ analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT } }),
 
         setScanPrefill: (scanPrefill) => set({ scanPrefill }),
-
-        setSubgraphPrefill: (subgraphPrefill) => set({ subgraphPrefill }),
       }),
       {
         name: `f8.workspace.${instanceId}`,

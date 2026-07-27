@@ -43,8 +43,9 @@ import { Field } from "./Field";
 /**
  * Stored-query surfaces shared by Path and Subgraph (concept spec §5.1/5.2): the
  * inline|stored source toggle, the kind-filtered picker with a read-only fragment
- * preview, and the "Save as stored query…" capture dialog. Management lives on the
- * Dashboard's Stored queries panel — the picker only points there.
+ * preview, and the "Save as stored query…" capture dialog. Management (list, source,
+ * delete) lives in the kind-scoped Stored queries panel below on the same screen — the
+ * picker only points there.
  */
 
 export const REGISTRATION_401 =
@@ -141,7 +142,7 @@ export function StoredQueryPicker({
                 disabled={q.compileState === "Failed"}
                 title={
                   q.compileState === "Failed"
-                    ? "recompile failed on this instance — diagnostics on Dashboard → Stored queries"
+                    ? "recompile failed on this instance — diagnostics in the Stored queries panel below"
                     : (q.description ?? undefined)
                 }
               >
@@ -153,7 +154,7 @@ export function StoredQueryPicker({
             ))}
           </select>
         </Field>
-        <span className="text-fg-faint pb-1 text-[11px]">manage on Dashboard</span>
+        <span className="text-fg-faint pb-1 text-[11px]">manage below</span>
       </div>
       {list.isError && <ErrorBox error={list.error} onRetry={() => list.refetch()} />}
       {list.isSuccess && options.length === 0 && (
@@ -169,8 +170,8 @@ export function StoredQueryPicker({
           ))}
           {preview.note && <p className="text-fg-faint text-[11px]">{preview.note}</p>}
           <p className="text-fg-faint text-[11px]">
-            read-only — entries are immutable; delete &amp; re-register on Dashboard →
-            Stored queries to change one.
+            read-only — entries are immutable; delete &amp; re-register in the Stored queries
+            panel below to change one.
           </p>
         </div>
       )}

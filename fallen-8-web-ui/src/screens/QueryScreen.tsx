@@ -56,7 +56,6 @@ import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
 import { ElementTable } from "../components/ElementTable";
 import { ErrorBox } from "../components/ErrorBox";
-import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
 /**
  * Query workspace (FR-8/9/11, re-shaped by feature index-workspace): either a property
  * scan (the index-less path) or an index query. Index queries are INDEX-FIRST: pick the
@@ -743,11 +742,6 @@ export function QueryScreen() {
           />
         </section>
       )}
-
-      {/* Stored queries (moved here from the Dashboard): the named path/subgraph library's
-          management home, next to the ad-hoc queries it complements. Registration itself
-          still happens on Path/Subgraph, where a fragment can be tested before capture. */}
-      <StoredQueriesPanel />
 
       {/* Suggestions for the old-server free-form index input (shape snapshot / stale ids). */}
       <datalist id="query-index-ids">
