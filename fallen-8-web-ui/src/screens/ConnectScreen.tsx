@@ -8,7 +8,9 @@ import { Field } from "../components/Field";
 import { NamespacesPanel } from "../components/NamespacesPanel";
 import { ConfigurationPanel } from "../components/ConfigurationPanel";
 import { Truncated } from "../components/Truncated";
+import { ListCapNote } from "../components/ListCapNote";
 import { DISPLAY_CAP } from "../lib/truncate";
+import { LIST_CAP, capList } from "../lib/listCaps";
 
 /**
  * Connect / Instances (FR-1a): registry with add/edit/remove, lazy health overview via
@@ -112,11 +114,14 @@ export function ConnectScreen() {
   const { instances, activeId, addInstance, updateInstance, removeInstance, setActive } =
     useRegistry();
   const [editing, setEditing] = useState<string | "new" | null>(null);
+  // Cap + scroll the registry so it can never grow the panel without bound.
+  const shownInstances = capList(instances, LIST_CAP.instances);
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <section className="panel">
         <div className="panel-title">Instances</div>
+        <div className="scroll-list">
         <table className="w-full text-[12px]">
           <thead>
             <tr className="text-fg-faint">
@@ -129,7 +134,7 @@ export function ConnectScreen() {
             </tr>
           </thead>
           <tbody>
-            {instances.map((instance) => (
+            {shownInstances.shown.map((instance) => (
               <tr key={instance.id} data-testid={`instance-row-${instance.name}`}>
                 <td className="table-cell">
                   <input
@@ -171,6 +176,8 @@ export function ConnectScreen() {
             ))}
           </tbody>
         </table>
+        </div>
+        <ListCapNote shown={shownInstances.shown.length} total={shownInstances.total} />
         <div className="p-3">
           {editing === null && (
             <button

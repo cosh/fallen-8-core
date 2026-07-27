@@ -3,6 +3,8 @@ import type { PropertyREST } from "../api/types";
 import { help } from "../lib/fieldHelp";
 import { isReservedEmbeddingProperty, previewVector } from "../lib/embeddingProperties";
 import { DISPLAY_CAP } from "../lib/truncate";
+import { LIST_CAP, capList } from "../lib/listCaps";
+import { ListCapNote } from "./ListCapNote";
 import { Truncated } from "./Truncated";
 
 export function PropertiesTab({ properties }: { properties: PropertyREST[] }) {
@@ -11,9 +13,11 @@ export function PropertiesTab({ properties }: { properties: PropertyREST[] }) {
     ? properties
     : properties.filter((p) => !isReservedEmbeddingProperty(p.propertyId));
   const hasReserved = properties.some((p) => isReservedEmbeddingProperty(p.propertyId));
+  const shownProps = capList(visible, LIST_CAP.default);
 
   return (
-    <div className="space-y-2 overflow-x-auto" data-testid="properties-tab">
+    <div className="space-y-2" data-testid="properties-tab">
+      <div className="scroll-list">
       <table className="w-full">
         <thead>
           <tr className="text-fg-faint">
@@ -23,7 +27,7 @@ export function PropertiesTab({ properties }: { properties: PropertyREST[] }) {
           </tr>
         </thead>
         <tbody>
-          {visible.map((p) => (
+          {shownProps.shown.map((p) => (
             <tr key={p.propertyId}>
               <td className="table-cell">
                 <Truncated text={p.propertyId} max={DISPLAY_CAP.propertyKey} />
@@ -38,7 +42,7 @@ export function PropertiesTab({ properties }: { properties: PropertyREST[] }) {
               </td>
             </tr>
           ))}
-          {visible.length === 0 && (
+          {shownProps.total === 0 && (
             <tr>
               <td className="table-cell text-fg-faint" colSpan={3}>
                 no properties
@@ -47,6 +51,8 @@ export function PropertiesTab({ properties }: { properties: PropertyREST[] }) {
           )}
         </tbody>
       </table>
+      </div>
+      <ListCapNote shown={shownProps.shown.length} total={shownProps.total} />
       {hasReserved && (
         <label
           className="text-fg-dim label-help flex items-center gap-1 text-[11px]"

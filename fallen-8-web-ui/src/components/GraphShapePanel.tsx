@@ -8,7 +8,9 @@ import type {
 } from "../api/types";
 import { Stat } from "./Stat";
 import { ErrorBox } from "./ErrorBox";
+import { ListCapNote } from "./ListCapNote";
 import { Truncated } from "./Truncated";
+import { LIST_CAP, capList } from "../lib/listCaps";
 
 function CardinalityColumn({
   title,
@@ -93,6 +95,8 @@ export function GraphShapePanel() {
   const setScanPrefill = store((s) => s.setScanPrefill);
   const navigate = useNavigate();
   const data = shape.data;
+  // Cap + scroll the indices sub-table so a large index set never grows the panel.
+  const shownShapeIndices = capList(data?.indices ?? [], LIST_CAP.default);
 
   return (
     <section className="panel">
@@ -148,8 +152,9 @@ export function GraphShapePanel() {
 
           <DegreeTable shape={data} />
 
-          <div className="panel overflow-x-auto">
+          <div className="panel">
             <div className="panel-title">indices</div>
+            <div className="scroll-list">
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="text-fg-faint">
@@ -161,7 +166,7 @@ export function GraphShapePanel() {
                 </tr>
               </thead>
               <tbody>
-                {(data.indices ?? []).map((index) => (
+                {shownShapeIndices.shown.map((index) => (
                   <tr key={index.name ?? "—"}>
                     <td className="table-cell font-semibold">{index.name ?? "—"}</td>
                     <td className="table-cell text-fg-dim">{index.type ?? "—"}</td>
@@ -187,7 +192,7 @@ export function GraphShapePanel() {
                     </td>
                   </tr>
                 ))}
-                {(data.indices ?? []).length === 0 && (
+                {shownShapeIndices.total === 0 && (
                   <tr>
                     <td className="table-cell text-fg-faint" colSpan={5}>
                       no indices
@@ -196,6 +201,11 @@ export function GraphShapePanel() {
                 )}
               </tbody>
             </table>
+            </div>
+            <ListCapNote
+              shown={shownShapeIndices.shown.length}
+              total={shownShapeIndices.total}
+            />
           </div>
         </div>
       )}

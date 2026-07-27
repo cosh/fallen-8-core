@@ -24,7 +24,9 @@ export function ElementTable({
     return <div className="text-fg-faint p-3 text-[12px]">No elements.</div>;
   }
   return (
-    <div className="overflow-x-auto">
+    // Height-capped + scrolls (the count is already bounded by every caller — e.g. the Browser's
+    // "first 200 shown"); `.scroll-list` keeps a large result set from growing the page.
+    <div className="scroll-list">
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-fg-faint">

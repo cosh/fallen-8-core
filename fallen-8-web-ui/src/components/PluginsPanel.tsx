@@ -15,8 +15,10 @@ import { PluginEditor } from "../plugin/PluginEditor";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
 import { Field } from "./Field";
+import { ListCapNote } from "./ListCapNote";
 import { Truncated } from "./Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
+import { LIST_CAP, capList } from "../lib/listCaps";
 
 /**
  * Plugins screen · registry table (feature plugin-registration): the registry's ONE
@@ -54,6 +56,7 @@ export function PluginsPanel() {
   });
 
   const entries = list.data ?? [];
+  const shownEntries = capList(entries, LIST_CAP.default);
 
   return (
     <section className="panel">
@@ -76,7 +79,7 @@ export function PluginsPanel() {
           <ErrorBox error={list.error} onRetry={() => list.refetch()} />
         </div>
       )}
-      <div className="overflow-x-auto">
+      <div className="scroll-list">
         <table className="w-full text-[12px]">
           <thead>
             <tr className="text-fg-faint">
@@ -89,7 +92,7 @@ export function PluginsPanel() {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
+            {shownEntries.shown.map((entry) => (
               <tr key={entry.name ?? "—"} data-testid={`plugin-row-${entry.name ?? ""}`}>
                 <td className="table-cell font-semibold">
                   <Truncated text={entry.name ?? "—"} max={DISPLAY_CAP.name} />
@@ -140,7 +143,7 @@ export function PluginsPanel() {
                 </td>
               </tr>
             ))}
-            {entries.length === 0 && !list.isError && (
+            {shownEntries.total === 0 && !list.isError && (
               <tr>
                 <td className="table-cell text-fg-faint" colSpan={6}>
                   no plugins registered on this namespace
@@ -150,6 +153,7 @@ export function PluginsPanel() {
           </tbody>
         </table>
       </div>
+      <ListCapNote shown={shownEntries.shown.length} total={shownEntries.total} />
 
       {expanded && (
         <div className="border-line space-y-1 border-t p-3" data-testid="plugin-source">

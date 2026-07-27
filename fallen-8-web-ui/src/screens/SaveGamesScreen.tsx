@@ -23,18 +23,20 @@ import { shapeSuggestions, useGraphShape } from "../state/graphShape";
 import { formatExact } from "../lib/format";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ListCapNote } from "../components/ListCapNote";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
+import { LIST_CAP, capList } from "../lib/listCaps";
 
 /**
  * Save games (feature save-games + graph-namespaces): the persistence home. The top is the
- * Fallen-8-level checkpoint registry — an entry can span several namespaces ("Save all"
- * creates one), and loading restores exactly the namespaces an entry contains (or one of
- * them). Below it, the **Administration** section holds the persistence/lifecycle and jsonl
- * interchange actions that used to live on the Dashboard: those are NAMESPACE-scoped (they
- * act on the active namespace shown in the top bar), so they run through the namespace-bound
- * instance while the registry keeps using the raw Fallen-8-level one. Sits under Dashboard
- * in the rail.
+ * **Administration** section — the persistence/lifecycle and jsonl interchange actions that used
+ * to live on the Dashboard: those are NAMESPACE-scoped (they act on the active namespace shown in
+ * the top bar), so they run through the namespace-bound instance. Below it is the Fallen-8-level
+ * checkpoint registry (using the raw Fallen-8-level instance) — an entry can span several
+ * namespaces ("Save all" creates one), and loading restores exactly the namespaces an entry
+ * contains (or one of them). The registry is capped and scrolls (LIST_CAP.saveGames) so a long
+ * save history never grows the page. Sits under Dashboard in the rail.
  */
 
 function formatBytes(bytes: number): string {
@@ -241,6 +243,8 @@ export function SaveGamesScreen() {
   );
 
   const confirmingMembers = confirming ? effectiveNamespaces(confirming.game) : [];
+  // Cap + scroll the registry so a long save history never grows the page unbounded.
+  const games = capList(list.data ?? [], LIST_CAP.saveGames);
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -269,102 +273,6 @@ export function SaveGamesScreen() {
         </div>
       )}
       {failed && <ErrorBox error={failed.error} />}
-
-      <section className="panel">
-        <div className="panel-title">
-          registry
-          <span className="text-fg-faint normal-case">
-            metadata/savegames.json · Fallen-8-level · values captured at save time
-          </span>
-        </div>
-        {list.isError && (
-          <div className="p-3">
-            <ErrorBox error={list.error} onRetry={() => list.refetch()} />
-          </div>
-        )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12px]">
-            <thead>
-              <tr className="text-fg-faint">
-                <th className="table-cell">saved at</th>
-                <th className="table-cell">trigger</th>
-                <th className="table-cell">namespaces</th>
-                <th className="table-cell">vertices</th>
-                <th className="table-cell">edges</th>
-                <th className="table-cell">files</th>
-                <th className="table-cell">size</th>
-                <th className="table-cell w-40">actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(list.data ?? []).map((game) => {
-                const members = effectiveNamespaces(game);
-                return (
-                  <tr key={game.id} data-testid={`savegame-row-${game.id}`} className="hover:bg-panel-2">
-                    <td className="table-cell">{formatSavedAt(game.savedAt)}</td>
-                    <td className="table-cell">
-                      <span className="border-line rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase">
-                        {game.trigger}
-                      </span>
-                    </td>
-                    <td
-                      className="table-cell"
-                      data-testid={`savegame-namespaces-${game.id}`}
-                      title={members
-                        .map((m) => `${m.name}: ${m.kpis.vertexCount} v · ${m.kpis.edgeCount} e`)
-                        .join("\n")}
-                    >
-                      {members.map((m) => m.name).join(", ")}
-                    </td>
-                    <td className="table-cell">
-                      {formatExact(members.reduce((sum, m) => sum + m.kpis.vertexCount, 0))}
-                    </td>
-                    <td className="table-cell">
-                      {formatExact(members.reduce((sum, m) => sum + m.kpis.edgeCount, 0))}
-                    </td>
-                    <td className="table-cell">{game.fileCount}</td>
-                    <td className="table-cell">{formatBytes(game.totalBytes)}</td>
-                    <td className="table-cell">
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          className="btn"
-                          data-testid={`load-${game.id}`}
-                          onClick={() => {
-                            setLoadNamespace("");
-                            setConfirming({ kind: "load", game });
-                          }}
-                        >
-                          Load…
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-danger"
-                          data-testid={`delete-${game.id}`}
-                          onClick={() => {
-                            setDeleteFiles(false);
-                            setConfirming({ kind: "delete", game });
-                          }}
-                        >
-                          Delete…
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {(list.data ?? []).length === 0 && !list.isError && (
-                <tr>
-                  <td className="table-cell text-fg-faint" colSpan={8}>
-                    No save games yet. “Save all namespaces” creates the first one; loading a
-                    checkpoint on another instance registers it automatically.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
 
       {/* Administration (moved from the Dashboard): namespace-scoped persistence/lifecycle
           plus jsonl interchange. The destructive actions require typing the target name. */}
@@ -529,6 +437,103 @@ export function SaveGamesScreen() {
           )}
           {adminFailed && <ErrorBox error={adminFailed.error} />}
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title">
+          registry
+          <span className="text-fg-faint normal-case">
+            metadata/savegames.json · Fallen-8-level · values captured at save time
+          </span>
+        </div>
+        {list.isError && (
+          <div className="p-3">
+            <ErrorBox error={list.error} onRetry={() => list.refetch()} />
+          </div>
+        )}
+        <div className="scroll-list">
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr className="text-fg-faint">
+                <th className="table-cell">saved at</th>
+                <th className="table-cell">trigger</th>
+                <th className="table-cell">namespaces</th>
+                <th className="table-cell">vertices</th>
+                <th className="table-cell">edges</th>
+                <th className="table-cell">files</th>
+                <th className="table-cell">size</th>
+                <th className="table-cell w-40">actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {games.shown.map((game) => {
+                const members = effectiveNamespaces(game);
+                return (
+                  <tr key={game.id} data-testid={`savegame-row-${game.id}`} className="hover:bg-panel-2">
+                    <td className="table-cell">{formatSavedAt(game.savedAt)}</td>
+                    <td className="table-cell">
+                      <span className="border-line rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase">
+                        {game.trigger}
+                      </span>
+                    </td>
+                    <td
+                      className="table-cell"
+                      data-testid={`savegame-namespaces-${game.id}`}
+                      title={members
+                        .map((m) => `${m.name}: ${m.kpis.vertexCount} v · ${m.kpis.edgeCount} e`)
+                        .join("\n")}
+                    >
+                      {members.map((m) => m.name).join(", ")}
+                    </td>
+                    <td className="table-cell">
+                      {formatExact(members.reduce((sum, m) => sum + m.kpis.vertexCount, 0))}
+                    </td>
+                    <td className="table-cell">
+                      {formatExact(members.reduce((sum, m) => sum + m.kpis.edgeCount, 0))}
+                    </td>
+                    <td className="table-cell">{game.fileCount}</td>
+                    <td className="table-cell">{formatBytes(game.totalBytes)}</td>
+                    <td className="table-cell">
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          className="btn"
+                          data-testid={`load-${game.id}`}
+                          onClick={() => {
+                            setLoadNamespace("");
+                            setConfirming({ kind: "load", game });
+                          }}
+                        >
+                          Load…
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          data-testid={`delete-${game.id}`}
+                          onClick={() => {
+                            setDeleteFiles(false);
+                            setConfirming({ kind: "delete", game });
+                          }}
+                        >
+                          Delete…
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {games.total === 0 && !list.isError && (
+                <tr>
+                  <td className="table-cell text-fg-faint" colSpan={8}>
+                    No save games yet. “Save all namespaces” creates the first one; loading a
+                    checkpoint on another instance registers it automatically.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <ListCapNote shown={games.shown.length} total={games.total} />
       </section>
 
       <datalist id="savegame-vertex-labels">

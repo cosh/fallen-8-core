@@ -21,8 +21,10 @@ import { TypedLiteralEditor } from "../components/TypedLiteralEditor";
 import { Field } from "../components/Field";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorBox } from "../components/ErrorBox";
+import { ListCapNote } from "../components/ListCapNote";
 import { Truncated } from "../components/Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
+import { LIST_CAP, capList } from "../lib/listCaps";
 
 /**
  * Indexes workspace (feature index-workspace): the top-level home for index OBJECTS —
@@ -40,6 +42,8 @@ export function IndexesScreen() {
 
   const status = useStatus(instance);
   const inventory = status.data?.indices ?? [];
+  // Cap + scroll the inventory so a large index set never grows the panel without bound.
+  const shownIndexes = capList(inventory, LIST_CAP.default);
   // An older /status without the inventory field: the table cannot render, so delete
   // falls back to a free-form id (create is unaffected).
   const inventoryAbsent = Boolean(status.data) && status.data!.indices == null;
@@ -107,7 +111,7 @@ export function IndexesScreen() {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="scroll-list">
             <table className="w-full text-[12px]" data-testid="index-inventory">
               <thead>
                 <tr className="text-fg-faint">
@@ -121,7 +125,7 @@ export function IndexesScreen() {
                 </tr>
               </thead>
               <tbody>
-                {inventory.map((index) => (
+                {shownIndexes.shown.map((index) => (
                   <tr
                     key={index.indexId}
                     data-testid={`index-row-${index.indexId}`}
@@ -198,6 +202,7 @@ export function IndexesScreen() {
             </table>
           </div>
         )}
+        <ListCapNote shown={shownIndexes.shown.length} total={shownIndexes.total} />
         {remove.isError && (
           <div className="px-3 pb-3">
             <ErrorBox error={remove.error} />
