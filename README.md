@@ -8,66 +8,69 @@ Fallen-8 is an in-memory [graph database](http://en.wikipedia.org/wiki/Graph_dat
 written in C# (.NET 10), built for raw speed on heavy graph algorithms.
 
 It has **no query language** — no Cypher, no Gremlin, and none is planned. Queries are C#:
-small [delegate fragments](docs/delegates.md) compiled at runtime, or precompiled stored
+small [delegate fragments](https://cosh.github.io/fallen-8-core/delegates/) compiled at runtime, or precompiled stored
 queries. That is a deliberate choice for the era of code-generating agents — an agent emits a
 C# fragment, the engine compiles and runs it in-process at full speed, with no query-language
 layer in between. This is the .NET Core evolution of the original
 [fallen-8](https://github.com/cosh/fallen-8).
 
+> 📚 **Full documentation: <https://cosh.github.io/fallen-8-core/>** — a fast, searchable site
+> with a deep dive per feature and the interactive API reference.
+
 ### Key features
 
 Each feature has a deep-dive doc — follow the link.
 
-- **[Graph model](docs/graph-model.md)** — a directed property graph; typed properties on
+- **[Graph model](https://cosh.github.io/fallen-8-core/graph-model/)** — a directed property graph; typed properties on
   vertices and edges, all mutation through a serialized transaction queue.
-- **[Delegates, not a query language](docs/delegates.md)** — filters and cost functions are
+- **[Delegates, not a query language](https://cosh.github.io/fallen-8-core/delegates/)** — filters and cost functions are
   runtime-compiled C# fragments; the defining design decision.
-- **[Path finding](docs/path-finding.md)** — shortest/weighted paths with delegate filter and
+- **[Path finding](https://cosh.github.io/fallen-8-core/path-finding/)** — shortest/weighted paths with delegate filter and
   cost functions (BLS, Dijkstra).
-- **[Subgraphs](docs/subgraphs.md)** — extract a pattern-matched subset as a standalone graph,
+- **[Subgraphs](https://cosh.github.io/fallen-8-core/subgraphs/)** — extract a pattern-matched subset as a standalone graph,
   recalculate it when the source changes, nest and persist it.
-- **[Graph analytics](docs/graph-analytics.md)** — PageRank, connected components,
+- **[Graph analytics](https://cosh.github.io/fallen-8-core/graph-analytics/)** — PageRank, connected components,
   communities, degree centrality, triangle counting, with optional property write-back.
-- **[Stored queries](docs/stored-queries.md)** — register a vetted, compiled query once and
+- **[Stored queries](https://cosh.github.io/fallen-8-core/stored-queries/)** — register a vetted, compiled query once and
   invoke it by name — no dynamic code at call time.
-- **[Indexes](docs/indexes.md)** — dictionary, range, fulltext, spatial R-Tree, and vector kNN,
+- **[Indexes](https://cosh.github.io/fallen-8-core/indexes/)** — dictionary, range, fulltext, spatial R-Tree, and vector kNN,
   all as plugins.
-- **[Vector search](docs/vector-search.md)** — exact k-nearest-neighbour over `float[]`
+- **[Vector search](https://cosh.github.io/fallen-8-core/vector-search/)** — exact k-nearest-neighbour over `float[]`
   embeddings (cosine, dot product, L2).
-- **[Semantic traversal](docs/semantic-traversal.md)** — embeddings as element state; a
+- **[Semantic traversal](https://cosh.github.io/fallen-8-core/semantic-traversal/)** — embeddings as element state; a
   code-free `semantic` block steers paths and subgraphs by similarity.
-- **[Bulk import/export](docs/bulk-import-export.md)** — stream whole graphs as newline-delimited
+- **[Bulk import/export](https://cosh.github.io/fallen-8-core/bulk-import-export/)** — stream whole graphs as newline-delimited
   JSON that round-trips exactly.
-- **[Live change feed](docs/change-feed.md)** — committed mutations as Server-Sent Events, in
+- **[Live change feed](https://cosh.github.io/fallen-8-core/change-feed/)** — committed mutations as Server-Sent Events, in
   commit order, with in-band resync.
-- **[Save games](docs/save-games.md)** — checkpoints tracked by a registry that drives startup,
+- **[Save games](https://cosh.github.io/fallen-8-core/save-games/)** — checkpoints tracked by a registry that drives startup,
   on top of a write-ahead log.
-- **[Namespaces](docs/namespaces.md)** — many isolated graphs in one Fallen-8, addressable under
+- **[Namespaces](https://cosh.github.io/fallen-8-core/namespaces/)** — many isolated graphs in one Fallen-8, addressable under
   `/ns/{name}/…`.
-- **[Observability](docs/observability.md)**: opt-in Prometheus/OTLP metrics and traces, a
+- **[Observability](https://cosh.github.io/fallen-8-core/observability/)**: opt-in Prometheus/OTLP metrics and traces, a
   graph-shape snapshot, and health probes for one instance, plus a multi-tenant consumer stack
   (Collector, Prometheus, Tempo, Loki, Grafana) that collects what many instances push into one
   Grafana pane, keyed by tenant/instance/namespace; on by default with `npm run env:up`.
-- **[REST API](docs/rest-api.md)** — a versioned HTTP surface with an OpenAPI document and an
+- **[REST API](https://cosh.github.io/fallen-8-core/rest-api/)** — a versioned HTTP surface with an OpenAPI document and an
   interactive Scalar reference.
-- **[Plugins](docs/plugins.md)** — indices, algorithms, and services are all discovered plugins.
-- **[Plugin registration](docs/plugin-registration.md)** — add runtime algorithm and graph-function
+- **[Plugins](https://cosh.github.io/fallen-8-core/plugins/)** — indices, algorithms, and services are all discovered plugins.
+- **[Plugin registration](https://cosh.github.io/fallen-8-core/plugin-registration/)** — add runtime algorithm and graph-function
   plugins by authoring C# source (compiled, contract-validated, namespace-scoped) instead of
   uploading a DLL.
-- **[F8 Studio](docs/studio.md)** — a browser UI to browse, query, visualize, and author the C#
+- **[F8 Studio](https://cosh.github.io/fallen-8-core/studio/)** — a browser UI to browse, query, visualize, and author the C#
   delegates, with a natural-language assist that runs through your instance by default (or a
   browser-direct custom model backend).
-- **[MCP server](docs/mcp-server.md)** — a Model Context Protocol surface so AI agents call
+- **[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
   writes and three auth modes up to OAuth 2.1.
-- **[Security](docs/security.md)** — optional all-or-nothing API key; dynamic code execution is
+- **[Security](https://cosh.github.io/fallen-8-core/security/)** — optional all-or-nothing API key; dynamic code execution is
   always on (queries are C#), so set a key before exposing the service off-box.
 
 ## Architecture
 
 An in-memory engine with a thin REST app around it. **AI agents** reach it through the
-[MCP server](docs/mcp-server.md); **F8 Studio** (the browser UI) and **your own services** call
-the [REST API](docs/rest-api.md) directly. Under the hood the engine (`fallen-8-core`) holds the
+[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/); **F8 Studio** (the browser UI) and **your own services** call
+the [REST API](https://cosh.github.io/fallen-8-core/rest-api/) directly. Under the hood the engine (`fallen-8-core`) holds the
 graph in RAM, serializes every write through one writer thread, and runs the algorithms, while
 the app (`fallen-8-core-apiApp`) is the thin HTTP layer that also serves F8 Studio. Engine and
 app ship as one Docker unit alongside a model sidecar.
@@ -109,7 +112,7 @@ flowchart TB
 ```
 
 Full details — the writer thread, plugin system, durability, and the model sidecar — are in
-[docs/architecture.md](docs/architecture.md).
+[docs/architecture.md](https://cosh.github.io/fallen-8-core/architecture/).
 
 ## Running it
 
@@ -126,7 +129,7 @@ Then open **F8 Studio at http://localhost:8080** and load a sample graph from th
 
 Every other way to run it — a bare `dotnet run`, the configuration keys, the security
 switches, GPU acceleration, offline model pre-seeding — is in
-[docs/running.md](docs/running.md).
+[docs/running.md](https://cosh.github.io/fallen-8-core/running/).
 
 ## Samples
 
@@ -135,7 +138,7 @@ Active-Directory attack surface, a movie-recommendation graph, world air routes,
 own dependency graph) that load in a click and come styled, indexed, and ready to explore.
 Each one is a guided tour of a different feature — analytics, weighted paths, semantic search,
 canvas visualization. See the gallery walkthrough, with screenshots and example queries, in
-[docs/samples.md](docs/samples.md).
+[docs/samples.md](https://cosh.github.io/fallen-8-core/samples/).
 
 ## Use Fallen-8 from AI agents
 
@@ -151,16 +154,18 @@ claude mcp add --transport http fallen8 http://localhost:8090
 ```
 
 For a real (off-box) deployment, set a token and enable the tiers you need — full guide in
-[docs/mcp-server.md](docs/mcp-server.md).
+[docs/mcp-server.md](https://cosh.github.io/fallen-8-core/mcp-server/).
 
 ## Troubleshooting
 
 Common snags — first-start model pulls, the embedding provider, missing-key 401s, GPU
-detection — and their fixes are in [docs/troubleshooting.md](docs/troubleshooting.md).
+detection — and their fixes are in [docs/troubleshooting.md](https://cosh.github.io/fallen-8-core/troubleshooting/).
 
 ## Documentation
 
-The full documentation set lives in **[docs/](docs/README.md)**.
+The full documentation set is the searchable site at
+**<https://cosh.github.io/fallen-8-core/>**. Its sources live in `docs/` (a Starlight site) and
+deploy on every push to `main`.
 
 ## Additional information
 

@@ -32,3 +32,9 @@ docker-*.log
 *-startup.log
 .env.local
 /tmp/
+
+# Docs site (Starlight/Astro) build output and generated files
+docs/dist/
+docs/.astro/
+# OpenAPI document is produced in CI, not committed
+docs/public/openapi/

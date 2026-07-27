@@ -1,0 +1,86 @@
+name: docs
+
+# Builds the Starlight documentation site and deploys it to GitHub Pages.
+# Separate from build-and-test.yml: it only runs when the docs or the API surface change.
+# One-time repo setting required: Settings > Pages > Build and deployment > Source: GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      # The published OpenAPI document is exported from the running app; refresh it when the
+      # API surface changes. That surface is the apiApp's controllers plus the engine model
+      # types surfaced in their signatures, so watch both projects.
+      - 'fallen-8-core-apiApp/**'
+      - 'fallen-8-core/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one Pages deployment at a time; do not cancel an in-progress deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Export OpenAPI + build site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Run the built app and capture its OpenAPI document into the site's public/ so Astro
+      # publishes it at /fallen-8-core/openapi/v0.1.json. No packages are added to the .NET
+      # project; the app is only run to emit its spec. Non-fatal: the API Reference page
+      # degrades gracefully when the document is absent.
+      - name: Export OpenAPI document
+        continue-on-error: true
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ASPNETCORE_URLS: http://localhost:5000
+        run: |
+          set -x
+          mkdir -p docs/public/openapi
+          dotnet build fallen-8-core-apiApp -c Release
+          dotnet run --project fallen-8-core-apiApp -c Release --no-build --no-launch-profile &
+          APP_PID=$!
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:5000/openapi/v0.1.json -o docs/public/openapi/v0.1.json; then
+              echo "OpenAPI captured"; ok=1; break
+            fi
+            sleep 2
+          done
+          kill $APP_PID 2>/dev/null || true
+          if [ "$ok" != "1" ]; then
+            echo "::warning::OpenAPI export failed; the API Reference page will degrade gracefully."
+          fi
+
+      - name: Build with Astro
+        uses: withastro/action@v3
+        with:
+          path: ./docs
+          node-version: 22
+          package-manager: npm
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

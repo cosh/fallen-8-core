@@ -1,0 +1,49 @@
+---
+// Embeds the Scalar API reference, reading the OpenAPI document from the site root.
+// The document (docs/public/openapi/v0.1.json) is produced by CI, not committed, so this
+// component degrades gracefully when it is absent: local dev builds still succeed and the
+// page shows a short note plus a link to the running endpoint.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const specUrl = `${base}/openapi/v0.1.json`;
+---
+
+<div id="scalar-api-reference"></div>
+
+<div id="scalar-fallback" hidden>
+	<p>
+		The interactive API reference renders from the OpenAPI document at
+		<code>{specUrl}</code>, which is generated in CI and published with the deployed site.
+		It is not present in this build.
+	</p>
+	<p>To browse the API locally, run the app and open its bundled Scalar reference:</p>
+	<pre><code>dotnet run --project fallen-8-core-apiApp
+# Scalar UI:     http://localhost:5000/scalar/v0.1
+# OpenAPI JSON:  http://localhost:5000/openapi/v0.1.json</code></pre>
+</div>
+
+<script is:inline define:vars={{ specUrl }}>
+	(async () => {
+		const fallback = document.getElementById('scalar-fallback');
+		const showFallback = () => {
+			if (fallback) fallback.hidden = false;
+		};
+		try {
+			const res = await fetch(specUrl, { method: 'GET' });
+			if (!res.ok) throw new Error('OpenAPI document not found: ' + res.status);
+			const mount = () => {
+				if (window.Scalar && typeof window.Scalar.createApiReference === 'function') {
+					window.Scalar.createApiReference('#scalar-api-reference', { url: specUrl });
+				} else {
+					showFallback();
+				}
+			};
+			const cdn = document.createElement('script');
+			cdn.src = 'https://cdn.jsdelivr.net/npm/@scalar/api-reference';
+			cdn.addEventListener('load', mount);
+			cdn.addEventListener('error', showFallback);
+			document.head.appendChild(cdn);
+		} catch {
+			showFallback();
+		}
+	})();
+</script>
