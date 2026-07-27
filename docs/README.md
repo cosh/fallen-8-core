@@ -46,8 +46,7 @@ New here? Start with [Running](running.md), open [F8 Studio](studio.md), and loa
 | [Bulk import/export](bulk-import-export.md) | Stream whole graphs as newline-delimited JSON |
 | [Live change feed](change-feed.md) | Committed mutations as Server-Sent Events, with resync |
 | [Save games](save-games.md) | Checkpoints, the registry that drives startup, and the write-ahead log |
-| [Observability](observability.md) | Opt-in Prometheus/OTLP metrics and traces, statistics, health probes |
-| [Fleet observability](fleet-observability.md) | The multi-tenant consumer stack that collects what many instances push into one Grafana pane |
+| [Observability](observability.md) | Per-instance Prometheus/OTLP metrics and traces, a graph-shape snapshot and health probes, plus the multi-tenant consumer stack that collects what many instances push into one Grafana pane |
 | [REST API](rest-api.md) | The OpenAPI document, Scalar reference, versioning, and the endpoint map |
 | [MCP server](mcp-server.md) | The Model Context Protocol surface for AI agents — tools, tiers, auth |
 

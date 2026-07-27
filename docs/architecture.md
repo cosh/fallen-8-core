@@ -32,7 +32,7 @@ flowchart TB
     end
     sidecar["Model sidecar (Ollama)<br/>embeddings + delegate assist"]:::ext
 
-    subgraph obs["Fleet observability · one Grafana pane"]
+    subgraph obs["Observability · one Grafana pane"]
         direction TB
         collector["OTel Collector<br/>ingest + spanmetrics"]:::sys
         promstore["Prometheus<br/>metrics"]:::sys
@@ -132,7 +132,7 @@ the browser calls the model backend directly and any API key is held only in the
 (the earlier browser-only default was retired in favour of the gateway — see
 [studio.md](studio.md)).
 
-## Fleet observability
+## Observability
 
 The engine and app emit metrics, traces, and logs through BCL instruments; the app and the
 [MCP server](mcp-server.md) push them over OTLP to a small consumer stack that ships with the
@@ -141,7 +141,7 @@ spans, Prometheus stores metrics, Tempo stores traces, Loki stores logs, and Gra
 single pane. Each process stamps a tenant/instance/namespace identity on every signal so one
 Grafana can separate many instances. This is a **push** relationship and a separate set of
 containers, always on with `npm run env:up`. The full story, including what isolation is and is
-not guaranteed, is in [Fleet observability](fleet-observability.md).
+not guaranteed, is in [Observability](observability.md).
 
 ## One deployable unit
 
@@ -160,4 +160,4 @@ the WAL live on a mounted volume.
 - [Namespaces](namespaces.md) — the graph-collection model
 - [Security](security.md) — the API-app boundary
 - [MCP server](mcp-server.md) — how AI agents reach Fallen-8
-- [Fleet observability](fleet-observability.md): the multi-tenant metrics/traces/logs consumer
+- [Observability](observability.md): the multi-tenant metrics/traces/logs pipeline and consumer
