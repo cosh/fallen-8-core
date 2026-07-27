@@ -71,8 +71,8 @@ export function ConfirmDialog({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/60" />
-        <Dialog.Content className="panel fixed top-1/2 left-1/2 w-[28rem] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 p-4">
+        <Dialog.Overlay className="modal-overlay" />
+        <Dialog.Content className="panel modal-center w-[28rem] max-w-[90vw] p-4">
           <Dialog.Title className="text-danger wrap-break-word text-sm font-bold">{title}</Dialog.Title>
           <Dialog.Description className="text-fg-dim mt-2 text-[12px]">
             {description} This targets{" "}

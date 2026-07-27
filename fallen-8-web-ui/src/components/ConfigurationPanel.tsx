@@ -276,8 +276,8 @@ function ObservabilityOverlay({
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/60" />
-        <Dialog.Content className="panel fixed top-1/2 left-1/2 flex max-h-[90vh] w-[34rem] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 flex-col p-4">
+        <Dialog.Overlay className="modal-overlay" />
+        <Dialog.Content className="panel modal-center flex max-h-[90vh] w-[34rem] max-w-[92vw] flex-col p-4">
           <Dialog.Title className="text-fg text-sm font-bold">Observability</Dialog.Title>
           <Dialog.Description className="text-fg-dim mt-1 text-[12px]">
             Set at startup via environment variables (or appsettings). Changes take effect on
