@@ -44,11 +44,10 @@ Each feature has a deep-dive doc — follow the link.
   on top of a write-ahead log.
 - **[Namespaces](docs/namespaces.md)** — many isolated graphs in one Fallen-8, addressable under
   `/ns/{name}/…`.
-- **[Observability](docs/observability.md)** — opt-in Prometheus/OTLP metrics and traces, a
-  graph-shape snapshot, health probes.
-- **[Fleet observability](docs/fleet-observability.md)**: a multi-tenant consumer stack (Collector,
-  Prometheus, Tempo, Loki, Grafana) that collects what many instances push and shows the whole fleet
-  in one Grafana pane, keyed by tenant/instance/namespace; on by default with `npm run env:up`.
+- **[Observability](docs/observability.md)**: opt-in Prometheus/OTLP metrics and traces, a
+  graph-shape snapshot, and health probes for one instance, plus a multi-tenant consumer stack
+  (Collector, Prometheus, Tempo, Loki, Grafana) that collects what many instances push into one
+  Grafana pane, keyed by tenant/instance/namespace; on by default with `npm run env:up`.
 - **[REST API](docs/rest-api.md)** — a versioned HTTP surface with an OpenAPI document and an
   interactive Scalar reference.
 - **[Plugins](docs/plugins.md)** — indices, algorithms, and services are all discovered plugins.
@@ -90,7 +89,7 @@ flowchart TB
     end
 
     sidecar["Model sidecar<br/>Ollama"]:::ext
-    obs["Fleet observability<br/>Collector · Prometheus · Tempo · Loki · Grafana"]:::obs
+    obs["Observability<br/>Collector · Prometheus · Tempo · Loki · Grafana"]:::obs
 
     agents -->|MCP| mcp
     mcp -->|HTTP| rest
