@@ -22,6 +22,11 @@ export default defineConfig({
 				replacesTitle: true,
 			},
 			favicon: '/favicon.ico',
+			customCss: ['./src/styles/mermaid-zoom.css'],
+			components: {
+				// adds a click-to-zoom lightbox for Mermaid diagrams
+				Head: './src/components/Head.astro',
+			},
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/cosh/fallen-8-core' },
 			],

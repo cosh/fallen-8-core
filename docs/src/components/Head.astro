@@ -1,0 +1,97 @@
+---
+// Starlight <Head> override: renders the default head, then loads a small client script
+// that makes Mermaid diagrams zoomable (click to open a full-screen pan/zoom lightbox).
+import type { Props } from '@astrojs/starlight/props';
+import Default from '@astrojs/starlight/components/Head.astro';
+---
+
+<Default {...Astro.props}><slot /></Default>
+
+<script>
+	// Enhance every Mermaid diagram with a zoom affordance + a full-screen lightbox.
+	// astro-mermaid renders diagrams client-side (and re-renders on theme change), so we
+	// scan on load and observe the DOM. Panzoom is loaded lazily on first zoom.
+	function init() {
+		const overlay = document.createElement('div');
+		overlay.className = 'mmd-lightbox';
+		overlay.hidden = true;
+		overlay.innerHTML =
+			'<button class="mmd-close" type="button" aria-label="Close diagram">×</button>' +
+			'<div class="mmd-toolbar" role="group" aria-label="Zoom controls">' +
+			'<button class="mmd-tb" data-act="out" type="button" aria-label="Zoom out">−</button>' +
+			'<button class="mmd-tb" data-act="reset" type="button">Reset</button>' +
+			'<button class="mmd-tb" data-act="in" type="button" aria-label="Zoom in">+</button>' +
+			'</div>' +
+			'<div class="mmd-stage"><div class="mmd-pan"></div></div>' +
+			'<div class="mmd-hint">scroll to zoom · drag to pan · Esc to close</div>';
+		document.body.appendChild(overlay);
+
+		const stage = overlay.querySelector('.mmd-stage') as HTMLElement;
+		const panEl = overlay.querySelector('.mmd-pan') as HTMLElement;
+		let pz: any = null;
+		let wheelHandler: ((e: WheelEvent) => void) | null = null;
+
+		function close() {
+			overlay.hidden = true;
+			if (wheelHandler) { stage.removeEventListener('wheel', wheelHandler as any); wheelHandler = null; }
+			if (pz) { pz.destroy(); pz = null; }
+			panEl.innerHTML = '';
+		}
+		overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === stage) close(); });
+		overlay.querySelector('.mmd-close')!.addEventListener('click', close);
+		document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !overlay.hidden) close(); });
+		overlay.querySelectorAll('.mmd-tb').forEach((b) =>
+			b.addEventListener('click', (e) => {
+				e.stopPropagation();
+				if (!pz) return;
+				const act = (e.currentTarget as HTMLElement).dataset.act;
+				if (act === 'in') pz.zoomIn();
+				else if (act === 'out') pz.zoomOut();
+				else pz.reset();
+			})
+		);
+
+		async function open(svg: SVGElement) {
+			const clone = svg.cloneNode(true) as SVGElement;
+			clone.removeAttribute('style'); // drop mermaid's max-width so it fills the stage
+			panEl.innerHTML = '';
+			panEl.appendChild(clone);
+			overlay.hidden = false;
+			const { default: Panzoom } = await import('@panzoom/panzoom');
+			pz = Panzoom(panEl, { maxScale: 12, minScale: 0.5, step: 0.35, cursor: 'grab', animate: true });
+			wheelHandler = (e: WheelEvent) => pz.zoomWithWheel(e);
+			stage.addEventListener('wheel', wheelHandler, { passive: false });
+		}
+
+		function enhance(m: Element) {
+			if (m.closest('.mmd-wrap')) return; // already wrapped
+			const wrap = document.createElement('div');
+			wrap.className = 'mmd-wrap';
+			m.parentNode!.insertBefore(wrap, m);
+			wrap.appendChild(m);
+
+			const btn = document.createElement('button');
+			btn.className = 'mmd-zoom-btn';
+			btn.type = 'button';
+			btn.title = 'Zoom diagram';
+			btn.setAttribute('aria-label', 'Zoom diagram');
+			btn.textContent = '⤢';
+			wrap.appendChild(btn);
+
+			const openThis = () => { const s = m.querySelector('svg'); if (s) open(s as unknown as SVGElement); };
+			btn.addEventListener('click', (e) => { e.stopPropagation(); openThis(); });
+			wrap.addEventListener('click', (e) => {
+				if ((e.target as Element).closest('a')) return;
+				openThis();
+			});
+		}
+
+		const scan = () => document.querySelectorAll('.mermaid').forEach(enhance);
+		scan();
+		const mo = new MutationObserver(() => scan());
+		mo.observe(document.body, { childList: true, subtree: true });
+	}
+
+	if (document.readyState !== 'loading') init();
+	else document.addEventListener('DOMContentLoaded', init);
+</script>
