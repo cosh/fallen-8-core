@@ -128,6 +128,11 @@ dotnet run --project fallen-8-core-apiApp
   re-narrate a feature's story across call-site comments, controller remarks, the root
   README and the feature README; the feature README is the LIVING doc (specs/plans are
   historical records and are not rewritten).
+- **Docs site build (link-checked)**: the user-facing docs site (`docs/`, a Starlight project)
+  builds in CI on every push to `main` (`.github/workflows/docs.yml`) and fails on any broken
+  internal link (`starlight-links-validator`). Adding or editing a page must keep that build
+  green; run it locally with `npm --prefix docs ci && npm --prefix docs run build`. See
+  "What this is" for where pages live and how links/images are written.
 
 ## Conventions
 
@@ -161,9 +166,9 @@ Every non-trivial feature follows the same lifecycle so work is visible and revi
    plan's phases are done, the build is clean, and tests pass.
 5. **Cross-feature impact check (mandatory)** — every feature sweeps the other layers and
    features it may affect (engine ↔ REST contract ↔ OpenAPI snapshot ↔ Studio UI ↔
-   NL-assist dataset/eval ↔ feature READMEs ↔ **architecture diagrams** ↔ persisted
-   recipes/stored queries) and records the findings in its spec under "Impact on existing
-   features". When another feature's assets are affected — e.g. an engine contract change
+   NL-assist dataset/eval ↔ feature READMEs ↔ **docs-site pages** (`docs/src/content/docs/`)
+   ↔ **architecture diagrams** ↔ persisted recipes/stored queries) and records the findings in
+   its spec under "Impact on existing features". When another feature's assets are affected — e.g. an engine contract change
    that stales the Studio UI or the fine-tune dataset — do not silently adapt or ignore them:
    surface the impact and ask about next steps with honest options. Impacts that need an
    NL-assist retrain are not re-litigated per feature: append an entry to
