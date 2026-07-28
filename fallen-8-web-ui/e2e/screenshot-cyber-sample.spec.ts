@@ -60,7 +60,7 @@ test("capture the cyber-warfare sample in the gallery and on the canvas", async 
   await page.goto("/q/default/samples");
   const card = page.getByTestId("sample-card-cyber-warfare");
   await expect(card).toBeVisible({ timeout: 30_000 });
-  await page.screenshot({ path: "../docs/images/screen-samples.png" });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-samples.png" });
 
   // Load it, then render it on the canvas. If the graph is non-empty, a typed-confirm appears
   // (loading runs Tabula rasa first); arm it with the instance name.
@@ -88,9 +88,9 @@ test("capture the cyber-warfare sample in the gallery and on the canvas", async 
 
   await page.getByTestId("style-layout").selectOption("dag-radial");
   await page.waitForTimeout(3500); // let the 3D layout settle and the camera frame it
-  await canvas.screenshot({ path: "../docs/images/sample-cyber-warfare.png" });
+  await canvas.screenshot({ path: "../docs/src/assets/images/sample-cyber-warfare.png" });
 
   await page.getByTestId("style-layout").selectOption("force");
   await page.waitForTimeout(3500);
-  await canvas.screenshot({ path: "../docs/images/sample-cyber-warfare-3d.png" });
+  await canvas.screenshot({ path: "../docs/src/assets/images/sample-cyber-warfare-3d.png" });
 });

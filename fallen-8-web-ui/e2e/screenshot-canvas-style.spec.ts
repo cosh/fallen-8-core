@@ -96,5 +96,5 @@ test("capture the canvas style panel with a seeded color property", async ({ pag
   await page.getByLabel("size by").first().selectOption("property");
   await expect(page.locator("#style-node-size-prop")).toHaveValue("age");
 
-  await page.screenshot({ path: "../docs/images/screen-canvas-style.png" });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-canvas-style.png" });
 });

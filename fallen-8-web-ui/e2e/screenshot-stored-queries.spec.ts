@@ -105,17 +105,17 @@ test("capture the relocated, scenario-scoped stored-query panels", async ({ page
   await expect(page.getByTestId("query-mode")).toBeVisible();
   await expect(page.getByTestId("stored-queries-Path")).toHaveCount(0);
   await expect(page.getByTestId("stored-queries-SubGraph")).toHaveCount(0);
-  await page.screenshot({ path: "../docs/images/screen-query.png" });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-query.png" });
 
   // Path screen: the kind-scoped Stored path queries panel with its two Path entries.
   await page.goto("/path");
   await expect(page.getByTestId("stored-queries-Path")).toBeVisible();
   await expect(page.getByText("adults-shortest")).toBeVisible();
-  await page.screenshot({ path: "../docs/images/screen-path.png", fullPage: true });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-path.png", fullPage: true });
 
   // Subgraph screen: the kind-scoped Stored subgraph queries panel with its two entries.
   await page.goto("/subgraphs");
   await expect(page.getByTestId("stored-queries-SubGraph")).toBeVisible();
   await expect(page.getByText("person-neighborhood")).toBeVisible();
-  await page.screenshot({ path: "../docs/images/screen-subgraph-builder.png", fullPage: true });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-subgraph-builder.png", fullPage: true });
 });

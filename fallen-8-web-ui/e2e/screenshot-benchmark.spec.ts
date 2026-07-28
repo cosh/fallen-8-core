@@ -79,5 +79,5 @@ test("capture the Benchmark tab on a loaded (non-generated) graph", async ({ pag
   await expect(page.getByTestId("run-benchmark")).toBeVisible();
   await expect(page.getByText(/34 vertices/)).toBeVisible({ timeout: 20_000 });
 
-  await page.screenshot({ path: "../docs/images/screen-benchmark.png" });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-benchmark.png" });
 });

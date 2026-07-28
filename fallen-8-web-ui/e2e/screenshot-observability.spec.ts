@@ -64,5 +64,5 @@ test("capture the observability config overlay", async ({ page }) => {
   await expect(page.getByText("Statistics snapshot")).toBeVisible();
 
   // Capture the overlay over the dimmed Connect screen (matches how a user sees it).
-  await page.screenshot({ path: "../docs/images/screen-connect-observability.png" });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-connect-observability.png" });
 });

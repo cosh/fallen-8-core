@@ -107,5 +107,5 @@ test("capture the save-games screen (Administration on top, capped registry)", a
     timeout: 30_000,
   });
 
-  await page.screenshot({ path: "../docs/images/screen-savegames.png" });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-savegames.png" });
 });

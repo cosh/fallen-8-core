@@ -70,5 +70,5 @@ test("capture the first-run show", async ({ page }) => {
   await expect(page.getByTestId("first-run-caption")).toContainText("blast radius");
   await page.waitForTimeout(700);
 
-  await page.screenshot({ path: "../docs/images/screen-first-run.png" });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-first-run.png" });
 });
