@@ -1,4 +1,7 @@
-# Debugging Fallen-8 in VS Code
+---
+title: "Debugging in VS Code"
+description: "Debug the engine, API, F8 Studio, and tests locally in VS Code, plus running the test suites."
+---
 
 > Keep this in sync with `.vscode/fallen-8-core.code-workspace` (launch configs + tasks),
 > `fallen-8-web-ui/vite.config.ts` (dev port + proxy), `docker-compose.yml` (ports,

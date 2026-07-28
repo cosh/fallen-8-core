@@ -91,11 +91,7 @@ export default defineConfig({
 					label: 'Help',
 					items: [
 						{ label: 'Troubleshooting', slug: 'troubleshooting' },
-						{
-							label: 'Debugging (contributing)',
-							link: 'https://github.com/cosh/fallen-8-core/blob/main/DEBUGGING.md',
-							attrs: { target: '_blank', rel: 'noopener' },
-						},
+						{ label: 'Debugging in VS Code', slug: 'debugging' },
 						{ label: 'License', slug: 'license' },
 					],
 				},

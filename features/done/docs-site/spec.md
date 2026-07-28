@@ -79,7 +79,7 @@ Sidebar (Starlight groups). Source file in parentheses; all move into
   - Architecture (`architecture.md`, keeps its Mermaid diagram).
 - **Help**
   - Troubleshooting (`troubleshooting.md`).
-  - Contributing / Debugging (from root `DEBUGGING.md`).
+  - Debugging in VS Code (`debugging.md`, moved in from the old root `DEBUGGING.md`).
   - License.
 
 The README key-feature bullets for **REST API, F8 Studio, MCP server, Security** are also
@@ -202,12 +202,12 @@ homepage grid replace it. Its intro line seeds the homepage tagline.
 - **Structure:** `docs/` is the Starlight project; the 24 deep dives live flat in
   `docs/src/content/docs/` (so their sibling links stayed valid) and are grouped by a manual
   sidebar. New pages: `index.mdx` (splash home + feature `<CardGrid>`), `api-reference.mdx`
-  (Scalar embed, graceful fallback), `license.md`. `Debugging` is a sidebar link to the
-  canonical `DEBUGGING.md` on GitHub (kept at the repo root, per the doc-sync convention, not
-  duplicated into the site).
+  (Scalar embed, graceful fallback), `license.md`, and `debugging.md` (the old root
+  `DEBUGGING.md`, moved in as a native page so the site never bounces to raw GitHub; its
+  doc-sync note travels with it).
 - **Tabs:** 17 pages had stacked bash/PowerShell blocks converted to `<Tabs syncKey="shell">`.
-- **Repo-tree links** (`../fallen-8-core/*.cs`, `../samples/`, `../DEBUGGING.md`) were rewritten
-  to `github.com` URLs.
+- **Repo-tree links** (`../fallen-8-core/*.cs`, `../samples/`) were rewritten to `github.com`
+  URLs.
 - **Verification:** `astro build` green with the link validator passing; a deterministic
   content-preservation diff over every Tabs-converted page (it caught and fixed one dropped
   "See also" bullet); `npm run dev` serves locally with the OpenAPI file absent.
