@@ -10,24 +10,28 @@
 # so it needs ONLY Docker + internet - no host Ollama, no host GPU. `npm run env:up` then finds
 # the models already cached and starts instantly.
 #
-# Default set (feature delegate-model-variants): phi4-mini (base) + phi4-f8-mini (mini
-# fine-tune, tagged from F8_DELEGATE_REPO). Opt-in: phi4-f8 (full-Phi-4 fine-tune, ~9GB, GPU).
+# Default set (feature delegate-model-variants): phi4-mini (base), phi4-f8-mini (mini
+# fine-tune, tagged from F8_DELEGATE_REPO), and phi4-f8 (full-Phi-4 fine-tune, ~9GB, GPU
+# recommended) - pulled together (~14GB) unless you opt out.
 #
-#   scripts/ensure-models.sh                          # default set (~5GB)
-#   F8_PULL_PHI4F8=1 scripts/ensure-models.sh         # also seed phi4-f8 (~9GB more)
+#   scripts/ensure-models.sh                          # full default set (~14GB)
+#   F8_PULL_PHI4F8=0 scripts/ensure-models.sh         # skip phi4-f8 (~5GB, CPU-only friendly)
 #   F8_DELEGATE_REPO=you/your-mini  F8_PHI4F8_REPO=you/your-14b  scripts/ensure-models.sh
 
 set -e
 
 F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}"
 F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}"
-F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-0}"
+F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-1}"
 VOLUME="f8-ollama-models"
 IMAGE="ollama/ollama:latest"
 
 echo "[ensure-models] Seeding docker volume '$VOLUME': phi4-mini + phi4-f8-mini ($F8_DELEGATE_REPO)"
-case "$F8_PULL_PHI4F8" in 1|true|TRUE|yes|on)
-  echo "[ensure-models] + phi4-f8 ($F8_PHI4F8_REPO) - ~9GB extra";;
+case "$F8_PULL_PHI4F8" in
+  0|false|FALSE|no|off)
+    echo "[ensure-models] F8_PULL_PHI4F8=0 - skipping phi4-f8 (saves ~9GB)";;
+  *)
+    echo "[ensure-models] + phi4-f8 ($F8_PHI4F8_REPO) - ~9GB extra (default; set F8_PULL_PHI4F8=0 to skip)";;
 esac
 echo "[ensure-models] This can take 10-30 minutes on a slow link."
 echo ""
@@ -54,11 +58,13 @@ docker run --rm \
     echo "[ensure-models] Pulling $F8_DELEGATE_REPO -> phi4-f8-mini..."
     ollama pull "$F8_DELEGATE_REPO"
     ollama cp "$F8_DELEGATE_REPO" phi4-f8-mini
-    case "$F8_PULL_PHI4F8" in 1|true|TRUE|yes|on)
-      echo "[ensure-models] Pulling $F8_PHI4F8_REPO -> phi4-f8..."
-      ollama pull "$F8_PHI4F8_REPO"
-      ollama cp "$F8_PHI4F8_REPO" phi4-f8
-      ;;
+    case "$F8_PULL_PHI4F8" in
+      0|false|FALSE|no|off) ;;
+      *)
+        echo "[ensure-models] Pulling $F8_PHI4F8_REPO -> phi4-f8..."
+        ollama pull "$F8_PHI4F8_REPO"
+        ollama cp "$F8_PHI4F8_REPO" phi4-f8
+        ;;
     esac
     echo ""
     echo "[ensure-models] Volume now contains:"

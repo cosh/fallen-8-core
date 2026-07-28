@@ -56,8 +56,9 @@ editor works on a keyless instance out of the box.
 
 Works out of the box: the default **built-in** backend is the stack `docker-compose.yml`
 ships (local [Ollama](https://ollama.com) on `:11434`, defaulting to the fine-tuned
-`phi4-f8-mini` model with `phi4-mini` as the selectable base; the larger `phi4-f8` is opt-in —
-MIT weights + MIT runtime, nothing bundled into F8). The compose stack pulls the default set on
+`phi4-f8-mini` model with `phi4-mini` as the selectable base; the larger `phi4-f8` is pulled by
+default too — MIT weights + MIT runtime, nothing bundled into F8; set `F8_PULL_PHI4F8=0` to
+skip it on a CPU-only or disk-constrained host). The compose stack pulls the default set on
 first start. The panel shows a
 reachability status; if it is unreachable, start the stack with `npm run env:up` (and follow
 `npm run env:logs` while the first-run model pull completes). Switching to **custom** under "nl assist → configure" exposes endpoint, API kind

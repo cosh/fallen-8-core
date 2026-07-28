@@ -5,10 +5,10 @@ Two user-selectable NL-assist fine-tunes, produced by the **same** pipeline
 they differ only in the base model and the hardware they need. See [spec.md](./spec.md) and
 [plan.md](./plan.md) for the contract and the phased plan.
 
-| Model | Base | ~Size (Q4_K_M) | Runs on | Role |
-|---|---|---|---|---|
-| **`phi4-f8-mini`** | Phi-4-mini (3.8B) | ~2.5 GB | CPU-OK / GPU | **Default** — turnkey, what `env:up` pulls |
-| **`phi4-f8`** | Phi-4 (14B) | ~9 GB | GPU (CPU impractical) | Opt-in — higher first-pass accuracy ceiling |
+| Model              | Base              | ~Size (Q4_K_M) | Runs on               | Role                                                                                                |
+| ------------------ | ----------------- | -------------- | --------------------- | --------------------------------------------------------------------------------------------------- |
+| **`phi4-f8-mini`** | Phi-4-mini (3.8B) | ~2.5 GB        | CPU-OK / GPU          | **Default** — turnkey, what Studio's built-in backend uses                                          |
+| **`phi4-f8`**      | Phi-4 (14B)       | ~9 GB          | GPU (CPU impractical) | Pulled by default too (`env:up`); set `F8_PULL_PHI4F8=0` to skip on CPU-only/disk-constrained hosts |
 
 The stock `phi4-mini` / `phi4` bases stay selectable too. There is **no `f8-delegate` alias** —
 the mini fine-tune is named only `phi4-f8-mini` (clean rename; back-compat is not a goal here).
@@ -46,18 +46,20 @@ so the two never clobber each other. Evaluate + record both in the run ledger
 ([nl-assist-finetune/plan.md](../nl-assist-finetune/plan.md)) — the gate is a strict win
 over each variant's own stock base on compile AND semantic rates.
 
-## Serve `phi4-f8` in Docker (opt-in)
+## Serve `phi4-f8` in Docker
 
-Compose pulls the mini set by default. To also serve the 14B fine-tune (this runs on the
-Docker host — Windows PowerShell or bash, no GPU needed to *pull*, only to run it well):
+Compose pulls the mini set **and** the 14B fine-tune by default (~14GB total; no GPU needed
+to _pull_, only to run `phi4-f8` well). To skip the bigger model on a CPU-only or
+disk-constrained host, opt out with `F8_PULL_PHI4F8=0`:
 
 ```bash
-F8_PULL_PHI4F8=1 npm run env:up             # ~9GB extra; GPU strongly recommended
-F8_PULL_PHI4F8=1 scripts/ensure-models.sh   # or pre-seed the volume offline
+F8_PULL_PHI4F8=0 npm run env:up             # skip the ~9GB phi4-f8 pull
+F8_PULL_PHI4F8=0 scripts/ensure-models.sh   # or pre-seed the volume offline without it
 ```
+
 ```powershell
-$env:F8_PULL_PHI4F8 = "1"; npm run env:up                 # ~9GB extra; GPU strongly recommended
-$env:F8_PULL_PHI4F8 = "1"; bash scripts/ensure-models.sh  # or pre-seed the volume offline
+$env:F8_PULL_PHI4F8 = "0"; npm run env:up                 # skip the ~9GB phi4-f8 pull
+$env:F8_PULL_PHI4F8 = "0"; bash scripts/ensure-models.sh  # or pre-seed the volume offline without it
 ```
 
 Point `F8_DELEGATE_REPO` / `F8_PHI4F8_REPO` at your own published fine-tunes if you retrain and

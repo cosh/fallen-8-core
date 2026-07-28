@@ -9,12 +9,12 @@ on your own machine.
 
 ## State
 
-| Phase | What | Status |
-|---|---|---|
-| 1 | Baseline evaluation harness (`eval/`) | done |
-| 2 | Dataset generator (`dataset-gen/`), every row compile-gated | done |
-| 3 | LoRA training pipeline (`train/`, `run.sh`), WSL2 + NVIDIA GPU | done |
-| 4 | Semantic eval gate (FT-8: seeded-graph element-set comparison, `eval/fixture.ts`) | done |
+| Phase | What                                                                              | Status |
+| ----- | --------------------------------------------------------------------------------- | ------ |
+| 1     | Baseline evaluation harness (`eval/`)                                             | done   |
+| 2     | Dataset generator (`dataset-gen/`), every row compile-gated                       | done   |
+| 3     | LoRA training pipeline (`train/`, `run.sh`), WSL2 + NVIDIA GPU                    | done   |
+| 4     | Semantic eval gate (FT-8: seeded-graph element-set comparison, `eval/fixture.ts`) | done   |
 
 ## Layout
 
@@ -50,9 +50,9 @@ newer driver runs the torch wheels fine). The toolchain is **Python 3.10+**, `ol
 `cmake` + a C/C++ compiler (`build-essential`) for the GGUF stage — that builds llama.cpp
 **CPU-only**, so no CUDA toolkit/`nvcc` is required. **Heads-up on Python:** Ubuntu 26.04's
 default `python3` is **3.14**, which PyTorch has no CUDA wheels for yet — so build the
-*training* venv with **Python 3.13** (steps below). Dataset generation and eval are fine on 3.14.
+_training_ venv with **Python 3.13** (steps below). Dataset generation and eval are fine on 3.14.
 
-> **Node.js and the apiApp are only for *generating* the dataset (phase 2)** and the eval
+> **Node.js and the apiApp are only for _generating_ the dataset (phase 2)** and the eval
 > harness. The dataset is deterministic, so a training-only box can copy `dataset/train.jsonl`
 > (+ `dataset.meta.json`) from wherever it was generated and skip both — `run.sh`'s `dataset`
 > stage reuses an existing file, so `./run.sh all` then needs neither.
@@ -91,7 +91,7 @@ systemctl status ollama --no-pager       # confirm it is active (listening on :1
 ollama pull phi4-mini                     # the base the bootstrap/eval reach for
 ```
 
-If `systemctl` reports *"System has not been booted with systemd as init system"* (an older
+If `systemctl` reports _"System has not been booted with systemd as init system"_ (an older
 WSL2 without systemd), run the server in the background instead:
 
 ```bash
@@ -129,6 +129,7 @@ npx tsx nl-assist-finetune/dataset-gen/generate.ts --check
 # model pulled); errors out with "Ollama is not reachable" if it isn't. Skip it for a first run.
 NL_GEN_BOOTSTRAP=1 npx tsx nl-assist-finetune/dataset-gen/generate.ts
 ```
+
 ```powershell
 npx tsx nl-assist-finetune/dataset-gen/generate.ts --check      # drift guard (needs no model)
 $env:NL_GEN_BOOTSTRAP = "1"; npx tsx nl-assist-finetune/dataset-gen/generate.ts   # mine extra phrasings (needs Ollama)
@@ -188,8 +189,9 @@ VARIANT=phi4-f8 PYTHON="$PY313" ./run.sh all
 `VARIANT=phi4-f8` for the full-Phi-4 fine-tune) plus a `PROVENANCE.<model>.md` (base model +
 MIT license, pinned tool versions, dataset hash — spec FT-7). Config, seed, and LoRA
 hyperparameters live in the per-variant `train/train-config.<variant>.json`; the same dataset
-+ config + seed reproduce an equivalent model (spec FT-1). If you hit OOM, drop
-`training.perDeviceBatchSize` (and `maxSeqLength`) — the 14B `phi4-f8` needs ~16GB+.
+
+- config + seed reproduce an equivalent model (spec FT-1). If you hit OOM, drop
+  `training.perDeviceBatchSize` (and `maxSeqLength`) — the 14B `phi4-f8` needs ~16GB+.
 
 Point the NL assist at it by setting its `model` field to `phi4-f8-mini` (or `phi4-f8`) — no
 Fallen-8 code changes (spec FT-6). The two variants and the UI selection are documented in
@@ -198,7 +200,7 @@ Fallen-8 code changes (spec FT-6). The two variants and the UI selection are doc
 ## Distribution — share your model (feedback-loop FL-4)
 
 A fine-tune lives only in the ollama on the box that trained it. Fallen-8 core ships no
-weights (spec FT-5), so a retrained model reaches *other* instances only if **you** publish
+weights (spec FT-5), so a retrained model reaches _other_ instances only if **you** publish
 it — your opt-in channel, not something F8 does. After `ollama login` with your ollama.com
 account, publish the variant you built:
 
@@ -209,7 +211,8 @@ PUBLISH_REPO=<your-namespace>/phi4-f8 VARIANT=phi4-f8 ./run.sh publish     # the
 
 A fresh `docker compose up` then pulls automatically: `ollama-init` pulls `$F8_DELEGATE_REPO`
 (default `stoic_hellman_728/phi4-f8-mini`) and tags it `phi4-f8-mini`, so the UI default works
-out of the box; set `F8_PULL_PHI4F8=1` (+ `F8_PHI4F8_REPO`) to also fetch and tag `phi4-f8`.
+out of the box; it also fetches and tags `phi4-f8` (+ `F8_PHI4F8_REPO`) by default — set
+`F8_PULL_PHI4F8=0` to skip that larger pull.
 Point a deployment at your publisher via those vars. Without Docker, pull by hand:
 
 ```bash
@@ -248,6 +251,7 @@ NL_EVAL_MODEL=phi4-f8-mini npx tsx nl-assist-finetune/eval/baseline.ts   # a fin
 npx tsx nl-assist-finetune/eval/baseline.ts --semantic                   # + FT-8 element-set gate
 npx tsx nl-assist-finetune/eval/baseline.ts --rescore --semantic         # re-score recorded fragments, no model calls
 ```
+
 ```powershell
 npx tsx nl-assist-finetune/eval/baseline.ts                                       # stock base model
 $env:NL_EVAL_MODEL = "phi4-f8-mini"; npx tsx nl-assist-finetune/eval/baseline.ts  # a fine-tuned model

@@ -3,7 +3,7 @@ title: "Running Fallen-8"
 description: "Every way to launch it: the one-command default, a bare dotnet run, configuration keys, security switches, and GPU acceleration."
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from "@astrojs/starlight/components";
 
 One command brings up the whole thing — engine, REST API, [F8 Studio](/fallen-8-core/studio/), and the
 model sidecar that powers [semantic traversal](/fallen-8-core/semantic-traversal/) and Studio's
@@ -32,10 +32,10 @@ npm run env:up
 
 This runs `docker compose up` for the full environment and prints where everything is:
 
-| Service | URL | What it is |
-|---|---|---|
-| F8 Studio + REST API | http://localhost:8080 | The engine, the REST surface, and the browser UI, in one container |
-| Model sidecar (Ollama) | http://localhost:11434 | Serves the embedding model and the delegate-assist models |
+| Service                | URL                    | What it is                                                         |
+| ---------------------- | ---------------------- | ------------------------------------------------------------------ |
+| F8 Studio + REST API   | http://localhost:8080  | The engine, the REST surface, and the browser UI, in one container |
+| Model sidecar (Ollama) | http://localhost:11434 | Serves the embedding model and the delegate-assist models          |
 
 Stop and inspect it as one unit — never start/stop individual containers:
 
@@ -52,10 +52,13 @@ is a separate switch, off by default (see [Security](/fallen-8-core/security/) a
 ### First start pulls models
 
 On the first `env:up` the sidecar pulls its models into the `f8-ollama-models` volume:
-`bge-m3` (embeddings), `phi4-mini` (base), and `phi4-f8-mini` (the delegate-assist
-fine-tune, Studio's default). That is a few GB, so it takes a few minutes — the API and
-Studio are up immediately, and assist starts answering once the pull finishes. Later starts
-reuse the cached volume and need no network. Watch progress with `npm run env:logs`.
+`bge-m3` (embeddings), `phi4-mini` (base), `phi4-f8-mini` (the delegate-assist fine-tune,
+Studio's default), and `phi4-f8` (the larger GPU-only fine-tune, ~9 GB — set
+`F8_PULL_PHI4F8=0` to skip it on a CPU-only or disk-constrained host). That is over 10 GB
+with `phi4-f8`, so first start can take a while — the API and Studio are up immediately, and
+assist starts answering once the mini pull finishes (the bigger model finishes later in the
+background). Later starts reuse the cached volume and need no network. Watch progress with
+`npm run env:logs`.
 
 Offline or want to skip the wait? Pre-seed the volume once from a machine with internet —
 this needs only Docker, no host Ollama:
@@ -73,15 +76,15 @@ crash-loop); fix the network and re-run. The 404-in-Studio case is in
 Set these before `npm run env:up`. In PowerShell use `$env:NAME = "value"; …` (it stays set
 for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 
-| Variable | Default | Effect |
-|---|---|---|
-| `F8_PORT` | `8080` | Host port for Studio + API (container always listens on 8080) |
-| `F8_API_KEY` | *(unset)* | Set it and the **entire** service requires the key; unset = open ([Security](/fallen-8-core/security/)) |
-| `F8_EMBEDDINGS` | `true` | Text-in embeddings via the sidecar's `bge-m3`; `false` disables the provider (bring-your-own-vector still works) |
-| `F8_CHAT` | `true` | The chat gateway (`POST /chat` → the sidecar's assist model); the default NL-assist path. `false` answers 403 (custom browser-direct backends still work) |
-| `F8_GPU` | *(auto)* | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects |
-| `F8_PULL_PHI4F8` | `0` | `1` also pulls the larger GPU-only `phi4-f8` assist model (~9 GB) |
-| `F8_DELEGATE_REPO` | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`) |
+| Variable           | Default                          | Effect                                                                                                                                                    |
+| ------------------ | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `F8_PORT`          | `8080`                           | Host port for Studio + API (container always listens on 8080)                                                                                             |
+| `F8_API_KEY`       | _(unset)_                        | Set it and the **entire** service requires the key; unset = open ([Security](/fallen-8-core/security/))                                                   |
+| `F8_EMBEDDINGS`    | `true`                           | Text-in embeddings via the sidecar's `bge-m3`; `false` disables the provider (bring-your-own-vector still works)                                          |
+| `F8_CHAT`          | `true`                           | The chat gateway (`POST /chat` → the sidecar's assist model); the default NL-assist path. `false` answers 403 (custom browser-direct backends still work) |
+| `F8_GPU`           | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
+| `F8_PULL_PHI4F8`   | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |
+| `F8_DELEGATE_REPO` | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`)                                                                                |
 
 Examples:
 
@@ -152,19 +155,19 @@ The compose variables above map onto the app's configuration, which you can also
 directly (via `appsettings.json`, environment variables with the `Fallen8__Section__Key`
 form, or the command line). The defaults:
 
-| Key | Default | Owner doc |
-|---|---|---|
-| `Fallen8:Durability:StorageDirectory` | app base dir (`/data` in the container) | [Save games](/fallen-8-core/save-games/) |
-| `Fallen8:Durability:Volatile` | `false` | [Save games](/fallen-8-core/save-games/) |
-| `Fallen8:Durability:SaveOnShutdown` | `true` | [Save games](/fallen-8-core/save-games/) |
-| `Fallen8:Metadata:Directory` | storage dir | [Save games](/fallen-8-core/save-games/) |
-| `Fallen8:Namespaces:MaxNamespaces` | `10000` | [Namespaces](/fallen-8-core/namespaces/) |
-| `Fallen8:Security:ApiKey` | `null` (open) | [Security](/fallen-8-core/security/) |
-| `Fallen8:Security:EnableDynamicPluginLoading` | `true` (per-namespace overridable) | [Plugin registration](/fallen-8-core/plugin-registration/) |
-| `Fallen8:Embedding:Enabled` | `false` (bare run) | [Semantic traversal](/fallen-8-core/semantic-traversal/) |
-| `Fallen8:ChangeFeed:Enabled` | `true` | [Change feed](/fallen-8-core/change-feed/) |
-| `Fallen8:Analytics:DefaultTimeBudgetSeconds` | `30` | [Graph analytics](/fallen-8-core/graph-analytics/) |
-| `Fallen8:Observability:Prometheus:Enabled` | `false` | [Observability](/fallen-8-core/observability/) |
+| Key                                           | Default                                 | Owner doc                                                  |
+| --------------------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| `Fallen8:Durability:StorageDirectory`         | app base dir (`/data` in the container) | [Save games](/fallen-8-core/save-games/)                   |
+| `Fallen8:Durability:Volatile`                 | `false`                                 | [Save games](/fallen-8-core/save-games/)                   |
+| `Fallen8:Durability:SaveOnShutdown`           | `true`                                  | [Save games](/fallen-8-core/save-games/)                   |
+| `Fallen8:Metadata:Directory`                  | storage dir                             | [Save games](/fallen-8-core/save-games/)                   |
+| `Fallen8:Namespaces:MaxNamespaces`            | `10000`                                 | [Namespaces](/fallen-8-core/namespaces/)                   |
+| `Fallen8:Security:ApiKey`                     | `null` (open)                           | [Security](/fallen-8-core/security/)                       |
+| `Fallen8:Security:EnableDynamicPluginLoading` | `true` (per-namespace overridable)      | [Plugin registration](/fallen-8-core/plugin-registration/) |
+| `Fallen8:Embedding:Enabled`                   | `false` (bare run)                      | [Semantic traversal](/fallen-8-core/semantic-traversal/)   |
+| `Fallen8:ChangeFeed:Enabled`                  | `true`                                  | [Change feed](/fallen-8-core/change-feed/)                 |
+| `Fallen8:Analytics:DefaultTimeBudgetSeconds`  | `30`                                    | [Graph analytics](/fallen-8-core/graph-analytics/)         |
+| `Fallen8:Observability:Prometheus:Enabled`    | `false`                                 | [Observability](/fallen-8-core/observability/)             |
 
 `Volatile=true` disables all disk writes (no WAL, no checkpoints) — the fastest way to run a
 throwaway instance for a demo or a test.

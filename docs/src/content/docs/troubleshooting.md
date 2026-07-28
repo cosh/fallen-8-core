@@ -19,7 +19,14 @@ sidecar (feature instance-config). A `403` means the chat gateway is off
 finished, or it failed (no internet to `registry.ollama.ai`). The container uses its own
 `f8-ollama-models` volume, **not** any Ollama installed on the host, so pulling on the host
 does not help the container. (A custom browser-direct backend bypasses the instance; a 404
-there is the model missing on *that* endpoint.)
+there is the model missing on _that_ endpoint.)
+
+A common variant with the **custom browser-direct** backend: the editor's preset list offers
+**"Ollama (fine-tuned phi4-f8 — GPU)"** (model `phi4-f8`) alongside the default
+`phi4-f8-mini`. `phi4-f8` (~9GB) is pulled by default too, but it is queued **after** the
+mini model and `bge-m3`, so it takes longer to become available on a fresh volume; picking
+that preset before its pull finishes 404s. If you (or someone) set `F8_PULL_PHI4F8=0` for this
+environment, `phi4-f8` is never pulled at all and that preset always 404s.
 
 **Fix.**
 
@@ -27,7 +34,8 @@ there is the model missing on *that* endpoint.)
 npm run env:logs          # is the pull still running, or did it error?
 ```
 
-- Still pulling → wait; assist answers as soon as it finishes (a few GB on first start).
+- Still pulling → wait; assist answers as soon as it finishes (`phi4-f8` finishes later than
+  the mini model on a cold volume — over 10 GB total on first start).
 - Errored (offline container) → pre-seed the volume from a machine with internet, then
   restart. Needs only Docker:
 
@@ -36,8 +44,16 @@ npm run env:logs          # is the pull still running, or did it error?
   npm run env:down; npm run env:up
   ```
 
-- Meanwhile, switch the editor's backend preset to **stock `phi4-mini`** if that pulled but
-  the fine-tune did not. Compile validation still works with any backend.
+- `F8_PULL_PHI4F8=0` was set and you want the `phi4-f8` (GPU) preset → unset it (or set `1`)
+  and restart:
+
+  ```bash
+  npm run env:down
+  npm run env:up
+  ```
+
+- Meanwhile, switch the editor's backend preset to `phi4-f8-mini` or stock `phi4-mini` — both
+  pull first. Compile validation still works with any backend.
 
 The model set and pre-seeding are covered in [Running](/fallen-8-core/running/).
 

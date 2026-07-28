@@ -24,8 +24,9 @@
 #   F8 Studio:  http://localhost:8080
 #   NL assist:  endpoint http://localhost:11434, api kind "ollama". The UI defaults to the
 #               fine-tuned "phi4-f8-mini" model (nl-assist-finetune). Override its pull source
-#               via F8_DELEGATE_REPO. To also serve the larger GPU-only "phi4-f8", set
-#               F8_PULL_PHI4F8=1 (source F8_PHI4F8_REPO); ~9GB, so it is off by default.
+#               via F8_DELEGATE_REPO. The larger GPU-only "phi4-f8" (source F8_PHI4F8_REPO,
+#               ~9GB) is pulled by default too; set F8_PULL_PHI4F8=0 to skip it on a
+#               CPU-only or disk-constrained host.
 #   Embeddings: text-in embedding, semantic search and queryText traversal work out of the
 #               box - the same Ollama sidecar serves bge-m3 (MIT). Opt out with
 #               F8_EMBEDDINGS=false. Docs: features/done/embedding-provider/README.md.
@@ -102,11 +103,12 @@ services:
       # (keep in sync with F8_PORT).
       - OLLAMA_ORIGINS=http://localhost:${F8_PORT:-8080}
       # Fine-tune pull sources, tagged locally to the short variant names (phi4-f8-mini / phi4-f8).
-      # Override to run your own published fine-tune. phi4-f8 is opt-in (F8_PULL_PHI4F8=1): ~9GB,
-      # GPU-recommended, so it is never pulled by default.
+      # Override to run your own published fine-tune. phi4-f8 (~9GB, GPU-recommended) is pulled
+      # by default alongside the mini; set F8_PULL_PHI4F8=0 to skip it (e.g. CPU-only or
+      # disk-constrained hosts).
       - F8_DELEGATE_REPO=${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}
       - F8_PHI4F8_REPO=${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}
-      - F8_PULL_PHI4F8=${F8_PULL_PHI4F8:-0}
+      - F8_PULL_PHI4F8=${F8_PULL_PHI4F8:-1}
       # Keep in sync with the fallen8 service's embedding block: when embeddings are on
       # (the default), the sidecar also pulls the bge-m3 embedding model (~1.2 GB once).
       - F8_EMBEDDINGS=${F8_EMBEDDINGS:-true}

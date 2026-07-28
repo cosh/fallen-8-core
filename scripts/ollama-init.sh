@@ -2,8 +2,9 @@
 # MIT License
 #
 # Ollama initialization (entrypoint of Dockerfile.ollama): start the daemon, then pull the
-# models F8 needs. Default set: phi4-mini (base) + phi4-f8-mini (the mini fine-tune, the UI
-# default). Opt-in: phi4-f8 (the full-Phi-4 fine-tune, ~9 GB, GPU) when F8_PULL_PHI4F8 is set.
+# models F8 needs. Default set: phi4-mini (base), phi4-f8-mini (the mini fine-tune, the UI
+# default), and phi4-f8 (the full-Phi-4 fine-tune, ~9 GB, GPU recommended) - set
+# F8_PULL_PHI4F8=0 to skip it on a CPU-only or disk-constrained host.
 # Feature: delegate-model-variants.
 #
 # Models already present in the mounted volume are reused, so this only downloads on a cold
@@ -14,8 +15,8 @@
 
 # Published fine-tune repos (pull sources), tagged locally to the short variant names.
 F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}"  # -> phi4-f8-mini
-F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}"           # -> phi4-f8 (opt-in)
-F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-0}"
+F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}"           # -> phi4-f8
+F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-1}"
 # The embedding model the F8 API's provider is wired to in docker-compose.yml (feature
 # embedding-out-of-box); on by default, opted out together with the provider.
 F8_EMBEDDINGS="${F8_EMBEDDINGS:-true}"
@@ -120,10 +121,13 @@ case "$F8_EMBEDDINGS" in
     ;;
 esac
 
-# Opt-in: the full-Phi-4 fine-tune. ~9GB and GPU-bound, so never pulled by default.
+# The full-Phi-4 fine-tune: ~9GB and GPU-bound, but pulled by default alongside the mini.
+# Set F8_PULL_PHI4F8=0 to skip it on a CPU-only or disk-constrained host.
 case "$F8_PULL_PHI4F8" in
-  1|true|TRUE|yes|on)
-    log_info "F8_PULL_PHI4F8 set - also fetching phi4-f8 (full Phi-4 fine-tune, ~9GB, GPU recommended)"
+  0|false|FALSE|no|off)
+    log_info "F8_PULL_PHI4F8 is off - skipping the phi4-f8 (full Phi-4) pull"
+    ;;
+  *)
     ensure_finetune "$F8_PHI4F8_REPO" "phi4-f8" || MISSING="$MISSING phi4-f8"
     ;;
 esac
