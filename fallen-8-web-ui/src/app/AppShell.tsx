@@ -343,6 +343,16 @@ export function AppShell({ children }: { children: ReactNode }) {
               </>
             )}
             <div className="ml-auto flex shrink-0 items-center gap-2">
+              <a
+                href="https://cosh.github.io/fallen-8-core/"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="docs-link"
+                title="Open the Fallen-8 documentation (opens in a new tab)"
+                className="border-line text-fg-dim hover:text-accent hover:border-accent/40 rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase"
+              >
+                docs
+              </a>
               <LiveChip status={liveStatus} />
               <HealthChip state={connection} />
             </div>
