@@ -70,7 +70,11 @@ interface OllamaChatResponse {
 interface OpenAiChatResponse {
   model?: string;
   choices?: { message?: { content?: string } }[];
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 /**
@@ -101,7 +105,10 @@ export async function chatViaInstance(
 ): Promise<NlChatResult> {
   const result = await postChat(
     instance,
-    { messages: messages.map((m) => ({ role: m.role, content: m.content })), options: { temperature } },
+    {
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      options: { temperature },
+    },
     signal,
   );
   if (!result) {
@@ -140,6 +147,13 @@ export async function chatWithModel(
       signal,
     });
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(
+          `Model endpoint returned HTTP 404. "${config.model}" may not be pulled into this ` +
+            `Ollama instance yet — it might still be fetching (npm run env:logs to check), or ` +
+            `the model name is misspelled.`,
+        );
+      }
       throw new Error(`Model endpoint returned HTTP ${response.status}.`);
     }
     const data = (await response.json()) as OllamaChatResponse;
@@ -149,7 +163,9 @@ export async function chatWithModel(
   const url = base.endsWith("/v1")
     ? `${base}/chat/completions`
     : `${base}/v1/chat/completions`;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
 
   const response = await fetch(url, {
@@ -166,7 +182,10 @@ export async function chatWithModel(
     throw new Error(`Model endpoint returned HTTP ${response.status}.`);
   }
   const data = (await response.json()) as OpenAiChatResponse;
-  return { content: data.choices?.[0]?.message?.content ?? "", stats: openAiStats(data) };
+  return {
+    content: data.choices?.[0]?.message?.content ?? "",
+    stats: openAiStats(data),
+  };
 }
 
 function ollamaStats(data: OllamaChatResponse): NlGenerationStats | null {
@@ -176,7 +195,8 @@ function ollamaStats(data: OllamaChatResponse): NlGenerationStats | null {
     promptTokens: data.prompt_eval_count,
     completionTokens: data.eval_count,
     // Ollama reports durations in nanoseconds.
-    durationMs: data.total_duration !== undefined ? data.total_duration / 1e6 : undefined,
+    durationMs:
+      data.total_duration !== undefined ? data.total_duration / 1e6 : undefined,
     tokensPerSecond:
       data.eval_count !== undefined && data.eval_duration
         ? data.eval_count / (data.eval_duration / 1e9)
