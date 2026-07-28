@@ -54,7 +54,7 @@ flowchart TB
     mcp -->|HTTP| rest
     studio -->|HTTP| rest
     svc -->|HTTP| rest
-    studio -.->|custom model endpoint (optional, browser-direct)| sidecar
+    studio -.->|"custom model endpoint (optional, browser-direct)"| sidecar
     wwwroot -.- studio
     rest --> ns
     rest --> roslyn
