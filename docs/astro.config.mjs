@@ -22,6 +22,10 @@ export default defineConfig({
 				replacesTitle: true,
 			},
 			favicon: '/favicon.ico',
+			// Drop Expressive Code's window "frame" (the fake terminal titlebar with its three
+			// traffic-light dots, and the editor file-tab). The Tabs labels already say which
+			// shell a snippet is, so the chrome is redundant noise. The copy button stays.
+			expressiveCode: { defaultProps: { frame: 'none' } },
 			customCss: ['./src/styles/mermaid-zoom.css'],
 			components: {
 				// adds a click-to-zoom lightbox for Mermaid diagrams
