@@ -82,7 +82,7 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
             if (specification.QueryVector != null)
             {
-                return new BadRequestObjectResult("semantic.queryText and semantic.queryVector are mutually exclusive.");
+                return ProblemResults.BadRequest("semantic.queryText and semantic.queryVector are mutually exclusive.");
             }
 
             if (authorizationService != null)

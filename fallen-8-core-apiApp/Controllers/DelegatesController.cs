@@ -31,6 +31,7 @@ using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Diagnostics;
+using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core.App.Helper;
 
 namespace NoSQL.GraphDB.App.Controllers
@@ -91,12 +92,12 @@ namespace NoSQL.GraphDB.App.Controllers
             // return 400 rather than dereferencing into a 500 (matches AddProperty).
             if (specification == null)
             {
-                return BadRequest("A validation specification body is required.");
+                return ProblemResults.BadRequest("A validation specification body is required.");
             }
 
             if (!DelegateValidationHelper.TryValidate(specification.DelegateKind, specification.Fragment, out var result))
             {
-                return BadRequest(String.Format("Unknown delegateKind '{0}'. Expected one of: {1}.",
+                return ProblemResults.BadRequest(String.Format("Unknown delegateKind '{0}'. Expected one of: {1}.",
                     specification.DelegateKind, DelegateValidationHelper.KnownKindsList));
             }
 

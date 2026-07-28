@@ -414,7 +414,7 @@ namespace NoSQL.GraphDB.App.Controllers
             // Save/AddVertex/... siblings) rather than an NRE surfaced as a 500.
             if (definition == null)
             {
-                return BadRequest("A load specification is required.");
+                return ProblemResults.BadRequest("A load specification is required.");
             }
 
             _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", definition.StartServices));
@@ -429,7 +429,7 @@ namespace NoSQL.GraphDB.App.Controllers
             // A rolled-back load must not be reported to the client as success (correctness-fixes B6).
             if (transactionTask.TransactionState == TransactionState.RolledBack)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     "The load transaction was rolled back; the database was not loaded.");
             }
 
@@ -494,7 +494,7 @@ namespace NoSQL.GraphDB.App.Controllers
             // A rolled-back save must not be reported to the client as success (correctness-fixes B6).
             if (transactionTask.TransactionState == TransactionState.RolledBack)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     "The save transaction was rolled back; the database was not saved.");
             }
 

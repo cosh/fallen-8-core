@@ -131,12 +131,12 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (specification == null)
             {
-                return BadRequest("A stored query specification is required.");
+                return ProblemResults.BadRequest("A stored query specification is required.");
             }
 
             if (!StoredQueryLibrary.IsValidName(specification.Name))
             {
-                return BadRequest(String.Format(
+                return ProblemResults.BadRequest(String.Format(
                     "'{0}' is not a valid stored query name. Names must match ^[A-Za-z0-9_-]{{1,{1}}}$.",
                     specification.Name, StoredQueryLibrary.MaxNameLength));
             }
@@ -152,7 +152,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     kind = StoredQueryKind.SubGraph;
                     break;
                 default:
-                    return BadRequest(String.Format(
+                    return ProblemResults.BadRequest(String.Format(
                         "'{0}' is not a valid stored query kind. Expected 'Path' or 'SubGraph'.", specification.Kind));
             }
 
@@ -160,7 +160,7 @@ namespace NoSQL.GraphDB.App.Controllers
             var blockError = ValidateBlockShape(specification, kind, out var specificationJson);
             if (blockError != null)
             {
-                return BadRequest(blockError);
+                return ProblemResults.BadRequest(blockError);
             }
 
             try
@@ -169,12 +169,12 @@ namespace NoSQL.GraphDB.App.Controllers
                 // so a TOCTOU race still resolves correctly).
                 if (_fallen8.StoredQueries.TryGet(out _, specification.Name))
                 {
-                    return Conflict(String.Format("A stored query named '{0}' already exists.", specification.Name));
+                    return ProblemResults.Conflict(String.Format("A stored query named '{0}' already exists.", specification.Name));
                 }
 
                 if (_fallen8.StoredQueries.Count >= _fallen8.StoredQueries.MaxCount)
                 {
-                    return Conflict(String.Format(
+                    return ProblemResults.Conflict(String.Format(
                         "The maximum number of stored queries ({0}) has been reached.", _fallen8.StoredQueries.MaxCount));
                 }
 
@@ -191,7 +191,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 // Roslyn must never occupy the single writer thread.
                 if (!_compiler.TryCompile(definition, out var artifact, out var compileError))
                 {
-                    return BadRequest(compileError);
+                    return ProblemResults.BadRequest(compileError);
                 }
 
                 // Keep the constructed entry in a local: the transaction releases its own
@@ -212,7 +212,7 @@ namespace NoSQL.GraphDB.App.Controllers
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error registering stored query '{0}'", specification.Name);
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     String.Format("An unexpected error occurred while registering stored query '{0}'.", specification.Name));
             }
         }
@@ -259,7 +259,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!_fallen8.StoredQueries.TryGet(out var entry, name))
             {
-                return NotFound(String.Format("No stored query named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No stored query named '{0}'.", name));
             }
 
             return Ok(StoredQueryDetailREST.FromEntryDetail(entry));
@@ -287,7 +287,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!_fallen8.StoredQueries.TryGet(out _, name))
             {
-                return NotFound(String.Format("No stored query named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No stored query named '{0}'.", name));
             }
 
             var tx = new RemoveStoredQueryTransaction { Name = name };
@@ -301,10 +301,10 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 if (txInfo.FailureReason == TransactionFailureReason.NotFound)
                 {
-                    return NotFound(String.Format("No stored query named '{0}'.", name));
+                    return ProblemResults.NotFound(String.Format("No stored query named '{0}'.", name));
                 }
 
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     String.Format("The removal of stored query '{0}' was rolled back; the operation did not complete.", name));
             }
 
@@ -360,13 +360,13 @@ namespace NoSQL.GraphDB.App.Controllers
             switch (txInfo.FailureReason)
             {
                 case TransactionFailureReason.InvalidInput:
-                    return BadRequest(String.Format("The stored query '{0}' was structurally invalid.", name));
+                    return ProblemResults.BadRequest(String.Format("The stored query '{0}' was structurally invalid.", name));
 
                 case TransactionFailureReason.Conflict:
-                    return Conflict(String.Format("A stored query named '{0}' already exists.", name));
+                    return ProblemResults.Conflict(String.Format("A stored query named '{0}' already exists.", name));
 
                 case TransactionFailureReason.QuotaExceeded:
-                    return Conflict(String.Format(
+                    return ProblemResults.Conflict(String.Format(
                         "Registration of stored query '{0}' was rejected because the library quota was reached.", name));
 
                 default:
@@ -374,7 +374,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     {
                         _logger?.LogError(txInfo.Error, "Registration of stored query '{0}' faulted and was rolled back.", name);
                     }
-                    return StatusCode(StatusCodes.Status500InternalServerError,
+                    return ProblemResults.InternalServerError(
                         String.Format("Registration of stored query '{0}' failed due to an internal error.", name));
             }
         }

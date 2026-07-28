@@ -29,6 +29,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -284,7 +285,7 @@ namespace NoSQL.GraphDB.Tests
 
             var graphController = new GraphController(_loggerFactory.CreateLogger<GraphController>(), target);
             var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "source-only" }).Result;
-            Assert.IsInstanceOfType(outcome.Result, typeof(ConflictObjectResult));
+            ProblemAssert.AssertProblem(outcome.Result, StatusCodes.Status409Conflict);
 
             target.Dispose();
         }
@@ -320,7 +321,7 @@ namespace NoSQL.GraphDB.Tests
 
             var graphController = new GraphController(_loggerFactory.CreateLogger<GraphController>(), target);
             var outcome = graphController.CalculateShortestPath(0, 1, new PathSpecification { StoredQuery = "breaks-on-load" }).Result;
-            Assert.IsInstanceOfType(outcome.Result, typeof(ConflictObjectResult));
+            ProblemAssert.AssertProblem(outcome.Result, StatusCodes.Status409Conflict);
 
             Assert.AreEqual(204, ((StatusCodeResult)controller.DeleteStoredQuery("breaks-on-load").Result).StatusCode);
             RegisterPathQueryViaController(target, "breaks-on-load");

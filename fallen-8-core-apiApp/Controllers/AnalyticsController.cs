@@ -174,7 +174,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (!AlgorithmExists(algorithmName))
             {
-                return NotFound(String.Format("No analytics algorithm named '{0}'.", algorithmName));
+                return ProblemResults.NotFound(String.Format("No analytics algorithm named '{0}'.", algorithmName));
             }
 
             if (!_gate.TryEnter())
@@ -260,19 +260,19 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (definition.Offset < 0)
             {
-                return BadRequest("offset must be non-negative.");
+                return ProblemResults.BadRequest("offset must be non-negative.");
             }
 
             if (definition.WriteBack)
             {
                 // Silently ignoring the flag would let a client believe properties were
                 // written; write-back belongs to the run endpoint.
-                return BadRequest("writeBack is not supported on the partition-membership endpoint; run POST /analytics/{algorithmName} with writeBack instead.");
+                return ProblemResults.BadRequest("writeBack is not supported on the partition-membership endpoint; run POST /analytics/{algorithmName} with writeBack instead.");
             }
 
             if (!AlgorithmExists(algorithmName))
             {
-                return NotFound(String.Format("No analytics algorithm named '{0}'.", algorithmName));
+                return ProblemResults.NotFound(String.Format("No analytics algorithm named '{0}'.", algorithmName));
             }
 
             if (!_gate.TryEnter())
@@ -291,14 +291,14 @@ namespace NoSQL.GraphDB.App.Controllers
                 {
                     if (result.VertexScores.Count > 0)
                     {
-                        return BadRequest(String.Format(
+                        return ProblemResults.BadRequest(String.Format(
                             "'{0}' is not a partition algorithm; membership paging applies to WCC/LABELPROPAGATION.",
                             algorithmName));
                     }
 
                     // A partition algorithm over an empty scope produced no partitions at all -
                     // the requested partition does not exist, which is the documented 404.
-                    return NotFound(String.Format("The run produced no partition {0}.", partitionId));
+                    return ProblemResults.NotFound(String.Format("The run produced no partition {0}.", partitionId));
                 }
 
                 var members = new List<Int32>();
@@ -312,7 +312,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (members.Count == 0)
                 {
-                    return NotFound(String.Format("The run produced no partition {0}.", partitionId));
+                    return ProblemResults.NotFound(String.Format("The run produced no partition {0}.", partitionId));
                 }
 
                 members.Sort();
@@ -349,18 +349,18 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (maxResults < 1 || maxResults > MaxResultsCeiling)
             {
-                return BadRequest(String.Format("maxResults must be within [1, {0}].", MaxResultsCeiling));
+                return ProblemResults.BadRequest(String.Format("maxResults must be within [1, {0}].", MaxResultsCeiling));
             }
 
             if (definition.MaxIterations < 0 || definition.MaxIterations > GraphAnalyticsDefinition.MaxIterationsCeiling)
             {
-                return BadRequest(String.Format("maxIterations must be within [0, {0}] (0 = algorithm default).",
+                return ProblemResults.BadRequest(String.Format("maxIterations must be within [0, {0}] (0 = algorithm default).",
                     GraphAnalyticsDefinition.MaxIterationsCeiling));
             }
 
             if (definition.Epsilon < 0)
             {
-                return BadRequest("epsilon must be non-negative.");
+                return ProblemResults.BadRequest("epsilon must be non-negative.");
             }
 
             Direction? direction = null;
@@ -379,7 +379,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     direction = Direction.UndirectedEdge;
                     break;
                 default:
-                    return BadRequest(String.Format("'{0}' is not a valid direction. Expected in, out or both.",
+                    return ProblemResults.BadRequest(String.Format("'{0}' is not a valid direction. Expected in, out or both.",
                         definition.Direction));
             }
 
@@ -389,7 +389,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 Math.Min(_options.DefaultTimeBudgetSeconds, _options.MaxTimeBudgetSeconds);
             if (timeBudgetSeconds < 1 || timeBudgetSeconds > _options.MaxTimeBudgetSeconds)
             {
-                return BadRequest(String.Format("timeBudgetSeconds must be within [1, {0}].",
+                return ProblemResults.BadRequest(String.Format("timeBudgetSeconds must be within [1, {0}].",
                     _options.MaxTimeBudgetSeconds));
             }
 
@@ -398,7 +398,7 @@ namespace NoSQL.GraphDB.App.Controllers
                  definition.WriteBackPropertyKey.Trim().Length == 0 ||
                  definition.WriteBackPropertyKey.Length > MaxPropertyKeyLength))
             {
-                return BadRequest(String.Format("writeBackPropertyKey must be non-empty and at most {0} characters.",
+                return ProblemResults.BadRequest(String.Format("writeBackPropertyKey must be non-empty and at most {0} characters.",
                     MaxPropertyKeyLength));
             }
 
@@ -406,7 +406,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 definition.Parameters.TryGetValue("DampingFactor", out var damping) &&
                 (damping < 0d || damping > 1d))
             {
-                return BadRequest("DampingFactor must be within [0, 1].");
+                return ProblemResults.BadRequest("DampingFactor must be within [0, 1].");
             }
 
             IDictionary<String, Object> parameters = null;

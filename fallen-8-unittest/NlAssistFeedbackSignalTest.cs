@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Linq;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
@@ -126,7 +127,7 @@ namespace NoSQL.GraphDB.Tests
 
             var result = Validate("NotARealKind", "return (v) => true;");
 
-            Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult), "unknown kind is a 400");
+            ProblemAssert.AssertProblem(result.Result, StatusCodes.Status400BadRequest);
             Assert.AreEqual(0, collector.Of(Metric).Count,
                 "a malformed request is not a compile outcome and must not be counted");
         }

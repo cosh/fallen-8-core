@@ -39,17 +39,44 @@ import type { InstanceConfig } from "../instances/types";
  *   or in a named header (X-Api-Key style) when configured. Keys never leave the browser
  *   except toward their own instance.
  */
+/**
+ * The human-readable message from a REST error body. Fallen-8 returns every error as RFC 7807
+ * `application/problem+json` (feature api-error-envelope), which carries the message in `detail`
+ * (falling back to `title`); any other body - a plain string, an empty body, a pre-envelope
+ * server, or a JSON object without a usable `detail`/`title` - is returned unchanged. So for
+ * Fallen-8's own responses the Studio error surface always shows the server's message rather than
+ * the raw problem+json object.
+ */
+export function problemDetail(body: string): string {
+  if (body.trimStart().startsWith("{")) {
+    try {
+      const problem = JSON.parse(body) as { detail?: unknown; title?: unknown };
+      if (typeof problem.detail === "string" && problem.detail.length > 0) return problem.detail;
+      if (typeof problem.title === "string" && problem.title.length > 0) return problem.title;
+    } catch {
+      // not a JSON object body - fall through to the raw text
+    }
+  }
+  return body;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly url: string;
+  /**
+   * The server's human-readable message - the problem+json `detail`/`title` when the body is an
+   * RFC 7807 envelope, otherwise the raw body. For Fallen-8's own errors (always carrying a
+   * `detail`/`title`) this is a clean message, never a raw JSON object.
+   */
   readonly body: string;
 
   constructor(status: number, url: string, body: string) {
-    super(`HTTP ${status}${body ? `: ${body}` : ""}`);
+    const message = problemDetail(body);
+    super(`HTTP ${status}${message ? `: ${message}` : ""}`);
     this.name = "ApiError";
     this.status = status;
     this.url = url;
-    this.body = body;
+    this.body = message;
   }
 }
 

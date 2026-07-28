@@ -25,6 +25,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -80,8 +81,8 @@ namespace NoSQL.GraphDB.Tests
             var (fallen8, _, _) = TwoVertices();
             var controller = NewController(fallen8);
 
-            Assert.IsInstanceOfType(controller.GetSourceVertexForEdge(999).Result, typeof(NotFoundObjectResult));
-            Assert.IsInstanceOfType(controller.GetTargetVertexForEdge(999).Result, typeof(NotFoundObjectResult));
+            ProblemAssert.AssertProblem(controller.GetSourceVertexForEdge(999).Result, StatusCodes.Status404NotFound);
+            ProblemAssert.AssertProblem(controller.GetTargetVertexForEdge(999).Result, StatusCodes.Status404NotFound);
         }
 
         // ---- E7: degree getters -> 404 for missing vertex, 200+count otherwise --------------------
@@ -96,8 +97,8 @@ namespace NoSQL.GraphDB.Tests
             var controller = NewController(fallen8);
 
             // Missing vertex -> 404 (not an ambiguous 0).
-            Assert.IsInstanceOfType(controller.GetInDegree(999).Result, typeof(NotFoundObjectResult));
-            Assert.IsInstanceOfType(controller.GetOutDegree(999).Result, typeof(NotFoundObjectResult));
+            ProblemAssert.AssertProblem(controller.GetInDegree(999).Result, StatusCodes.Status404NotFound);
+            ProblemAssert.AssertProblem(controller.GetOutDegree(999).Result, StatusCodes.Status404NotFound);
 
             // A live vertex with a real degree -> 200 with the count.
             Assert.AreEqual(1u, controller.GetOutDegree(v0).Value, "v0 has one outgoing edge.");
@@ -108,7 +109,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Per-edge-type degree: a live vertex with no such group is 200/0, a missing vertex is 404.
             Assert.AreEqual(0u, controller.GetOutEdgeDegree(v0, "no-such-key").Value);
-            Assert.IsInstanceOfType(controller.GetOutEdgeDegree(999, "knows").Result, typeof(NotFoundObjectResult));
+            ProblemAssert.AssertProblem(controller.GetOutEdgeDegree(999, "knows").Result, StatusCodes.Status404NotFound);
         }
 
         // ---- E3: malformed scan type / literal -> 400 ---------------------------------------------
@@ -125,7 +126,7 @@ namespace NoSQL.GraphDB.Tests
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
             });
-            Assert.IsInstanceOfType(graphScan.Result, typeof(BadRequestObjectResult), "An unknown type name must be a 400, not a 500.");
+            ProblemAssert.AssertProblem(graphScan.Result, StatusCodes.Status400BadRequest);
 
             var indexScan = controller.IndexScan(new IndexScanSpecification
             {
@@ -134,7 +135,7 @@ namespace NoSQL.GraphDB.Tests
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
             });
-            Assert.IsInstanceOfType(indexScan.Result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(indexScan.Result, StatusCodes.Status400BadRequest);
 
             var rangeScan = controller.RangeIndexScan(new RangeIndexScanSpecification
             {
@@ -144,7 +145,7 @@ namespace NoSQL.GraphDB.Tests
                 FullQualifiedTypeName = "Not.A.Real.Type",
                 ResultType = ResultTypeSpecification.Vertices
             });
-            Assert.IsInstanceOfType(rangeScan.Result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(rangeScan.Result, StatusCodes.Status400BadRequest);
         }
 
         [TestMethod]
@@ -159,7 +160,7 @@ namespace NoSQL.GraphDB.Tests
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
             });
-            Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(result.Result, StatusCodes.Status400BadRequest);
         }
 
         // ---- E6: bounded reads --------------------------------------------------------------------

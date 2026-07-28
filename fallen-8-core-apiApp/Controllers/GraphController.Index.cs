@@ -77,17 +77,17 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definition == null)
             {
-                return BadRequest("A vector add specification is required.");
+                return ProblemResults.BadRequest("A vector add specification is required.");
             }
 
             if (!_fallen8.IndexFactory.TryGetIndex(out var index, indexId))
             {
-                return NotFound(String.Format("No index named '{0}'.", indexId));
+                return ProblemResults.NotFound(String.Format("No index named '{0}'.", indexId));
             }
 
             if (!(index is IVectorIndex vectorIndex))
             {
-                return BadRequest(String.Format("Index '{0}' is not a vector index.", indexId));
+                return ProblemResults.BadRequest(String.Format("Index '{0}' is not a vector index.", indexId));
             }
 
             // A BOUND index is a derived projection of the named element embedding (feature
@@ -95,21 +95,21 @@ namespace NoSQL.GraphDB.App.Controllers
             // it, explicit adds would create a second membership authority.
             if (vectorIndex.EmbeddingName != null)
             {
-                return BadRequest(String.Format(
+                return ProblemResults.BadRequest(String.Format(
                     "Index '{0}' is bound to embedding '{1}' and maintains itself; write the element embedding instead of adding to the index.",
                     indexId, vectorIndex.EmbeddingName));
             }
 
             if (!_fallen8.TryGetGraphElement(out var element, definition.GraphElementId))
             {
-                return NotFound(String.Format("Could not find graph element with id {0}.", definition.GraphElementId));
+                return ProblemResults.NotFound(String.Format("Could not find graph element with id {0}.", definition.GraphElementId));
             }
 
             var hasVector = definition.Vector != null;
             var hasProperty = !String.IsNullOrEmpty(definition.PropertyId);
             if (hasVector == hasProperty)
             {
-                return BadRequest("Exactly one of 'vector' / 'propertyId' must be supplied.");
+                return ProblemResults.BadRequest("Exactly one of 'vector' / 'propertyId' must be supplied.");
             }
 
             Single[] vector;
@@ -121,32 +121,32 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 if (!element.TryGetProperty<Object>(out var propertyValue, definition.PropertyId))
                 {
-                    return BadRequest(String.Format("Element {0} carries no property '{1}'.",
+                    return ProblemResults.BadRequest(String.Format("Element {0} carries no property '{1}'.",
                         definition.GraphElementId, definition.PropertyId));
                 }
 
                 vector = propertyValue as Single[];
                 if (vector == null)
                 {
-                    return BadRequest(String.Format("Property '{0}' on element {1} is not a float[].",
+                    return ProblemResults.BadRequest(String.Format("Property '{0}' on element {1} is not a float[].",
                         definition.PropertyId, definition.GraphElementId));
                 }
             }
 
             if (vector.Length != vectorIndex.Dimension)
             {
-                return BadRequest(String.Format("The vector has dimension {0}; index '{1}' requires {2}.",
+                return ProblemResults.BadRequest(String.Format("The vector has dimension {0}; index '{1}' requires {2}.",
                     vector.Length, indexId, vectorIndex.Dimension));
             }
 
             if (VectorIndex.HasNonFiniteComponent(vector))
             {
-                return BadRequest("The vector contains NaN or Infinity components; only finite values can rank.");
+                return ProblemResults.BadRequest("The vector contains NaN or Infinity components; only finite values can rank.");
             }
 
             if (vectorIndex.Metric == VectorDistanceMetric.Cosine && VectorIndex.IsZeroNorm(vector))
             {
-                return BadRequest("A zero-norm vector cannot rank under the Cosine metric.");
+                return ProblemResults.BadRequest("A zero-norm vector cannot rank under the Cosine metric.");
             }
 
             vectorIndex.AddOrUpdate(vector, element);

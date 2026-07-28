@@ -25,6 +25,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -193,10 +194,8 @@ namespace NoSQL.GraphDB.Tests
             var result = controller.CalculateShortestPath(a, b, spec).Result;
 
             Assert.IsNull(result.Value, "A malformed filter must not return a 200 body.");
-            var badRequest = result.Result as BadRequestObjectResult;
-            Assert.IsNotNull(badRequest, "A malformed filter fragment must surface as 400, not a silent empty 200.");
-            Assert.AreEqual(400, badRequest.StatusCode);
-            Assert.IsNotNull(badRequest.Value, "The 400 body must carry the compiler diagnostics.");
+            var problem = ProblemAssert.AssertProblem(result.Result, StatusCodes.Status400BadRequest);
+            Assert.IsNotNull(problem.Detail, "The 400 body must carry the compiler diagnostics.");
 
             fallen8.Dispose();
         }

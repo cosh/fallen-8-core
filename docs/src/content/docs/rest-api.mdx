@@ -73,7 +73,7 @@ These hold across the whole surface; each topic's own page carries the detail.
 | Convention | Rule |
 |---|---|
 | JSON casing | `camelCase` in both directions (Web defaults, source-generated). |
-| Errors | Faults and bare status results render as RFC 7807 `application/problem+json`. |
+| Errors | Every error response is RFC 7807 `application/problem+json` — a consistent `title`/`status`/`detail` shape for a validation `400`, a `404`, a `409`, and a server fault alike. The status codes are unchanged; only the body is uniform. |
 | Not found / invalid | The engine follows `Try*(out …) : bool`; over REST an expected miss is a `404` (never an exception/500). |
 | Mutations | Every write is a transaction; pass `?waitForCompletion=true` to block until it commits. See [graph model](/fallen-8-core/graph-model/). |
 | Status codes | Each action is annotated with `[ProducesResponseType]`, so the exact codes and DTOs live in the OpenAPI document / Scalar, not here. |

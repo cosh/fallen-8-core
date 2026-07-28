@@ -72,7 +72,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (definition == null)
             {
-                return BadRequest("A vertex specification is required.");
+                return ProblemResults.BadRequest("A vertex specification is required.");
             }
 
             #endregion
@@ -115,7 +115,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definitions == null)
             {
-                return BadRequest("A list of vertex specifications is required.");
+                return ProblemResults.BadRequest("A list of vertex specifications is required.");
             }
 
             var tx = new CreateVerticesTransaction();
@@ -123,7 +123,7 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 if (definition == null)
                 {
-                    return BadRequest("A vertex specification may not be null.");
+                    return ProblemResults.BadRequest("A vertex specification may not be null.");
                 }
 
                 tx.AddVertex(new VertexDefinition()
@@ -270,7 +270,7 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 return vertex.GetInDegree();
             }
-            return NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
+            return ProblemResults.NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
         }
 
         /// <summary>
@@ -291,7 +291,7 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 return vertex.GetOutDegree();
             }
-            return NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
+            return ProblemResults.NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
         }
 
         /// <summary>
@@ -311,7 +311,7 @@ namespace NoSQL.GraphDB.App.Controllers
             VertexModel vertex;
             if (!_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
-                return NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
+                return ProblemResults.NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
             }
 
             // A live vertex with no such edge group genuinely has degree 0 (200), distinct from a
@@ -339,7 +339,7 @@ namespace NoSQL.GraphDB.App.Controllers
             VertexModel vertex;
             if (!_fallen8.TryGetVertex(out vertex, vertexIdentifier))
             {
-                return NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
+                return ProblemResults.NotFound(String.Format("Could not find vertex with id {0}.", vertexIdentifier));
             }
 
             IReadOnlyList<EdgeModel> edges;

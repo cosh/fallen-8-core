@@ -164,7 +164,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     // and the /subgraph endpoint's semantics.
                     if (CarriesInlineCode(definition))
                     {
-                        return BadRequest("'storedQuery' is mutually exclusive with inline 'filter'/'cost' fragments.");
+                        return ProblemResults.BadRequest("'storedQuery' is mutually exclusive with inline 'filter'/'cost' fragments.");
                     }
 
                     var resolutionError = StoredQueryResolver.TryResolvePathTraverser(_fallen8, definition.StoredQuery, out traverser);
@@ -193,7 +193,7 @@ namespace NoSQL.GraphDB.App.Controllers
                         // ProducesResponseType(400) is now reachable). A SUCCESSFUL compile that simply
                         // finds no path still returns 200 with []; only a compile failure is a 400.
                         _logger?.LogError(compilerMessage);
-                        return BadRequest(compilerMessage);
+                        return ProblemResults.BadRequest(compilerMessage);
                     }
                 }
                 // On a cache hit, TryGetTraverser already set `traverser`.
@@ -207,7 +207,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     var semanticError = SemanticTraversalHelper.TryBuild(definition.Semantic, allowCost: true, out var semantic);
                     if (semanticError != null)
                     {
-                        return BadRequest(semanticError);
+                        return ProblemResults.BadRequest(semanticError);
                     }
 
                     // The context reaches every compiled fragment through the factory calls; the
@@ -215,13 +215,13 @@ namespace NoSQL.GraphDB.App.Controllers
                     var vertexFilter = traverser.VertexFilter(semantic.Context);
                     if (semantic.VertexFilter != null && vertexFilter != null)
                     {
-                        return BadRequest("semantic.minScore/costBySimilarity and a vertex filter fragment own the same delegate slot; use one.");
+                        return ProblemResults.BadRequest("semantic.minScore/costBySimilarity and a vertex filter fragment own the same delegate slot; use one.");
                     }
 
                     var vertexCost = traverser.VertexCost(semantic.Context);
                     if (semantic.VertexCost != null && vertexCost != null)
                     {
-                        return BadRequest("semantic.costBySimilarity and a vertex cost fragment own the same delegate slot; use one.");
+                        return ProblemResults.BadRequest("semantic.costBySimilarity and a vertex cost fragment own the same delegate slot; use one.");
                     }
 
                     var pathDefinition = new ShortestPathDefinition
@@ -270,7 +270,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 // genuine no-path is still a 200 with []; only an unexpected runtime fault reaches
                 // here, and it is surfaced as a real 500 (mirroring /subgraph).
                 _logger?.LogError(ex, "Error calculating path between vertices {0} and {1}", from, to);
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     String.Format("An unexpected error occurred while calculating a path between vertices {0} and {1}.", from, to));
             }
 

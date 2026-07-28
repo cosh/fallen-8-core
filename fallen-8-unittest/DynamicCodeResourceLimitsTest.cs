@@ -25,6 +25,7 @@
 
 using System;
 using System.Linq;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -107,8 +108,7 @@ namespace NoSQL.GraphDB.Tests
                 Operator = BinaryOperator.Equals,
                 ResultType = ResultTypeSpecification.Vertices
             });
-            Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult),
-                "A non-allow-listed type name must be a 400, and must never reach Type.GetType.");
+            ProblemAssert.AssertProblem(result.Result, StatusCodes.Status400BadRequest);
 
             fallen8.Dispose();
         }
@@ -149,8 +149,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             var result = controller.CalculateShortestPath(a, b, spec).Result;
-            Assert.IsInstanceOfType(result.Result, typeof(BadRequestObjectResult),
-                "An oversize filter fragment must be rejected (400) before Roslyn is invoked.");
+            ProblemAssert.AssertProblem(result.Result, StatusCodes.Status400BadRequest);
 
             fallen8.Dispose();
         }

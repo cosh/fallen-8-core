@@ -99,7 +99,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (definition == null)
             {
-                return BadRequest("An edge specification is required.");
+                return ProblemResults.BadRequest("An edge specification is required.");
             }
 
             #endregion
@@ -148,7 +148,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definitions == null)
             {
-                return BadRequest("A list of edge specifications is required.");
+                return ProblemResults.BadRequest("A list of edge specifications is required.");
             }
 
             var tx = new CreateEdgesTransaction();
@@ -156,7 +156,7 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 if (definition == null)
                 {
-                    return BadRequest("An edge specification may not be null.");
+                    return ProblemResults.BadRequest("An edge specification may not be null.");
                 }
 
                 tx.AddEdge(new EdgeDefinition()
@@ -195,7 +195,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             // A missing edge is the documented 404, not a thrown WebException -> 500
             // (feature api-error-contract E4).
-            return NotFound(String.Format("Could not find edge with id {0}.", edgeIdentifier));
+            return ProblemResults.NotFound(String.Format("Could not find edge with id {0}.", edgeIdentifier));
         }
 
         /// <summary>
@@ -219,7 +219,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             // A missing edge is the documented 404, not a thrown WebException -> 500
             // (feature api-error-contract E4).
-            return NotFound(String.Format("Could not find edge with id {0}.", edgeIdentifier));
+            return ProblemResults.NotFound(String.Format("Could not find edge with id {0}.", edgeIdentifier));
         }
     }
 }

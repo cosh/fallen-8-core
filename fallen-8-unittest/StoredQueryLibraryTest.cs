@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -273,7 +274,7 @@ namespace NoSQL.GraphDB.Tests
             var result = _controller.RegisterStoredQuery(spec).Result;
 
             Assert.AreEqual(400, StatusCodeOf(result));
-            var body = ((ObjectResult)result).Value as string;
+            var body = ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest).Detail;
             Assert.IsNotNull(body);
             // The Roslyn diagnostics shape the inline endpoints use ("ID: CSxxxx, Message: ...").
             StringAssert.Contains(body, "ID:");
@@ -303,7 +304,7 @@ namespace NoSQL.GraphDB.Tests
             var result = _controller.RegisterStoredQuery(spec).Result;
 
             Assert.AreEqual(400, StatusCodeOf(result));
-            var body = ((ObjectResult)result).Value as string;
+            var body = ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest).Detail;
             Assert.IsNotNull(body);
             StringAssert.Contains(body, "exceeds the maximum");
             Assert.AreEqual(0, _fallen8.StoredQueries.Count);

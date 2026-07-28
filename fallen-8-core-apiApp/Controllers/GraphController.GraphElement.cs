@@ -29,6 +29,7 @@ using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core.App.Controllers.Model;
 using NoSQL.GraphDB.Core.Index.Vector;
 using NoSQL.GraphDB.Core.Model;
@@ -130,28 +131,28 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!AGraphElementModel.IsValidEmbeddingName(embeddingName))
             {
-                return BadRequest(String.Format("'{0}' is not a valid embedding name.", embeddingName));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid embedding name.", embeddingName));
             }
 
             if (definition?.Vector == null || definition.Vector.Length == 0)
             {
-                return BadRequest("An embedding vector is required.");
+                return ProblemResults.BadRequest("An embedding vector is required.");
             }
 
             var vector = definition.Vector;
             if (vector.Length > VectorIndex.MaxDimension)
             {
-                return BadRequest(String.Format("The vector exceeds the maximum dimension of {0}.", VectorIndex.MaxDimension));
+                return ProblemResults.BadRequest(String.Format("The vector exceeds the maximum dimension of {0}.", VectorIndex.MaxDimension));
             }
 
             if (VectorIndex.HasNonFiniteComponent(vector))
             {
-                return BadRequest("The vector contains NaN or Infinity components.");
+                return ProblemResults.BadRequest("The vector contains NaN or Infinity components.");
             }
 
             if (!_fallen8.TryGetGraphElement(out _, graphElementIdentifier))
             {
-                return NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
+                return ProblemResults.NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
             }
 
             // A write that can never project into an index BOUND to this name is rejected up
@@ -166,14 +167,14 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (vector.Length != vectorIndex.Dimension)
                 {
-                    return BadRequest(String.Format(
+                    return ProblemResults.BadRequest(String.Format(
                         "The vector has dimension {0}, but a bound vector index requires {1} for embedding '{2}'.",
                         vector.Length, vectorIndex.Dimension, embeddingName));
                 }
 
                 if (vectorIndex.Metric == VectorDistanceMetric.Cosine && VectorIndex.IsZeroNorm(vector))
                 {
-                    return BadRequest(String.Format(
+                    return ProblemResults.BadRequest(String.Format(
                         "A zero-norm vector cannot rank in the Cosine vector index bound to embedding '{0}'.", embeddingName));
                 }
             }
@@ -208,12 +209,12 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!AGraphElementModel.IsValidEmbeddingName(embeddingName))
             {
-                return BadRequest(String.Format("'{0}' is not a valid embedding name.", embeddingName));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid embedding name.", embeddingName));
             }
 
             if (!_fallen8.TryGetGraphElement(out _, graphElementIdentifier))
             {
-                return NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
+                return ProblemResults.NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
             }
 
             return await AwaitAndAccept(
@@ -241,17 +242,17 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!AGraphElementModel.IsValidEmbeddingName(embeddingName))
             {
-                return BadRequest(String.Format("'{0}' is not a valid embedding name.", embeddingName));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid embedding name.", embeddingName));
             }
 
             if (!_fallen8.TryGetGraphElement(out var element, graphElementIdentifier))
             {
-                return NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
+                return ProblemResults.NotFound(String.Format("Could not find graph element with id {0}.", graphElementIdentifier));
             }
 
             if (!element.TryGetEmbedding(out var vector, embeddingName))
             {
-                return NotFound(String.Format("Element {0} carries no embedding '{1}'.",
+                return ProblemResults.NotFound(String.Format("Element {0} carries no embedding '{1}'.",
                     graphElementIdentifier, embeddingName));
             }
 
@@ -295,7 +296,7 @@ namespace NoSQL.GraphDB.App.Controllers
             // (feature api-error-contract E2), instead of Convert.ToInt32 throwing FormatException -> 500.
             if (definition == null)
             {
-                return BadRequest("A property specification body is required.");
+                return ProblemResults.BadRequest("A property specification body is required.");
             }
 
             var graphElementId = graphElementIdentifier;
@@ -304,7 +305,7 @@ namespace NoSQL.GraphDB.App.Controllers
             // Guarded type resolution (E3): an unknown type name is a 400, not a thrown TypeLoadException.
             if (!TryResolveType(definition.FullQualifiedTypeName, out var targetType))
             {
-                return BadRequest(String.Format("Unknown type name '{0}'.", definition.FullQualifiedTypeName));
+                return ProblemResults.BadRequest(String.Format("Unknown type name '{0}'.", definition.FullQualifiedTypeName));
             }
 
             object property;
@@ -318,7 +319,7 @@ namespace NoSQL.GraphDB.App.Controllers
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
             {
-                return BadRequest(String.Format("The property value could not be converted to '{0}': {1}",
+                return ProblemResults.BadRequest(String.Format("The property value could not be converted to '{0}': {1}",
                     definition.FullQualifiedTypeName, ex.Message));
             }
 

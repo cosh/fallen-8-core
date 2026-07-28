@@ -250,20 +250,20 @@ namespace NoSQL.GraphDB.App.Controllers
             switch (reason)
             {
                 case TransactionFailureReason.InvalidInput:
-                    return StatusCode(StatusCodes.Status400BadRequest,
+                    return ProblemResults.StatusCode(StatusCodes.Status400BadRequest,
                         "The transaction was rolled back: the request was invalid.");
 
                 case TransactionFailureReason.NotFound:
-                    return StatusCode(StatusCodes.Status404NotFound,
+                    return ProblemResults.StatusCode(StatusCodes.Status404NotFound,
                         "The transaction was rolled back: a referenced graph element does not exist.");
 
                 case TransactionFailureReason.QuotaExceeded:
                 case TransactionFailureReason.Conflict:
-                    return StatusCode(StatusCodes.Status409Conflict,
+                    return ProblemResults.StatusCode(StatusCodes.Status409Conflict,
                         "The transaction was rolled back: the request conflicts with the current state or a resource quota.");
 
                 default:
-                    return StatusCode(StatusCodes.Status500InternalServerError,
+                    return ProblemResults.InternalServerError(
                         "The transaction was rolled back; the operation did not complete.");
             }
         }

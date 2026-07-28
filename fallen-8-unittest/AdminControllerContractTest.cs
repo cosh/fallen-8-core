@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -49,8 +50,7 @@ namespace NoSQL.GraphDB.Tests
 
             var result = controller.Load(null).Result;
 
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult),
-                "A null load specification must be a 400, not an NRE-driven 500.");
+            ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
 
             fallen8.Dispose();
         }

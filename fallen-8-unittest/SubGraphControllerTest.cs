@@ -148,13 +148,13 @@ namespace NoSQL.GraphDB.Tests
 
             var second = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
 
-            Assert.IsInstanceOfType(second, typeof(ConflictObjectResult), "Re-using a name must conflict");
+            ProblemAssert.AssertProblem(second, StatusCodes.Status409Conflict);
         }
 
         [TestMethod]
         public void Create_NullSpecification_Returns400()
         {
-            Assert.IsInstanceOfType(_controller.CreateSubGraph(null).Result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(_controller.CreateSubGraph(null).Result, StatusCodes.Status400BadRequest);
         }
 
         [TestMethod]
@@ -162,7 +162,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var spec = PersonKnowsPerson();
             spec.Name = "   ";
-            Assert.IsInstanceOfType(_controller.CreateSubGraph(spec).Result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(_controller.CreateSubGraph(spec).Result, StatusCodes.Status400BadRequest);
         }
 
         [TestMethod]
@@ -173,9 +173,8 @@ namespace NoSQL.GraphDB.Tests
 
             var result = _controller.CreateSubGraph(spec).Result;
 
-            var badRequest = result as BadRequestObjectResult;
-            Assert.IsNotNull(badRequest, "Uncompilable filter must yield 400, not 500");
-            Assert.IsNotNull(badRequest.Value, "The compiler diagnostics should be returned");
+            var problem = ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
+            Assert.IsNotNull(problem.Detail, "The compiler diagnostics should be returned");
         }
 
         [TestMethod]
@@ -197,7 +196,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNotNull(ok, "Existing subgraph should return 200");
             Assert.AreEqual("people", ((SubGraphSummary)ok.Value).Name);
 
-            Assert.IsInstanceOfType(_controller.GetSubGraph("does-not-exist"), typeof(NotFoundObjectResult));
+            ProblemAssert.AssertProblem(_controller.GetSubGraph("does-not-exist"), StatusCodes.Status404NotFound);
         }
 
         [TestMethod]
@@ -215,7 +214,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void GetSubGraphContents_Missing_Returns404()
         {
-            Assert.IsInstanceOfType(_controller.GetSubGraphContents("nope"), typeof(NotFoundObjectResult));
+            ProblemAssert.AssertProblem(_controller.GetSubGraphContents("nope"), StatusCodes.Status404NotFound);
         }
 
         [TestMethod]
@@ -273,7 +272,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void Recalculate_Missing_Returns404()
         {
-            Assert.IsInstanceOfType(_controller.RecalculateSubGraph("nope"), typeof(NotFoundObjectResult));
+            ProblemAssert.AssertProblem(_controller.RecalculateSubGraph("nope"), StatusCodes.Status404NotFound);
         }
 
         [TestMethod]
@@ -281,10 +280,8 @@ namespace NoSQL.GraphDB.Tests
         {
             _ = _controller.CreateSubGraph(PersonKnowsPerson()).Result;
             Assert.IsInstanceOfType(_controller.DeleteSubGraph("people").Result, typeof(NoContentResult));
-            Assert.IsInstanceOfType(_controller.GetSubGraph("people"), typeof(NotFoundObjectResult),
-                "After deletion the subgraph must be gone");
-            Assert.IsInstanceOfType(_controller.DeleteSubGraph("people").Result, typeof(NotFoundObjectResult),
-                "Deleting a non-existent subgraph must be 404");
+            ProblemAssert.AssertProblem(_controller.GetSubGraph("people"), StatusCodes.Status404NotFound);
+            ProblemAssert.AssertProblem(_controller.DeleteSubGraph("people").Result, StatusCodes.Status404NotFound);
         }
 
         [TestMethod]
@@ -359,8 +356,7 @@ namespace NoSQL.GraphDB.Tests
             // execution, so the create transaction returns false: a clean rollback, hence 400.
             var result = _controller.CreateSubGraph(VertexThenVertex()).Result;
 
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult),
-                "A structurally-invalid pattern is a clean rollback and must be 400, not 500.");
+            ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
             Assert.AreEqual(StatusCodes.Status400BadRequest, StatusCodeOf(result));
         }
 
@@ -375,8 +371,7 @@ namespace NoSQL.GraphDB.Tests
 
             var result = _controller.CreateSubGraph(AllPersons()).Result;
 
-            Assert.IsInstanceOfType(result, typeof(ConflictObjectResult),
-                "A quota breach must be 409 (QuotaExceeded), consistent with the count-ceiling breach.");
+            ProblemAssert.AssertProblem(result, StatusCodes.Status409Conflict);
             Assert.AreEqual(StatusCodes.Status409Conflict, StatusCodeOf(result));
         }
 

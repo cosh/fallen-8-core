@@ -29,6 +29,7 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -336,16 +337,14 @@ namespace NoSQL.GraphDB.Tests
         {
             // A missing edge is a 404, not a thrown WebException -> 500 (feature api-error-contract E4).
             var result = _controller.GetSourceVertexForEdge(999);
-            Assert.IsInstanceOfType(result.Result, typeof(NotFoundObjectResult),
-                "A missing edge must yield 404, not throw.");
+            ProblemAssert.AssertProblem(result.Result, StatusCodes.Status404NotFound);
         }
 
         [TestMethod]
         public void GetTargetVertexForEdge_WhenEdgeNotExists_ShouldReturn404()
         {
             var result = _controller.GetTargetVertexForEdge(999);
-            Assert.IsInstanceOfType(result.Result, typeof(NotFoundObjectResult),
-                "A missing edge must yield 404, not throw.");
+            ProblemAssert.AssertProblem(result.Result, StatusCodes.Status404NotFound);
         }
 
         [TestMethod]

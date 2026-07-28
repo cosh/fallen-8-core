@@ -46,7 +46,44 @@ afterEach(() => {
 });
 
 describe("bulk endpoints surface server errors via throwIfNotOk", () => {
-  it("importBulk rejects with an ApiError preserving status and body on a 409 (non-empty graph)", async () => {
+  it("importBulk rejects with an ApiError carrying the problem+json detail on a 409 (non-empty graph)", async () => {
+    // The server returns RFC 7807 problem+json (feature api-error-envelope); the client surfaces
+    // its `detail` as the ApiError body so the UI shows the message, not the raw JSON.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ type: "about:blank", title: "Conflict", status: 409, detail: "graph must be empty" }),
+            { status: 409, headers: { "content-type": "application/problem+json" } },
+          ),
+      ),
+    );
+    const err = await endpoints
+      .importBulk(instance, new Blob(['{"type":"meta"}\n']))
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 409, body: "graph must be empty" });
+  });
+
+  it("exportBulk rejects with an ApiError carrying the problem+json detail on a 500", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ type: "about:blank", title: "Internal Server Error", status: 500, detail: "internal error" }),
+            { status: 500, headers: { "content-type": "application/problem+json" } },
+          ),
+      ),
+    );
+    const err = await endpoints.exportBulk(instance).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 500, body: "internal error" });
+  });
+
+  it("preserves a non-envelope (plain-string) error body unchanged", async () => {
+    // A pre-envelope server or a non-JSON body must still surface verbatim.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("graph must be empty", { status: 409 })),
@@ -56,15 +93,5 @@ describe("bulk endpoints surface server errors via throwIfNotOk", () => {
       .catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ status: 409, body: "graph must be empty" });
-  });
-
-  it("exportBulk rejects with an ApiError preserving status and body on a 500", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("internal error", { status: 500 })),
-    );
-    const err = await endpoints.exportBulk(instance).catch((e) => e);
-    expect(err).toBeInstanceOf(ApiError);
-    expect(err).toMatchObject({ status: 500, body: "internal error" });
   });
 });

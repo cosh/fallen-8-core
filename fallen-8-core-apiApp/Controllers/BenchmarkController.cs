@@ -32,6 +32,7 @@ using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.App.Controllers.Benchmark;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Interfaces;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Serializer;
@@ -95,13 +96,13 @@ namespace NoSQL.GraphDB.App.Controllers
             var nodes = 200;
             if (!String.IsNullOrWhiteSpace(nodeCount) && (!Int32.TryParse(nodeCount, out nodes) || nodes < 0))
             {
-                return BadRequest(String.Format("'{0}' is not a valid node count.", nodeCount));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid node count.", nodeCount));
             }
 
             var edgesPerVertex = 5;
             if (!String.IsNullOrWhiteSpace(edgeCount) && (!Int32.TryParse(edgeCount, out edgesPerVertex) || edgesPerVertex < 0))
             {
-                return BadRequest(String.Format("'{0}' is not a valid edge count.", edgeCount));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid edge count.", edgeCount));
             }
 
             bool preferential;
@@ -115,7 +116,7 @@ namespace NoSQL.GraphDB.App.Controllers
             }
             else
             {
-                return BadRequest(String.Format("'{0}' is not a valid distribution (expected uniform or preferential).", distribution));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid distribution (expected uniform or preferential).", distribution));
             }
 
             var sw = Stopwatch.StartNew();
@@ -153,12 +154,12 @@ namespace NoSQL.GraphDB.App.Controllers
             }
             else if (!Int32.TryParse(iterations, out iterationCount))
             {
-                return BadRequest(String.Format("'{0}' is not a valid iteration count.", iterations));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid iteration count.", iterations));
             }
 
             if (!_introProvider.TryBench(out var result, out var message, iterationCount))
             {
-                return BadRequest(message);
+                return ProblemResults.BadRequest(message);
             }
 
             return result;

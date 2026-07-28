@@ -101,13 +101,13 @@ namespace NoSQL.GraphDB.App.Controllers
             error = null;
             if (String.IsNullOrWhiteSpace(text))
             {
-                error = BadRequest("A non-empty text is required.");
+                error = ProblemResults.BadRequest("A non-empty text is required.");
                 return null;
             }
 
             if (text.Length > _options.MaxTextLength)
             {
-                error = BadRequest(String.Format("The text ({0} chars) exceeds Fallen8:Embedding:MaxTextLength ({1}).",
+                error = ProblemResults.BadRequest(String.Format("The text ({0} chars) exceeds Fallen8:Embedding:MaxTextLength ({1}).",
                     text.Length, _options.MaxTextLength));
                 return null;
             }
@@ -130,7 +130,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (vectorIndex.Dimension != _provider.Identity.Dimension)
                 {
-                    return Conflict(String.Format(
+                    return ProblemResults.Conflict(String.Format(
                         "The provider produces dimension {0}, but index '{1}' bound to embedding '{2}' requires {3}.",
                         _provider.Identity.Dimension, namedIndex.Key, embeddingName, vectorIndex.Dimension));
                 }
@@ -138,7 +138,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 if (vectorIndex.Model != null &&
                     !String.Equals(vectorIndex.Model, _provider.Identity.Stamp, StringComparison.Ordinal))
                 {
-                    return Conflict(String.Format(
+                    return ProblemResults.Conflict(String.Format(
                         "Index '{0}' declares model identity '{1}', but the active provider is '{2}'.",
                         namedIndex.Key, vectorIndex.Model, _provider.Identity.Stamp));
                 }
@@ -186,13 +186,13 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definition == null)
             {
-                return BadRequest("An embed specification is required.");
+                return ProblemResults.BadRequest("An embed specification is required.");
             }
 
             var name = definition.Name ?? AGraphElementModel.DefaultEmbeddingName;
             if (!AGraphElementModel.IsValidEmbeddingName(name))
             {
-                return BadRequest(String.Format("'{0}' is not a valid embedding name.", definition.Name));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid embedding name.", definition.Name));
             }
 
             ValidateText(definition.Text, out var textError);
@@ -203,7 +203,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (!_fallen8.TryGetGraphElement(out _, definition.GraphElementId))
             {
-                return NotFound(String.Format("Could not find graph element with id {0}.", definition.GraphElementId));
+                return ProblemResults.NotFound(String.Format("Could not find graph element with id {0}.", definition.GraphElementId));
             }
 
             var contractError = CheckBoundIndexContract(name);
@@ -264,26 +264,26 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definition?.Items == null || definition.Items.Count == 0)
             {
-                return BadRequest("A non-empty batch is required.");
+                return ProblemResults.BadRequest("A non-empty batch is required.");
             }
 
             if (definition.Items.Count > _options.MaxBatchSize)
             {
-                return BadRequest(String.Format("The batch ({0} items) exceeds Fallen8:Embedding:MaxBatchSize ({1}).",
+                return ProblemResults.BadRequest(String.Format("The batch ({0} items) exceeds Fallen8:Embedding:MaxBatchSize ({1}).",
                     definition.Items.Count, _options.MaxBatchSize));
             }
 
             var name = definition.Name ?? AGraphElementModel.DefaultEmbeddingName;
             if (!AGraphElementModel.IsValidEmbeddingName(name))
             {
-                return BadRequest(String.Format("'{0}' is not a valid embedding name.", definition.Name));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid embedding name.", definition.Name));
             }
 
             foreach (var item in definition.Items)
             {
                 if (item == null)
                 {
-                    return BadRequest("A batch item is null.");
+                    return ProblemResults.BadRequest("A batch item is null.");
                 }
 
                 ValidateText(item.Text, out var textError);
@@ -294,7 +294,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (!_fallen8.TryGetGraphElement(out _, item.GraphElementId))
                 {
-                    return NotFound(String.Format("Could not find graph element with id {0}.", item.GraphElementId));
+                    return ProblemResults.NotFound(String.Format("Could not find graph element with id {0}.", item.GraphElementId));
                 }
             }
 
@@ -363,7 +363,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definition == null)
             {
-                return BadRequest("A search specification is required.");
+                return ProblemResults.BadRequest("A search specification is required.");
             }
 
             ValidateText(definition.Text, out var textError);
@@ -374,19 +374,19 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (!_fallen8.IndexFactory.TryGetIndex(out var index, definition.IndexId))
             {
-                return NotFound(String.Format("No index named '{0}'.", definition.IndexId));
+                return ProblemResults.NotFound(String.Format("No index named '{0}'.", definition.IndexId));
             }
 
             if (!(index is IVectorIndex vectorIndex))
             {
-                return BadRequest(String.Format("Index '{0}' is not a vector index.", definition.IndexId));
+                return ProblemResults.BadRequest(String.Format("Index '{0}' is not a vector index.", definition.IndexId));
             }
 
             // FR-8: the identity contract - dimension always, the model identity when the
             // index declares one. Hard errors, never coercion.
             if (vectorIndex.Dimension != _provider.Identity.Dimension)
             {
-                return Conflict(String.Format(
+                return ProblemResults.Conflict(String.Format(
                     "The provider produces dimension {0}, but index '{1}' requires {2}.",
                     _provider.Identity.Dimension, definition.IndexId, vectorIndex.Dimension));
             }
@@ -394,7 +394,7 @@ namespace NoSQL.GraphDB.App.Controllers
             if (vectorIndex.Model != null &&
                 !String.Equals(vectorIndex.Model, _provider.Identity.Stamp, StringComparison.Ordinal))
             {
-                return Conflict(String.Format(
+                return ProblemResults.Conflict(String.Format(
                     "Index '{0}' declares model identity '{1}', but the active provider is '{2}'.",
                     definition.IndexId, vectorIndex.Model, _provider.Identity.Stamp));
             }
@@ -402,7 +402,7 @@ namespace NoSQL.GraphDB.App.Controllers
             if (!NoSQL.GraphDB.App.Helper.VectorSearchConstraintBuilder.TryBuild(
                     definition.Kind, definition.Label, out var constraint, out var constraintError))
             {
-                return BadRequest(constraintError);
+                return ProblemResults.BadRequest(constraintError);
             }
 
             var (vectors, embedError) = await TryEmbedAsync(new[] { _provider.ApplyQueryPrefix(definition.Text) }, cancellationToken);
@@ -413,7 +413,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (!vectorIndex.TryNearestNeighbors(out var result, vectors[0], definition.K, constraint))
             {
-                return BadRequest(String.Format(
+                return ProblemResults.BadRequest(String.Format(
                     "Invalid kNN query: k must be within [1, {0}], and a Cosine query must not be zero-norm.",
                     VectorIndex.MaxK));
             }
@@ -463,12 +463,12 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definition?.Texts == null || definition.Texts.Count == 0)
             {
-                return BadRequest("A non-empty texts list is required.");
+                return ProblemResults.BadRequest("A non-empty texts list is required.");
             }
 
             if (definition.Texts.Count > _options.MaxBatchSize)
             {
-                return BadRequest(String.Format("The batch ({0} texts) exceeds Fallen8:Embedding:MaxBatchSize ({1}).",
+                return ProblemResults.BadRequest(String.Format("The batch ({0} texts) exceeds Fallen8:Embedding:MaxBatchSize ({1}).",
                     definition.Texts.Count, _options.MaxBatchSize));
             }
 

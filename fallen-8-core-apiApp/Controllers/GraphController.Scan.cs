@@ -32,6 +32,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Spatial;
@@ -76,12 +77,12 @@ namespace NoSQL.GraphDB.App.Controllers
             // is a client error -> 400, not a thrown exception -> 500 (feature api-error-contract E3).
             if (definition == null || definition.Literal == null)
             {
-                return BadRequest("A scan specification with a literal is required.");
+                return ProblemResults.BadRequest("A scan specification with a literal is required.");
             }
 
             if (!TryConvertLiteral(definition.Literal, out var value, out var error))
             {
-                return BadRequest(error);
+                return ProblemResults.BadRequest(error);
             }
 
             List<AGraphElementModel> graphElements;
@@ -122,12 +123,12 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definition == null || definition.Literal == null)
             {
-                return BadRequest("An index scan specification with a literal is required.");
+                return ProblemResults.BadRequest("An index scan specification with a literal is required.");
             }
 
             if (!TryConvertLiteral(definition.Literal, out var value, out var error))
             {
-                return BadRequest(error);
+                return ProblemResults.BadRequest(error);
             }
 
             IReadOnlyList<AGraphElementModel> graphElements;
@@ -165,13 +166,13 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definition == null)
             {
-                return BadRequest("A range scan specification is required.");
+                return ProblemResults.BadRequest("A range scan specification is required.");
             }
 
             // Guarded type resolution + conversion of both limits (feature api-error-contract E3).
             if (!TryResolveType(definition.FullQualifiedTypeName, out var limitType))
             {
-                return BadRequest(String.Format("Unknown type name '{0}'.", definition.FullQualifiedTypeName));
+                return ProblemResults.BadRequest(String.Format("Unknown type name '{0}'.", definition.FullQualifiedTypeName));
             }
 
             IComparable left, right;
@@ -184,7 +185,7 @@ namespace NoSQL.GraphDB.App.Controllers
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
             {
-                return BadRequest(String.Format("A range limit could not be converted to '{0}': {1}",
+                return ProblemResults.BadRequest(String.Format("A range limit could not be converted to '{0}': {1}",
                     definition.FullQualifiedTypeName, ex.Message));
             }
 
@@ -270,28 +271,28 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definition == null || definition.Query == null)
             {
-                return BadRequest("A vector scan specification with a query vector is required.");
+                return ProblemResults.BadRequest("A vector scan specification with a query vector is required.");
             }
 
             if (!_fallen8.IndexFactory.TryGetIndex(out var index, definition.IndexId))
             {
-                return NotFound(String.Format("No index named '{0}'.", definition.IndexId));
+                return ProblemResults.NotFound(String.Format("No index named '{0}'.", definition.IndexId));
             }
 
             if (!(index is IVectorIndex vectorIndex))
             {
-                return BadRequest(String.Format("Index '{0}' is not a vector index.", definition.IndexId));
+                return ProblemResults.BadRequest(String.Format("Index '{0}' is not a vector index.", definition.IndexId));
             }
 
             if (!NoSQL.GraphDB.App.Helper.VectorSearchConstraintBuilder.TryBuild(
                     definition.Kind, definition.Label, out var constraint, out var constraintError))
             {
-                return BadRequest(constraintError);
+                return ProblemResults.BadRequest(constraintError);
             }
 
             if (!vectorIndex.TryNearestNeighbors(out var result, definition.Query, definition.K, constraint))
             {
-                return BadRequest(String.Format(
+                return ProblemResults.BadRequest(String.Format(
                     "Invalid kNN query: the query must have dimension {0} with finite components, k must be within [1, {1}], and a Cosine query must not be zero-norm.",
                     vectorIndex.Dimension, VectorIndex.MaxK));
             }

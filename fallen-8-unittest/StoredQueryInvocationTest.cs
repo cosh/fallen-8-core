@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -343,7 +344,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             var result = _graphController.CalculateShortestPath(_a, _d, spec).Result.Result;
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
         }
 
         [TestMethod]
@@ -358,7 +359,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             var result = _graphController.CalculateShortestPath(_a, _d, spec).Result.Result;
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
         }
 
         [TestMethod]
@@ -368,8 +369,8 @@ namespace NoSQL.GraphDB.Tests
 
             var result = _graphController.CalculateShortestPath(_a, _d, spec).Result.Result;
 
-            Assert.IsInstanceOfType(result, typeof(NotFoundObjectResult));
-            StringAssert.Contains((string)((NotFoundObjectResult)result).Value, "stored query",
+            var problem = ProblemAssert.AssertProblem(result, StatusCodes.Status404NotFound);
+            StringAssert.Contains(problem.Detail, "stored query",
                 "The 404 must name the stored query to disambiguate from the endpoint's vertex 404s.");
         }
 
@@ -386,7 +387,7 @@ namespace NoSQL.GraphDB.Tests
             var result = _graphController.CalculateShortestPath(_a, _d,
                 new PathSpecification { StoredQuery = "a-subgraph-template" }).Result.Result;
 
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
         }
 
         [TestMethod]
@@ -397,8 +398,8 @@ namespace NoSQL.GraphDB.Tests
             var result = _graphController.CalculateShortestPath(_a, _d,
                 new PathSpecification { StoredQuery = "failed-path-query" }).Result.Result;
 
-            Assert.IsInstanceOfType(result, typeof(ConflictObjectResult));
-            StringAssert.Contains((string)((ConflictObjectResult)result).Value, "CS0000");
+            var problem = ProblemAssert.AssertProblem(result, StatusCodes.Status409Conflict);
+            StringAssert.Contains(problem.Detail, "CS0000");
         }
 
         [TestMethod]
@@ -418,7 +419,7 @@ namespace NoSQL.GraphDB.Tests
                 VertexFilter = PersonVertexFilter
             }).Result;
 
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
         }
 
         [TestMethod]
@@ -430,7 +431,7 @@ namespace NoSQL.GraphDB.Tests
                 StoredQuery = "never-registered"
             }).Result;
 
-            Assert.IsInstanceOfType(result, typeof(NotFoundObjectResult));
+            ProblemAssert.AssertProblem(result, StatusCodes.Status404NotFound);
         }
 
         [TestMethod]
@@ -444,7 +445,7 @@ namespace NoSQL.GraphDB.Tests
                 StoredQuery = "a-path-query"
             }).Result;
 
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
         }
 
         [TestMethod]
@@ -458,7 +459,7 @@ namespace NoSQL.GraphDB.Tests
                 StoredQuery = "failed-subgraph-query"
             }).Result;
 
-            Assert.IsInstanceOfType(result, typeof(ConflictObjectResult));
+            ProblemAssert.AssertProblem(result, StatusCodes.Status409Conflict);
         }
 
         [TestMethod]
@@ -476,7 +477,7 @@ namespace NoSQL.GraphDB.Tests
                 StoredQuery = "needs-instance-name"
             }).Result;
 
-            Assert.IsInstanceOfType(result, typeof(BadRequestObjectResult));
+            ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
         }
 
         #endregion
@@ -547,7 +548,7 @@ namespace NoSQL.GraphDB.Tests
                             continue; // completed against a captured artifact
                         }
 
-                        if (outcome.Result is NotFoundObjectResult)
+                        if (outcome.Result is ObjectResult __o && __o.StatusCode == StatusCodes.Status404NotFound)
                         {
                             continue; // removal won before resolution
                         }

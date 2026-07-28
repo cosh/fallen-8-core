@@ -24,16 +24,21 @@
 // SOFTWARE.
 
 using System;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace NoSQL.GraphDB.App.Helper
 {
     /// <summary>
-    ///   The one way controllers build an explicit RFC 7807 response (feature code-quality:
-    ///   consolidates the seven hand-rolled ObjectResult + ProblemDetails +
-    ///   application/problem+json blocks the sprint left behind). The emitted bytes are
-    ///   identical to the previous inline blocks - the endpoint tests asserting status,
-    ///   content type and detail fragments pin that.
+    ///   The one way controllers build an explicit RFC 7807 response, so every error the REST
+    ///   surface returns is a uniform <c>application/problem+json</c> body (feature
+    ///   api-error-envelope). The <see cref="BadRequest"/>/<see cref="NotFound"/>/
+    ///   <see cref="Conflict"/>/<see cref="StatusCode"/> wrappers are the one-for-one
+    ///   replacements for the framework's plain-string <c>BadRequest("...")</c> etc.; they keep
+    ///   the human message as the problem <c>detail</c> and give each status a short, stable
+    ///   <c>title</c> (the HTTP reason phrase). <see cref="Create"/> stays for the callers that
+    ///   need a bespoke title or extension members (the embedding provider faults).
     /// </summary>
     internal static class ProblemResults
     {
@@ -55,6 +60,36 @@ namespace NoSQL.GraphDB.App.Helper
                 StatusCode = status,
                 ContentTypes = { "application/problem+json" }
             };
+        }
+
+        /// <summary>400 Bad Request with the message carried as the problem <c>detail</c>.</summary>
+        internal static ObjectResult BadRequest(String detail) =>
+            Create(StatusCodes.Status400BadRequest, TitleFor(StatusCodes.Status400BadRequest), detail);
+
+        /// <summary>404 Not Found with the message carried as the problem <c>detail</c>.</summary>
+        internal static ObjectResult NotFound(String detail) =>
+            Create(StatusCodes.Status404NotFound, TitleFor(StatusCodes.Status404NotFound), detail);
+
+        /// <summary>409 Conflict with the message carried as the problem <c>detail</c>.</summary>
+        internal static ObjectResult Conflict(String detail) =>
+            Create(StatusCodes.Status409Conflict, TitleFor(StatusCodes.Status409Conflict), detail);
+
+        /// <summary>500 Internal Server Error with the message carried as the problem <c>detail</c>.</summary>
+        internal static ObjectResult InternalServerError(String detail) =>
+            Create(StatusCodes.Status500InternalServerError, TitleFor(StatusCodes.Status500InternalServerError), detail);
+
+        /// <summary>An explicit-status problem+json result (the general form behind
+        /// GraphController's <c>RolledBackResult</c>, which maps a structured failure reason to
+        /// 400/404/409/500); the title is derived from the status.</summary>
+        internal static ObjectResult StatusCode(Int32 status, String detail) =>
+            Create(status, TitleFor(status), detail);
+
+        /// <summary>The short, stable problem <c>title</c> for a status: its HTTP reason phrase
+        /// (e.g. 400 → "Bad Request"), falling back to a generic label for unknown codes.</summary>
+        private static String TitleFor(Int32 status)
+        {
+            var phrase = ReasonPhrases.GetReasonPhrase(status);
+            return String.IsNullOrEmpty(phrase) ? "Error" : phrase;
         }
     }
 }

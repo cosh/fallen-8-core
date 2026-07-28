@@ -121,7 +121,7 @@ namespace NoSQL.GraphDB.App.Controllers
             var entry = _registry.GetById(id);
             if (entry == null)
             {
-                return NotFound(String.Format("No save game with id '{0}'.", id));
+                return ProblemResults.NotFound(String.Format("No save game with id '{0}'.", id));
             }
 
             var members = SaveGameRegistry.EffectiveNamespaces(entry);
@@ -238,7 +238,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             return _registry.Delete(id, deleteFiles)
                 ? NoContent()
-                : NotFound(String.Format("No save game with id '{0}'.", id));
+                : ProblemResults.NotFound(String.Format("No save game with id '{0}'.", id));
         }
     }
 }

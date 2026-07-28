@@ -128,12 +128,12 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (registration == null)
             {
-                return BadRequest("An algorithm plugin registration is required.");
+                return ProblemResults.BadRequest("An algorithm plugin registration is required.");
             }
 
             if (!TryParseAlgorithmContract(registration.Contract, out var contract))
             {
-                return BadRequest(String.Format(
+                return ProblemResults.BadRequest(String.Format(
                     "'{0}' is not a valid algorithm contract. Expected 'Path', 'SubGraph' or 'Analytics'.",
                     registration.Contract));
             }
@@ -185,7 +185,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (registration == null)
             {
-                return BadRequest("A function plugin registration is required.");
+                return ProblemResults.BadRequest("A function plugin registration is required.");
             }
 
             var definition = new PluginDefinition
@@ -226,12 +226,12 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (specification == null)
             {
-                return BadRequest("A validation specification is required.");
+                return ProblemResults.BadRequest("A validation specification is required.");
             }
 
             if (!TryParseAlgorithmContract(specification.Contract, out var contract))
             {
-                return BadRequest(String.Format(
+                return ProblemResults.BadRequest(String.Format(
                     "'{0}' is not a valid algorithm contract. Expected 'Path', 'SubGraph' or 'Analytics'.",
                     specification.Contract));
             }
@@ -260,7 +260,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (specification == null)
             {
-                return BadRequest("A validation specification is required.");
+                return ProblemResults.BadRequest("A validation specification is required.");
             }
 
             return Ok(Validate(specification, PluginCategory.Function, PluginContract.GraphFunction));
@@ -300,12 +300,12 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!_fallen8.Plugins.TryGet(out var entry, name) || entry.Definition.Category != PluginCategory.Function)
             {
-                return NotFound(String.Format("No graph function named '{0}' is registered in this namespace.", name));
+                return ProblemResults.NotFound(String.Format("No graph function named '{0}' is registered in this namespace.", name));
             }
 
             if (entry.CompileState != PluginCompileState.Compiled)
             {
-                return Conflict(String.Format(
+                return ProblemResults.Conflict(String.Format(
                     "Graph function '{0}' is not runnable (compile state: {1}).", name, entry.CompileState));
             }
 
@@ -317,7 +317,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 {
                     // The function was resolvable and Compiled, so a false return is a function-side
                     // expected failure (per the Try* contract), not a "not found".
-                    return BadRequest(String.Format(
+                    return ProblemResults.BadRequest(String.Format(
                         "Graph function '{0}' reported a failure (check the parameters).", name));
                 }
 
@@ -326,7 +326,7 @@ namespace NoSQL.GraphDB.App.Controllers
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Graph function '{0}' threw while running.", name);
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     String.Format("Graph function '{0}' threw while running.", name));
             }
         }
@@ -374,7 +374,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!_fallen8.Plugins.TryGet(out var entry, name))
             {
-                return NotFound(String.Format("No plugin named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No plugin named '{0}'.", name));
             }
 
             return Ok(PluginDetailREST.FromEntryDetail(entry));
@@ -402,7 +402,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!_fallen8.Plugins.TryGet(out _, name))
             {
-                return NotFound(String.Format("No plugin named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No plugin named '{0}'.", name));
             }
 
             var tx = new RemovePluginTransaction { Name = name };
@@ -413,10 +413,10 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 if (txInfo.FailureReason == TransactionFailureReason.NotFound)
                 {
-                    return NotFound(String.Format("No plugin named '{0}'.", name));
+                    return ProblemResults.NotFound(String.Format("No plugin named '{0}'.", name));
                 }
 
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     String.Format("The removal of plugin '{0}' was rolled back; the operation did not complete.", name));
             }
 
@@ -431,14 +431,14 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!PluginRegistry.IsValidName(definition.Name))
             {
-                return BadRequest(String.Format(
+                return ProblemResults.BadRequest(String.Format(
                     "'{0}' is not a valid plugin name. Names must match ^[A-Za-z0-9_-]{{1,{1}}}$.",
                     definition.Name, PluginRegistry.MaxNameLength));
             }
 
             if (String.IsNullOrWhiteSpace(definition.SourceCode))
             {
-                return BadRequest("Plugin source code is required.");
+                return ProblemResults.BadRequest("Plugin source code is required.");
             }
 
             try
@@ -447,19 +447,19 @@ namespace NoSQL.GraphDB.App.Controllers
                 // a TOCTOU race still resolves correctly).
                 if (_fallen8.Plugins.TryGet(out _, definition.Name))
                 {
-                    return Conflict(String.Format("A plugin named '{0}' already exists.", definition.Name));
+                    return ProblemResults.Conflict(String.Format("A plugin named '{0}' already exists.", definition.Name));
                 }
 
                 if (CollidesWithBuiltIn(definition.Contract, definition.Name))
                 {
-                    return Conflict(String.Format(
+                    return ProblemResults.Conflict(String.Format(
                         "'{0}' is the name of a built-in {1} plugin; choose a different name.",
                         definition.Name, definition.Contract));
                 }
 
                 if (_fallen8.Plugins.Count >= _fallen8.Plugins.MaxCount)
                 {
-                    return Conflict(String.Format(
+                    return ProblemResults.Conflict(String.Format(
                         "The maximum number of plugins ({0}) has been reached.", _fallen8.Plugins.MaxCount));
                 }
 
@@ -467,7 +467,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 // diagnostics, and Roslyn must never occupy the single writer thread.
                 if (!_compiler.TryCompile(definition, out var artifact, out var compileError))
                 {
-                    return BadRequest(compileError);
+                    return ProblemResults.BadRequest(compileError);
                 }
 
                 var entry = new PluginEntry(definition, PluginCompileState.Compiled, artifact);
@@ -485,7 +485,7 @@ namespace NoSQL.GraphDB.App.Controllers
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error registering plugin '{0}'", definition.Name);
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     String.Format("An unexpected error occurred while registering plugin '{0}'.", definition.Name));
             }
         }
@@ -552,13 +552,13 @@ namespace NoSQL.GraphDB.App.Controllers
             switch (txInfo.FailureReason)
             {
                 case TransactionFailureReason.InvalidInput:
-                    return BadRequest(String.Format("The plugin '{0}' was structurally invalid.", name));
+                    return ProblemResults.BadRequest(String.Format("The plugin '{0}' was structurally invalid.", name));
 
                 case TransactionFailureReason.Conflict:
-                    return Conflict(String.Format("A plugin named '{0}' already exists.", name));
+                    return ProblemResults.Conflict(String.Format("A plugin named '{0}' already exists.", name));
 
                 case TransactionFailureReason.QuotaExceeded:
-                    return Conflict(String.Format(
+                    return ProblemResults.Conflict(String.Format(
                         "Registration of plugin '{0}' was rejected because the per-namespace quota was reached.", name));
 
                 default:
@@ -566,7 +566,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     {
                         _logger?.LogError(txInfo.Error, "Registration of plugin '{0}' faulted and was rolled back.", name);
                     }
-                    return StatusCode(StatusCodes.Status500InternalServerError,
+                    return ProblemResults.InternalServerError(
                         String.Format("Registration of plugin '{0}' failed due to an internal error.", name));
             }
         }

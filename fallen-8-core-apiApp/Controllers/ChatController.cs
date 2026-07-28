@@ -111,7 +111,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (definition?.Messages == null || definition.Messages.Count == 0)
             {
-                return BadRequest("A non-empty messages list is required.");
+                return ProblemResults.BadRequest("A non-empty messages list is required.");
             }
 
             var turns = new List<ChatTurn>(definition.Messages.Count);
@@ -119,7 +119,7 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 if (String.IsNullOrEmpty(message?.Content))
                 {
-                    return BadRequest("Every message requires non-empty content.");
+                    return ProblemResults.BadRequest("Every message requires non-empty content.");
                 }
 
                 turns.Add(new ChatTurn(message.Role, message.Content));

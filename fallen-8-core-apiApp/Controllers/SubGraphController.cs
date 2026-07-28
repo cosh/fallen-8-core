@@ -156,7 +156,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (specification == null)
             {
-                return BadRequest("A subgraph specification is required.");
+                return ProblemResults.BadRequest("A subgraph specification is required.");
             }
 
             // semantic.queryText resolves to a vector ONCE, at registration (feature
@@ -171,26 +171,26 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (String.IsNullOrWhiteSpace(specification.Name))
             {
-                return BadRequest("A subgraph name is required.");
+                return ProblemResults.BadRequest("A subgraph name is required.");
             }
 
             try
             {
                 if (_fallen8.SubGraphFactory.TryGetSubGraph(out _, specification.Name))
                 {
-                    return Conflict(String.Format("A subgraph named '{0}' already exists.", specification.Name));
+                    return ProblemResults.Conflict(String.Format("A subgraph named '{0}' already exists.", specification.Name));
                 }
 
                 if (!String.IsNullOrWhiteSpace(fromSubGraph) && !_fallen8.SubGraphFactory.TryGetSubGraph(out _, fromSubGraph))
                 {
-                    return NotFound(String.Format("Source subgraph '{0}' does not exist.", fromSubGraph));
+                    return ProblemResults.NotFound(String.Format("Source subgraph '{0}' does not exist.", fromSubGraph));
                 }
 
                 // Quota: reject up front when the subgraph count ceiling is reached.
                 var quota = _fallen8.SubGraphFactory.Quota;
                 if (_fallen8.SubGraphFactory.SubGraphCount >= quota.MaxSubGraphCount)
                 {
-                    return Conflict(String.Format(
+                    return ProblemResults.Conflict(String.Format(
                         "The maximum number of subgraphs ({0}) has been reached.", quota.MaxSubGraphCount));
                 }
 
@@ -206,7 +206,7 @@ namespace NoSQL.GraphDB.App.Controllers
                         !String.IsNullOrWhiteSpace(specification.EdgeFilter) ||
                         (specification.Patterns != null && specification.Patterns.Count > 0))
                     {
-                        return BadRequest("'storedQuery' is mutually exclusive with inline 'vertexFilter'/'edgeFilter'/'patterns' fragments.");
+                        return ProblemResults.BadRequest("'storedQuery' is mutually exclusive with inline 'vertexFilter'/'edgeFilter'/'patterns' fragments.");
                     }
 
                     // A stored template's artifact pins delegates materialized at REGISTRATION;
@@ -214,7 +214,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     // element-embeddings, spec non-goal with trigger).
                     if (specification.Semantic != null)
                     {
-                        return BadRequest("'semantic' is not available on a stored-query subgraph invocation; inline the filters instead.");
+                        return ProblemResults.BadRequest("'semantic' is not available on a stored-query subgraph invocation; inline the filters instead.");
                     }
 
                     var resolutionError = StoredQueryResolver.TryResolveSubGraphTemplate(
@@ -256,7 +256,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     var compileError = CodeGenerationHelper.TryGenerateSubGraphDefinition(specification, out definition);
                     if (compileError != null)
                     {
-                        return BadRequest(compileError);
+                        return ProblemResults.BadRequest(compileError);
                     }
 
                     specificationJson = JsonSerializer.Serialize(specification, AppJsonContext.Default.SubGraphSpecification);
@@ -310,7 +310,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 // Compilation/plugin infrastructure failures should not surface as an
                 // unhandled 500 with a stack trace; log and return a clean error.
                 _logger?.LogError(ex, "Error creating subgraph '{0}'", specification.Name);
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     String.Format("An unexpected error occurred while creating subgraph '{0}'.", specification.Name));
             }
         }
@@ -343,7 +343,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!_fallen8.SubGraphFactory.TryGetSubGraph(out SubGraphResult result, name))
             {
-                return NotFound(String.Format("No subgraph named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No subgraph named '{0}'.", name));
             }
 
             return Ok(SubGraphSummary.FromResult(result, _fallen8.SubGraphFactory.CanRecalculateSubGraph(name)));
@@ -365,7 +365,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!_fallen8.SubGraphFactory.TryGetSubGraph(out SubGraphResult result, name))
             {
-                return NotFound(String.Format("No subgraph named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No subgraph named '{0}'.", name));
             }
 
             // Bounded read (feature api-error-contract E6): clamp maxElements to [0, MaxPageSize] so
@@ -401,19 +401,19 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!_fallen8.SubGraphFactory.TryGetSubGraph(out _, name))
             {
-                return NotFound(String.Format("No subgraph named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No subgraph named '{0}'.", name));
             }
 
             if (!_fallen8.SubGraphFactory.TryRecalculateSubGraph(name))
             {
-                return Conflict(String.Format(
+                return ProblemResults.Conflict(String.Format(
                     "Subgraph '{0}' cannot be recalculated (missing source graph or algorithm plugin).", name));
             }
 
             if (!_fallen8.SubGraphFactory.TryGetSubGraph(out SubGraphResult updated, name))
             {
                 // Removed concurrently between recalculation and re-fetch.
-                return NotFound(String.Format("No subgraph named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No subgraph named '{0}'.", name));
             }
 
             return Ok(SubGraphSummary.FromResult(updated, _fallen8.SubGraphFactory.CanRecalculateSubGraph(name)));
@@ -434,7 +434,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             if (!_fallen8.SubGraphFactory.TryGetSubGraph(out _, name))
             {
-                return NotFound(String.Format("No subgraph named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No subgraph named '{0}'.", name));
             }
 
             var tx = new RemoveSubGraphTransaction { SubGraphName = name };
@@ -450,10 +450,10 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 if (txInfo.FailureReason == TransactionFailureReason.NotFound)
                 {
-                    return NotFound(String.Format("No subgraph named '{0}'.", name));
+                    return ProblemResults.NotFound(String.Format("No subgraph named '{0}'.", name));
                 }
 
-                return StatusCode(StatusCodes.Status500InternalServerError,
+                return ProblemResults.InternalServerError(
                     String.Format("The removal of subgraph '{0}' was rolled back; the operation did not complete.", name));
             }
 
@@ -471,26 +471,26 @@ namespace NoSQL.GraphDB.App.Controllers
             switch (txInfo.FailureReason)
             {
                 case TransactionFailureReason.InvalidInput:
-                    return BadRequest(String.Format(
+                    return ProblemResults.BadRequest(String.Format(
                         "No valid subgraph was produced for '{0}': the pattern or specification was structurally invalid.", name));
 
                 case TransactionFailureReason.NotFound:
-                    return NotFound(String.Format(
+                    return ProblemResults.NotFound(String.Format(
                         "A source graph or subgraph required to create '{0}' does not exist.", name));
 
                 case TransactionFailureReason.QuotaExceeded:
-                    return Conflict(String.Format(
+                    return ProblemResults.Conflict(String.Format(
                         "Creation of subgraph '{0}' was rejected because a resource quota was exceeded.", name));
 
                 case TransactionFailureReason.Conflict:
-                    return Conflict(String.Format("A subgraph named '{0}' already exists.", name));
+                    return ProblemResults.Conflict(String.Format("A subgraph named '{0}' already exists.", name));
 
                 default:
                     if (txInfo.Error != null)
                     {
                         _logger?.LogError(txInfo.Error, "Creation of subgraph '{0}' faulted and was rolled back.", name);
                     }
-                    return StatusCode(StatusCodes.Status500InternalServerError,
+                    return ProblemResults.InternalServerError(
                         String.Format("Creation of subgraph '{0}' failed due to an internal error.", name));
             }
         }

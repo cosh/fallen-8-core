@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -188,8 +189,7 @@ namespace NoSQL.GraphDB.Tests
             };
 
             Assert.IsInstanceOfType(controller.CreateSubGraph(spec1).Result, typeof(CreatedResult));
-            Assert.IsInstanceOfType(controller.CreateSubGraph(spec2).Result, typeof(ConflictObjectResult),
-                "creating beyond the count quota returns 409");
+            ProblemAssert.AssertProblem(controller.CreateSubGraph(spec2).Result, StatusCodes.Status409Conflict);
         }
     }
 }

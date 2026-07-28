@@ -97,9 +97,8 @@ namespace NoSQL.GraphDB.App.Helper
             {
                 // The stored document was serialized by the registration endpoint, so this is an
                 // internal invariant breach, not a client error.
-                return new ObjectResult(String.Format(
-                    "The stored specification of stored query '{0}' could not be read.", name))
-                { StatusCode = StatusCodes.Status500InternalServerError };
+                return ProblemResults.InternalServerError(String.Format(
+                    "The stored specification of stored query '{0}' could not be read.", name));
             }
 
             template = (SubGraphDefinition)entry.Artifact;
@@ -111,12 +110,12 @@ namespace NoSQL.GraphDB.App.Helper
         {
             if (!fallen8.StoredQueries.TryGet(out entry, name))
             {
-                return new NotFoundObjectResult(String.Format("No stored query named '{0}'.", name));
+                return ProblemResults.NotFound(String.Format("No stored query named '{0}'.", name));
             }
 
             if (entry.Definition.Kind != expectedKind)
             {
-                return new BadRequestObjectResult(String.Format(
+                return ProblemResults.BadRequest(String.Format(
                     "Stored query '{0}' is of kind '{1}'; this endpoint requires kind '{2}'.",
                     name, entry.Definition.Kind, expectedKind));
             }
@@ -130,7 +129,7 @@ namespace NoSQL.GraphDB.App.Helper
                     : String.Format(
                         "Stored query '{0}' was loaded without a compiler and is not invocable.", name);
 
-                return new ConflictObjectResult(message);
+                return ProblemResults.Conflict(message);
             }
 
             return null;
