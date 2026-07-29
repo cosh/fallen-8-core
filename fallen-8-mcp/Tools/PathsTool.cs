@@ -70,7 +70,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
             if (tools.EnableCode)
             {
                 schema
-                    .Str("vertexFilter", "Inline C# vertex filter (code capability).")
+                    .Str("vertexFilter", "Inline C# vertex filter (code capability). v.AnyPropertyValueMatches(s => ...) full-text-matches the element's string property values.")
                     .Str("edgeFilter", "Inline C# edge filter (code capability).")
                     .Str("edgePropertyFilter", "Inline C# edge-property filter (code capability).")
                     .Str("vertexCost", "Inline C# vertex cost (code capability; DIJKSTRA).")

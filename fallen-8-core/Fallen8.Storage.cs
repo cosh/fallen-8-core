@@ -485,7 +485,7 @@ namespace NoSQL.GraphDB.Core
                 return; // no-op target (empty slot): nothing set, nothing to undo
             }
 
-            var hadValueBefore = graphElement.TryGetProperty<Object>(out var priorValue, propertyId);
+            var hadValueBefore = graphElement.TryGetPropertyRaw(out var priorValue, propertyId);
 
             //intern the property key (finding M2)
             graphElement.SetProperty(Intern(propertyId), property);
@@ -885,7 +885,7 @@ namespace NoSQL.GraphDB.Core
                 Object effective;
                 if (!pending.TryGetValue(key, out effective))
                 {
-                    hasEffective = graphElement.TryGetProperty<Object>(out effective, aDefinition.PropertyId);
+                    hasEffective = graphElement.TryGetPropertyRaw(out effective, aDefinition.PropertyId);
                 }
                 else
                 {
@@ -910,7 +910,7 @@ namespace NoSQL.GraphDB.Core
                     continue;
                 }
 
-                var hadValueBefore = graphElement.TryGetProperty<Object>(out var priorValue, aDefinition.PropertyId);
+                var hadValueBefore = graphElement.TryGetPropertyRaw(out var priorValue, aDefinition.PropertyId);
                 undo.Add(new Transaction.PropertyMutationUndo(aDefinition.GraphElementId, aDefinition.PropertyId, hadValueBefore, priorValue));
 
                 //intern the property key (finding M2)
@@ -1025,7 +1025,7 @@ namespace NoSQL.GraphDB.Core
                 }
 
                 var propertyId = Intern(AGraphElementModel.GetEmbeddingPropertyId(aDefinition.Name));
-                var hadValueBefore = graphElement.TryGetProperty<Object>(out var priorValue, propertyId);
+                var hadValueBefore = graphElement.TryGetPropertyRaw(out var priorValue, propertyId);
                 undo.Add(new Transaction.PropertyMutationUndo(aDefinition.GraphElementId, propertyId, hadValueBefore, priorValue));
 
                 graphElement.RestoreProperty(propertyId, aDefinition.Vector != null, aDefinition.Vector);
@@ -1036,7 +1036,7 @@ namespace NoSQL.GraphDB.Core
                 // sets nor clears a stamp is a no-op here (no undo entry, no feed event).
                 var stampId = Intern(AGraphElementModel.GetEmbeddingModelStampPropertyId(aDefinition.Name));
                 var stampValue = aDefinition.Vector != null ? aDefinition.ModelStamp : null;
-                var hadStampBefore = graphElement.TryGetProperty<Object>(out var priorStamp, stampId);
+                var hadStampBefore = graphElement.TryGetPropertyRaw(out var priorStamp, stampId);
                 if (stampValue != null || hadStampBefore)
                 {
                     undo.Add(new Transaction.PropertyMutationUndo(aDefinition.GraphElementId, stampId, hadStampBefore, priorStamp));

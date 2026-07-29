@@ -58,6 +58,12 @@ export const SNIPPET_LIBRARY: Snippet[] = [
     code: 'return (v) => v.Label == "person" && v.TryGetProperty(out int age, "age") && age > 30;',
   },
   {
+    title: "Any property value contains",
+    description: "Full-text test across all string property VALUES of the element",
+    kinds: ["VertexFilter", "EdgeFilter", "GraphElementFilter"],
+    code: 'return (v) => v.AnyPropertyValueMatches(s => s.Contains("Tech", StringComparison.OrdinalIgnoreCase));',
+  },
+  {
     title: "Edge property allow-list",
     description: "Traverse only over the named edge properties",
     kinds: ["EdgePropertyFilter"],

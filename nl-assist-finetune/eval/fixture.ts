@@ -63,7 +63,11 @@ let subgraphCounter = 0;
 // --- fixture definition -----------------------------------------------------------------
 // Designed so every evaluable eval-set filter selects a distinctive, mostly-proper subset:
 // persons split by age (>30 vs not) and property count, cities/companies/car for label
-// tests, names starting with A vs not, edges split by label and by weight.
+// tests, names starting with A vs not, edges split by label and by weight. The
+// element-fulltext-match rows split on property VALUES: "Tech" appears in TechNova's name
+// AND Globex's industry (any-value contains), only TechNova pairs it with an industry
+// ending in "Solutions" (the compound row), and "work" appears only inside Bob's role
+// value (value-not-name row).
 const S = "System.String";
 const I = "System.Int32";
 const D = "System.Double";
@@ -75,13 +79,14 @@ const p = (id: string, type: string, value: string): Prop => ({ id, type, value 
 const VERTICES: FVertex[] = [
   { name: "Alice", label: "person", props: [p("name", S, "Alice"), p("age", I, "35"), p("city", S, "NYC"), p("email", S, "a@x")] },
   { name: "Andrew", label: "person", props: [p("name", S, "Andrew"), p("age", I, "28")] },
-  { name: "Bob", label: "person", props: [p("name", S, "Bob"), p("age", I, "42"), p("city", S, "LA")] },
+  { name: "Bob", label: "person", props: [p("name", S, "Bob"), p("age", I, "42"), p("city", S, "LA"), p("role", S, "network engineer")] },
   { name: "Bella", label: "person", props: [p("name", S, "Bella"), p("age", I, "25")] },
   { name: "Carol", label: "person", props: [p("name", S, "Carol"), p("age", I, "60"), p("city", S, "SF"), p("email", S, "c@x"), p("phone", S, "1")] },
   { name: "CityNYC", label: "city", props: [p("name", S, "CityNYC"), p("population", I, "8000000")] },
   { name: "CityLA", label: "city", props: [p("name", S, "CityLA")] },
   { name: "Acme", label: "company", props: [p("name", S, "Acme"), p("revenue", I, "1000000")] },
-  { name: "Globex", label: "company", props: [p("name", S, "Globex")] },
+  { name: "Globex", label: "company", props: [p("name", S, "Globex"), p("industry", S, "Tech Retail")] },
+  { name: "TechNova", label: "company", props: [p("name", S, "TechNova"), p("industry", S, "Cloud Solutions")] },
   { name: "Tesla", label: "car", props: [p("name", S, "Tesla"), p("price", I, "50000")] },
 ];
 // Weights are integer-valued (still stored as double) on purpose: the apiApp coerces a

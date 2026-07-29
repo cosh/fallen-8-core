@@ -106,6 +106,30 @@
       "mustNotMatch": []
     },
     {
+      "id": "vf-compound-strings",
+      "kind": "VertexFilter",
+      "intent": "Company nodes where the name contains 'Tech' and the industry field ends with 'Solutions'",
+      "reference": "return (v) => v.Label == \"company\" && v.TryGetProperty(out string name, \"name\") && name.Contains(\"Tech\") && v.TryGetProperty(out string industry, \"industry\") && industry.EndsWith(\"Solutions\");",
+      "mustMatch": ["\\.Label", "Contains\\(\"Tech\"", "EndsWith\\(\"Solutions\""],
+      "mustNotMatch": ["AnyPropertyValueMatches"]
+    },
+    {
+      "id": "vf-any-prop-contains",
+      "kind": "VertexFilter",
+      "intent": "vertices where any field mentions Tech",
+      "reference": "return (v) => v.AnyPropertyValueMatches(s => s.Contains(\"Tech\"));",
+      "mustMatch": ["AnyPropertyValueMatches", "Contains\\(\"Tech\""],
+      "mustNotMatch": ["TryGetProperty", "GetAllProperties"]
+    },
+    {
+      "id": "vf-value-not-name",
+      "kind": "VertexFilter",
+      "intent": "elements with any property value containing work",
+      "reference": "return (v) => v.AnyPropertyValueMatches(s => s.Contains(\"work\"));",
+      "mustMatch": ["AnyPropertyValueMatches"],
+      "mustNotMatch": ["GetAllProperties"]
+    },
+    {
       "id": "epf-knows",
       "kind": "EdgePropertyFilter",
       "intent": "only knows edges",

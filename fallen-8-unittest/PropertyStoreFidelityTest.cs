@@ -81,10 +81,16 @@ namespace NoSQL.GraphDB.Tests
             string s; Assert.IsTrue(v.TryGetProperty(out s, "s")); Assert.AreEqual("hello", s);
             DateTime got; Assert.IsTrue(v.TryGetProperty(out got, "when")); Assert.AreEqual(when, got);
 
-            // A stored null value is a present property whose value is null.
+            // A stored null value occupies the store (the key shows in GetAllProperties and the
+            // count) but reads as ABSENT through the typed accessor (feature element-fulltext-match):
+            // a null result can never leak out of TryGetProperty into a compiled filter and NRE
+            // mid-traversal. The engine's undo/conflict paths keep null-presence via the internal
+            // raw read (pinned in ElementFulltextMatchTest).
             object nothing;
-            Assert.IsTrue(v.TryGetProperty(out nothing, "nothing"), "A key with a null value is still present.");
+            Assert.IsFalse(v.TryGetProperty(out nothing, "nothing"), "A null-valued key reads as absent.");
             Assert.IsNull(nothing);
+            Assert.IsTrue(v.GetAllProperties().ContainsKey("nothing"), "The key itself is still present.");
+            Assert.IsNull(v.GetAllProperties()["nothing"]);
 
             // The runtime types are preserved exactly (no widening/narrowing).
             object boxed;

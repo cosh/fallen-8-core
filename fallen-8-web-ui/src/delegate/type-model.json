@@ -10,7 +10,8 @@
         { "name": "GetModificationDate", "kind": "method", "signature": "DateTime GetModificationDate()", "doc": "The last-modification timestamp." },
         { "name": "GetPropertyCount", "kind": "method", "signature": "int GetPropertyCount()", "doc": "Number of properties on this element." },
         { "name": "GetAllProperties", "kind": "method", "signature": "ImmutableDictionary<string, object> GetAllProperties()", "doc": "All properties as an immutable dictionary." },
-        { "name": "TryGetProperty", "kind": "method", "signature": "bool TryGetProperty<T>(out T result, string propertyId)", "doc": "The canonical typed property access: returns false when the property is missing or not a T. Example: TryGetProperty(out int age, \"age\") && age > 30" }
+        { "name": "TryGetProperty", "kind": "method", "signature": "bool TryGetProperty<T>(out T result, string propertyId)", "doc": "The canonical typed property access: returns false when the property is missing, not a T, or null - never throws. Example: TryGetProperty(out int age, \"age\") && age > 30" },
+        { "name": "AnyPropertyValueMatches", "kind": "method", "signature": "bool AnyPropertyValueMatches(Func<string, bool> valuePredicate)", "doc": "Whether any string-typed property VALUE satisfies the predicate (property names never reach it; reserved embedding entries are skipped). Example: AnyPropertyValueMatches(s => s.Contains(\"Tech\", StringComparison.OrdinalIgnoreCase))" }
       ]
     },
     "VertexModel": {

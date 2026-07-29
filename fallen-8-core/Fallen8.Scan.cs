@@ -354,8 +354,13 @@ namespace NoSQL.GraphDB.Core
                 aGraphElement =>
                 {
                     Object property;
+                    // The is-pattern (not `as`) keeps non-IComparable stored values (float[],
+                    // byte[], ...) out of the comparators, which dereference their argument -
+                    // the same clean-skip discipline TryGetProperty applies to wrong-typed
+                    // values (feature element-fulltext-match).
                     return aGraphElement.TryGetProperty(out property, propertyId) &&
-                           finder(property as IComparable, literal);
+                           property is IComparable comparable &&
+                           finder(comparable, literal);
                 },
                 // Forward the label filter: this overload previously dropped interestingLabel, so a
                 // GraphScan(..., interestingLabel) silently scanned ALL labels. Forwarding it makes the

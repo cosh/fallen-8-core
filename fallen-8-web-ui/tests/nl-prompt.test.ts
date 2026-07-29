@@ -109,7 +109,7 @@ describe("generation prompt assembly", () => {
   });
 
   it.each(ALL_KINDS)(
-    "forbids nested/inline-invoked lambdas, naming the slot's parameter (%s)",
+    "forbids inline-invoked lambdas but allows predicate arguments, naming the slot's parameter (%s)",
     (kind) => {
       const info = KIND_INFO[kind];
       const { system } = buildGenerationPrompt(kind, "x");
@@ -117,9 +117,26 @@ describe("generation prompt assembly", () => {
       expect(system).toContain(
         `((${info.parameterName}) => ...)(${info.parameterName})`,
       );
+      // The argument-lambda allowance is load-bearing for AnyPropertyValueMatches
+      // (feature element-fulltext-match): its predicate IS a second, non-invoked lambda.
+      // Gated off the string slot, whose member surface has no predicate-taking member.
+      if (info.parameterType === "string") {
+        expect(system).not.toContain("passed as a member ARGUMENT");
+      } else {
+        expect(system).toContain("passed as a member ARGUMENT");
+      }
       expect(system).toMatch(/out variable declared in one && clause/);
     },
   );
+
+  it("lists AnyPropertyValueMatches for element-typed kinds only", () => {
+    for (const kind of ["VertexFilter", "EdgeFilter", "GraphElementFilter"] as const) {
+      expect(buildGenerationPrompt(kind, "x").system).toContain("AnyPropertyValueMatches");
+    }
+    expect(buildGenerationPrompt("EdgePropertyFilter", "x").system).not.toContain(
+      "AnyPropertyValueMatches",
+    );
+  });
 
   it("steers built-in members away from TryGetProperty (nl-assist-ux FR-10)", () => {
     const { system } = buildGenerationPrompt("GraphElementFilter", "x");
@@ -182,7 +199,10 @@ describe("refine prompt", () => {
     const refine = buildRefinePrompt("GraphElementFilter", "return (ge) => true;", []);
     expect(refine).toContain("single (AGraphElementModel ge) => bool lambda");
     expect(refine).toContain('directly on "ge"');
-    expect(refine).toMatch(/no nested or inline-invoked lambdas/);
+    // Inline-invoked lambdas stay forbidden; a predicate ARGUMENT (the
+    // AnyPropertyValueMatches shape, feature element-fulltext-match) is allowed.
+    expect(refine).toMatch(/no inline-invoked lambdas/);
+    expect(refine).toMatch(/predicate passed as a member argument is fine/);
   });
 });
 
