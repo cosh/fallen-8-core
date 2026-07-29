@@ -46,18 +46,20 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
             internal readonly ChangeElementType Element;
             internal readonly Int32 Id;
             internal readonly String Label;
+            internal readonly String EdgePropertyId;
             internal readonly String Key;
             internal readonly Int32 SourceId;
             internal readonly Int32 TargetId;
             internal readonly String ResyncReason;
 
             internal Item(ChangeEventKind kind, ChangeElementType element, Int32 id, String label,
-                String key, Int32 sourceId, Int32 targetId, String resyncReason)
+                String edgePropertyId, String key, Int32 sourceId, Int32 targetId, String resyncReason)
             {
                 Kind = kind;
                 Element = element;
                 Id = id;
                 Label = label;
+                EdgePropertyId = edgePropertyId;
                 Key = key;
                 SourceId = sourceId;
                 TargetId = targetId;
@@ -94,38 +96,38 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
 
             public void VertexCreated(Int32 id, String label)
             {
-                _items.Add(new Item(ChangeEventKind.VertexCreated, ChangeElementType.Vertex, id, label, null, -1, -1, null));
+                _items.Add(new Item(ChangeEventKind.VertexCreated, ChangeElementType.Vertex, id, label, null, null, -1, -1, null));
             }
 
             public void VertexRemoved(Int32 id, String label)
             {
-                _items.Add(new Item(ChangeEventKind.VertexRemoved, ChangeElementType.Vertex, id, label, null, -1, -1, null));
+                _items.Add(new Item(ChangeEventKind.VertexRemoved, ChangeElementType.Vertex, id, label, null, null, -1, -1, null));
             }
 
-            public void EdgeCreated(Int32 id, String label, Int32 sourceId, Int32 targetId)
+            public void EdgeCreated(Int32 id, String label, String edgePropertyId, Int32 sourceId, Int32 targetId)
             {
-                _items.Add(new Item(ChangeEventKind.EdgeCreated, ChangeElementType.Edge, id, label, null, sourceId, targetId, null));
+                _items.Add(new Item(ChangeEventKind.EdgeCreated, ChangeElementType.Edge, id, label, edgePropertyId, null, sourceId, targetId, null));
             }
 
             public void EdgeRemoved(Int32 id, String label)
             {
-                _items.Add(new Item(ChangeEventKind.EdgeRemoved, ChangeElementType.Edge, id, label, null, -1, -1, null));
+                _items.Add(new Item(ChangeEventKind.EdgeRemoved, ChangeElementType.Edge, id, label, null, null, -1, -1, null));
             }
 
             public void PropertySet(ChangeElementType element, Int32 id, String label, String key)
             {
-                _items.Add(new Item(ChangeEventKind.PropertySet, element, id, label, key, -1, -1, null));
+                _items.Add(new Item(ChangeEventKind.PropertySet, element, id, label, null, key, -1, -1, null));
             }
 
             public void PropertyRemoved(ChangeElementType element, Int32 id, String label, String key)
             {
-                _items.Add(new Item(ChangeEventKind.PropertyRemoved, element, id, label, key, -1, -1, null));
+                _items.Add(new Item(ChangeEventKind.PropertyRemoved, element, id, label, null, key, -1, -1, null));
             }
 
             /// <summary>Records a coarse resync (trim / tabulaRasa / load / delegateWrite).</summary>
             public void Resync(String reason)
             {
-                _items.Add(new Item(ChangeEventKind.Resync, ChangeElementType.None, -1, null, null, -1, -1, reason));
+                _items.Add(new Item(ChangeEventKind.Resync, ChangeElementType.None, -1, null, null, null, -1, -1, reason));
             }
 
             /// <summary>The built descriptor, or null when the transaction described no changes.</summary>
@@ -140,7 +142,7 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
         {
             return new ChangeDescriptor(DateTime.UtcNow, new List<Item>
             {
-                new Item(ChangeEventKind.Resync, ChangeElementType.None, -1, null, null, -1, -1, reason)
+                new Item(ChangeEventKind.Resync, ChangeElementType.None, -1, null, null, null, -1, -1, reason)
             });
         }
     }

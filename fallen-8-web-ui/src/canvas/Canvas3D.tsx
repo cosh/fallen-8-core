@@ -26,7 +26,7 @@
 import { useEffect, useRef } from "react";
 import ForceGraph3D, { type ForceGraph3DInstance } from "3d-force-graph";
 import * as THREE from "three";
-import type { CanvasEdge, CanvasNode } from "../state/instanceStore";
+import { edgeDisplayName, type CanvasEdge, type CanvasNode } from "../state/instanceStore";
 import type { StyleConfig } from "./styleConfig";
 import type { ResolvedStyles } from "./styleEngine";
 import { imageUrlFor } from "./imageAssets";
@@ -185,7 +185,7 @@ export function Canvas3D({
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        name: escapeHtml(edge.edgePropertyId ?? edge.label ?? `#${edge.id}`),
+        name: escapeHtml(edgeDisplayName(edge) ?? `#${edge.id}`),
         color: style.color,
         width: style.width,
       });

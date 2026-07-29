@@ -762,6 +762,18 @@ namespace NoSQL.GraphDB.Tests
                 }, "ChangeEventREST"),
                 (new ChangeEventREST
                 {
+                    Seq = 4714,
+                    Ts = new DateTime(2026, 7, 15, 12, 34, 56, 789, DateTimeKind.Utc),
+                    Kind = "edgeCreated",
+                    Element = "edge",
+                    Id = 43,
+                    Label = "friendship",
+                    EdgePropertyId = "knows",
+                    Source = 1,
+                    Target = 2
+                }, "ChangeEventREST (edgeCreated, carries the edge's type)"),
+                (new ChangeEventREST
+                {
                     Seq = 4713,
                     Ts = new DateTime(2026, 7, 15, 12, 34, 56, 789, DateTimeKind.Utc),
                     Kind = "resync",

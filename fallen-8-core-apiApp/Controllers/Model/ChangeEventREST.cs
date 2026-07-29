@@ -87,6 +87,15 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
+        /// <summary>The edge's type - its edgePropertyId (edgeCreated only).</summary>
+        /// <example>knows</example>
+        [JsonPropertyName("edgePropertyId")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String EdgePropertyId
+        {
+            get; set;
+        }
+
         /// <summary>The property key (propertySet/propertyRemoved only).</summary>
         /// <example>name</example>
         [JsonPropertyName("key")]
@@ -151,6 +160,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                     : null,
                 Id = isElementEvent ? changeEvent.Id : (Int32?)null,
                 Label = changeEvent.Label,
+                EdgePropertyId = changeEvent.EdgePropertyId,
                 Key = changeEvent.Key,
                 Source = changeEvent.Kind == ChangeEventKind.EdgeCreated ? changeEvent.SourceId : (Int32?)null,
                 Target = changeEvent.Kind == ChangeEventKind.EdgeCreated ? changeEvent.TargetId : (Int32?)null,

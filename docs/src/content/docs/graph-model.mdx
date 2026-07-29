@@ -18,8 +18,8 @@ delegates in [Delegates](/fallen-8-core/delegates/).
 | Concept | Detail |
 | --- | --- |
 | **Vertex** | A node. Has an id, optional `label`, and properties. |
-| **Edge** | A **directed** relationship from a source vertex to a target vertex. Edges are graph elements too: an edge has its own id, `label`, and properties. |
-| **`edgePropertyId`** | The relationship "slot" an edge occupies on its endpoints (e.g. `knows`, `trusts`). Adjacency is grouped by `edgePropertyId`; traversal reads are keyed by it. It is set at edge-creation time and is distinct from `label`. |
+| **Edge** | A **directed** relationship from a source vertex to a target vertex. Edges are graph elements too: an edge has its own id, `label`, and properties — plus a required `edgePropertyId`, its type. |
+| **`edgePropertyId`** | The edge's **type** (e.g. `knows`, `trusts`). Required, set at creation. See [Edge type vs label](#edge-type-vs-label). |
 | **`label`** | A free-form category string on any element (e.g. `person`, `friendship`). Optional. |
 | **Properties** | A per-element map of `string` key -> typed value. Empty by default; keys are unique per element. |
 
@@ -28,6 +28,25 @@ choose it), `creationDate`, and `modificationDate`. Over REST, create requests t
 `creationDate` as a Unix-seconds `uint` (`0` is fine); reads return both timestamps as ISO-8601.
 Property keys beginning with `$embedding:` / `$embeddingModel:` are reserved for engine-managed
 vector state — see [Semantic traversal](/fallen-8-core/semantic-traversal/).
+
+### Edge type vs label
+
+An edge carries two classifier strings that are easy to conflate. They do different jobs:
+
+- **`edgePropertyId` is the edge's type — structural.** It names the adjacency group the edge
+  occupies on both endpoints: a vertex's outgoing/incoming edges are stored per type, and the
+  whole traversal surface keys on it — `GET /vertex/{id}/edges/out/{edgePropertyId}`, degree
+  routes, the path and subgraph `edgePropertyFilter`, and analytics scoping. It is required at
+  creation and, despite the name, it is **not** one of the edge's key/value properties.
+- **`label` is an optional category tag — decorative.** It is the same field vertices have, and
+  serves scans (`label` restrictor), bulk-export filters, and statistics. On an edge it is an
+  *orthogonal* second grouping, typically a human-facing one — e.g. type `suppliesTrojan`,
+  label `supplies trojan`.
+
+Most graphs set only the type and leave edge labels unset. Don't copy the type into the label —
+add a label only when it says something the type doesn't. Reads return both: every edge read
+(`GET /edge/{id}`, `GET /graph`, path results, change-feed `edgeCreated` events) carries
+`edgePropertyId` alongside `label`.
 
 ### Typed property values
 
@@ -122,14 +141,14 @@ Invoke-RestMethod http://localhost:8080/vertex -Method Put -ContentType 'applica
 </TabItem>
 </Tabs>
 
-An edge is created the same way against `PUT /edge`, with this body shape:
+An edge is created the same way against `PUT /edge`, with this body shape (`label` is optional —
+see [Edge type vs label](#edge-type-vs-label) — so a minimal edge sets only its type):
 
 ```json
 {
   "sourceVertex": 0,
   "targetVertex": 4,
   "edgePropertyId": "trusts",
-  "label": "trusts",
   "creationDate": 0
 }
 ```

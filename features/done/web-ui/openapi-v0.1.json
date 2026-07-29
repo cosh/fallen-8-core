@@ -999,7 +999,7 @@
           "Graph"
         ],
         "summary": "Creates a new edge between two vertices in the graph",
-        "description": "Sample request:\r\n\r\n    PUT /edge\r\n    {\r\n       \"label\": \"knows\",\r\n       \"creationDate\": \"2025-04-22T00:00:00\",\r\n       \"sourceVertex\": 1,\r\n       \"targetVertex\": 2,\r\n       \"edgePropertyId\": \"friendship\",\r\n       \"properties\": {\r\n         \"since\": {\r\n           \"propertyValue\": \"2024-01-01\",\r\n           \"fullQualifiedTypeName\": \"System.DateTime\"\r\n         }\r\n       }\r\n    }",
+        "description": "Sample request (edgePropertyId is the edge's type - the adjacency group traversals\r\nkey on; label is an optional, orthogonal category tag):\r\n\r\n    PUT /edge\r\n    {\r\n       \"sourceVertex\": 1,\r\n       \"targetVertex\": 2,\r\n       \"edgePropertyId\": \"knows\",\r\n       \"label\": \"friendship\",\r\n       \"creationDate\": 0,\r\n       \"properties\": [\r\n         {\r\n           \"propertyId\": \"since\",\r\n           \"propertyValue\": \"2024-01-01\",\r\n           \"fullQualifiedTypeName\": \"System.DateTime\"\r\n         }\r\n       ]\r\n    }",
         "parameters": [
           {
             "name": "waitForCompletion",
@@ -4404,7 +4404,7 @@
           "Graph"
         ],
         "summary": "Creates a new edge between two vertices in the graph",
-        "description": "Sample request:\r\n\r\n    PUT /edge\r\n    {\r\n       \"label\": \"knows\",\r\n       \"creationDate\": \"2025-04-22T00:00:00\",\r\n       \"sourceVertex\": 1,\r\n       \"targetVertex\": 2,\r\n       \"edgePropertyId\": \"friendship\",\r\n       \"properties\": {\r\n         \"since\": {\r\n           \"propertyValue\": \"2024-01-01\",\r\n           \"fullQualifiedTypeName\": \"System.DateTime\"\r\n         }\r\n       }\r\n    }",
+        "description": "Sample request (edgePropertyId is the edge's type - the adjacency group traversals\r\nkey on; label is an optional, orthogonal category tag):\r\n\r\n    PUT /edge\r\n    {\r\n       \"sourceVertex\": 1,\r\n       \"targetVertex\": 2,\r\n       \"edgePropertyId\": \"knows\",\r\n       \"label\": \"friendship\",\r\n       \"creationDate\": 0,\r\n       \"properties\": [\r\n         {\r\n           \"propertyId\": \"since\",\r\n           \"propertyValue\": \"2024-01-01\",\r\n           \"fullQualifiedTypeName\": \"System.DateTime\"\r\n         }\r\n       ]\r\n    }",
         "parameters": [
           {
             "name": "waitForCompletion",
@@ -14531,6 +14531,7 @@
         "required": [
           "targetVertex",
           "sourceVertex",
+          "edgePropertyId",
           "id",
           "creationDate",
           "modificationDate"
@@ -14556,6 +14557,14 @@
             "description": "The identifier of the vertex where this edge starts",
             "format": "int32",
             "example": 1
+          },
+          "edgePropertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The edge's type: the adjacency group this edge occupies on its endpoints, set at\r\ncreation time. Distinct from the optional `label` and not one of the edge's\r\nkey/value properties (see the graph-model docs page).",
+            "example": "knows"
           },
           "id": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -14619,7 +14628,8 @@
             }
           ],
           "sourceVertex": 1,
-          "targetVertex": 2
+          "targetVertex": 2,
+          "edgePropertyId": "knows"
         }
       },
       "EdgeSpecification": {
@@ -14669,7 +14679,7 @@
               "null",
               "string"
             ],
-            "description": "The edge property identifier that defines the relationship type",
+            "description": "The edge's type: the adjacency group the edge occupies on both endpoints. Traversal\r\nreads, path/subgraph edge-property filters, and analytics scoping key on it. Not one\r\nof the edge's key/value properties (see the graph-model docs page).",
             "default": "knows",
             "example": "knows"
           },
@@ -14688,7 +14698,7 @@
               "null",
               "string"
             ],
-            "description": "The label of the edge used for categorization",
+            "description": "Optional category tag, orthogonal to the edge's type (edgePropertyId) - not a second\r\ncopy of it. The same field every vertex has.",
             "default": "friendship",
             "example": "friendship"
           }
@@ -16341,7 +16351,7 @@
               "null",
               "string"
             ],
-            "description": "Filter applied to an edge's property id (a string) before the edge itself is\r\ninspected. Only meaningful for edge patterns.",
+            "description": "Filter applied to an edge's type (its edgePropertyId, a string) before the edge\r\nitself is inspected. Only meaningful for edge patterns.",
             "example": "return (p) =&gt; p == \"knows\";"
           },
           "edgeFilter": {
@@ -16349,8 +16359,8 @@
               "null",
               "string"
             ],
-            "description": "Edge-specific filter. Only meaningful for edge patterns. The lambda receives\r\nan `EdgeModel`.",
-            "example": "return (e) =&gt; e.Label == \"knows\";"
+            "description": "Edge-specific filter. Only meaningful for edge patterns. The lambda receives\r\nan `EdgeModel` (type filtering usually belongs in\r\n`edgePropertyFilter`; the edge's optional label is a separate,\r\northogonal tag).",
+            "example": "return (e) =&gt; e.Label == \"friendship\";"
           },
           "minLength": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -17671,8 +17681,8 @@
               "null",
               "string"
             ],
-            "description": "Optional pre-filter selecting which edges are copied into the subgraph. Null\r\nor empty copies all edges whose endpoints were copied. The lambda receives an\r\n`EdgeModel`.",
-            "example": "return (e) =&gt; e.Label == \"knows\";"
+            "description": "Optional pre-filter selecting which edges are copied into the subgraph. Null\r\nor empty copies all edges whose endpoints were copied. The lambda receives an\r\n`EdgeModel`; filter by type via `e.EdgePropertyId`.",
+            "example": "return (e) =&gt; e.EdgePropertyId == \"knows\";"
           },
           "patterns": {
             "type": [
@@ -17701,7 +17711,7 @@
         "example": {
           "name": "friends-of-alice",
           "vertexFilter": "return (v) =&gt; v.Label == \"person\";",
-          "edgeFilter": "return (e) =&gt; e.Label == \"knows\";",
+          "edgeFilter": "return (e) =&gt; e.EdgePropertyId == \"knows\";",
           "patterns": [
             {
               "type": "Vertex",

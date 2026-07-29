@@ -47,6 +47,7 @@ One JSON object per `data:` line. Fields are **absent** (not null) when they do 
 | `element` | `vertex`/`edge` | element events |
 | `id` | int32 | element events |
 | `label` | string | element events with a label |
+| `edgePropertyId` | string | `edgeCreated` — the edge's type ([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)) |
 | `key` | string | `propertySet` / `propertyRemoved` |
 | `source`, `target` | int32 | `edgeCreated` |
 | `reason` | string | `resync` |

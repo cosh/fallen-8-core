@@ -134,6 +134,19 @@ describe("fetchVertexNeighborhood", () => {
     expect(getGraphElementMock).not.toHaveBeenCalledWith(expect.anything(), 1);
   });
 
+  it("prefers the server-sent edgePropertyId over the adjacency-map attribution", async () => {
+    adjacency({ 1: { out: { knows: [10] } } });
+    edgeStore({ ...edge(10, 1, 2), edgePropertyId: "colleague" });
+    getGraphElementMock.mockImplementation(async (_i, id) => vertex(id));
+
+    const result = await fetchVertexNeighborhood(INSTANCE, 1, {
+      cap: 60,
+      skipNeighborIds: new Set([1]),
+    });
+
+    expect(result.edges[0].edgePropertyId).toBe("colleague");
+  });
+
   it("lists a self-loop once, with the out attribution winning", async () => {
     adjacency({ 1: { out: { self: [10] }, in: { self: [10] } } });
     edgeStore(edge(10, 1, 1));
@@ -258,7 +271,7 @@ describe("fetchEdgeNeighborhood", () => {
 });
 
 describe("buildCanvasModel", () => {
-  it("converts elements, stubs unhydrated endpoints, falls edge labels back to the property id", () => {
+  it("converts elements, stubs unhydrated endpoints, keeps label and edgePropertyId distinct", () => {
     const model = buildCanvasModel(
       [
         {
@@ -271,12 +284,14 @@ describe("buildCanvasModel", () => {
 
     expect(model.nodes[1]).toEqual({ id: 1, label: "person", props: { name: "Ada" } });
     expect(model.nodes[2]).toEqual({ id: 2, label: null });
+    // label stays null (the edge has none) - never a copy of the type; display sites
+    // apply edgeDisplayName (label ?? edgePropertyId) instead.
     expect(model.edges[10]).toMatchObject({
       id: 10,
       source: 1,
       target: 2,
       edgePropertyId: "knows",
-      label: "knows",
+      label: null,
     });
   });
 

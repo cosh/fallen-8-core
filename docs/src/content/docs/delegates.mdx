@@ -39,7 +39,7 @@ Every fragment compiles against one of the delegate types in [`Delegates.cs`](ht
 |---|---|---|---|
 | `VertexFilter` | `VertexModel` | `bool` | path `vertexFilter`; subgraph `vertexFilter` + Vertex pattern |
 | `EdgeFilter` | `EdgeModel` | `bool` | path `edgeFilter`; subgraph `edgeFilter` + Edge pattern |
-| `EdgePropertyFilter` | `string` (edge-property id) | `bool` | path `edgePropertyFilter`; subgraph Edge pattern |
+| `EdgePropertyFilter` | `string` (the edge's type, `edgePropertyId`) | `bool` | path `edgePropertyFilter`; subgraph Edge pattern |
 | `VertexCost` | `VertexModel` | `double` | path `vertexCost` |
 | `EdgeCost` | `EdgeModel` | `double` | path `edgeCost` |
 | `GraphElementFilter` | `AGraphElementModel` | `bool` | `/delegates/validate` only — no live REST slot produces it today |

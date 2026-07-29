@@ -43,7 +43,7 @@ Each slot is a one-statement C# fragment of the form `return (<param>) => <expr>
 |---|---|---|---|
 | `filter.vertexFilter` | `VertexModel` | `bool` | `return (v) => v.Label == "person";` |
 | `filter.edgeFilter` | `EdgeModel` | `bool` | `return (e) => e.Label == "trusts";` |
-| `filter.edgePropertyFilter` | `string` (edge-property id) | `bool` | `return (p) => p == "knows";` |
+| `filter.edgePropertyFilter` | `string` (the edge's type, `edgePropertyId`) | `bool` | `return (p) => p == "knows";` |
 | `cost.vertexCost` | `VertexModel` | `double` | `return (v) => 0.0;` |
 | `cost.edgeCost` | `EdgeModel` | `double` | `return (e) => e.TryGetProperty<double>(out var w, "weight") ? w : 1.0;` |
 
@@ -71,7 +71,7 @@ Costs must be non-negative; a negative step cost is clamped to `0` (logged once 
 |---|---|---|
 | `sourceVertexId` / `targetVertexId` | int | The hop's from / to vertex |
 | `edgeId` | int | The edge traversed on this hop |
-| `edgePropertyId` | string | The edge-property id the edge sits under |
+| `edgePropertyId` | string | The edge's type — the adjacency group it sits under ([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)) |
 | `direction` | int | `0` = traversed against the edge's stored direction, `1` = with it (`2` = undirected; path traversal emits only `0`/`1`) |
 | `weight` | double | This step's cost (`0` for `BLS`) |
 

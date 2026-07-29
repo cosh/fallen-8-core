@@ -74,7 +74,7 @@ namespace NoSQL.GraphDB.Tests
             _ids = await VerticesByName(seed);
 
             await Put(seed, "/edge?waitForCompletion=true",
-                $"{{\"creationDate\":1,\"sourceVertex\":{_ids["Alice"]},\"targetVertex\":{_ids["Bob"]},\"edgePropertyId\":\"knows\",\"label\":\"knows\"}}");
+                $"{{\"creationDate\":1,\"sourceVertex\":{_ids["Alice"]},\"targetVertex\":{_ids["Bob"]},\"edgePropertyId\":\"knows\",\"label\":\"friendship\"}}");
 
             await CreateIndex(seed, "nameIdx", "DictionaryIndex");
             foreach (var name in new[] { "Alice", "Bob", "Carol" })
@@ -139,6 +139,22 @@ namespace NoSQL.GraphDB.Tests
                 Args($"{{\"kind\":\"vertex\",\"id\":{_ids["Alice"]},\"include\":[\"degree\"]}}"), CancellationToken.None);
             var element = Structured(result);
             Assert.IsTrue(element.GetProperty("degree").GetInt32() >= 1, "Alice knows Bob → degree >= 1");
+        }
+
+        [TestMethod]
+        public async Task Get_Edge_ReturnsTypeAndLabel()
+        {
+            // Locate the seeded edge via Alice's adjacency (grouped by the edge's type).
+            var alice = Structured(await Catalog().CallAsync("f8_get",
+                Args($"{{\"kind\":\"vertex\",\"id\":{_ids["Alice"]},\"include\":[\"out_edges\"]}}"), CancellationToken.None));
+            var edgeId = alice.GetProperty("outEdges").GetProperty("knows").EnumerateArray().First().GetInt32();
+
+            var edge = Structured(await Catalog().CallAsync("f8_get",
+                Args($"{{\"kind\":\"edge\",\"id\":{edgeId}}}"), CancellationToken.None));
+
+            // The projection carries both classifiers: the type (edgePropertyId) and the label.
+            Assert.AreEqual("knows", edge.GetProperty("edgePropertyId").GetString());
+            Assert.AreEqual("friendship", edge.GetProperty("label").GetString());
         }
 
         // --- f8_search ----------------------------------------------------------------------

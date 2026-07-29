@@ -161,14 +161,15 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNotNull(sourceVertex, "Source vertex should be found");
             Assert.IsNotNull(targetVertex, "Target vertex should be found");
 
-            // Create an edge specification
+            // Create an edge specification: edgePropertyId is the edge's type, label an
+            // orthogonal category tag.
             var edgeSpec = new EdgeSpecification
             {
-                Label = "knows",
+                Label = "friendship",
                 CreationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds()),
                 SourceVertex = sourceVertex.Id,
                 TargetVertex = targetVertex.Id,
-                EdgePropertyId = "friendship",
+                EdgePropertyId = "knows",
                 Properties = new List<PropertySpecification>
                 {
                     new PropertySpecification {
@@ -199,10 +200,15 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1, result.Count(), "There should be one edge in the graph");
 
             var edge = _controller.GetEdge(result.First());
-            Assert.AreEqual("knows", edge.Label, "Edge should have the correct label");
+            Assert.AreEqual("friendship", edge.Label, "Edge should have the correct label");
+            Assert.AreEqual("knows", edge.EdgePropertyId, "An edge read returns its type (edgePropertyId)");
 
-            // Check outgoing edges on source vertex
-            var outgoingEdges = _controller.GetOutgoingEdges(sourceVertex.Id, "friendship");
+            // GET /graph edges carry the type too (same DTO, different route).
+            var graphEdge = _controller.GetGraph(100).Edges.Single(e => e.Id == edge.Id);
+            Assert.AreEqual("knows", graphEdge.EdgePropertyId, "GET /graph edges carry edgePropertyId");
+
+            // Check outgoing edges on source vertex, keyed by the edge's type
+            var outgoingEdges = _controller.GetOutgoingEdges(sourceVertex.Id, "knows");
             Assert.IsNotNull(outgoingEdges, "Outgoing edges list should not be null");
             Assert.AreEqual(1, outgoingEdges.Count, "There should be one outgoing edge");
 

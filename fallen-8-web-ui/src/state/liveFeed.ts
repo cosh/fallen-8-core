@@ -105,8 +105,9 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
         break;
       case "edgeCreated":
         // A new edge between two vertices that are BOTH on screen belongs on screen;
-        // the event carries only ids/label, so fetch the element and merge (the same
-        // hydration path expand-on-demand uses). Anything else is not visible here.
+        // the event carries no property values, so fetch the element and merge (the same
+        // hydration path expand-on-demand uses; the fetched Edge DTO carries its type,
+        // edgePropertyId). Anything else is not visible here.
         if (
           event.id !== undefined &&
           event.source !== undefined &&
@@ -118,7 +119,7 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
           void getEdge(instance, event.id)
             .then((edge) => {
               if (edge) {
-                store.getState().mergeIntoCanvas([], [{ ...edge, edgePropertyId: null }]);
+                store.getState().mergeIntoCanvas([], [edge]);
               }
             })
             .catch(() => {

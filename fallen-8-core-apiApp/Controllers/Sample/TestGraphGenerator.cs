@@ -68,10 +68,13 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
             String trusts = "trusts";
             String attacks = "attacks";
 
+            // Labels are deliberately mixed: the "trusts" edges carry one (so label-based
+            // edgeFilter examples and tests have something to match), the rest stay null
+            // (labels are optional and independent of the edge's type, its edgePropertyId).
             var edgesTx = new CreateEdgesTransaction();
             edgesTx.AddEdge(alice.Id, communicatesWith, bob.Id, creationDate);
-            edgesTx.AddEdge(alice.Id, trusts, trent.Id, creationDate, label: trusts); // Explicitly set label
-            edgesTx.AddEdge(bob.Id, trusts, trent.Id, creationDate, label: trusts); // Explicitly set label
+            edgesTx.AddEdge(alice.Id, trusts, trent.Id, creationDate, label: trusts);
+            edgesTx.AddEdge(bob.Id, trusts, trent.Id, creationDate, label: trusts);
             edgesTx.AddEdge(eve.Id, attacks, alice.Id, creationDate);
             edgesTx.AddEdge(mallory.Id, attacks, alice.Id, creationDate);
             edgesTx.AddEdge(mallory.Id, attacks, bob.Id, creationDate);

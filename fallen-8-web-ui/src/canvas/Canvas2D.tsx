@@ -36,7 +36,7 @@ import EdgeCurveProgram, {
 import { circlepack, circular, random } from "graphology-layout";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
 import forceAtlas2 from "graphology-layout-forceatlas2";
-import type { CanvasEdge, CanvasNode } from "../state/instanceStore";
+import { edgeDisplayName, type CanvasEdge, type CanvasNode } from "../state/instanceStore";
 import type { StyleConfig } from "./styleConfig";
 import type { ResolvedStyles } from "./styleEngine";
 import { imageUrlFor } from "./imageAssets";
@@ -185,7 +185,7 @@ export function Canvas2D({
       const style = styles.edges[edge.id];
       const attributes = {
         elementId: edge.id,
-        label: showLabels && config.showEdgeLabels ? (edge.edgePropertyId ?? undefined) : undefined,
+        label: showLabels && config.showEdgeLabels ? (edgeDisplayName(edge) ?? undefined) : undefined,
         color: style.color,
         size: style.width,
         zIndex: style.zIndex,

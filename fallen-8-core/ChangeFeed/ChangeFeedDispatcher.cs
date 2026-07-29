@@ -302,7 +302,7 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
                 foreach (var item in descriptor.Items)
                 {
                     var changeEvent = new ChangeEvent(descriptor.Ts, item.Kind, item.Element, item.Id,
-                        item.Label, item.Key, item.SourceId, item.TargetId, item.ResyncReason)
+                        item.Label, item.EdgePropertyId, item.Key, item.SourceId, item.TargetId, item.ResyncReason)
                     {
                         Seq = ++_lastSeq
                     };

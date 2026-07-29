@@ -53,7 +53,7 @@ A freshly exported meta line also carries an informational `"exportedAtUtc"` (IS
 | `label` | vertex, edge | The element label; may be null or omitted |
 | `creationDate` | vertex, edge | The `UInt32` Unix timestamp the model stores; preserved on import (`modificationDate` is not carried) |
 | `properties` | vertex, edge | Object of `key → {type, value}`; omit or leave empty for none |
-| `edgePropertyId` | edge | Required non-empty string; the adjacency-list key |
+| `edgePropertyId` | edge | Required non-empty string; the edge's type — the adjacency-list key ([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)) |
 | `source`, `target` | edge | File `id`s of the endpoint vertices |
 
 ### Typed property values

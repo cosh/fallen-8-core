@@ -50,7 +50,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///     { "propertyId": "strength", "fullQualifiedTypeName": "System.Single", "propertyValue": "0.85" }
     ///   ],
     ///   "sourceVertex": 1,
-    ///   "targetVertex": 2
+    ///   "targetVertex": 2,
+    ///   "edgePropertyId": "knows"
     /// }
     /// </example>
     public class Edge : AGraphElement
@@ -84,6 +85,19 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
+        /// The edge's type: the adjacency group this edge occupies on its endpoints, set at
+        /// creation time. Distinct from the optional <c>label</c> and not one of the edge's
+        /// key/value properties (see the graph-model docs page).
+        /// </summary>
+        /// <example>knows</example>
+        [Required]
+        [JsonPropertyName("edgePropertyId")]
+        public string EdgePropertyId
+        {
+            get; set;
+        }
+
+        /// <summary>
         /// Creates a new Edge instance from an internal EdgeModel
         /// </summary>
         /// <param name="edge">The internal edge model to convert</param>
@@ -91,6 +105,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             TargetVertex = edge.TargetVertex.Id;
             SourceVertex = edge.SourceVertex.Id;
+            EdgePropertyId = edge.EdgePropertyId;
         }
     }
 }

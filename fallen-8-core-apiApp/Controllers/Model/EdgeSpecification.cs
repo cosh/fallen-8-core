@@ -94,7 +94,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        ///   The edge property identifier that defines the relationship type
+        ///   The edge's type: the adjacency group the edge occupies on both endpoints. Traversal
+        ///   reads, path/subgraph edge-property filters, and analytics scoping key on it. Not one
+        ///   of the edge's key/value properties (see the graph-model docs page).
         /// </summary>
         /// <example>knows</example>
         [Required]
@@ -115,7 +117,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        ///   The label of the edge used for categorization
+        ///   Optional category tag, orthogonal to the edge's type (edgePropertyId) - not a second
+        ///   copy of it. The same field every vertex has.
         /// </summary>
         /// <example>friendship</example>
         [DefaultValue("friendship")]
