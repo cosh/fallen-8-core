@@ -55,7 +55,8 @@ The lambda parameter is a live engine model object. Read it through these member
 |---|---|
 | `int Id` | Element id |
 | `string Label` | Element label (may be `null`) |
-| `bool TryGetProperty<T>(out T value, string key)` | Typed property read; `false` if absent |
+| `bool TryGetProperty<T>(out T value, string key)` | Typed property read; `false` if absent, not a `T`, or `null` - never throws |
+| `bool AnyPropertyValueMatches(Func<string,bool> valuePredicate)` | Full-text test across the element's string property **values** (names never reach the predicate; reserved embedding entries are skipped): `v.AnyPropertyValueMatches(s => s.Contains("Tech", StringComparison.OrdinalIgnoreCase))` |
 | `ImmutableDictionary<string,object> GetAllProperties()` | Snapshot of all properties |
 | `int GetPropertyCount()` | Number of properties |
 | `DateTime GetCreationDate()` / `GetModificationDate()` | Timestamps |
@@ -162,7 +163,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/delegates/validate `
 | `CS1002: ; expected` | Missing trailing `;` | End the fragment with `;` |
 | "not all code paths return a value" | Missing `return`, or logic placed outside the lambda | Prefix with `return`; put branching inside a block-body lambda |
 | `CS1061: '…' does not contain '…'` | Using an `EdgeModel` member on a `VertexFilter` (or reading a property as a C# field) | Match the kind's parameter type; read properties via `TryGetProperty<T>` |
-| `InvalidCastException` at query time (not compile time) | `TryGetProperty<T>` with `T` different from the stored value's CLR type | Request the exact stored type (e.g. `out int`, `out double`, `out string`) |
+| A filter silently drops elements it should keep | `TryGetProperty<T>` with `T` different from the stored value's CLR type reads as absent (there is no numeric widening, and no throw) | Request the exact stored type (e.g. `out int`, `out double`, `out string`) |
 
 ## See also
 

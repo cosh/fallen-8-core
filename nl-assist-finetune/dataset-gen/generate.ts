@@ -383,6 +383,7 @@ const doubleProps: { name: string; thresholds: number[] }[] = [
 const stringProps = ["name", "title", "email"];
 const prefixes = ["A", "Be", "San"];
 const suffixes = ["ing", "ed", "Corp"];
+const substrings = ["Tech", "Berlin", "mail"];
 const dbl = (n: number) => (Number.isInteger(n) ? `${n}.0` : `${n}`);
 
 // --- template table (spec Stage-1 a/d/f) ------------------------------------------------
@@ -424,7 +425,26 @@ for (const name of stringProps) {
   for (const suf of suffixes) {
     add(FILTER, `elements whose ${name} ends with ${suf}`, (p) => `${p}.TryGetProperty(out string ${name}, "${name}") && ${name}.EndsWith("${suf}")`, "prop-str-ends");
   }
+  for (const sub of substrings) {
+    add(FILTER, `elements whose ${name} contains ${sub}`, (p) => `${p}.TryGetProperty(out string ${name}, "${name}") && ${name}.Contains("${sub}")`, "prop-str-contains");
+  }
 }
+// Feature element-fulltext-match: the compound target phrasing (label + TWO string
+// predicates) and the any-property VALUE search via AnyPropertyValueMatches. The
+// EdgePropertyFilter rows below match property NAMES - these match property VALUES;
+// the eval set pins that the two phrasings do not cross-contaminate.
+add(FILTER, "company elements whose name contains Tech and whose industry ends with Solutions",
+  (p) => `${p}.Label == "company" && ${p}.TryGetProperty(out string name, "name") && name.Contains("Tech") && ${p}.TryGetProperty(out string industry, "industry") && industry.EndsWith("Solutions")`,
+  "label-and-2str");
+add(FILTER, "person elements whose name starts with A and whose email ends with .com",
+  (p) => `${p}.Label == "person" && ${p}.TryGetProperty(out string name, "name") && name.StartsWith("A") && ${p}.TryGetProperty(out string email, "email") && email.EndsWith(".com")`,
+  "label-and-2str");
+for (const sub of substrings) {
+  add(FILTER, `elements where any field mentions ${sub}`, (p) => `${p}.AnyPropertyValueMatches(s => s.Contains("${sub}"))`, "any-prop-contains");
+}
+add(FILTER, "elements where any property value contains tech ignoring case",
+  (p) => `${p}.AnyPropertyValueMatches(s => s.Contains("tech", StringComparison.OrdinalIgnoreCase))`,
+  "any-prop-contains-ci");
 // Built-in AND user-property in one fragment (source d, the exact field-example confusion)
 for (const l of labels.slice(0, 3)) {
   for (const { name, thresholds } of intProps.slice(0, 2)) {

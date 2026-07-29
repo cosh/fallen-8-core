@@ -193,7 +193,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             // Capture the prior value before removing, so rollback restores it.
             if (_f8.TryGetGraphElement(out var graphElement, graphElementId))
             {
-                var hadValue = graphElement.TryGetProperty<Object>(out var priorValue, propertyId);
+                var hadValue = graphElement.TryGetPropertyRaw(out var priorValue, propertyId);
                 _propertyUndo.Add(new PropertyMutationUndo(graphElementId, propertyId, hadValue, priorValue));
             }
 

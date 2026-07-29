@@ -272,7 +272,8 @@ namespace NoSQL.GraphDB.Core.Model
         }
 
         /// <summary>
-        ///   Tries the get property.
+        ///   Tries the get property. <c>false</c> when the property is missing, its value is not
+        ///   a <typeparamref name="TProperty" />, or its value is <c>null</c>.
         /// </summary>
         /// <typeparam name="TProperty"> Type of the property </typeparam>
         /// <param name="result"> Result. </param>
@@ -286,15 +287,79 @@ namespace NoSQL.GraphDB.Core.Model
             if (store != null)
             {
                 int idx = IndexOfKey(store, propertyId);
-                if (idx >= 0)
+                // The is-pattern makes a stored value of the wrong type (or null) a clean false -
+                // the Try* contract for an expected "invalid" case - where the former cast threw
+                // InvalidCastException out of a compiled filter mid-traversal.
+                if (idx >= 0 && store[idx].Value is TProperty typed)
                 {
-                    result = (TProperty)store[idx].Value;
+                    result = typed;
 
                     return true;
                 }
             }
 
             result = default(TProperty);
+
+            return false;
+        }
+
+        /// <summary>
+        ///   Presence-preserving raw read for the engine's undo/prior-value and conflict checks:
+        ///   unlike <see cref="TryGetProperty{TProperty}" /> (where a stored <c>null</c> reads as
+        ///   absent), a null-VALUED property reports present with a <c>null</c> result - rollback
+        ///   must restore the null, not remove the key, and a conflict check must treat it as a
+        ///   differing current value.
+        /// </summary>
+        /// <param name="result"> The raw stored value (may be <c>null</c>). </param>
+        /// <param name="propertyId"> Property identifier. </param>
+        /// <returns> <c>true</c> if the element carries the property; otherwise, <c>false</c> . </returns>
+        internal Boolean TryGetPropertyRaw(out Object result, String propertyId)
+        {
+            var store = _properties;
+            if (store != null)
+            {
+                int idx = IndexOfKey(store, propertyId);
+                if (idx >= 0)
+                {
+                    result = store[idx].Value;
+
+                    return true;
+                }
+            }
+
+            result = null;
+
+            return false;
+        }
+
+        /// <summary>
+        ///   Whether any property VALUE of this element satisfies the predicate. The predicate
+        ///   receives string-typed property values only - never property names, never non-string
+        ///   values, and never the reserved embedding entries (whose model stamp IS a string and
+        ///   must not false-positive a content search). Match semantics (kind, case, culture) live
+        ///   entirely in the caller's predicate, e.g.
+        ///   <c>ge.AnyPropertyValueMatches(s =&gt; s.Contains("Tech", StringComparison.OrdinalIgnoreCase))</c>.
+        ///   Walks the compact store by reference (no <see cref="GetAllProperties" /> snapshot), so
+        ///   a capture-free predicate evaluates allocation-free per element. A <c>null</c>
+        ///   predicate is <c>false</c>, never a throw.
+        /// </summary>
+        /// <param name="valuePredicate"> Predicate over string-typed property values. </param>
+        /// <returns> <c>true</c> if a matching value exists; otherwise, <c>false</c> . </returns>
+        public Boolean AnyPropertyValueMatches(Func<String, Boolean> valuePredicate)
+        {
+            var store = _properties;
+            if (valuePredicate == null || store == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < store.Length; i++)
+            {
+                if (store[i].Value is String value && !IsReservedPropertyId(store[i].Key) && valuePredicate(value))
+                {
+                    return true;
+                }
+            }
 
             return false;
         }
@@ -364,6 +429,17 @@ namespace NoSQL.GraphDB.Core.Model
         }
 
         /// <summary>
+        ///   Whether the property id is one of the reserved embedding entries
+        ///   (<see cref="EmbeddingPropertyPrefix" /> / <see cref="EmbeddingModelStampPrefix" />) -
+        ///   the entries <see cref="AnyPropertyValueMatches" /> must never surface as content.
+        /// </summary>
+        private static Boolean IsReservedPropertyId(String propertyId)
+        {
+            return propertyId.StartsWith(EmbeddingPropertyPrefix, StringComparison.Ordinal) ||
+                   propertyId.StartsWith(EmbeddingModelStampPrefix, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         ///   When <paramref name="propertyId" /> is a reserved embedding property id, yields the
         ///   embedding name it carries (used by the engine's bound-index projection hooks).
         /// </summary>
@@ -403,7 +479,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// </summary>
         internal Boolean TryGetEmbeddingByPropertyId(out ReadOnlySpan<Single> vector, String embeddingPropertyId)
         {
-            if (TryGetProperty<Object>(out var value, embeddingPropertyId) && value is Single[] array)
+            if (TryGetPropertyRaw(out var value, embeddingPropertyId) && value is Single[] array)
             {
                 vector = array;
                 return true;
@@ -425,7 +501,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// </summary>
         public Boolean TryGetEmbeddingModelStamp(out String stamp, String name = DefaultEmbeddingName)
         {
-            if (TryGetProperty<Object>(out var value, GetEmbeddingModelStampPropertyId(name)) && value is String text)
+            if (TryGetPropertyRaw(out var value, GetEmbeddingModelStampPropertyId(name)) && value is String text)
             {
                 stamp = text;
                 return true;

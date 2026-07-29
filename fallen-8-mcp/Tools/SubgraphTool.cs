@@ -66,7 +66,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
             if (tools.EnableCode)
             {
                 schema
-                    .Str("vertexFilter", "Inline C# vertex filter, e.g. \"return (v) => v.Label == \\\"person\\\";\" (code capability).")
+                    .Str("vertexFilter", "Inline C# vertex filter, e.g. \"return (v) => v.Label == \\\"person\\\";\" (code capability). v.AnyPropertyValueMatches(s => ...) full-text-matches the element's string property values.")
                     .Str("edgeFilter", "Inline C# edge filter (code capability).");
             }
 

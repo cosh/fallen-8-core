@@ -238,7 +238,9 @@ The completion model covers exactly what a fragment can touch
 - **`AGraphElementModel`** (base of both): `Id : int` (field), `Label : string`
   (field), `GetCreationDate() : DateTime`, `GetModificationDate() : DateTime`,
   `GetPropertyCount() : int`, `GetAllProperties() : ImmutableDictionary<string,object>`,
-  `TryGetProperty<T>(out T result, string propertyId) : bool`.
+  `TryGetProperty<T>(out T result, string propertyId) : bool`,
+  `AnyPropertyValueMatches(Func<string,bool> valuePredicate) : bool` (feature
+  element-fulltext-match: string property VALUES only, reserved embedding entries skipped).
 - **`VertexModel`**: `GetInDegree()/GetOutDegree() : uint`,
   `GetAllNeighbors() : List<VertexModel>`,
   `GetIncomingEdgeIds()/GetOutgoingEdgeIds() : List<string>`,

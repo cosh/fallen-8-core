@@ -111,3 +111,44 @@ usings (+ `System.Linq` when the body uses LINQ) via `pluginPrompt.ts:ensureRequ
 that deterministic import-repair cannot (the `out object` / malformed-expression mistakes).
 
 **Closed by:** (open)
+
+## 2026-07-29 - element-fulltext-match (new member + string-predicate scenarios) - PENDING
+
+**Why:** target prompt class (feature `features/open/element-fulltext-match/`): "Filter for
+Company nodes where the name contains 'Tech' and the industry field ends with 'Solutions'",
+and "any field mentions 'Tech'". The feature adds ONE `AGraphElementModel` member the model
+must learn - `AnyPropertyValueMatches(Func<string, bool> valuePredicate)` (match semantics
+stay in the BCL; deliberately no match-kind enum; "Value" is in the name because
+`EdgePropertyFilter` already trains a bare string predicate over property NAMES) - a fragment
+type-surface change (trigger 2).
+The corpus also lacks the scenario classes (trigger 4): string rows cover only
+single-predicate starts-with/ends-with on a value (`prop-str-starts`/`prop-str-ends`),
+"contains" exists only for edge-property NAMES (`epf-contains`), and no row combines a label
+with more than one string predicate.
+
+**Corpus-neutral hardening in the same feature:** `TryGetProperty<T>` returns false on a type
+mismatch instead of throwing, so the existing trained per-field idiom becomes safe as-is - no
+row changes needed for it.
+
+**Tooling wired on the feature branch (not yet a fine-tune RUN - that remains the
+operator's, against a live F8 + GPU):**
+
+- `dataset-gen/generate.ts` FILTER rows: `prop-str-contains` (the existing
+  `TryGetProperty` idiom extended to `Contains`, over a new `substrings` pool),
+  `label-and-2str` (label plus two ANDed string predicates, including the exact target
+  phrasing), `any-prop-contains` (`AnyPropertyValueMatches(s => s.Contains("Tech"))`) and
+  `any-prop-contains-ci` (`StringComparison.OrdinalIgnoreCase`). Rows compile-gate through
+  `/delegates/validate`, so generation must run against an engine WITH this feature.
+- **Prompt contract change (drift hash bumped -> regenerate):** `nl/prompt.ts`'s
+  single-lambda rule forbade any second lambda, which would fight the new member's
+  predicate argument; it now forbids inline-INVOKED lambdas and explicitly allows a
+  lambda passed as a member ARGUMENT (generation and refine prompts). Together with
+  `type-model.json` (member added, `TryGetProperty` doc now "missing, not a T, or null")
+  and `snippets.ts` (new "Any property value contains" snippet), three drift-hash sources
+  changed - the committed `dataset.meta.json` is stale by design; the next run regenerates.
+- `eval/eval-set.json` held-out rows: `vf-compound-strings` (the target phrasing, must NOT
+  draft the any-property member), `vf-any-prop-contains` ("any field mentions Tech"),
+  `vf-value-not-name` (value phrasing must use the member - the existing `epf-*` rows keep
+  pinning the property-NAME side, so the two bare-string-predicate surfaces are held apart).
+
+**Closed by:** -

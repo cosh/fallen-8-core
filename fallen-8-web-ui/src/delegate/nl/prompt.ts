@@ -73,7 +73,10 @@ export function buildGenerationPrompt(
     `Delegate kind: ${kind}. The lambda shape is exactly: ${info.lambdaShape}. Use the parameter name "${info.parameterName}".`,
     // The counter-example is spelled in the slot's own parameter: small models copy
     // negated examples, and a `v` here would re-seed the very mismatch being forbidden.
-    `The fragment is that ONE lambda and nothing else. NEVER define a second lambda inside it and NEVER invoke a lambda inline like ((${info.parameterName}) => ...)(${info.parameterName}) - call members directly on "${info.parameterName}". An out variable declared in one && clause stays usable in the clauses after it.`,
+    // The allowance for ARGUMENT lambdas is load-bearing (feature element-fulltext-match):
+    // AnyPropertyValueMatches takes a predicate, which a blanket no-second-lambda rule
+    // would forbid - the rule targets inline-INVOKED lambdas, not arguments.
+    `The fragment is that ONE top-level lambda and nothing else. NEVER invoke a lambda inline like ((${info.parameterName}) => ...)(${info.parameterName}) - call members directly on "${info.parameterName}". A short lambda passed as a member ARGUMENT (a predicate like s => s.Contains("x")) is allowed. An out variable declared in one && clause stays usable in the clauses after it.`,
     // (c) usings
     `Available usings: ${info.usings.join(", ")}. Nothing else is importable.`,
     // (d) type surface + idiom
@@ -128,7 +131,7 @@ export function buildRefinePrompt(
     "Compiler errors:",
     list,
     // Small models rarely restructure from bare diagnostics; restate the shape rule.
-    `Fix it. The fragment must stay a single ${info.lambdaShape} lambda calling members directly on "${info.parameterName}" - no nested or inline-invoked lambdas. Output ONLY the corrected C# fragment, no prose, no markdown.`,
+    `Fix it. The fragment must stay a single ${info.lambdaShape} lambda calling members directly on "${info.parameterName}" - no inline-invoked lambdas (a predicate passed as a member argument is fine). Output ONLY the corrected C# fragment, no prose, no markdown.`,
   ].join("\n");
 }
 
