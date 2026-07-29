@@ -31,7 +31,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
     ///   One change-feed event as serialized onto the SSE stream (feature change-feed): metadata
-    ///   about one committed mutation. Carries ids, labels and property KEYS only - never property
+    ///   about one committed mutation. Carries ids, labels, the edge type and property KEYS only - never property
     ///   values. Fields are ABSENT (not null) when not applicable to the kind.
     /// </summary>
     public sealed class ChangeEventREST

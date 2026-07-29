@@ -78,7 +78,7 @@ test("capture the relocated, scenario-scoped stored-query panels", async ({ page
     name: "knows-hops",
     kind: "Path",
     description: "traverse only 'knows' edges",
-    path: { filter: { edgeFilter: 'return (e) => e.Label == "knows";' } },
+    path: { filter: { edgePropertyFilter: 'return (p) => p == "knows";' } },
   });
   await seed(page, {
     name: "person-neighborhood",

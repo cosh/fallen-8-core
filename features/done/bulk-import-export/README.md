@@ -10,9 +10,10 @@ Studio's sample graphs (feature sample-graphs) ship in exactly this format.
 # The whole graph:
 curl -sf http://localhost:5000/bulk/export -o graph.jsonl
 
-# A label-filtered subset (edges are endpoint-filtered against the exported vertices,
-# so the file always imports):
-curl -sf "http://localhost:5000/bulk/export?vertexLabel=person&edgeLabel=knows" -o people.jsonl
+# A filtered subset (edges are endpoint-filtered against the exported vertices, so the
+# file always imports). vertexLabel/edgeLabel match labels; edgePropertyId matches the
+# edge's type and ANDs with edgeLabel:
+curl -sf "http://localhost:5000/bulk/export?vertexLabel=person&edgePropertyId=knows" -o people.jsonl
 ```
 
 The stream is: one `meta` line (format version + exact counts), then `vertex` lines, then

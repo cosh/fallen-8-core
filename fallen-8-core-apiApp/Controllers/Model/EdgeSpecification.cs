@@ -94,9 +94,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        ///   The edge's type: the adjacency group the edge occupies on both endpoints. Traversal
-        ///   reads, path/subgraph edge-property filters, and analytics scoping key on it. Not one
-        ///   of the edge's key/value properties (see the graph-model docs page).
+        ///   The edge's type: the adjacency group the edge occupies on both endpoints, which the
+        ///   traversal surface keys on (see the graph-model docs page).
         /// </summary>
         /// <example>knows</example>
         [Required]

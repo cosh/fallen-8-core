@@ -170,7 +170,7 @@ export const FIELD_HELP = {
     "Analytics plugin to run; the description under the picker explains what the selected one computes.",
   analyticsVertexLabel: "Only consider vertices with this label; empty runs on the whole graph.",
   analyticsEdgeProperty:
-    "Only traverse edges in this edge container (e.g. 'knows'); empty traverses all edges.",
+    "Only traverse edges of this type (their edge property id), e.g. 'knows'; empty traverses all edges.",
   analyticsDirection:
     "Edge direction the algorithm follows: in, out, or both. Empty keeps the algorithm's default.",
   analyticsMaxResults:

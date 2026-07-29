@@ -29,7 +29,7 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
 {
     /// <summary>
     ///   One change-feed event: metadata about one committed mutation (feature change-feed).
-    ///   Carries ids, labels and property KEYS only - never property values (payload size and
+    ///   Carries ids, labels, the edge type and property KEYS only - never property values (payload size and
     ///   security posture; the consumer re-fetches the element when it needs the value).
     ///   Immutable after construction; the dispatcher assigns <see cref="Seq"/> exactly once.
     /// </summary>

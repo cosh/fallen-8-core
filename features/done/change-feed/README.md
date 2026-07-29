@@ -57,8 +57,8 @@ const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
 ## Event schema
 
 One JSON object per `data:` line; fields are ABSENT when not applicable. Payloads carry ids,
-labels and property **keys** only — never property values (re-fetch the element when you
-need the value).
+labels, the edge type, and property **keys** only — never property values (re-fetch the
+element when you need the value).
 
 ```jsonc
 {
@@ -69,6 +69,7 @@ need the value).
   "element": "vertex",              // element events only
   "id": 42,                         // element events only
   "label": "person",                // omitted when unlabeled
+  "edgePropertyId": "knows",        // edgeCreated only: the edge's type (feature edge-type-vs-label)
   "key": "name",                    // property events only
   "source": 7, "target": 9,        // edgeCreated only
   "reason": "trim"                  // resync only: trim | tabulaRasa | load | delegateWrite

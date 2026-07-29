@@ -178,6 +178,12 @@ export function CanvasScreen() {
                 <div className="text-fg font-semibold">
                   {selected.kind} #{selected.id}
                 </div>
+                {selected.kind === "edge" && "edgePropertyId" in detail.data && (
+                  <div className="flex gap-1">
+                    <span className="text-fg-faint shrink-0">type </span>
+                    <Truncated text={detail.data.edgePropertyId ?? "—"} className="min-w-0" />
+                  </div>
+                )}
                 <div className="flex gap-1">
                   <span className="text-fg-faint shrink-0">label </span>
                   <Truncated text={detail.data.label ?? "—"} className="min-w-0" />

@@ -137,9 +137,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     {
         /// <summary>
         ///   Optional pre-filter selecting which vertices are copied into the subgraph
-        ///   (a C# fragment receiving an <c>AGraphElementModel</c>).
+        ///   (a C# fragment receiving a <c>VertexModel</c>).
         /// </summary>
-        /// <example>return (ge) =&gt; ge.Label == "person";</example>
+        /// <example>return (v) =&gt; v.Label == "person";</example>
         [JsonPropertyName("vertexFilter")]
         public String VertexFilter
         {
@@ -148,9 +148,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         /// <summary>
         ///   Optional pre-filter selecting which edges are copied into the subgraph
-        ///   (a C# fragment receiving an <c>AGraphElementModel</c>).
+        ///   (a C# fragment receiving an <c>EdgeModel</c>; filter by type via
+        ///   <c>e.EdgePropertyId</c>).
         /// </summary>
-        /// <example>return (ge) =&gt; ge.Label == "knows";</example>
+        /// <example>return (e) =&gt; e.EdgePropertyId == "knows";</example>
         [JsonPropertyName("edgeFilter")]
         public String EdgeFilter
         {

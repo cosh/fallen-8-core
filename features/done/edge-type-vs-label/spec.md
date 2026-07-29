@@ -60,7 +60,9 @@ descriptions, feature docs) states its one line and points there. The wire name
   through next to `label`.
 - Studio: `EdgeREST` gains the field (the `CanvasEdgeInput` bolt-on type collapses into it);
   `neighborhood.ts` prefers the server-sent value over its adjacency-map reconstruction;
-  `liveFeed.ts` types live-created edges from the SSE event.
+  `liveFeed.ts` merges the fetched Edge DTO whole, so live-created edges arrive typed (the
+  SSE event carries `edgePropertyId` for other consumers; Studio still hydrates via
+  `GET /edge/{id}` because it needs label and properties anyway).
 
 ### B. Contract examples stop contradicting and conflating
 
@@ -139,7 +141,8 @@ without edge labels (all bundled samples except cyber-warfare) rendering is pixe
 
 - REST: `GET /edge/{id}` and `GET /graph` return `edgePropertyId`; the value round-trips
   from `PUT /edge`.
-- Change feed: `edgeCreated` events carry `EdgePropertyId` (engine) and `edgePropertyId`
-  (SSE REST mapping); other kinds omit it.
+- Change feed: `edgeCreated` events carry `EdgePropertyId` and other kinds omit it (engine
+  tests incl. ring replay); the wire shape is pinned by serializer parity and an SSE
+  endpoint assertion.
 - MCP: `get_element` projection surfaces `edgePropertyId` for edges.
 - Existing suites (path, subgraph, bulk, statistics) pin that nothing else moved.

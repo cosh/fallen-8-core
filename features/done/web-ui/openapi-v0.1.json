@@ -14695,7 +14695,7 @@
               "null",
               "string"
             ],
-            "description": "The edge's type: the adjacency group the edge occupies on both endpoints. Traversal\r\nreads, path/subgraph edge-property filters, and analytics scoping key on it. Not one\r\nof the edge's key/value properties (see the graph-model docs page).",
+            "description": "The edge's type: the adjacency group the edge occupies on both endpoints, which the\r\ntraversal surface keys on (see the graph-model docs page).",
             "default": "knows",
             "example": "knows"
           },
@@ -15600,7 +15600,7 @@
               "null",
               "string"
             ],
-            "description": "Optional label filter to restrict the scan to specific element types",
+            "description": "Optional restrictor: only elements with exactly this label match",
             "example": "person"
           },
           "resultType": {
@@ -17019,7 +17019,7 @@
               "null",
               "string"
             ],
-            "description": "Optional label filter to restrict the scan to specific element types",
+            "description": "Optional restrictor: only elements with exactly this label match",
             "example": "person"
           },
           "resultType": {
@@ -17545,16 +17545,16 @@
               "null",
               "string"
             ],
-            "description": "Optional pre-filter selecting which vertices are copied into the subgraph\r\n(a C# fragment receiving an `AGraphElementModel`).",
-            "example": "return (ge) =&gt; ge.Label == \"person\";"
+            "description": "Optional pre-filter selecting which vertices are copied into the subgraph\r\n(a C# fragment receiving a `VertexModel`).",
+            "example": "return (v) =&gt; v.Label == \"person\";"
           },
           "edgeFilter": {
             "type": [
               "null",
               "string"
             ],
-            "description": "Optional pre-filter selecting which edges are copied into the subgraph\r\n(a C# fragment receiving an `AGraphElementModel`).",
-            "example": "return (ge) =&gt; ge.Label == \"knows\";"
+            "description": "Optional pre-filter selecting which edges are copied into the subgraph\r\n(a C# fragment receiving an `EdgeModel`; filter by type via\r\n`e.EdgePropertyId`).",
+            "example": "return (e) =&gt; e.EdgePropertyId == \"knows\";"
           },
           "patterns": {
             "type": [

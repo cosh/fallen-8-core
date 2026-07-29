@@ -32,7 +32,7 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
     ///   The compact record of ONE committed transaction's changes, captured on the single writer
     ///   thread immediately after a successful <c>TryExecute</c> and BEFORE
     ///   <c>ReleaseAfterCompletion</c> drops the input payload (feature change-feed). It holds
-    ///   only primitives - ids, labels, property keys, edge endpoints - plus one commit
+    ///   only primitives - ids, labels, edge types and endpoints, property keys - plus one commit
     ///   timestamp: no property values and no model or definition references, so capturing never
     ///   re-introduces the retention the release exists to fix (M3). The dispatcher expands it
     ///   into per-element <see cref="ChangeEvent"/>s off the writer thread.
