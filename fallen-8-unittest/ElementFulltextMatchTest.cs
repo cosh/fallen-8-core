@@ -44,7 +44,7 @@ using NoSQL.GraphDB.Core.Transaction;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Pins the element-fulltext-match contract (features/open/element-fulltext-match/):
+    /// Pins the element-fulltext-match contract (features/done/element-fulltext-match/):
     /// <see cref="AGraphElementModel.AnyPropertyValueMatches"/> (string property VALUES only,
     /// reserved embedding entries skipped), the safe <see cref="AGraphElementModel.TryGetProperty{T}"/>
     /// (type mismatch and stored null read as absent instead of throwing/leaking null), and the

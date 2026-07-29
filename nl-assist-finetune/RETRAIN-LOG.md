@@ -114,7 +114,7 @@ that deterministic import-repair cannot (the `out object` / malformed-expression
 
 ## 2026-07-29 - element-fulltext-match (new member + string-predicate scenarios) - PENDING
 
-**Why:** target prompt class (feature `features/open/element-fulltext-match/`): "Filter for
+**Why:** target prompt class (feature `features/done/element-fulltext-match/`): "Filter for
 Company nodes where the name contains 'Tech' and the industry field ends with 'Solutions'",
 and "any field mentions 'Tech'". The feature adds ONE `AGraphElementModel` member the model
 must learn - `AnyPropertyValueMatches(Func<string, bool> valuePredicate)` (match semantics
