@@ -177,7 +177,10 @@ folds them in. Expect one up-vote to be dropped by the compile gate (a VertexFil
 - **Edge-type selection is the headline: EdgeFilter went 0/5, and every down involves the
   edge-type restriction.** Intents naming an edge type ("TRANSACTED_WITH edges", "'friend'
   EdgePropertyId") get drafts that hallucinate `e.EdgeType` or a `"type"` property, or
-  silently drop the restriction. `type-model.json` exposes `EdgeModel.EdgePropertyId`, but
+  silently drop the restriction. Field-observed but NOT in this judged batch (operator
+  report, 2026-07-29): drafts also invent a property literally named "EDGETYPE" - same
+  family, third shape; the held-out eval rows below should include a phrasing that tempts
+  it. `type-model.json` exposes `EdgeModel.EdgePropertyId`, but
   `dataset-gen/generate.ts` has ZERO rows using it - the only typed edge selection trained
   is `edge-label` via `.Label`, and `epf-*` rows match bare names. This is the model-side
   counterpart of the edge-type-vs-label untangling (merged 2026-07-29, commit 1cb53d2).
