@@ -154,7 +154,7 @@ The editor's side panel drafts a fragment from a natural-language description, c
 
 Instance mode is the default because Fallen-8 is now the semantic gateway (embeddings and chat both proxy through the instance). **This retires the earlier "never through the Fallen-8 instance" rule for the default path** — the prompt travels to the same instance you already trust with your graph, so instance mode shows no egress notice; the surviving guarantee is that a **custom** endpoint and its key stay browser-direct and never reach F8. A non-loopback custom endpoint still shows the "text leaves this machine" notice.
 
-Each draft is inserted as ordinary editable text and run through the same validation the editor uses, never auto-submitted; on an invalid draft the editor feeds the compiler diagnostics back to the model and retries a bounded number of times before stopping. Drafts can be rated 👍/👎 and exported as training examples. A model that is not present on the backend makes the call 404 ([troubleshooting.md](/fallen-8-core/troubleshooting/)). The plugin authoring editor's NL panel works the same way.
+Each draft is inserted as ordinary editable text and run through the same validation the editor uses, never auto-submitted; on an invalid draft the editor feeds the compiler diagnostics back to the model and retries a bounded number of times before stopping. Drafts accumulate in a scrollable list with the **newest on top**; each is highlighted as awaiting review until you judge it 👍/👎, and the rated ones can be exported as training examples. A model that is not present on the backend makes the call 404 ([troubleshooting.md](/fallen-8-core/troubleshooting/)). The plugin authoring editor's NL panel works the same way.
 
 ## Server capabilities Studio uses
 

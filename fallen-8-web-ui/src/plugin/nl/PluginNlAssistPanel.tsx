@@ -38,6 +38,7 @@ import {
 } from "../../delegate/nl/config";
 import { NlBackendConfig } from "../../delegate/nl/NlBackendConfig";
 import { downloadText, toTrainingJsonl, type Verdict } from "../../delegate/nl/feedback";
+import { NlDraftList, type NlDraftView } from "../../delegate/nl/NlDraftList";
 import {
   generateChat,
   initialMessages,
@@ -249,7 +250,7 @@ export function PluginNlAssistPanel({
               aria-label="describe the plugin"
               title={help("pluginParameters")}
               data-testid="plugin-nl-intent"
-              className="input h-16 resize-none"
+              className="input h-32 resize-none"
               value={intent}
               onChange={(e) => setIntent(e.target.value)}
               placeholder={
@@ -285,51 +286,21 @@ export function PluginNlAssistPanel({
               )}
             </div>
             {attempts.length > 0 && (
-              <ol className="space-y-1" data-testid="plugin-nl-attempts">
-                {attempts.map((attempt, index) => (
-                  <li key={index}>
-                    <div className="flex items-center gap-1">
-                      <span
-                        className={
-                          attempt.valid ? "text-accent" : attempt.valid === false ? "text-danger" : "text-fg-faint"
-                        }
-                      >
-                        {attempt.valid ? "✓" : attempt.valid === false ? "✗" : "?"}
-                      </span>
-                      <button
-                        type="button"
-                        className={`cursor-pointer truncate hover:underline ${
-                          attempt.source === currentSource ? "text-fg font-semibold" : "text-accent-2"
-                        }`}
-                        title="load this draft into the editor"
-                        onClick={() => onDraft(attempt.source)}
-                      >
-                        draft {index + 1}
-                        {attempt.source === currentSource && " (in editor)"}
-                        {attempt.valid === false && " (invalid)"}
-                      </button>
-                      <span className="ml-auto flex shrink-0 gap-1" data-testid={`plugin-nl-verdict-${index}`}>
-                        <button
-                          type="button"
-                          title="good draft — mark to save as a training example"
-                          className={`cursor-pointer ${attempt.verdict === "up" ? "text-accent" : "text-fg-faint hover:text-fg"}`}
-                          onClick={() => rateAttempt(index, "up")}
-                        >
-                          👍
-                        </button>
-                        <button
-                          type="button"
-                          title="bad draft — mark to save as a training example"
-                          className={`cursor-pointer ${attempt.verdict === "down" ? "text-danger" : "text-fg-faint hover:text-fg"}`}
-                          onClick={() => rateAttempt(index, "down")}
-                        >
-                          👎
-                        </button>
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+              <NlDraftList
+                testid="plugin-nl-attempts"
+                verdictTestidPrefix="plugin-nl-verdict"
+                drafts={attempts.map(
+                  (attempt): NlDraftView => ({
+                    valid: attempt.valid,
+                    verdict: attempt.verdict,
+                    active: attempt.source === currentSource,
+                    loadTitle: "load this draft into the editor",
+                    labelSuffix: attempt.valid === false ? " (invalid)" : undefined,
+                  }),
+                )}
+                onLoad={(index) => onDraft(attempts[index].source)}
+                onRate={rateAttempt}
+              />
             )}
             {ratedAttempts.length > 0 && (
               <button
