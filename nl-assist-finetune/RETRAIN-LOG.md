@@ -135,20 +135,27 @@ operator's, against a live F8 + GPU):**
 
 - `dataset-gen/generate.ts` FILTER rows: `prop-str-contains` (the existing
   `TryGetProperty` idiom extended to `Contains`, over a new `substrings` pool),
-  `label-and-2str` (label plus two ANDed string predicates, including the exact target
-  phrasing), `any-prop-contains` (`AnyPropertyValueMatches(s => s.Contains("Tech"))`) and
-  `any-prop-contains-ci` (`StringComparison.OrdinalIgnoreCase`). Rows compile-gate through
-  `/delegates/validate`, so generation must run against an engine WITH this feature.
+  `label-and-2str` (label plus two ANDed string predicates - the target phrasing CLASS),
+  `any-prop-contains` (`AnyPropertyValueMatches(s => s.Contains("Data"))`) and
+  `any-prop-contains-ci` (`StringComparison.OrdinalIgnoreCase`). The training constants
+  (Data/Systems/Berlin/mail) are deliberately DISJOINT from the eval constants
+  (Tech/Solutions/work) so the measurement cannot pass by constant recall. Rows
+  compile-gate through `/delegates/validate`, so generation must run against an engine
+  WITH this feature.
 - **Prompt contract change (drift hash bumped -> regenerate):** `nl/prompt.ts`'s
   single-lambda rule forbade any second lambda, which would fight the new member's
-  predicate argument; it now forbids inline-INVOKED lambdas and explicitly allows a
-  lambda passed as a member ARGUMENT (generation and refine prompts). Together with
-  `type-model.json` (member added, `TryGetProperty` doc now "missing, not a T, or null")
-  and `snippets.ts` (new "Any property value contains" snippet), three drift-hash sources
-  changed - the committed `dataset.meta.json` is stale by design; the next run regenerates.
-- `eval/eval-set.json` held-out rows: `vf-compound-strings` (the target phrasing, must NOT
-  draft the any-property member), `vf-any-prop-contains` ("any field mentions Tech"),
+  predicate argument; it now forbids inline-INVOKED lambdas and allows a lambda passed as
+  a member ARGUMENT - gated off the string slot, whose surface has no predicate-taking
+  member (generation and refine prompts). Together with `type-model.json` (member added,
+  `TryGetProperty` doc now "missing, not a T, or null") and `snippets.ts` (new "Any
+  property value contains" snippet), three drift-hash sources changed - any previously
+  generated `dataset/dataset.meta.json` (never committed, spec FT-5) is stale by design;
+  the next run regenerates.
+- `eval/eval-set.json` held-out rows: `vf-compound-strings` (the exact user phrasing, must
+  NOT draft the any-property member), `vf-any-prop-contains` ("any field mentions Tech"),
   `vf-value-not-name` (value phrasing must use the member - the existing `epf-*` rows keep
-  pinning the property-NAME side, so the two bare-string-predicate surfaces are held apart).
+  pinning the property-NAME side, so the two bare-string-predicate surfaces are held
+  apart). `eval/fixture.ts` gains TechNova/Globex industry values and Bob's role so each
+  new row selects a distinctive non-empty subset (the FT-8 semantic gate is not vacuous).
 
-**Closed by:** -
+**Closed by:** (open)

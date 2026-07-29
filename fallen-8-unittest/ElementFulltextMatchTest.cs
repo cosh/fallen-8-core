@@ -137,6 +137,15 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(v.AnyPropertyValueMatches(s => s.Contains("nomic")));
             Assert.IsTrue(v.AnyPropertyValueMatches(s => s.Contains("hello")),
                 "User property values still match.");
+
+            // An element whose ONLY properties are reserved entries matches nothing at all.
+            var reservedOnly = Vertex(new Dictionary<string, object>
+            {
+                { AGraphElementModel.EmbeddingPropertyPrefix + "default", new float[] { 0.1f } },
+                { AGraphElementModel.EmbeddingModelStampPrefix + "default", "nomic-embed-text" },
+            });
+            Assert.IsFalse(reservedOnly.AnyPropertyValueMatches(s => true),
+                "Reserved-only elements must not match even the always-true predicate.");
         }
 
         [TestMethod]
@@ -149,6 +158,41 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(v.AnyPropertyValueMatches(null), "A null predicate is false, never a throw.");
             Assert.IsTrue(v.AnyPropertyValueMatches(s => s != null),
                 "A stored null value never reaches the predicate (it is not a string).");
+
+            // An empty-string VALUE is a string and does reach the predicate.
+            var empty = Vertex(new Dictionary<string, object> { { "note", "" } });
+            Assert.IsTrue(empty.AnyPropertyValueMatches(s => s.Length == 0),
+                "Empty-string values participate.");
+
+            // The member adds no throw of its own; a throwing USER predicate propagates.
+            Assert.ThrowsException<InvalidOperationException>(
+                () => v.AnyPropertyValueMatches(s => throw new InvalidOperationException("user predicate")));
+        }
+
+        [TestMethod]
+        public void AnyPropertyValueMatches_ToleratesANullPropertyKey()
+        {
+            // A null KEY is storable through the engine-library write path (REST validates it
+            // away); it is not reserved, so its string value participates - and the reserved-key
+            // check must not NRE on it.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var seed = new CreateVerticesTransaction();
+            seed.AddVertex(1u, "person", new Dictionary<string, object> { { "name", "Ada" } });
+            fallen8.EnqueueTransaction(seed).WaitUntilFinished();
+            int id = seed.GetCreatedVertices()[0].Id;
+
+            var tx = new DelegateTransaction(ctx => ctx.SetProperty(id, null, "orphan"), "null-key");
+            var info = fallen8.EnqueueTransaction(tx);
+            info.WaitUntilFinished();
+            Assert.AreEqual(TransactionState.Finished, info.TransactionState,
+                "Null-key set must commit. " + info.Error);
+
+            VertexModel v;
+            Assert.IsTrue(fallen8.TryGetVertex(out v, id));
+            Assert.IsTrue(v.AnyPropertyValueMatches(s => s == "orphan"),
+                "A null-keyed string value participates without throwing.");
+
+            fallen8.Dispose();
         }
 
         [TestMethod]
@@ -248,6 +292,11 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(TransactionState.RolledBack, info.TransactionState,
                 "Setting a different value over a null-valued key is a conflict.");
+            // The reason matters: a typed (null-blind) read in the batch VALIDATION would let the
+            // write through to SetProperty's throw instead - still rolled back, but as
+            // InternalError (500) rather than the contractual Conflict (409).
+            Assert.AreEqual(TransactionFailureReason.Conflict, info.FailureReason,
+                "The rollback must come from conflict validation, not a downstream throw.");
             VertexModel v;
             Assert.IsTrue(fallen8.TryGetVertex(out v, id));
             Assert.IsTrue(v.GetAllProperties().ContainsKey("k"));
@@ -271,8 +320,27 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(fallen8.GraphScan(out result, "p", "x", BinaryOperator.Equals));
             Assert.AreEqual(1, result.Count, "Only the non-null value participates in the comparison.");
 
-            Assert.IsFalse(fallen8.GraphScan(out result, "p", "y", BinaryOperator.NotEquals) && result.Count > 1,
-                "A null-valued property does not participate in NotEquals either.");
+            Assert.IsTrue(fallen8.GraphScan(out result, "p", "y", BinaryOperator.NotEquals),
+                "The non-null value still NotEquals 'y'.");
+            Assert.AreEqual(1, result.Count, "A null-valued property does not participate in NotEquals either.");
+
+            fallen8.Dispose();
+        }
+
+        [TestMethod]
+        public void GraphScan_SkipsNonComparableValues_InsteadOfThrowing()
+        {
+            // Same crash class, other type: `as IComparable` mapped a float[]/byte[] value to
+            // null and the comparator dereferenced it. The is-pattern skips it cleanly.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var seed = new CreateVerticesTransaction();
+            seed.AddVertex(1u, "person", new Dictionary<string, object> { { "data", new float[] { 1f, 2f } } });
+            seed.AddVertex(1u, "person", new Dictionary<string, object> { { "data", 5 } });
+            fallen8.EnqueueTransaction(seed).WaitUntilFinished();
+
+            List<AGraphElementModel> result;
+            Assert.IsTrue(fallen8.GraphScan(out result, "data", 5, BinaryOperator.Equals));
+            Assert.AreEqual(1, result.Count, "Only the comparable value participates.");
 
             fallen8.Dispose();
         }
@@ -338,6 +406,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 ("VertexFilter", "return (v) => v.AnyPropertyValueMatches(s => s.Contains(\\\"Tech\\\", StringComparison.OrdinalIgnoreCase));"),
                 ("EdgeFilter", "return (e) => e.AnyPropertyValueMatches(s => s.EndsWith(\\\"Corp\\\"));"),
+                ("GraphElementFilter", "return (ge) => ge.AnyPropertyValueMatches(s => s.StartsWith(\\\"Te\\\"));"),
             })
             {
                 using var response = await client.PostAsync("/delegates/validate",

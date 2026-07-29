@@ -278,7 +278,7 @@ namespace NoSQL.GraphDB.Core.Model
         /// <typeparam name="TProperty"> Type of the property </typeparam>
         /// <param name="result"> Result. </param>
         /// <param name="propertyId"> Property identifier. </param>
-        /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
+        /// <returns> <c>true</c> if a value of type <typeparamref name="TProperty" /> was read; otherwise, <c>false</c> . </returns>
         public Boolean TryGetProperty<TProperty>(out TProperty result, String propertyId)
         {
             // Capture the store once: a concurrent single-writer mutation republishes a new array
@@ -288,8 +288,7 @@ namespace NoSQL.GraphDB.Core.Model
             {
                 int idx = IndexOfKey(store, propertyId);
                 // The is-pattern makes a stored value of the wrong type (or null) a clean false -
-                // the Try* contract for an expected "invalid" case - where the former cast threw
-                // InvalidCastException out of a compiled filter mid-traversal.
+                // the Try* contract for an expected "invalid" case, never a throw mid-filter.
                 if (idx >= 0 && store[idx].Value is TProperty typed)
                 {
                     result = typed;
@@ -341,7 +340,8 @@ namespace NoSQL.GraphDB.Core.Model
         ///   <c>ge.AnyPropertyValueMatches(s =&gt; s.Contains("Tech", StringComparison.OrdinalIgnoreCase))</c>.
         ///   Walks the compact store by reference (no <see cref="GetAllProperties" /> snapshot), so
         ///   a capture-free predicate evaluates allocation-free per element. A <c>null</c>
-        ///   predicate is <c>false</c>, never a throw.
+        ///   predicate is <c>false</c>; a throwing user predicate propagates (the member adds no
+        ///   throw of its own).
         /// </summary>
         /// <param name="valuePredicate"> Predicate over string-typed property values. </param>
         /// <returns> <c>true</c> if a matching value exists; otherwise, <c>false</c> . </returns>
@@ -435,8 +435,11 @@ namespace NoSQL.GraphDB.Core.Model
         /// </summary>
         private static Boolean IsReservedPropertyId(String propertyId)
         {
-            return propertyId.StartsWith(EmbeddingPropertyPrefix, StringComparison.Ordinal) ||
-                   propertyId.StartsWith(EmbeddingModelStampPrefix, StringComparison.Ordinal);
+            // A null KEY is storable through the engine-library write path (Intern(null) is
+            // null and SetProperty does not reject it); it is simply not reserved.
+            return propertyId != null &&
+                   (propertyId.StartsWith(EmbeddingPropertyPrefix, StringComparison.Ordinal) ||
+                    propertyId.StartsWith(EmbeddingModelStampPrefix, StringComparison.Ordinal));
         }
 
         /// <summary>

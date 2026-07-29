@@ -75,8 +75,10 @@ export function buildGenerationPrompt(
     // negated examples, and a `v` here would re-seed the very mismatch being forbidden.
     // The allowance for ARGUMENT lambdas is load-bearing (feature element-fulltext-match):
     // AnyPropertyValueMatches takes a predicate, which a blanket no-second-lambda rule
-    // would forbid - the rule targets inline-INVOKED lambdas, not arguments.
-    `The fragment is that ONE top-level lambda and nothing else. NEVER invoke a lambda inline like ((${info.parameterName}) => ...)(${info.parameterName}) - call members directly on "${info.parameterName}". A short lambda passed as a member ARGUMENT (a predicate like s => s.Contains("x")) is allowed. An out variable declared in one && clause stays usable in the clauses after it.`,
+    // would forbid - the rule targets inline-INVOKED lambdas, not arguments. Gated off the
+    // string slot (like the TryGetProperty idiom below): no string member takes a predicate,
+    // so advertising one there only invites drafts like p.Any(s => ...).
+    `The fragment is that ONE top-level lambda and nothing else. NEVER invoke a lambda inline like ((${info.parameterName}) => ...)(${info.parameterName}) - call members directly on "${info.parameterName}".${info.parameterType !== "string" ? ' A short lambda passed as a member ARGUMENT (a predicate like s => s.Contains("x")) is allowed.' : ""} An out variable declared in one && clause stays usable in the clauses after it.`,
     // (c) usings
     `Available usings: ${info.usings.join(", ")}. Nothing else is importable.`,
     // (d) type surface + idiom
@@ -131,7 +133,7 @@ export function buildRefinePrompt(
     "Compiler errors:",
     list,
     // Small models rarely restructure from bare diagnostics; restate the shape rule.
-    `Fix it. The fragment must stay a single ${info.lambdaShape} lambda calling members directly on "${info.parameterName}" - no inline-invoked lambdas (a predicate passed as a member argument is fine). Output ONLY the corrected C# fragment, no prose, no markdown.`,
+    `Fix it. The fragment must stay a single ${info.lambdaShape} lambda calling members directly on "${info.parameterName}" - no inline-invoked lambdas${info.parameterType !== "string" ? " (a predicate passed as a member argument is fine)" : ""}. Output ONLY the corrected C# fragment, no prose, no markdown.`,
   ].join("\n");
 }
 

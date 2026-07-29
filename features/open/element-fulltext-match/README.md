@@ -26,3 +26,9 @@ scenario classes, prompt rule allowing predicate-argument lambdas) is logged as 
 2026-07-29 PENDING entry in [`nl-assist-finetune/RETRAIN-LOG.md`](../../../nl-assist-finetune/RETRAIN-LOG.md);
 dataset/eval tooling is wired, the fine-tune run drains it. Tests:
 `fallen-8-unittest/ElementFulltextMatchTest.cs`.
+
+Conscious test deferral: of the six `TryGetPropertyRaw` call sites, the single-set undo,
+remove undo, and batch conflict check carry per-site mutation pins; the batch apply-phase
+undo and the two embedding prior-value captures are correct by the same mechanism but
+reachable only through residual post-validation throws, so pinning them would need fault
+injection - deferred until one of those paths changes shape.

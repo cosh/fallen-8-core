@@ -64,7 +64,7 @@ names.
 The target prompt class becomes:
 
 ```csharp
-return (v) => v.Label == "Company"
+return (v) => v.Label == "company"
            && v.TryGetProperty(out string name, "name") && name.Contains("Tech")
            && v.TryGetProperty(out string ind, "industry") && ind.EndsWith("Solutions");
 
@@ -81,7 +81,8 @@ Semantics:
   single-writer / lock-free-reader snapshot discipline as `TryGetProperty`. A
   capture-free predicate lambda is cached by the compiler, so the common fragment shape
   allocates nothing per element.
-- A null predicate is `false`, never a throw (nothing throws mid-filter).
+- A null predicate is `false`; a throwing user predicate propagates (the member adds no
+  throw of its own).
 - **No codegen change**: the fragment compilation context already has `using System;`
   (for `StringComparison`) and `using System.Linq;`.
 

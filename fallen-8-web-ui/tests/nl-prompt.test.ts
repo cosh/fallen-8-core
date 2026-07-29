@@ -119,7 +119,12 @@ describe("generation prompt assembly", () => {
       );
       // The argument-lambda allowance is load-bearing for AnyPropertyValueMatches
       // (feature element-fulltext-match): its predicate IS a second, non-invoked lambda.
-      expect(system).toContain("passed as a member ARGUMENT");
+      // Gated off the string slot, whose member surface has no predicate-taking member.
+      if (info.parameterType === "string") {
+        expect(system).not.toContain("passed as a member ARGUMENT");
+      } else {
+        expect(system).toContain("passed as a member ARGUMENT");
+      }
       expect(system).toMatch(/out variable declared in one && clause/);
     },
   );
