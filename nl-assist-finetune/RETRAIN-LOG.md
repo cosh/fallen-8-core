@@ -159,3 +159,52 @@ operator's, against a live F8 + GPU):**
   new row selects a distinctive non-empty subset (the FT-8 semantic gate is not vacuous).
 
 **Closed by:** (open)
+
+## 2026-07-29 - captured-feedback batch 1 + edge-type selection gap - PENDING
+
+**What happened:** first field judging session in Studio produced five capture files (one
+per delegate kind), 37 verdicts: 15 up / 22 down. Staged in `feedback/inbox/` (gitignored
+drop zone; originals in `C:\Users\HenningRauch\OneDrive\share\f8\finetuning`).
+
+**Action 1 - mechanical drain (any time, needs a live apiApp):** run
+`npx tsx nl-assist-finetune/feedback/consolidate.ts` - it keeps the up-voted rows,
+re-validates them, and appends survivors to `dataset/captured.jsonl`; `./run.sh train`
+folds them in. Expect one up-vote to be dropped by the compile gate (a VertexFilter using
+`out double verifiedEmail` as a bool) - that is the pipeline working as designed.
+
+**Action 2 - the down-votes are dataset/eval work (fix before the next generate run):**
+
+- **Edge-type selection is the headline: EdgeFilter went 0/5, and every down involves the
+  edge-type restriction.** Intents naming an edge type ("TRANSACTED_WITH edges", "'friend'
+  EdgePropertyId") get drafts that hallucinate `e.EdgeType` or a `"type"` property, or
+  silently drop the restriction. `type-model.json` exposes `EdgeModel.EdgePropertyId`, but
+  `dataset-gen/generate.ts` has ZERO rows using it - the only typed edge selection trained
+  is `edge-label` via `.Label`, and `epf-*` rows match bare names. This is the model-side
+  counterpart of the edge-type-vs-label untangling (merged 2026-07-29, commit 1cb53d2).
+  Add FILTER rows `edge-type-eq` (`e.EdgePropertyId == "..."`) and `edge-type-and-prop`
+  (type restriction plus a property predicate - the exact failed phrasing class), and an
+  EdgeCost `ec-type-switch` row (`e.EdgePropertyId switch { ... }`, displacing the
+  hallucinated `TryGetProperty(...) switch`-on-a-bool shape). Held-out eval: add
+  `ef-edge-type` and `ec-edge-type-switch`; keep `ef-label-knows` pinning the `.Label`
+  side so type and label stay held apart (same pattern as `epf-*` vs value above).
+- **Cost-side missing-property fallback:** "use X, defaulting to D" on VertexCost drafted
+  malformed shapes (`TryGetProperty(out double x)` with no property name, a ternary inside
+  the argument list). `ec-weight-default` trains this for EdgeCost only; add the
+  VertexCost mirror (`vc-prop-default`).
+- **Operator precedence:** `a || b && c` unparenthesized (VertexFilter or/and mix) and
+  `1.0 + cond ? x : y` (EdgeCost; the parenthesized retry got an up-vote). Add a
+  parenthesized or/and FILTER row and an additive-plus-ternary cost row.
+- **Refine drops stated conditions:** two refine retries silently dropped the
+  registration-date clause and were down-voted. Candidate prompt-side rule in
+  `buildRefinePrompt` ("never drop a clause the intent states" - drift-hash source, so
+  regenerate if edited) plus refine-shaped dataset rows.
+
+**Also observed (not a retrain item):** several identical captures ~450 ms apart (two
+VertexFilter drafts and one EdgeCost draft each judged down 3x) look like the judging
+button firing repeatedly rather than three deliberate verdicts - worth a look at the
+Studio capture path; dedupe makes it harmless for training. Hallucinated vertex members
+(`GetCategory()`, `IsInStock()`) are the known invent-a-member mode the compile gate
+already catches. The Tech/Solutions compound-string down is the target phrasing of the
+element-fulltext-match entry above - covered there, not re-litigated.
+
+**Closed by:** (open)
