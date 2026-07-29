@@ -34,6 +34,7 @@ import {
 } from "./config";
 import { NlBackendConfig } from "./NlBackendConfig";
 import { downloadText, toTrainingJsonl, type TrainingExample, type Verdict } from "./feedback";
+import { NlDraftList, type NlDraftView } from "./NlDraftList";
 import { formatFragment } from "./format";
 import { buildGenerationPrompt, buildRefinePrompt, extractFragment } from "./prompt";
 import {
@@ -251,7 +252,7 @@ export function NlAssistPanel({
               aria-label="describe the filter"
               title={help("nlIntent")}
               data-testid="nl-intent"
-              className="input h-16 resize-none"
+              className="input h-32 resize-none"
               value={intent}
               onChange={(e) => setIntent(e.target.value)}
               placeholder='e.g. "only persons older than 30"'
@@ -287,70 +288,35 @@ export function NlAssistPanel({
               )}
             </div>
             {attempts.length > 0 && (
-              <ol className="space-y-1" data-testid="nl-attempts">
-                {attempts.map((attempt, index) => (
-                  <li key={index}>
-                    <div className="flex items-center gap-1">
-                      <span
-                        className={
-                          attempt.valid
-                            ? "text-accent"
-                            : attempt.valid === false
-                              ? "text-danger"
-                              : "text-fg-faint"
-                        }
-                      >
-                        {attempt.valid ? "✓" : attempt.valid === false ? "✗" : "?"}
+              <NlDraftList
+                testid="nl-attempts"
+                verdictTestidPrefix="nl-verdict"
+                drafts={attempts.map(
+                  (attempt): NlDraftView => ({
+                    valid: attempt.valid,
+                    verdict: attempt.verdict,
+                    active: attempt.fragment === currentFragment,
+                    loadTitle: attempt.fragment,
+                    labelSuffix:
+                      attempt.valid === false ? ` (${attempt.errorCount} error(s))` : undefined,
+                    trailing: attempt.stats ? (
+                      <span className="text-fg-faint shrink-0 text-[10px]">
+                        {statsLine(attempt.stats)}
                       </span>
-                      <button
-                        type="button"
-                        className={`cursor-pointer truncate hover:underline ${
-                          attempt.fragment === currentFragment
-                            ? "text-fg font-semibold"
-                            : "text-accent-2"
-                        }`}
-                        title={attempt.fragment}
-                        onClick={() => onDraft(attempt.fragment)}
-                      >
-                        draft {index + 1}
-                        {attempt.fragment === currentFragment && " (in editor)"}
-                        {attempt.valid === false && ` (${attempt.errorCount} error(s))`}
-                      </button>
-                      <span className="ml-auto flex shrink-0 gap-1" data-testid={`nl-verdict-${index}`}>
-                        <button
-                          type="button"
-                          title="good draft — mark to save as a training example"
-                          className={`cursor-pointer ${attempt.verdict === "up" ? "text-accent" : "text-fg-faint hover:text-fg"}`}
-                          onClick={() => rateAttempt(index, "up")}
-                        >
-                          👍
-                        </button>
-                        <button
-                          type="button"
-                          title="bad draft — mark to save as a training example"
-                          className={`cursor-pointer ${attempt.verdict === "down" ? "text-danger" : "text-fg-faint hover:text-fg"}`}
-                          onClick={() => rateAttempt(index, "down")}
-                        >
-                          👎
-                        </button>
-                      </span>
-                      {attempt.stats && (
-                        <span className="text-fg-faint shrink-0 text-[10px]">
-                          {statsLine(attempt.stats)}
-                        </span>
-                      )}
-                    </div>
-                    {attempt.stats && (
+                    ) : undefined,
+                    below: attempt.stats ? (
                       <details className="text-fg-faint pl-4 text-[10px]">
                         <summary className="cursor-pointer">raw stats</summary>
                         <pre className="overflow-x-auto whitespace-pre-wrap">
                           {JSON.stringify(attempt.stats.raw, null, 1)}
                         </pre>
                       </details>
-                    )}
-                  </li>
-                ))}
-              </ol>
+                    ) : undefined,
+                  }),
+                )}
+                onLoad={(index) => onDraft(attempts[index].fragment)}
+                onRate={rateAttempt}
+              />
             )}
             {ratedAttempts.length > 0 && (
               <button

@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { DelegateValidationResult } from "../src/api/types";
 import type { InstanceConfig } from "../src/instances/types";
@@ -470,5 +470,47 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     });
     renderEditor();
     expect(screen.queryByTestId("nl-leave-notice")).not.toBeInTheDocument();
+  });
+
+  it("shows the newest draft on top and flags unrated drafts until judged (nl-assist-draft-review-ux)", async () => {
+    const user = userEvent.setup();
+    validateMock.mockResolvedValue(VALID);
+    chatMock
+      .mockResolvedValueOnce(draft("return (v) => v.Id < 30;"))
+      .mockResolvedValueOnce(draft('return (v) => v.Label == "person";'));
+
+    renderEditor();
+    await user.type(screen.getByTestId("nl-intent"), "two drafts");
+    await user.click(screen.getByTestId("nl-generate"));
+    await waitFor(() =>
+      expect(screen.getByTestId("nl-attempts").querySelectorAll("li")).toHaveLength(1),
+    );
+    await user.click(screen.getByTestId("nl-generate"));
+    await waitFor(() =>
+      expect(screen.getByTestId("nl-attempts").querySelectorAll("li")).toHaveLength(2),
+    );
+
+    // Newest first: draft 2 (the one now in the editor) leads, draft 1 follows.
+    let items = within(screen.getByTestId("nl-attempts")).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("draft 2");
+    expect(items[1]).toHaveTextContent("draft 1");
+
+    // Neither is judged yet, so both are flagged prominent.
+    expect(items[0]).toHaveAttribute("data-unjudged", "true");
+    expect(items[1]).toHaveAttribute("data-unjudged", "true");
+
+    // Rating the top draft (draft 2 = original index 1) clears only its highlight.
+    await user.click(
+      within(screen.getByTestId("nl-verdict-1")).getByRole("button", { name: "👍" }),
+    );
+    items = within(screen.getByTestId("nl-attempts")).getAllByRole("listitem");
+    expect(items[0]).not.toHaveAttribute("data-unjudged");
+    expect(items[1]).toHaveAttribute("data-unjudged", "true");
+  });
+
+  it("gives the intent description box the doubled height (nl-assist-draft-review-ux)", () => {
+    renderEditor();
+    // 100% bigger than the former h-16: the box is now h-32.
+    expect(screen.getByTestId("nl-intent").className).toContain("h-32");
   });
 });
