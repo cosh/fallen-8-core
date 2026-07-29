@@ -111,6 +111,9 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        },
         ///        "resultType": "Vertices"
         ///     }
+        ///
+        /// The optional "label" field restricts the hits to elements whose label matches exactly
+        /// (e.g. "person"); omit it to return every match.
         /// </remarks>
         /// <response code="200">Returns the matching element IDs</response>
         /// <response code="400">Invalid scan specification or index not found</response>
@@ -132,9 +135,22 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             IReadOnlyList<AGraphElementModel> graphElements;
-            return _fallen8.IndexScan(out graphElements, definition.IndexId, value, definition.Operator)
-                       ? new ActionResult<IEnumerable<int>>(CreateResult(graphElements, definition.ResultType))
-                       : new ActionResult<IEnumerable<int>>(Enumerable.Empty<Int32>());
+            if (!_fallen8.IndexScan(out graphElements, definition.IndexId, value, definition.Operator))
+            {
+                return new ActionResult<IEnumerable<int>>(Enumerable.Empty<Int32>());
+            }
+
+            // Honor the label restrictor the spec inherits from ScanSpecification - previously
+            // accepted but silently ignored (feature edge-type-vs-label). Same exact-match
+            // semantics as GraphScan's engine-side filter.
+            if (definition.Label != null)
+            {
+                graphElements = graphElements
+                    .Where(ge => ge.Label != null && ge.Label.Equals(definition.Label))
+                    .ToList();
+            }
+
+            return new ActionResult<IEnumerable<int>>(CreateResult(graphElements, definition.ResultType));
         }
 
         /// <summary>

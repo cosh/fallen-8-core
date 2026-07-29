@@ -201,6 +201,8 @@ export const FIELD_HELP = {
     "Server-side path of the save game to load — resolved on the machine the instance runs on, not in this browser.",
   exportVertexLabel: "Only export vertices with this label (their edges follow); empty exports all.",
   exportEdgeLabel: "Only export edges with this label; empty exports all.",
+  exportEdgeType:
+    "Only export edges of this type (their edge property id), e.g. 'knows'; combines with the edge label filter. Empty exports all.",
 
   // ---- app shell / canvas / save games ----
   instanceSwitcher:

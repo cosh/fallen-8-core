@@ -165,6 +165,7 @@ indexed lookups use [Indexes](/fallen-8-core/indexes/). Request body:
 | --- | --- |
 | `operator` | The comparison, as an integer: `0` Equals, `1` Greater, `2` GreaterOrEquals, `3` Lower, `4` LowerOrEquals, `5` NotEquals. |
 | `literal` | `{ "value": "<string>", "fullQualifiedTypeName": "<type>" }` — the value to compare against, typed as above. |
+| `label` | Optional exact-match label restrictor on the hits; omit to scan every label. |
 | `resultType` | `"Vertices"`, `"Edges"`, or `"Both"`. |
 
 The response is a `200` with a JSON array of matching ids (empty when nothing matches); a missing

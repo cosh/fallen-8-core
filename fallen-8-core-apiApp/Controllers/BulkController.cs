@@ -84,10 +84,11 @@ namespace NoSQL.GraphDB.App.Controllers
         #region export
 
         /// <summary>
-        /// Streams the graph (or a label-filtered subset) as newline-delimited JSON.
+        /// Streams the graph (or a filtered subset) as newline-delimited JSON.
         /// </summary>
         /// <param name="vertexLabel">Optional: export only vertices with exactly this label</param>
         /// <param name="edgeLabel">Optional: export only edges with exactly this label</param>
+        /// <param name="edgePropertyId">Optional: export only edges of exactly this type (their edgePropertyId); combines with edgeLabel as AND</param>
         /// <remarks>
         /// The stream is fallen8-jsonl version 2: one meta line (format version + exact counts),
         /// then vertex lines, then edge lines. Edges whose endpoints are not both in the exported
@@ -98,7 +99,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// CONSISTENCY (honest): this is data interchange, not a crash-consistent backup. Reads
         /// are lock-free; a write committed during the export may or may not appear. The
         /// guarantee is internal consistency plus "everything committed before the export began
-        /// is present" (subject to the label filters). For a point-in-time backup, quiesce writes
+        /// is present" (subject to the filters). For a point-in-time backup, quiesce writes
         /// or use the save-game machinery. The same contract covers a property that an
         /// embedded/plugin writer adds DURING the stream: if it is not exportable it is omitted
         /// from its element rather than aborting the response (the REST write path cannot create
@@ -114,12 +115,29 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
-        public async Task<IActionResult> Export([FromQuery] String vertexLabel = null, [FromQuery] String edgeLabel = null)
+        public async Task<IActionResult> Export([FromQuery] String vertexLabel = null, [FromQuery] String edgeLabel = null,
+            [FromQuery] String edgePropertyId = null)
         {
             // Two back-to-back point-in-time projections of the lock-free snapshot; the engine's
             // own read surface, not a JSON string.
             var vertices = _fallen8.GetAllVertices(vertexLabel);
-            var edges = _fallen8.GetAllEdges(edgeLabel);
+            IReadOnlyList<EdgeModel> edges = _fallen8.GetAllEdges(edgeLabel);
+
+            if (edgePropertyId != null)
+            {
+                // Scope by the edge's type - its adjacency-group key - with the same exact-match
+                // semantics as the label filters; composes with edgeLabel as AND (feature
+                // edge-type-vs-label).
+                var ofType = new List<EdgeModel>(edges.Count);
+                foreach (var edge in edges)
+                {
+                    if (edge.EdgePropertyId != null && edge.EdgePropertyId.Equals(edgePropertyId))
+                    {
+                        ofType.Add(edge);
+                    }
+                }
+                edges = ofType;
+            }
 
             var vertexIds = new HashSet<Int32>(vertices.Count);
             foreach (var vertex in vertices)

@@ -83,7 +83,19 @@ descriptions, feature docs) states its one line and points there. The wire name
   explains the deliberate mix: `trusts` edges carry a label so label-based filter examples
   have something to match; the rest leave it null because labels are optional.
 
-### D. Studio renders one rule
+### D. Scoping surfaces stop being asymmetric (follow-up in the same feature)
+
+- `GET /bulk/export` gains an `edgePropertyId` query parameter: an exact-match edge-type
+  filter with the same semantics as the label filters, ANDed with `edgeLabel`. Applied in the
+  controller over the same lock-free snapshot (no engine read-surface change). Studio's
+  export form gains the matching "edge type" field.
+- MCP `f8_search` gains a `label` restrictor, honoured by the index/property/vector/semantic
+  modes (fulltext has no REST label restrictor, so it is documented as ignored - like `kind`).
+- Fixing that surfaced a REST bug: `POST /scan/index/all` inherits the scan body's `label`
+  field but silently dropped it; the controller now honours it with GraphScan's exact-match
+  semantics.
+
+### E. Studio renders one rule
 
 `CanvasEdge.label` becomes truthful (no fallback); every display site uses **`label ??
 edgePropertyId`** (human-readable tag when present, the always-present type otherwise) -

@@ -36,7 +36,16 @@ same branch. Spec: [spec.md](spec.md).
    distinct label/type (cyber-warfare), recapture per the documented flow; otherwise none
    change (label-less samples render identically).
 
-## Phase 5 - docs + snapshot
+## Phase 5 - scoping follow-ups (spec D)
+
+1. `GET /bulk/export`: `edgePropertyId` query param (controller-side exact-match filter,
+   ANDs with `edgeLabel`); Studio export form field + `exportBulk` client; docs; test
+   covering the single filter, the AND composition, and the import round-trip.
+2. MCP `f8_search`: `label` param wired to the index/property scan DTOs and the
+   vector/semantic requests; end-to-end tests through the apiApp.
+3. REST fix: `POST /scan/index/all` honours the previously ignored `label` field.
+
+## Phase 6 - docs + snapshot
 
 1. `graph-model.mdx`: "Edge type vs label" subsection (the one home); fix the edge example.
 2. `subgraphs.mdx`, `change-feed.mdx`, and any page showing an edge response body.

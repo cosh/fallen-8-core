@@ -345,14 +345,19 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
         return new Response("", { status: 200 });
       }),
     );
-    await endpoints.exportBulk(instance, { vertexLabel: "person", edgeLabel: "knows" });
+    await endpoints.exportBulk(instance, {
+      vertexLabel: "person",
+      edgeLabel: "friendship",
+      edgePropertyId: "knows",
+    });
     await endpoints.exportBulk(instance);
     await endpoints.importBulk(instance, new Blob(['{"type":"meta"}\n']));
 
     const exportUrl = new URL(calls[0].url);
     expect(exportUrl.pathname).toBe("/bulk/export");
     expect(exportUrl.searchParams.get("vertexLabel")).toBe("person");
-    expect(exportUrl.searchParams.get("edgeLabel")).toBe("knows");
+    expect(exportUrl.searchParams.get("edgeLabel")).toBe("friendship");
+    expect(exportUrl.searchParams.get("edgePropertyId")).toBe("knows");
     // Unfiltered export sends NO filter params (server treats absent ≠ empty string).
     expect(new URL(calls[1].url).search).toBe("");
     expect(calls[2].init?.method).toBe("POST");

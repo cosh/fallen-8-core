@@ -184,6 +184,36 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Search_PropertyMode_LabelRestrictor_PassesThrough()
+        {
+            var matching = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"property\",\"key\":\"age\",\"operator\":\"greater\",\"value\":0,\"label\":\"person\"}"),
+                CancellationToken.None));
+            var ids = matching.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetInt32()).ToHashSet();
+            Assert.IsTrue(ids.Contains(_ids["Alice"]), "person-labeled vertices pass the label restrictor");
+
+            var none = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"property\",\"key\":\"age\",\"operator\":\"greater\",\"value\":0,\"label\":\"no-such-label\"}"),
+                CancellationToken.None));
+            Assert.AreEqual(0, none.GetProperty("count").GetInt32(), "an unmatched label filters every hit out");
+        }
+
+        [TestMethod]
+        public async Task Search_IndexMode_LabelRestrictor_FiltersHits()
+        {
+            // Pins the REST fix too: /scan/index/all used to accept "label" and silently ignore it.
+            var matching = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"index\",\"indexId\":\"nameIdx\",\"value\":\"Bob\",\"label\":\"person\"}"),
+                CancellationToken.None));
+            Assert.AreEqual(1, matching.GetProperty("count").GetInt32(), "the person-labeled hit survives");
+
+            var none = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"index\",\"indexId\":\"nameIdx\",\"value\":\"Bob\",\"label\":\"no-such-label\"}"),
+                CancellationToken.None));
+            Assert.AreEqual(0, none.GetProperty("count").GetInt32(), "an unmatched label filters the indexed hit out");
+        }
+
+        [TestMethod]
         public async Task Search_IndexMode_WithFields_EnrichesHits()
         {
             var result = await Catalog().CallAsync("f8_search",

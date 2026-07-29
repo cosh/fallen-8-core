@@ -14,7 +14,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 | `GET` | `/bulk/export` | response `application/x-ndjson` | Stream the graph as JSONL |
 | `POST` | `/bulk/import` | request `application/x-ndjson` | Load a JSONL file into an empty graph |
 
-`GET /bulk/export` takes optional `vertexLabel` and `edgeLabel` query parameters — exact-match label filters passed straight to the engine's scans. Both endpoints are per-namespace like every data route: a bare URL addresses `default`, `/ns/{name}/bulk/…` addresses a named graph ([namespaces](/fallen-8-core/namespaces/)). Both sit behind the standard API-key fallback policy ([security](/fallen-8-core/security/)).
+`GET /bulk/export` takes optional query parameters, all exact-match: `vertexLabel` and `edgeLabel` filter by label, `edgePropertyId` filters edges by their type (it combines with `edgeLabel` as AND — [edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)). Both endpoints are per-namespace like every data route: a bare URL addresses `default`, `/ns/{name}/bulk/…` addresses a named graph ([namespaces](/fallen-8-core/namespaces/)). Both sit behind the standard API-key fallback policy ([security](/fallen-8-core/security/)).
 
 | Endpoint | Status | Meaning |
 |---|---|---|
@@ -107,7 +107,7 @@ Export a graph to a file, then load it into a fresh, empty instance.
 <TabItem label="Bash">
 
 ```bash
-# Export the whole graph. Add ?vertexLabel=member&edgeLabel=interactsWith for a subset.
+# Export the whole graph. Add ?vertexLabel=member&edgePropertyId=interactsWith for a subset.
 curl -sf http://localhost:8080/bulk/export -o graph.jsonl
 
 # Import into an empty target.
