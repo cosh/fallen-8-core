@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import type { CanvasEdge, CanvasNode } from "../state/instanceStore";
+import { edgeDisplayName, type CanvasEdge, type CanvasNode } from "../state/instanceStore";
 import type { ColorMode, StyleConfig } from "./styleConfig";
 import { colorForLabel, colorForValue, gradientColor, UNLABELED_COLOR } from "./styling";
 
@@ -264,7 +264,8 @@ export function resolveStyles(
     const inPath = overlay.edgeIds.has(edge.id);
     const dimmed = overlay.active && overlay.dim && !inPath;
     const width = edgeWidth(edgeWidthSource(edge));
-    const labelFallback = edge.label ? colorForLabel(edge.label) : UNLABELED_EDGE_COLOR;
+    const displayName = edgeDisplayName(edge);
+    const labelFallback = displayName ? colorForLabel(displayName) : UNLABELED_EDGE_COLOR;
     resolvedEdges[edge.id] = {
       color: inPath ? PATH_EDGE_COLOR : dimmed ? DIM_EDGE_COLOR : colorFromScale(edgeColorScale, edge, labelFallback),
       width: inPath ? Math.max(width, PATH_EDGE_MIN_WIDTH) : width,

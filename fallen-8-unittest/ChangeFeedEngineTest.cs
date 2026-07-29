@@ -120,7 +120,7 @@ namespace NoSQL.GraphDB.Tests
             return (v[0].Id, v[1].Id);
         }
 
-        private int Edge(int source, int target, string edgePropertyId = "knows", string label = "knows")
+        private int Edge(int source, int target, string edgePropertyId = "knows", string label = "friendship")
         {
             var tx = new CreateEdgesTransaction();
             tx.AddEdge(source, edgePropertyId, target, 1u, label);
@@ -145,6 +145,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(ChangeEventKind.VertexCreated, events[0].Kind);
             Assert.AreEqual(a, events[0].Id);
             Assert.AreEqual("person", events[0].Label);
+            Assert.IsNull(events[0].EdgePropertyId, "vertex events carry no edge type");
             Assert.AreEqual(ChangeElementType.Vertex, events[0].Element);
 
             Assert.AreEqual(ChangeEventKind.VertexCreated, events[1].Kind);
@@ -152,7 +153,8 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(ChangeEventKind.EdgeCreated, events[2].Kind);
             Assert.AreEqual(edgeId, events[2].Id);
-            Assert.AreEqual("knows", events[2].Label);
+            Assert.AreEqual("friendship", events[2].Label);
+            Assert.AreEqual("knows", events[2].EdgePropertyId, "edgeCreated carries the edge's type");
             Assert.AreEqual(a, events[2].SourceId);
             Assert.AreEqual(b, events[2].TargetId);
 
@@ -559,6 +561,7 @@ namespace NoSQL.GraphDB.Tests
             var replayed = Read(late);
             Assert.AreEqual(ChangeEventKind.EdgeCreated, replayed.Kind);
             Assert.AreEqual(3, replayed.Seq, "exactly the missed event replays");
+            Assert.AreEqual("knows", replayed.EdgePropertyId, "the ring replay carries the edge's type");
 
             // ...and live continues gap-free.
             TwoVertices();
@@ -886,7 +889,7 @@ namespace NoSQL.GraphDB.Tests
             AssertQuiet(edgesOnly);
 
             // labels=person,robot (OR within the dimension): both labeled vertices; neither the
-            // company vertex nor the knows-labeled edge matches.
+            // company vertex nor the friendship-labeled edge matches.
             var labeled = ReadMany(twoLabels, 2);
             CollectionAssert.AreEquivalent(new[] { "person", "robot" },
                 labeled.Select(e => e.Label).ToArray());
@@ -954,7 +957,7 @@ namespace NoSQL.GraphDB.Tests
             // The event type carries no value slot at all; assert the metadata is all there is.
             var properties = typeof(ChangeEvent).GetProperties().Select(p => p.Name).ToList();
             CollectionAssert.AreEquivalent(
-                new[] { "Seq", "Ts", "Kind", "Element", "Id", "Label", "Key", "SourceId", "TargetId", "ResyncReason" },
+                new[] { "Seq", "Ts", "Kind", "Element", "Id", "Label", "EdgePropertyId", "Key", "SourceId", "TargetId", "ResyncReason" },
                 properties,
                 "ChangeEvent must stay metadata-only (no property-value field)");
         }

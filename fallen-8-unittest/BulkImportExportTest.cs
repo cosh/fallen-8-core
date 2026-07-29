@@ -418,6 +418,39 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Export_EdgeTypeFilter_ScopesByEdgePropertyId_AndAndsWithEdgeLabel()
+        {
+            using var factory = new BulkFactory();
+            var engine = EngineOf(factory);
+            var (a, b, _) = SeedSmallGraph(engine); // knows edge, label "friendship"
+            var extra = new CreateEdgesTransaction();
+            extra.AddEdge(a, "trusts", b, 1u, "trust");
+            engine.EnqueueTransaction(extra).WaitUntilFinished();
+
+            using var client = factory.CreateClient();
+
+            // Scope by the edge's type: only the "trusts" edge survives, whatever its label.
+            var exported = await client.GetStringAsync("/bulk/export?edgePropertyId=trusts");
+            var byType = ParseNdjson(exported);
+            Assert.AreEqual(1, byType[0].GetProperty("edgeCount").GetInt32(), "only the trusts edge matches");
+            var edgeLine = byType.Single(l => l.GetProperty("type").GetString() == "edge");
+            Assert.AreEqual("trusts", edgeLine.GetProperty("edgePropertyId").GetString());
+            Assert.AreEqual("trust", edgeLine.GetProperty("label").GetString());
+
+            // The two edge filters compose as AND: label "trust" + type "knows" match nothing.
+            var disjoint = ParseNdjson(await client.GetStringAsync("/bulk/export?edgeLabel=trust&edgePropertyId=knows"));
+            Assert.AreEqual(0, disjoint[0].GetProperty("edgeCount").GetInt32(), "disjoint filters export no edges");
+            Assert.IsFalse(disjoint.Any(l => l.GetProperty("type").GetString() == "edge"));
+
+            // ...and the type-filtered file imports.
+            using var target = new BulkFactory();
+            using var targetClient = target.CreateClient();
+            using var import = await Import(targetClient, exported);
+            Assert.AreEqual(HttpStatusCode.OK, import.StatusCode);
+            Assert.AreEqual(1, EngineOf(target).EdgeCount);
+        }
+
+        [TestMethod]
         public async Task Export_EmbeddedGraph_StampsVersion2_AndTheVectorRoundTrips()
         {
             using var source = new BulkFactory();

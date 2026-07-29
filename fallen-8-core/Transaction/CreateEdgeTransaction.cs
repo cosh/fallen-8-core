@@ -80,7 +80,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             if (_edgeCreated != null)
             {
-                builder.EdgeCreated(_edgeCreated.Id, _edgeCreated.Label,
+                builder.EdgeCreated(_edgeCreated.Id, _edgeCreated.Label, _edgeCreated.EdgePropertyId,
                     _edgeCreated.SourceVertex.Id, _edgeCreated.TargetVertex.Id);
             }
         }

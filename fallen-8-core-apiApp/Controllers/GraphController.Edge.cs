@@ -66,21 +66,23 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="definition">The edge specification containing source, target and property information</param>
         /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
         /// <remarks>
-        /// Sample request:
+        /// Sample request (edgePropertyId is the edge's type - the adjacency group traversals
+        /// key on; label is an optional, orthogonal category tag):
         ///
         ///     PUT /edge
         ///     {
-        ///        "label": "knows",
-        ///        "creationDate": "2025-04-22T00:00:00",
         ///        "sourceVertex": 1,
         ///        "targetVertex": 2,
-        ///        "edgePropertyId": "friendship",
-        ///        "properties": {
-        ///          "since": {
+        ///        "edgePropertyId": "knows",
+        ///        "label": "friendship",
+        ///        "creationDate": 0,
+        ///        "properties": [
+        ///          {
+        ///            "propertyId": "since",
         ///            "propertyValue": "2024-01-01",
         ///            "fullQualifiedTypeName": "System.DateTime"
         ///          }
-        ///        }
+        ///        ]
         ///     }
         /// </remarks>
         /// <response code="202">Edge creation accepted (and committed when waitForCompletion is true)</response>

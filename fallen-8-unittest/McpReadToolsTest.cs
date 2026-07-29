@@ -74,7 +74,7 @@ namespace NoSQL.GraphDB.Tests
             _ids = await VerticesByName(seed);
 
             await Put(seed, "/edge?waitForCompletion=true",
-                $"{{\"creationDate\":1,\"sourceVertex\":{_ids["Alice"]},\"targetVertex\":{_ids["Bob"]},\"edgePropertyId\":\"knows\",\"label\":\"knows\"}}");
+                $"{{\"creationDate\":1,\"sourceVertex\":{_ids["Alice"]},\"targetVertex\":{_ids["Bob"]},\"edgePropertyId\":\"knows\",\"label\":\"friendship\"}}");
 
             await CreateIndex(seed, "nameIdx", "DictionaryIndex");
             foreach (var name in new[] { "Alice", "Bob", "Carol" })
@@ -141,6 +141,22 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(element.GetProperty("degree").GetInt32() >= 1, "Alice knows Bob → degree >= 1");
         }
 
+        [TestMethod]
+        public async Task Get_Edge_ReturnsTypeAndLabel()
+        {
+            // Locate the seeded edge via Alice's adjacency (grouped by the edge's type).
+            var alice = Structured(await Catalog().CallAsync("f8_get",
+                Args($"{{\"kind\":\"vertex\",\"id\":{_ids["Alice"]},\"include\":[\"out_edges\"]}}"), CancellationToken.None));
+            var edgeId = alice.GetProperty("outEdges").GetProperty("knows").EnumerateArray().First().GetInt32();
+
+            var edge = Structured(await Catalog().CallAsync("f8_get",
+                Args($"{{\"kind\":\"edge\",\"id\":{edgeId}}}"), CancellationToken.None));
+
+            // The projection carries both classifiers: the type (edgePropertyId) and the label.
+            Assert.AreEqual("knows", edge.GetProperty("edgePropertyId").GetString());
+            Assert.AreEqual("friendship", edge.GetProperty("label").GetString());
+        }
+
         // --- f8_search ----------------------------------------------------------------------
 
         [TestMethod]
@@ -165,6 +181,36 @@ namespace NoSQL.GraphDB.Tests
 
             var ids = structured.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetInt32()).ToList();
             CollectionAssert.AreEquivalent(new List<Int32> { _ids["Bob"] }, ids);
+        }
+
+        [TestMethod]
+        public async Task Search_PropertyMode_LabelRestrictor_PassesThrough()
+        {
+            var matching = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"property\",\"key\":\"age\",\"operator\":\"greater\",\"value\":0,\"label\":\"person\"}"),
+                CancellationToken.None));
+            var ids = matching.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetInt32()).ToHashSet();
+            Assert.IsTrue(ids.Contains(_ids["Alice"]), "person-labeled vertices pass the label restrictor");
+
+            var none = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"property\",\"key\":\"age\",\"operator\":\"greater\",\"value\":0,\"label\":\"no-such-label\"}"),
+                CancellationToken.None));
+            Assert.AreEqual(0, none.GetProperty("count").GetInt32(), "an unmatched label filters every hit out");
+        }
+
+        [TestMethod]
+        public async Task Search_IndexMode_LabelRestrictor_FiltersHits()
+        {
+            // Pins the REST fix too: /scan/index/all used to accept "label" and silently ignore it.
+            var matching = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"index\",\"indexId\":\"nameIdx\",\"value\":\"Bob\",\"label\":\"person\"}"),
+                CancellationToken.None));
+            Assert.AreEqual(1, matching.GetProperty("count").GetInt32(), "the person-labeled hit survives");
+
+            var none = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"index\",\"indexId\":\"nameIdx\",\"value\":\"Bob\",\"label\":\"no-such-label\"}"),
+                CancellationToken.None));
+            Assert.AreEqual(0, none.GetProperty("count").GetInt32(), "an unmatched label filters the indexed hit out");
         }
 
         [TestMethod]

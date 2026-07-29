@@ -70,7 +70,8 @@ rejects explicit adds ([semantic-traversal.md](/fallen-8-core/semantic-traversal
 
 Watch the two key shapes: an index **add** key uses `propertyValue` (a `PropertySpecification`),
 while a **scan** literal uses `value` (a `LiteralSpecification`); both carry
-`fullQualifiedTypeName`.
+`fullQualifiedTypeName`. `POST /scan/index/all` also honours the scan body's optional `label`
+field — an exact-match restrictor on the hits, same as the [property scan's](/fallen-8-core/graph-model/#full-graph-property-scans).
 
 ## Worked example: a dictionary index
 

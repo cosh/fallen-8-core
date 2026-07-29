@@ -218,15 +218,16 @@ export const runBenchmark = (i: InstanceConfig, iterations = 1000) =>
 // ---- bulk interchange (concept spec §7) ----
 // Raw fetch, not apiRequest: the payload is application/x-ndjson, not JSON.
 
-/** Streams the graph (or a label-filtered subset) to a Blob for a browser download. */
+/** Streams the graph (or a filtered subset) to a Blob for a browser download. */
 export async function exportBulk(
   i: InstanceConfig,
-  filters?: { vertexLabel?: string; edgeLabel?: string },
+  filters?: { vertexLabel?: string; edgeLabel?: string; edgePropertyId?: string },
   signal?: AbortSignal,
 ): Promise<Blob> {
   const url = buildUrl(i.baseUrl, scopedPath(i, "/bulk/export"), {
     vertexLabel: filters?.vertexLabel,
     edgeLabel: filters?.edgeLabel,
+    edgePropertyId: filters?.edgePropertyId,
   });
   const response = await fetch(url, { headers: authHeaders(i), signal });
   await throwIfNotOk(response, url);

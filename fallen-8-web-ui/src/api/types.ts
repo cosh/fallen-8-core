@@ -161,16 +161,15 @@ export interface VertexREST extends AGraphElementREST {
   kind?: "vertex";
 }
 
-// The REST Edge DTO carries no edge-property id (only PathElementREST does); the
-// edge-property grouping is discovered via the /vertex/{id}/edges/{in|out} lists.
+// edgePropertyId is the edge's type - its adjacency group (feature edge-type-vs-label).
+// Optional so payloads from servers predating the field still parse; neighborhood.ts then
+// reconstructs it from the /vertex/{id}/edges/{in|out} lists.
 export interface EdgeREST extends AGraphElementREST {
   sourceVertex: number;
   targetVertex: number;
+  edgePropertyId?: string | null;
   kind?: "edge";
 }
-
-/** Input to the canvas merge: an EdgeREST, optionally tagged with the property it came from. */
-export type CanvasEdgeInput = EdgeREST & { edgePropertyId?: string | null };
 
 export interface GraphREST {
   vertices: VertexREST[];

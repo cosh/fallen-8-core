@@ -26,9 +26,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
@@ -151,6 +153,40 @@ namespace NoSQL.GraphDB.Tests
                 Assert.IsTrue(separator > 0, "the id carries <epoch>:<seq>");
                 Assert.IsTrue(Guid.TryParse(frame.Id.Substring(0, separator), out _));
                 Assert.IsTrue(long.TryParse(frame.Id.Substring(separator + 1), out var seq) && seq >= 1);
+
+                cts.Cancel();
+            }
+        }
+
+        [TestMethod]
+        public async Task EdgeCreated_CarriesTheEdgeType_OnTheWire()
+        {
+            using var factory = new FeedFactory();
+            using var client = factory.CreateClient();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+            // Endpoints first (before the live-only subscription opens), then the edge on-air.
+            await CreateVertex(client, "person");
+            await CreateVertex(client, "person");
+            using var graphDoc = JsonDocument.Parse(await client.GetStringAsync("/graph?maxElements=10"));
+            var vertexIds = graphDoc.RootElement.GetProperty("vertices").EnumerateArray()
+                .Select(v => v.GetProperty("id").GetInt32()).ToArray();
+
+            var (response, reader) = await OpenStream(client, "", cts.Token);
+            using (response)
+            {
+                using var edgeResponse = await client.PutAsync("/edge?waitForCompletion=true",
+                    Json($"{{\"creationDate\":1,\"sourceVertex\":{vertexIds[0]},\"targetVertex\":{vertexIds[1]}," +
+                         "\"edgePropertyId\":\"knows\",\"label\":\"friendship\"}"));
+                edgeResponse.EnsureSuccessStatusCode();
+
+                var frame = await ReadEventFrame(reader, cts.Token);
+
+                Assert.AreEqual("edgeCreated", frame.Event);
+                StringAssert.Contains(frame.Data, "\"edgePropertyId\":\"knows\"",
+                    "the edge's type travels on the SSE wire");
+                StringAssert.Contains(frame.Data, "\"label\":\"friendship\"",
+                    "the label stays a distinct field");
 
                 cts.Cancel();
             }

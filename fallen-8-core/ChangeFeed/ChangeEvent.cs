@@ -29,7 +29,7 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
 {
     /// <summary>
     ///   One change-feed event: metadata about one committed mutation (feature change-feed).
-    ///   Carries ids, labels and property KEYS only - never property values (payload size and
+    ///   Carries ids, labels, the edge type and property KEYS only - never property values (payload size and
     ///   security posture; the consumer re-fetches the element when it needs the value).
     ///   Immutable after construction; the dispatcher assigns <see cref="Seq"/> exactly once.
     /// </summary>
@@ -75,6 +75,12 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
             get;
         }
 
+        /// <summary>The edge's type - its edgePropertyId (edgeCreated only; null otherwise).</summary>
+        public String EdgePropertyId
+        {
+            get;
+        }
+
         /// <summary>The property key (propertySet/propertyRemoved only).</summary>
         public String Key
         {
@@ -101,13 +107,14 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
         }
 
         internal ChangeEvent(DateTime ts, ChangeEventKind kind, ChangeElementType element, Int32 id,
-            String label, String key, Int32 sourceId, Int32 targetId, String resyncReason)
+            String label, String edgePropertyId, String key, Int32 sourceId, Int32 targetId, String resyncReason)
         {
             Ts = ts;
             Kind = kind;
             Element = element;
             Id = id;
             Label = label;
+            EdgePropertyId = edgePropertyId;
             Key = key;
             SourceId = sourceId;
             TargetId = targetId;
@@ -116,7 +123,7 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
 
         internal static ChangeEvent Resync(DateTime ts, String reason)
         {
-            return new ChangeEvent(ts, ChangeEventKind.Resync, ChangeElementType.None, -1, null, null, -1, -1, reason);
+            return new ChangeEvent(ts, ChangeEventKind.Resync, ChangeElementType.None, -1, null, null, null, -1, -1, reason);
         }
     }
 }

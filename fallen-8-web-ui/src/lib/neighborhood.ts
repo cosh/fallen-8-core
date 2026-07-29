@@ -32,7 +32,7 @@ import {
   getOutEdges,
   getVertex,
 } from "../api/endpoints";
-import type { CanvasEdgeInput, EdgeREST, VertexREST } from "../api/types";
+import type { EdgeREST, VertexREST } from "../api/types";
 import type { InstanceConfig } from "../instances/types";
 
 /**
@@ -51,7 +51,7 @@ export const EXPAND_EDGE_CAP = 200;
 export interface Neighborhood {
   /** Hydrated endpoint vertices, minus skipNeighborIds and failed fetches. */
   vertices: VertexREST[];
-  edges: CanvasEdgeInput[];
+  edges: EdgeREST[];
   /** true when the cap cut off edges or endpoint vertices. */
   truncated: boolean;
 }
@@ -88,10 +88,13 @@ async function hydrateEdges(
   instance: InstanceConfig,
   ids: number[],
   propertyById: Map<number, string>,
-): Promise<CanvasEdgeInput[]> {
+): Promise<EdgeREST[]> {
+  // The Edge DTO carries its type (edgePropertyId) since feature edge-type-vs-label; the
+  // adjacency-map attribution built by directedEdgeIds stays as the fallback for servers
+  // predating the field.
   return (await Promise.all(ids.map((id) => getEdge(instance, id).catch(() => null))))
     .filter((e): e is EdgeREST => e !== null)
-    .map((e) => ({ ...e, edgePropertyId: propertyById.get(e.id) ?? null }));
+    .map((e) => ({ ...e, edgePropertyId: e.edgePropertyId ?? propertyById.get(e.id) ?? null }));
 }
 
 /**
@@ -171,7 +174,10 @@ export async function fetchEdgeNeighborhood(
 
   return {
     vertices: [source, target].filter((v): v is VertexREST => v !== null),
-    edges: [{ ...edge, edgePropertyId: propertyById.get(edge.id) ?? null }, ...siblings],
+    edges: [
+      { ...edge, edgePropertyId: edge.edgePropertyId ?? propertyById.get(edge.id) ?? null },
+      ...siblings,
+    ],
     truncated: siblingIds.length > options.cap - 1,
   };
 }

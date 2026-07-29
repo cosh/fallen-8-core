@@ -84,6 +84,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     .NumArray("vector", "Query vector for kNN (vector mode).")
                     .Str("kind", "Restrict to a kind (honoured by index/property/vector/semantic; ignored by fulltext).",
                         choices: new[] { "vertex", "edge", "any" })
+                    .Str("label", "Restrict to elements with exactly this label (honoured by " +
+                        "index/property/vector/semantic; ignored by fulltext).")
                     .Int("limit", "Max hits per page (default 25, cap 200). Drives k for vector/semantic.")
                     .Int("cursor", "Offset into the result order (from a prior nextCursor).")
                     .StrArray("fields", "Enrich each hit with these property keys (costs one fetch per hit).")
@@ -106,6 +108,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
             var mode = ToolArgs.GetString(arguments, "mode");
             var @namespace = ToolArgs.GetString(arguments, "namespace");
             var kind = ToolArgs.GetString(arguments, "kind") ?? "any";
+            var label = ToolArgs.GetString(arguments, "label");
             var limit = Math.Clamp(ToolArgs.GetInt(arguments, "limit") ?? DefaultLimit, 1, MaxLimit);
             var offset = Math.Max(0, ToolArgs.GetInt(arguments, "cursor") ?? 0);
             var fields = ToolArgs.GetStringSet(arguments, "fields");
@@ -122,7 +125,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 case "index":
                 case "property":
                 {
-                    var validation = BuildScanLiteral(arguments, mode!, kind, out var request, out var propertyKey, out var error);
+                    var validation = BuildScanLiteral(arguments, mode!, kind, label, out var request, out var propertyKey, out var error);
                     if (!validation)
                     {
                         return ToolResults.Error(400, "Invalid arguments", error);
@@ -179,7 +182,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                             return ToolResults.Error(400, "Invalid arguments", "vector mode requires a numeric 'vector' array.");
                         }
                         result = await _bridge.PostAsync<VectorResultDto>(@namespace, "scan/index/vector",
-                            new VectorScanRequest { IndexId = indexId, Query = vector, K = k, Kind = KindFilter(kind), Label = null },
+                            new VectorScanRequest { IndexId = indexId, Query = vector, K = k, Kind = KindFilter(kind), Label = label },
                             cancellationToken).ConfigureAwait(false);
                     }
                     else
@@ -190,7 +193,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                             return ToolResults.Error(400, "Invalid arguments", "semantic mode requires 'query' text.");
                         }
                         result = await _bridge.PostAsync<VectorResultDto>(@namespace, "embedding/search",
-                            new SemanticScanRequest { IndexId = indexId, Text = query, K = k, Kind = KindFilter(kind), Label = null },
+                            new SemanticScanRequest { IndexId = indexId, Text = query, K = k, Kind = KindFilter(kind), Label = label },
                             cancellationToken).ConfigureAwait(false);
                     }
 
@@ -225,6 +228,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
             IReadOnlyDictionary<String, JsonElement> arguments,
             String mode,
             String kind,
+            String? label,
             out Object? request,
             out String? propertyKey,
             out String error)
@@ -261,7 +265,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     error = "index mode requires 'indexId'.";
                     return false;
                 }
-                request = new IndexScanRequest { IndexId = indexId, Operator = op.Value, Literal = literalDto, ResultType = resultType };
+                request = new IndexScanRequest { IndexId = indexId, Operator = op.Value, Literal = literalDto, ResultType = resultType, Label = label };
                 return true;
             }
 
@@ -271,7 +275,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 error = "property mode requires 'key'.";
                 return false;
             }
-            request = new PropertyScanRequest { Operator = op.Value, Literal = literalDto, ResultType = resultType };
+            request = new PropertyScanRequest { Operator = op.Value, Literal = literalDto, ResultType = resultType, Label = label };
             return true;
         }
 

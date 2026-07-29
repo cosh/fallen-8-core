@@ -69,7 +69,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        ///   Optional label filter to restrict the scan to specific element types
+        ///   Optional restrictor: only elements with exactly this label match
         /// </summary>
         /// <example>person</example>
         [JsonPropertyName("label")]

@@ -124,7 +124,7 @@ namespace NoSQL.GraphDB.Core.Transaction
 
             foreach (var edge in _edgesAdded)
             {
-                builder.EdgeCreated(edge.Id, edge.Label, edge.SourceVertex.Id, edge.TargetVertex.Id);
+                builder.EdgeCreated(edge.Id, edge.Label, edge.EdgePropertyId, edge.SourceVertex.Id, edge.TargetVertex.Id);
             }
         }
 

@@ -37,7 +37,8 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
     }
 
     /// <summary>Request body for <c>POST /scan/index/all</c>. <c>Operator</c> is the numeric
-    /// <c>BinaryOperator</c> (Equals=0…NotEquals=5); <c>ResultType</c> is the string enum.</summary>
+    /// <c>BinaryOperator</c> (Equals=0…NotEquals=5); <c>ResultType</c> is the string enum;
+    /// <c>Label</c> is the optional exact-match label restrictor.</summary>
     public sealed class IndexScanRequest
     {
         public String IndexId { get; set; } = String.Empty;
@@ -47,6 +48,8 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
         public LiteralDto Literal { get; set; } = new();
 
         public String ResultType { get; set; } = "Both";
+
+        public String? Label { get; set; }
     }
 
     /// <summary>Request body for <c>POST /scan/graph/property/{propertyId}</c> (un-indexed).</summary>
@@ -57,6 +60,8 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
         public LiteralDto Literal { get; set; } = new();
 
         public String ResultType { get; set; } = "Both";
+
+        public String? Label { get; set; }
     }
 
     /// <summary>Request body for <c>POST /scan/index/fulltext</c>.</summary>

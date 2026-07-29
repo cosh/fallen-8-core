@@ -31,7 +31,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
     ///   One change-feed event as serialized onto the SSE stream (feature change-feed): metadata
-    ///   about one committed mutation. Carries ids, labels and property KEYS only - never property
+    ///   about one committed mutation. Carries ids, labels, the edge type and property KEYS only - never property
     ///   values. Fields are ABSENT (not null) when not applicable to the kind.
     /// </summary>
     public sealed class ChangeEventREST
@@ -83,6 +83,15 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         [JsonPropertyName("label")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public String Label
+        {
+            get; set;
+        }
+
+        /// <summary>The edge's type - its edgePropertyId (edgeCreated only).</summary>
+        /// <example>knows</example>
+        [JsonPropertyName("edgePropertyId")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String EdgePropertyId
         {
             get; set;
         }
@@ -151,6 +160,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                     : null,
                 Id = isElementEvent ? changeEvent.Id : (Int32?)null,
                 Label = changeEvent.Label,
+                EdgePropertyId = changeEvent.EdgePropertyId,
                 Key = changeEvent.Key,
                 Source = changeEvent.Kind == ChangeEventKind.EdgeCreated ? changeEvent.SourceId : (Int32?)null,
                 Target = changeEvent.Kind == ChangeEventKind.EdgeCreated ? changeEvent.TargetId : (Int32?)null,

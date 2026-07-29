@@ -5,7 +5,7 @@ description: "Committed mutations as Server-Sent Events, in commit order, with i
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-`GET /changefeed` streams every committed graph mutation as [Server-Sent Events](https://developer.mozilla.org/docs/Web/API/Server-sent_events), in commit order, over one long-lived `text/event-stream` connection. Each event is metadata about one mutation — ids, labels, and property *keys*, never property values — with declarative server-side filtering and a bounded in-memory catch-up buffer. The whole client contract is: **fetch the state you display, then stream; on any `resync` event, re-fetch.**
+`GET /changefeed` streams every committed graph mutation as [Server-Sent Events](https://developer.mozilla.org/docs/Web/API/Server-sent_events), in commit order, over one long-lived `text/event-stream` connection. Each event is metadata about one mutation — ids, labels, the edge type, and property *keys*, never property values — with declarative server-side filtering and a bounded in-memory catch-up buffer. The whole client contract is: **fetch the state you display, then stream; on any `resync` event, re-fetch.**
 
 ## Endpoint
 
@@ -47,6 +47,7 @@ One JSON object per `data:` line. Fields are **absent** (not null) when they do 
 | `element` | `vertex`/`edge` | element events |
 | `id` | int32 | element events |
 | `label` | string | element events with a label |
+| `edgePropertyId` | string | `edgeCreated` — the edge's type ([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)) |
 | `key` | string | `propertySet` / `propertyRemoved` |
 | `source`, `target` | int32 | `edgeCreated` |
 | `reason` | string | `resync` |

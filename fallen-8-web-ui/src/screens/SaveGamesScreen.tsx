@@ -127,6 +127,7 @@ export function SaveGamesScreen() {
   const [showExportFilter, setShowExportFilter] = useState(false);
   const [exportVertexLabel, setExportVertexLabel] = useState("");
   const [exportEdgeLabel, setExportEdgeLabel] = useState("");
+  const [exportEdgeType, setExportEdgeType] = useState("");
   const importFileRef = useRef<HTMLInputElement>(null);
   const suggestions = shapeSuggestions(useGraphShape(ns).data);
 
@@ -233,6 +234,7 @@ export function SaveGamesScreen() {
       exportBulk(ns, {
         vertexLabel: exportVertexLabel.trim() || undefined,
         edgeLabel: exportEdgeLabel.trim() || undefined,
+        edgePropertyId: exportEdgeType.trim() || undefined,
       }),
     onSuccess: (blob) => {
       const url = URL.createObjectURL(blob);
@@ -416,6 +418,18 @@ export function SaveGamesScreen() {
                       list="savegame-edge-labels"
                       value={exportEdgeLabel}
                       onChange={(e) => setExportEdgeLabel(e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    helpKey="exportEdgeType"
+                    label="edge type"
+                    htmlFor="export-edge-type"
+                  >
+                    <input
+                      id="export-edge-type"
+                      className="input w-36"
+                      value={exportEdgeType}
+                      onChange={(e) => setExportEdgeType(e.target.value)}
                     />
                   </Field>
                 </>

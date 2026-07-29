@@ -197,7 +197,8 @@ describe("live feed handlers", () => {
             modificationDate: "",
             sourceVertex: 1,
             targetVertex: 2,
-            label: "knows",
+            edgePropertyId: "knows",
+            label: "friendship",
           }),
           { status: 200 },
         ),
@@ -212,7 +213,13 @@ describe("live feed handlers", () => {
     );
 
     await vi.waitFor(() => expect(store.getState().canvasEdges[10]).toBeDefined());
-    expect(store.getState().canvasEdges[10]).toMatchObject({ source: 1, target: 2 });
+    // The fetched DTO's type and label both land on the canvas edge, untangled.
+    expect(store.getState().canvasEdges[10]).toMatchObject({
+      source: 1,
+      target: 2,
+      edgePropertyId: "knows",
+      label: "friendship",
+    });
     handlers.dispose();
   });
 

@@ -45,7 +45,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// {
     ///   "name": "friends-of-alice",
     ///   "vertexFilter": "return (v) => v.Label == \"person\";",
-    ///   "edgeFilter": "return (e) => e.Label == \"knows\";",
+    ///   "edgeFilter": "return (e) => e.EdgePropertyId == \"knows\";",
     ///   "patterns": [
     ///     { "type": "Vertex", "patternName": "start", "vertexFilter": "return (v) => v.Label == \"person\";" },
     ///     { "type": "Edge", "patternName": "rel", "direction": "OutgoingEdge", "edgePropertyFilter": "return (p) => p == \"knows\";" },
@@ -89,9 +89,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   Optional pre-filter selecting which edges are copied into the subgraph. Null
         ///   or empty copies all edges whose endpoints were copied. The lambda receives an
-        ///   <c>EdgeModel</c>.
+        ///   <c>EdgeModel</c>; filter by type via <c>e.EdgePropertyId</c>.
         /// </summary>
-        /// <example>return (e) => e.Label == "knows";</example>
+        /// <example>return (e) => e.EdgePropertyId == "knows";</example>
         [JsonPropertyName("edgeFilter")]
         public String EdgeFilter
         {

@@ -57,7 +57,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
     ///     Pattern = new List&lt;APattern&gt;
     ///     {
     ///         new VertexPattern { PatternName = "person", Vertex = v => v.Label == "Person" },
-    ///         new VariableLengthEdgePattern { PatternName = "knows", Edge = e => e.Label == "KNOWS", MinLength = 2, MaxLength = 2 },
+    ///         new VariableLengthEdgePattern { PatternName = "knows", EdgeProperty = p => p == "knows", MinLength = 2, MaxLength = 2 },
     ///         new VertexPattern { PatternName = "friendOfFriend", Vertex = v => v.Label == "Person" }
     ///     },
     ///     AdditionalInformation = new Dictionary&lt;string, string&gt;

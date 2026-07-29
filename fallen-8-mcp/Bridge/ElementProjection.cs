@@ -33,7 +33,8 @@ namespace NoSQL.GraphDB.Mcp.Bridge
 {
     /// <summary>
     ///   Renders a raw Fallen-8 element (the JSON of <c>GET /vertex|/edge/{id}</c>) into the
-    ///   token-frugal shape agents consume (spec §3.5): <c>id</c> + <c>label</c> + <em>scalar</em>
+    ///   token-frugal shape agents consume (spec §3.5): <c>id</c> + <c>label</c> (+ an edge's
+    ///   <c>edgePropertyId</c>) + <em>scalar</em>
     ///   property values by default, with large values bounded so a single embedding never blows
     ///   the budget — a vector/array-typed value (FQTN ending <c>[]</c>) is omitted in favour of
     ///   its key + type + length, and a long string is truncated with a marker. Optional
@@ -55,6 +56,11 @@ namespace NoSQL.GraphDB.Mcp.Bridge
             if (element.TryGetProperty("label", out var label))
             {
                 node["label"] = label.GetString();
+            }
+            // The edge's type (its adjacency group) - present on edge payloads only.
+            if (element.TryGetProperty("edgePropertyId", out var edgePropertyId))
+            {
+                node["edgePropertyId"] = edgePropertyId.GetString();
             }
 
             if (element.TryGetProperty("properties", out var properties) && properties.ValueKind == JsonValueKind.Array)

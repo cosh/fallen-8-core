@@ -117,7 +117,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         ///   change-feed). Called on the single writer thread immediately after a successful
         ///   <see cref="TryExecute"/> and BEFORE <see cref="ReleaseAfterCompletion"/> drops the
         ///   input payload, and only when the engine carries a feed. Implementations record
-        ///   primitives only (ids, labels, property keys, edge endpoints) - never property values
+        ///   primitives only (ids, labels, edge types and endpoints, property keys) - never property values
         ///   and never model/definition references - via the builder. The default records nothing:
         ///   a transaction that mutates no graph element (Save, stored-query registration,
         ///   subgraph create/remove - subgraphs are derived state in their OWN graph instance)

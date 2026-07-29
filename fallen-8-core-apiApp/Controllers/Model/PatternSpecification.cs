@@ -107,8 +107,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         } = "OutgoingEdge";
 
         /// <summary>
-        ///   Filter applied to an edge's property id (a string) before the edge itself is
-        ///   inspected. Only meaningful for edge patterns.
+        ///   Filter applied to an edge's type (its edgePropertyId, a string) before the edge
+        ///   itself is inspected. Only meaningful for edge patterns.
         /// </summary>
         /// <example>return (p) => p == "knows";</example>
         [JsonPropertyName("edgePropertyFilter")]
@@ -119,9 +119,11 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         /// <summary>
         ///   Edge-specific filter. Only meaningful for edge patterns. The lambda receives
-        ///   an <c>EdgeModel</c>.
+        ///   an <c>EdgeModel</c> (type filtering usually belongs in
+        ///   <c>edgePropertyFilter</c>; the edge's optional label is a separate,
+        ///   orthogonal tag).
         /// </summary>
-        /// <example>return (e) => e.Label == "knows";</example>
+        /// <example>return (e) => e.Label == "friendship";</example>
         [JsonPropertyName("edgeFilter")]
         public String EdgeFilter
         {

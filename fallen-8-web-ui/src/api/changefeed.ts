@@ -72,6 +72,8 @@ export interface ChangeEvent {
   id?: number;
   /** Omitted when the element has no label. */
   label?: string;
+  /** The edge's type (its edgePropertyId) - edgeCreated only. */
+  edgePropertyId?: string;
   /** Property key - propertySet/propertyRemoved only (never the value). */
   key?: string;
   /** Source vertex id - edgeCreated only. */

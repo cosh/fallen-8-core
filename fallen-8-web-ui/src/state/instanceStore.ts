@@ -27,7 +27,7 @@ import { create, type UseBoundStore, type StoreApi } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
   BinaryOperatorName,
-  CanvasEdgeInput,
+  EdgeREST,
   PathREST,
   PatternSpecification,
   PropertyREST,
@@ -65,8 +65,19 @@ export interface CanvasEdge {
   source: number;
   target: number;
   edgePropertyId: string | null;
+  /** The element's actual label (null when unset) - never a copy of edgePropertyId. */
   label: string | null;
   props?: CanvasProps;
+}
+
+/**
+ * The one display rule for an edge's name: the human-facing label when present, else the
+ * always-present type (edgePropertyId). Used by both canvases and the label color scale.
+ */
+export function edgeDisplayName(
+  edge: Pick<CanvasEdge, "label" | "edgePropertyId">,
+): string | null {
+  return edge.label ?? edge.edgePropertyId ?? null;
 }
 
 /** Longest property string kept on the canvas snapshot (FR-11: styling never needs more). */
@@ -99,7 +110,7 @@ export interface CanvasModel {
  */
 export function buildCanvasModel(
   vertices: VertexREST[],
-  edges: CanvasEdgeInput[],
+  edges: EdgeREST[],
   base?: CanvasModel,
 ): CanvasModel {
   const nodes = { ...(base?.nodes ?? {}) };
@@ -123,7 +134,7 @@ export function buildCanvasModel(
       source: e.sourceVertex,
       target: e.targetVertex,
       edgePropertyId: e.edgePropertyId ?? null,
-      label: e.label ?? e.edgePropertyId ?? null,
+      label: e.label ?? null,
       props: snapshotProps(e.properties),
     };
   }
@@ -339,7 +350,7 @@ export interface WorkspaceState {
   analyticsDraft: AnalyticsDraft;
   scanPrefill: ScanPrefill | null;
 
-  mergeIntoCanvas: (vertices: VertexREST[], edges: CanvasEdgeInput[]) => void;
+  mergeIntoCanvas: (vertices: VertexREST[], edges: EdgeREST[]) => void;
   removeFromCanvas: (kind: "node" | "edge", id: number) => void;
   clearCanvas: () => void;
   setStyleConfig: (patch: Partial<StyleConfig>) => void;

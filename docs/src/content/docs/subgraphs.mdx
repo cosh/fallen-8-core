@@ -45,7 +45,7 @@ The bare paths below target the `default` namespace and also answer under `/ns/{
 | `vertexFilter` | `Vertex` | Fragment over the vertex |
 | `semanticMinScore` | `Vertex` | Code-free alternative to `vertexFilter` — owns the same slot (setting both is `400`) |
 | `direction` | edge | `OutgoingEdge` (default), `IncomingEdge`, or `UndirectedEdge` |
-| `edgePropertyFilter` | edge | Fragment over the edge's property id (a string), checked before the edge itself |
+| `edgePropertyFilter` | edge | Fragment over the edge's type (its `edgePropertyId`, a string), checked before the edge itself |
 | `edgeFilter` | edge | Fragment over the edge |
 | `minLength` / `maxLength` | `VariableLengthEdge` | Hop range, inclusive (both default 1) |
 
@@ -55,7 +55,7 @@ The filter slots — plus the top-level `vertexFilter` / `edgeFilter` pre-filter
 |---|---|---|
 | `vertexFilter` (pattern + top-level) | `VertexFilter` | `return (v) => …;` — `v` is a `VertexModel` |
 | `edgeFilter` (pattern + top-level) | `EdgeFilter` | `return (e) => …;` — `e` is an `EdgeModel` |
-| `edgePropertyFilter` | `EdgePropertyFilter` | `return (p) => …;` — `p` is the edge property-id string |
+| `edgePropertyFilter` | `EdgePropertyFilter` | `return (p) => …;` — `p` is the edge's type (`edgePropertyId`) string |
 
 An omitted or empty fragment matches everything.
 
@@ -130,7 +130,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/subgraph/people-who-know-people/gr
       "outEdges": { "knows": [10] }, "inEdges": {} }
   ],
   "edges": [
-    { "id": 10, "label": "knows", "sourceVertex": 1, "targetVertex": 2 }
+    { "id": 10, "edgePropertyId": "knows", "sourceVertex": 1, "targetVertex": 2 }
   ]
 }
 ```

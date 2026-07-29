@@ -40,7 +40,7 @@ export const FIELD_HELP = {
   indexId:
     "Unique name of an index on this instance. Registered indices are suggested live from the server; free typing still works.",
   edgePropertyId:
-    "Edge container name on the source vertex, e.g. 'knows'. Fallen-8 groups a vertex's outgoing edges into named containers; traversals and degree lookups address edges by this name.",
+    "The edge's type, e.g. 'knows'. Fallen-8 groups a vertex's edges by type; traversals and degree lookups address edges by this name. Not one of the edge's key-value properties.",
 
   // ---- mutations: vertex / edge ----
   mutVertexLabel:
@@ -50,10 +50,10 @@ export const FIELD_HELP = {
   mutProperties:
     "Initial properties written atomically with the element in the same transaction. Add one row per property; each value is typed.",
   mutEdgeSource:
-    "Id of the existing vertex the edge starts at (its outgoing side). The edge is stored in this vertex's edge container.",
+    "Id of the existing vertex the edge starts at (its outgoing side). The edge lands in this vertex's adjacency, grouped by the edge's type.",
   mutEdgeTarget: "Id of the existing vertex the edge points to (its incoming side).",
   mutEdgeLabel:
-    "Optional label used to categorize the new edge, independent of the edge container name.",
+    "Optional category tag, orthogonal to the edge's type (the edge property id) — not a second copy of it. Leave empty unless it says something the type doesn't.",
   mutRemoveElement:
     "Id of the vertex or edge to delete. Deleting a vertex also deletes all of its edges. This cannot be undone.",
 
@@ -170,7 +170,7 @@ export const FIELD_HELP = {
     "Analytics plugin to run; the description under the picker explains what the selected one computes.",
   analyticsVertexLabel: "Only consider vertices with this label; empty runs on the whole graph.",
   analyticsEdgeProperty:
-    "Only traverse edges in this edge container (e.g. 'knows'); empty traverses all edges.",
+    "Only traverse edges of this type (their edge property id), e.g. 'knows'; empty traverses all edges.",
   analyticsDirection:
     "Edge direction the algorithm follows: in, out, or both. Empty keeps the algorithm's default.",
   analyticsMaxResults:
@@ -201,6 +201,8 @@ export const FIELD_HELP = {
     "Server-side path of the save game to load — resolved on the machine the instance runs on, not in this browser.",
   exportVertexLabel: "Only export vertices with this label (their edges follow); empty exports all.",
   exportEdgeLabel: "Only export edges with this label; empty exports all.",
+  exportEdgeType:
+    "Only export edges of this type (their edge property id), e.g. 'knows'; combines with the edge label filter. Empty exports all.",
 
   // ---- app shell / canvas / save games ----
   instanceSwitcher:
