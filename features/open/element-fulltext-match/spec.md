@@ -41,6 +41,13 @@ idiom simply becomes safe. Two behaviour notes, called out honestly:
 - a property explicitly stored as `null` reported `true` with a `null` result for
   reference-typed `T`, now `false` (`null is T` is false). A null value reads as "no
   value", which the Try* contract arguably always meant.
+- The engine paths that genuinely need null-PRESENCE (transaction undo/prior-value
+  capture, batch conflict validation) move to an internal presence-preserving
+  `TryGetPropertyRaw` - a rollback must restore a null-valued key, not remove it, and a
+  batch set over one must stay a conflict. Both pinned in `ElementFulltextMatchTest`.
+- Free bug fix surfaced by the change: `GraphScan` over an element with a null-valued
+  property called `null.Equals(...)` inside the parallel scan (NullReferenceException);
+  a null value is now a clean skip.
 
 **2. One new member on `AGraphElementModel`** (so every fragment kind and plugins get it):
 
