@@ -53,7 +53,14 @@ Typed-member scenarios in top-level slots: degree and SourceVertex/TargetVertex 
 already existed (out-degree/in-degree/degree-sum, edge-source-label/edge-target-label);
 batch 1 below adds the EdgePropertyId rows.
 
-**Closed by:** —
+**Eval (2026-07-30, phi4-f8-mini v3):** typed-member rows pass and the FT-8 gate now
+element-set-evaluates `vf-outdegree`/`ef-target-person`; the accepted cost surfaced as
+the `gef-label-or` compile miss (GEF trains at zero rows; no slot requests it - the
+gef-* eval rows stay as the historical measure of that trade).
+
+**Closed by:** 2026-07-30 fine-tune (phi4-f8-mini v3 + phi4-f8, published
+`stoic_hellman_728/*`, trained on the Azure A10 runner from branch
+feature/retrain-log-drain-prep).
 
 ## 2026-07-25 — plugin-registration — PENDING
 
@@ -170,6 +177,13 @@ operator's, against a live F8 + GPU):**
   apart). `eval/fixture.ts` gains TechNova/Globex industry values and Bob's role so each
   new row selects a distinctive non-empty subset (the FT-8 semantic gate is not vacuous).
 
+**Eval (2026-07-30, phi4-f8-mini v3): partially absorbed - stays PENDING.** The member is
+learned (`vf-any-prop-contains` and `vf-value-not-name` PASS) but the compound target
+phrasing crosses the wrong way: `vf-compound-strings` drafts `AnyPropertyValueMatches`
+instead of the per-field idiom (semantically equal on the fixture; proxy-fail by design).
+Next iteration: reweight `label-and-2str` and/or sharpen the prompt's steering between
+named-field and any-field phrasings. 14B verdict pending.
+
 **Closed by:** (open)
 
 ## 2026-07-29 - captured-feedback batch 1 + edge-type selection gap - PENDING
@@ -236,5 +250,17 @@ ranked drafts, not only refines) and `buildRefinePrompt`; `nl/prompt.ts` is a dr
 source, so the next generate run regenerates the meta. Deferred (honest): refine-SHAPED
 dataset rows - the corpus is generation-shaped, and the prompt rule plus the
 captured-feedback loop cover the failure until a refine corpus is designed deliberately.
+
+**Eval (2026-07-30, phi4-f8-mini v3): the edge-type class was NOT absorbed - stays
+PENDING.** `ef-edge-type` still drafts the hallucinated `EdgeType` and
+`ec-edge-type-switch` reaches for `TryGetProperty`; 8 edge-type rows among 330 did not
+overcome the prior. Root-cause hypothesis for the next iteration: the member's doc in
+`type-model.json` ("The edge-property id this edge belongs to.") never contains the word
+TYPE, so intents phrased "edge type" have no lexical bridge to `EdgePropertyId` - reword
+the doc (say "the edge TYPE" explicitly), add an EdgePropertyId snippet, and boost the
+edge-type rows (count and phrasing/casing variety). The cost-fallback shape holds on its
+existing held-out rows (`ec-weight-default`, `ec-distance` pass); the precedence and
+vc-prop-default classes have no dedicated held-out rows and are pinned only by training.
+14B verdict pending.
 
 **Closed by:** (open)

@@ -60,8 +60,12 @@ export const ENDPOINT = (process.env.NL_EVAL_ENDPOINT ?? "http://localhost:11434
 );
 export const F8 = (process.env.NL_EVAL_F8 ?? "http://localhost:5000").replace(/\/+$/, "");
 
-/** Generous per-call ceiling: CPU inference is slow; a GPU box finishes far sooner. */
-export const PER_CALL_TIMEOUT_MS = 6 * 60 * 1000;
+/**
+ * Generous per-call ceiling: CPU inference is slow; a GPU box finishes far sooner. On a
+ * GPU-less host even 6 min is too tight for a whole-type plugin draft (~500 tokens at
+ * <1 tok/s) - override with NL_EVAL_TIMEOUT_MS instead of losing the run.
+ */
+export const PER_CALL_TIMEOUT_MS = Number(process.env.NL_EVAL_TIMEOUT_MS) || 6 * 60 * 1000;
 
 export interface GenStats {
   promptTokens?: number;
