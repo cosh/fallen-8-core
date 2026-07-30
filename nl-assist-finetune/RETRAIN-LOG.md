@@ -41,6 +41,18 @@ longer represent a real slot.
 endpoint, UI kind table, engine delegate) — trigger documented in
 `features/done/subgraph-typed-filters/spec.md`.
 
+**Tooling wired 2026-07-30 (branch feature/retrain-log-drain-prep; not yet a fine-tune
+RUN):** `dataset-gen/generate.ts` FILTER candidates now target the typed kinds only
+(GraphElementFilter trains at zero rows, exempted from the FT-3 coverage gate with a
+pointer at the removal trigger); `eval/fixture.ts` submits filters in the typed slots' own
+parameters (v/e), dropping the stale GraphElementFilter mechanism comment - typed slots
+make VertexModel/EdgeModel-only members (GetOutDegree, TargetVertex, EdgePropertyId)
+element-set evaluable, so vf-outdegree and ef-target-person gain real semantic verdicts.
+The gef-* eval rows stay (held-out sets only grow by hand; the kind still validates).
+Typed-member scenarios in top-level slots: degree and SourceVertex/TargetVertex rows
+already existed (out-degree/in-degree/degree-sum, edge-source-label/edge-target-label);
+batch 1 below adds the EdgePropertyId rows.
+
 **Closed by:** —
 
 ## 2026-07-25 — plugin-registration — PENDING
@@ -209,5 +221,20 @@ Studio capture path; dedupe makes it harmless for training. Hallucinated vertex 
 (`GetCategory()`, `IsInStock()`) are the known invent-a-member mode the compile gate
 already catches. The Tech/Solutions compound-string down is the target phrasing of the
 element-fulltext-match entry above - covered there, not re-litigated.
+
+**Action 2 wired 2026-07-30 (branch feature/retrain-log-drain-prep; the fine-tune RUN
+remains the operator's):** `dataset-gen/generate.ts` rows `edge-type-eq`,
+`edge-type-and-prop`, `ec-type-switch`, `ec-type-ternary`, `vc-prop-default`,
+`label-or-and-prop`, `ec-additive-ternary` (training constants
+friend/colleague/PURCHASED/risk_score/... stay disjoint from the eval constants).
+Held-out eval rows `ef-edge-type` (the "edge type" phrasing tempts EdgeType/EDGETYPE;
+the fixture's new SUPPLIES edge carries a label that DIFFERS from its type, so the FT-8
+gate separates the two surfaces) and `ec-edge-type-switch` (regex proxy - cost kinds have
+no element-set mapping). The keep-every-clause rule landed in BOTH
+`buildGenerationPrompt`'s variant turn (the captured drops actually happened across
+ranked drafts, not only refines) and `buildRefinePrompt`; `nl/prompt.ts` is a drift-hash
+source, so the next generate run regenerates the meta. Deferred (honest): refine-SHAPED
+dataset rows - the corpus is generation-shaped, and the prompt rule plus the
+captured-feedback loop cover the failure until a refine corpus is designed deliberately.
 
 **Closed by:** (open)

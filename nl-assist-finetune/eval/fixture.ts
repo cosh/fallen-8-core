@@ -34,14 +34,15 @@
  * element sets they select.
  *
  * Mechanism (reuses the product's own surface):
- *   - /subgraph's vertexFilter/edgeFilter fields take a GraphElementFilter (AGraphElementModel
- *     `ge`). We rewrite the fragment's parameter to `ge` and submit it; a VertexFilter or
- *     GraphElementFilter is compared over the selected VERTICES, an EdgeFilter over the
- *     selected EDGES (GET /subgraph/{name}/graph).
- *   - Kinds with no element-set mapping (EdgePropertyFilter, VertexCost, EdgeCost) and
- *     fragments using a VertexModel/EdgeModel-only member (GetOutDegree, TargetVertex, ...)
- *     that will not compile as a GraphElementFilter are reported "not applicable" and fall
- *     back to the regex proxy - never silently scored.
+ *   - /subgraph's top-level vertexFilter/edgeFilter slots are TYPED (feature
+ *     subgraph-typed-filters): vertexFilter compiles as a VertexFilter (VertexModel v),
+ *     edgeFilter as an EdgeFilter (EdgeModel e). We rewrite the fragment's parameter to the
+ *     slot's name and submit it; a VertexFilter or GraphElementFilter is compared over the
+ *     selected VERTICES, an EdgeFilter over the selected EDGES (GET /subgraph/{name}/graph).
+ *     Typed slots make VertexModel/EdgeModel-only members (GetOutDegree, TargetVertex,
+ *     EdgePropertyId, ...) element-set evaluable.
+ *   - Kinds with no element-set mapping (EdgePropertyFilter, VertexCost, EdgeCost) are
+ *     reported "not applicable" and fall back to the regex proxy - never silently scored.
  *
  * Run standalone to self-test the machinery WITHOUT a model (ref-vs-ref must pass, and a
  * select-nothing negative must be caught):  npx tsx nl-assist-finetune/eval/fixture.ts
@@ -94,6 +95,9 @@ const VERTICES: FVertex[] = [
 // (ServiceHelper.CreateObject), so a decimal like "0.8" is misparsed to 8 on a
 // comma-decimal locale. Integers straddling 0.5 (0 vs >=1) parse identically everywhere,
 // keeping the fixture deterministic across machines while ef-weight (> 0.5) still splits.
+// The SUPPLIES edge's label deliberately DIFFERS from its edgePropertyId (feature
+// edge-type-vs-label): `EdgePropertyId == "SUPPLIES"` selects it, `Label == "SUPPLIES"`
+// selects nothing - so the ef-edge-type row semantically separates type from label.
 const EDGES: FEdge[] = [
   { from: "Alice", to: "Bob", edgePropertyId: "knows", label: "knows", weight: 2 },
   { from: "Bob", to: "Carol", edgePropertyId: "knows", label: "knows", weight: 0 },
@@ -101,6 +105,10 @@ const EDGES: FEdge[] = [
   { from: "Carol", to: "Bella", edgePropertyId: "likes", label: "likes", weight: 1 },
   { from: "Bob", to: "Alice", edgePropertyId: "knows", label: "knows", weight: 0 },
   { from: "Andrew", to: "Bob", edgePropertyId: "worksWith", label: "worksWith", weight: 2 },
+  { from: "Acme", to: "Globex", edgePropertyId: "SUPPLIES", label: "supplies", weight: 1 },
+  // Gives Alice out-degree 3: typed slots made vf-outdegree (>= 3) element-set evaluable,
+  // and a non-empty selection keeps that verdict non-vacuous.
+  { from: "Alice", to: "Carol", edgePropertyId: "knows", label: "knows", weight: 1 },
 ];
 
 interface ApiVertex { id: number; label: string; properties?: { propertyId: string; propertyValue: string }[] }
@@ -174,10 +182,11 @@ async function applyFilter(kind: DelegateKind, fragment: string): Promise<Filter
   const place = placement(kind);
   if (!place) return { evaluable: false, reason: `${kind} has no subgraph element-set mapping` };
 
-  const geFragment = rewriteParameterName(fragment, "ge");
+  // The slots are typed (VertexModel v / EdgeModel e); submit in the slot's own parameter.
+  const typedFragment = rewriteParameterName(fragment, place === "vertex" ? "v" : "e");
   const name = `f8sem_${runToken}_${++subgraphCounter}`;
   const spec: Record<string, unknown> = { name };
-  spec[place === "vertex" ? "vertexFilter" : "edgeFilter"] = geFragment;
+  spec[place === "vertex" ? "vertexFilter" : "edgeFilter"] = typedFragment;
 
   const create = await f8Fetch("/subgraph", {
     method: "PUT",
@@ -185,10 +194,8 @@ async function applyFilter(kind: DelegateKind, fragment: string): Promise<Filter
     body: JSON.stringify(spec),
   });
   if (create.status === 400) {
-    // Won't compile as a GraphElementFilter (a VertexModel/EdgeModel-only member such as
-    // GetOutDegree/TargetVertex) - not evaluable via subgraph.
     await create.text().catch(() => undefined);
-    return { evaluable: false, reason: "not expressible as GraphElementFilter" };
+    return { evaluable: false, reason: "does not compile in the typed subgraph slot" };
   }
   if (!create.ok) {
     throw new Error(`subgraph create -> HTTP ${create.status} ${await create.text().catch(() => "")}`);
@@ -214,9 +221,9 @@ const setsEqual = (a: Set<number>, b: Set<number>) => a.size === b.size && [...a
 
 /**
  * Semantic verdict for one row: does `fragment` select the same elements as `reference`?
- * applicable=false when the row can't be element-set-compared (the reference isn't
- * expressible as a GraphElementFilter, or the kind has no mapping) - such rows keep the
- * regex proxy. A generated fragment that compiles elsewhere but not as a GraphElementFilter
+ * applicable=false when the row can't be element-set-compared (the reference doesn't
+ * compile in the typed subgraph slot, or the kind has no mapping) - such rows keep the
+ * regex proxy. A generated fragment that compiles elsewhere but not in the typed slot
  * (while the reference does) is a semantic miss, not "n/a".
  */
 export async function compareSemantics(

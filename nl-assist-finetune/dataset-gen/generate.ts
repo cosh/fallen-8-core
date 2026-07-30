@@ -100,8 +100,14 @@ const bootstrap = process.env.NL_GEN_BOOTSTRAP === "1";
 const DELEGATE_SOURCES = ["kinds.ts", "snippets.ts", "type-model.json", "nl/prompt.ts"];
 const PLUGIN_SOURCES = ["nl/pluginPrompt.ts", "scaffolds.ts"];
 
-/** Kinds that share the AGraphElementModel filter surface (Label, Id, TryGetProperty). */
-const FILTER: DelegateKind[] = ["VertexFilter", "EdgeFilter", "GraphElementFilter"];
+/**
+ * Kinds that share the element filter surface (Label, Id, TryGetProperty). Since feature
+ * subgraph-typed-filters every slot is typed, so shared candidates target the typed kinds
+ * only; GraphElementFilter drafts are requested by no slot and are not trained (the kind
+ * survives solely on /delegates/validate until its removal trigger fires - see
+ * features/done/subgraph-typed-filters/spec.md).
+ */
+const FILTER: DelegateKind[] = ["VertexFilter", "EdgeFilter"];
 
 /** A candidate is kind-agnostic: `body(param)` is spelled in the target kind's parameter. */
 interface Candidate {
@@ -455,6 +461,13 @@ for (const l of labels.slice(0, 3)) {
     add(FILTER, `elements labelled ${l} with a ${name} over ${n}`, (p) => `${p}.Label == "${l}" && ${p}.TryGetProperty(out int ${name}, "${name}") && ${name} > ${n}`, "label-and-prop");
   }
 }
+// Parenthesized OR-then-AND (captured-feedback batch 1: field drafts left `a || b && c`
+// unparenthesized, so the first label alternative escaped the property restriction).
+for (const [a, b] of [["product", "company"], ["person", "car"]] as [string, string][]) {
+  add(FILTER, `elements labelled ${a} or ${b} with a rank over 5`,
+    (p) => `(${p}.Label == "${a}" || ${p}.Label == "${b}") && ${p}.TryGetProperty(out int rank, "rank") && rank > 5`,
+    "label-or-and-prop");
+}
 for (const n of [1, 2, 3]) {
   add(FILTER, `elements with more than ${n} properties`, (p) => `${p}.GetPropertyCount() > ${n}`, "prop-count");
 }
@@ -503,6 +516,22 @@ for (const l of labels.slice(0, 3)) {
 for (const el of edgeLabels.slice(0, 3)) {
   add(["EdgeFilter"], `edges labelled ${el}`, (p) => `${p}.Label == "${el}"`, "edge-label");
 }
+// Edge TYPE selection via the built-in EdgePropertyId (captured-feedback batch 1: EdgeFilter
+// went 0/5 in the field - drafts hallucinated `e.EdgeType` / a "type" property or silently
+// dropped the restriction; the member had zero training rows). Type != label since feature
+// edge-type-vs-label. Constants stay DISJOINT from the eval rows' (SUPPLIES, trusts, likes).
+const edgeTypes = ["friend", "colleague", "PURCHASED"];
+for (const et of edgeTypes) {
+  add(["EdgeFilter"], `edges of the ${et} type`, (p) => `${p}.EdgePropertyId == "${et}"`, "edge-type-eq");
+  add(["EdgeFilter"], `only edges under the ${et} edge type`, (p) => `${p}.EdgePropertyId == "${et}"`, "edge-type-eq");
+}
+// Type restriction + property predicate in one fragment (the exact failed phrasing class:
+// "TRANSACTED_WITH edges where the amount is greater than ...").
+for (const [et, n] of [["PURCHASED", 500], ["colleague", 3]] as [string, number][]) {
+  add(["EdgeFilter"], `${et} edges with an amount above ${n}`,
+    (p) => `${p}.EdgePropertyId == "${et}" && ${p}.TryGetProperty(out double amount, "amount") && amount > ${dbl(n)}`,
+    "edge-type-and-prop");
+}
 
 // EdgePropertyFilter (the parameter is a bare string; no TryGetProperty here)
 for (const el of edgeLabels) {
@@ -538,6 +567,30 @@ for (const name of edgeCostProps) {
     add(["EdgeCost"], `use the ${name} property as the cost, defaulting to ${def}`, (p) => `${p}.TryGetProperty(out double ${name}, "${name}") ? ${name} : ${def}`, "ec-weight-default");
   }
 }
+// Field phrasing "based on X, falling back to D" with snake_case properties (captured-feedback
+// batch 1: the VertexCost drafts dropped the property-name argument or malformed the ternary).
+for (const name of ["risk_score", "load_factor"]) {
+  for (const def of ["1.0", "0.5"]) {
+    add(["VertexCost"], `cost based on the ${name} property, falling back to ${def} if not present`,
+      (p) => `${p}.TryGetProperty(out double ${name}, "${name}") ? ${name} : ${def}`,
+      "vc-prop-default");
+  }
+}
+// Baseline-plus-penalty: the ternary must be parenthesized under `+` (batch 1: the
+// unparenthesized `1.0 + cond ? x : y` draft was down-voted, its parenthesized retry up-voted).
+for (const [base, extra, prop] of [["1.0", "5.0", "flagged"], ["0.5", "2.5", "toll"]] as [string, string, string][]) {
+  add(["EdgeCost"], `a baseline cost of ${base} plus an extra ${extra} if the edge has a ${prop} property`,
+    (p) => `${base} + (${p}.TryGetProperty(out double ${prop}, "${prop}") ? ${extra} : 0.0)`,
+    "ec-additive-ternary");
+}
+// Cost by edge TYPE (batch 1: the field draft switched on a hallucinated "type" property -
+// the built-in EdgePropertyId is the switch subject).
+add(["EdgeCost"], "cost 1.0 for edges under the friend edge type, 5.0 for colleague, and 20.0 for others",
+  (p) => `${p}.EdgePropertyId switch { "friend" => 1.0, "colleague" => 5.0, _ => 20.0 }`,
+  "ec-type-switch");
+add(["EdgeCost"], "edges of the PURCHASED type cost 0.5, all others 10.0",
+  (p) => `${p}.EdgePropertyId == "PURCHASED" ? 0.5 : 10.0`,
+  "ec-type-ternary");
 add(["VertexCost"], `vertex cost equal to its number of outgoing edges`, (p) => `${p}.GetOutDegree()`, "vc-outdegree");
 add(["VertexCost"], `vertex cost equal to its total degree`, (p) => `${p}.GetOutDegree() + ${p}.GetInDegree()`, "vc-degree-sum");
 
@@ -683,11 +736,15 @@ async function main() {
     }
   }
 
-  // Per-kind coverage (spec FT-3): every fragment kind must be represented.
+  // Per-kind coverage (spec FT-3): every fragment kind a slot can request must be
+  // represented. GraphElementFilter is exempt: it is deliberately trained at zero rows
+  // (see the FILTER comment above).
   const perKind = Object.fromEntries(
     (Object.keys(KIND_INFO) as DelegateKind[]).map((k) => [k, kept.filter((r) => r.delegateKind === k).length]),
   );
-  const missing = Object.entries(perKind).filter(([, n]) => n === 0).map(([k]) => k);
+  const missing = Object.entries(perKind)
+    .filter(([k, n]) => n === 0 && k !== "GraphElementFilter")
+    .map(([k]) => k);
   if (missing.length > 0) {
     throw new Error(`No valid rows for kind(s): ${missing.join(", ")} - fix templates or the validator.`);
   }

@@ -168,6 +168,22 @@
       "reference": "return (e) => e.TryGetProperty(out double distance, \"distance\") ? distance : 2.5;",
       "mustMatch": ["\"distance\"", "2\\.5"],
       "mustNotMatch": []
+    },
+    {
+      "id": "ef-edge-type",
+      "kind": "EdgeFilter",
+      "intent": "edges whose edge type is SUPPLIES",
+      "reference": "return (e) => e.EdgePropertyId == \"SUPPLIES\";",
+      "mustMatch": ["EdgePropertyId", "\"SUPPLIES\""],
+      "mustNotMatch": ["EdgeType", "EDGETYPE", "TryGetProperty", "\\.Label"]
+    },
+    {
+      "id": "ec-edge-type-switch",
+      "kind": "EdgeCost",
+      "intent": "cost 1.0 for edges under the trusts EdgePropertyId, 5.0 for likes, and 20.0 for others",
+      "reference": "return (e) => e.EdgePropertyId switch { \"trusts\" => 1.0, \"likes\" => 5.0, _ => 20.0 };",
+      "mustMatch": ["EdgePropertyId", "\"trusts\"", "\"likes\"", "20"],
+      "mustNotMatch": ["TryGetProperty", "EdgeType", "EDGETYPE"]
     }
   ]
 }
