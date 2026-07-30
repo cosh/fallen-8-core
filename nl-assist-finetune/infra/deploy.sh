@@ -78,6 +78,16 @@ ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-${detected_ip:+$detected_ip/32}}"
 ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-*}"
 [ "$ALLOWED_SSH_CIDR" = "*" ] && echo "WARNING: could not detect your public IP; opening SSH to 0.0.0.0/0 (key-only auth). Set ALLOWED_SSH_CIDR to restrict." >&2
 
+# Train-only (no PUBLISH_PREFIX) + self-destruct on success = the VM deletes the ONLY copy of
+# the trained models (exactly this lost a paid run on 2026-07-30). Refuse the combination
+# before any money is spent; bootstrap re-checks it on the VM.
+if [ -z "$PUBLISH_PREFIX" ] && [ "$DESTROY_ON_FINISH" = "1" ]; then
+  echo "ERROR: PUBLISH_PREFIX is empty while DESTROY_ON_FINISH=1 - a successful run would self-destruct" >&2
+  echo "the only copy of the trained models. Set PUBLISH_PREFIX=<your-ollama-namespace> (with the" >&2
+  echo "registered key at ~/.ollama/id_ed25519), or DESTROY_ON_FINISH=0 for a deliberate train-only run." >&2
+  exit 1
+fi
+
 SUB="$(az account show --query id -o tsv)"
 if [ "${KEEP_RG:-0}" = "1" ]; then RG="${F8_RG:-rg-f8-finetune}"; else RG="${F8_RG:-rg-f8-finetune-$(openssl rand -hex 3)}"; fi
 
