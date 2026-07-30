@@ -172,6 +172,24 @@ if [ -n "$PUBLISH_PREFIX" ]; then
   step "half MUST be registered at https://ollama.com/settings/keys (the VM preflight enforces this)."
 fi
 
+# FL-3: carry the box-local consolidated feedback (dataset/captured.jsonl - gitignored, so the
+# VM's clone can never contain it; human judgments are not reproducible there) into the run.
+# train_lora.py folds it in automatically once it sits next to train.jsonl. gzip+b64 because the
+# rows share near-identical prompts (compresses ~10x) and ARM caps customData at ~64KB.
+captured_file=""
+CAPTURED_SRC="$HERE/../dataset/captured.jsonl"
+if [ -s "$CAPTURED_SRC" ]; then
+  CAPTURED_B64="$(gzip -c "$CAPTURED_SRC" | b64)"
+  captured_file="  - path: /opt/f8/captured.jsonl
+    permissions: '0644'
+    encoding: gz+b64
+    content: ${CAPTURED_B64}
+"
+  step "carrying $(wc -l < "$CAPTURED_SRC" | tr -d '[:space:]') consolidated feedback row(s) (dataset/captured.jsonl) to the VM."
+else
+  step "no dataset/captured.jsonl on this box - the VM trains on the generated dataset only."
+fi
+
 CLOUD_INIT="$(cat <<EOF
 #cloud-config
 write_files:
@@ -196,7 +214,7 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${TEARDOWN_B64}
-${ollama_files}  - path: /etc/systemd/system/f8-finetune.service
+${ollama_files}${captured_file}  - path: /etc/systemd/system/f8-finetune.service
     permissions: '0644'
     content: |
       [Unit]

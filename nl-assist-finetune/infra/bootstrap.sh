@@ -204,6 +204,15 @@ log "apiApp healthy."
 
 cd "$WORK/repo/nl-assist-finetune"
 
+# FL-3: consolidated feedback captures injected by deploy.sh (dataset/ is gitignored, so the
+# clone can never contain them). train_lora.py folds dataset/captured.jsonl in automatically
+# once it sits next to train.jsonl.
+if [ -s /opt/f8/captured.jsonl ]; then
+  mkdir -p dataset
+  install -m 644 /opt/f8/captured.jsonl dataset/captured.jsonl
+  log "installed $(wc -l < dataset/captured.jsonl) consolidated feedback row(s) into dataset/captured.jsonl."
+fi
+
 # Build the venv ONCE - it is variant-agnostic (same torch/deps for both the mini and the 14B).
 PYTHON="$PY313" ./run.sh deps || fail "run.sh deps failed" 30
 
