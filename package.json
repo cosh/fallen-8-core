@@ -14,6 +14,6 @@
     "env:status": "docker compose -f docker-compose.yml -f docker-compose.observability.yml ps && node scripts/env-info.js"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1"
+    "@playwright/test": "^1.62.1"
   }
 }
