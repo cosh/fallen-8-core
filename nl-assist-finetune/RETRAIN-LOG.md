@@ -20,7 +20,7 @@ required dataset/scenario changes, prompt/eval impact, and `Closed by:` once abs
 
 ---
 
-## 2026-07-22 — subgraph-typed-filters — PENDING
+## 2026-07-22 — subgraph-typed-filters — CLOSED
 
 **Contract change:** every subgraph filter slot is typed now. Top-level
 `vertexFilter`/`edgeFilter` are `VertexFilter`/`EdgeFilter` kinds (`(VertexModel v)` /
@@ -41,9 +41,28 @@ longer represent a real slot.
 endpoint, UI kind table, engine delegate) — trigger documented in
 `features/done/subgraph-typed-filters/spec.md`.
 
-**Closed by:** —
+**Tooling wired 2026-07-30 (branch feature/retrain-log-drain-prep; not yet a fine-tune
+RUN):** `dataset-gen/generate.ts` FILTER candidates now target the typed kinds only
+(GraphElementFilter trains at zero rows, exempted from the FT-3 coverage gate with a
+pointer at the removal trigger); `eval/fixture.ts` submits filters in the typed slots' own
+parameters (v/e), dropping the stale GraphElementFilter mechanism comment - typed slots
+make VertexModel/EdgeModel-only members (GetOutDegree, TargetVertex, EdgePropertyId)
+element-set evaluable, so vf-outdegree and ef-target-person gain real semantic verdicts.
+The gef-* eval rows stay (held-out sets only grow by hand; the kind still validates).
+Typed-member scenarios in top-level slots: degree and SourceVertex/TargetVertex rows
+already existed (out-degree/in-degree/degree-sum, edge-source-label/edge-target-label);
+batch 1 below adds the EdgePropertyId rows.
 
-## 2026-07-25 — plugin-registration — PENDING
+**Eval (2026-07-30, phi4-f8-mini v3):** typed-member rows pass and the FT-8 gate now
+element-set-evaluates `vf-outdegree`/`ef-target-person`; the accepted cost surfaced as
+the `gef-label-or` compile miss (GEF trains at zero rows; no slot requests it - the
+gef-* eval rows stay as the historical measure of that trade).
+
+**Closed by:** 2026-07-30 fine-tune (phi4-f8-mini v3 + phi4-f8, published
+`stoic_hellman_728/*`, trained on the Azure A10 runner from branch
+feature/retrain-log-drain-prep).
+
+## 2026-07-25 — plugin-registration — CLOSED
 
 **Contract change:** a new authoring surface lands in F8 Studio — **whole-type C# plugins**
 (feature plugin-registration), distinct from the existing fragment (filter/cost body) surface.
@@ -81,8 +100,16 @@ remains the operator's to execute against a live F8 + GPU):
 Deferred (honest): richer Path/SubGraph algorithm BODIES beyond the compiling skeleton are left to
 the operator's bootstrap + captured-feedback loop, where they are verified against the live
 validator; hand-authoring complex traversal/subgraph bodies here without a live compile gate would
-only add rows that silently drop. Entry stays PENDING until an actual fine-tune run absorbs these
-examples — close it then with the produced model version.
+only add rows that silently drop.
+
+Absorbed by the 2026-07-30 fine-tune (`stoic_hellman_728/phi4-f8` + `phi4-f8-mini`), measured on
+the held-out plugin set 2026-07-31 (Ryzen): **phi4-f8 67% whole-type compile** (both algorithm
+skeletons + 2 simple functions; the 2 misses are body-quality, tracked in the 07-26 entry
+below). **phi4-f8-mini 0%** - the whole-type shape is not learned at mini scale (dominant mode:
+`public Type PluginCategory = typeof(...)`, field `=` for `=>`, breaking the interface in 4/6
+drafts) - so plugin NL-drafting is effectively 14B-only for now; mini-scale shape work and a
+candidate deterministic `=`-to-`=>` repair in Studio (sibling of `ensureRequiredUsings`) are
+carried in the 07-26 entry.
 
 ## 2026-07-26 - plugin-registration (NL draft hardening) - PENDING
 
@@ -109,6 +136,18 @@ predicate function (a distinct phrasing from the seeds).
 usings (+ `System.Linq` when the body uses LINQ) via `pluginPrompt.ts:ensureRequiredUsings`, so the
 "could not be found" class is fixed today without the model. The retrain improves the body quality
 that deterministic import-repair cannot (the `out object` / malformed-expression mistakes).
+
+**Eval (2026-07-31, Ryzen, first run training plugin rows): NOT absorbed - stays PENDING.**
+Its own held-out row `fn-property-equals` fails on BOTH variants: phi4-f8 drops
+`using System.Linq` for a `.Where(...)` body (the exact class this entry's prompt fix pins;
+Studio's `ensureRequiredUsings` would repair it at runtime, the raw model does not) and invents
+a `.Properties` member; the mini's failure is upstream (whole-type shape, see the 07-25
+close-out). Next iteration, folded in from 07-25: mini-scale whole-type shape rows, the
+`PluginCategory = typeof(...)` field-for-property mode (candidate deterministic `=`-to-`=>`
+repair in Studio alongside `ensureRequiredUsings`), and Analytics surface grounding
+(`an-outdegree` invents `VertexId`/`definition.Graph`/a 1-arg `GraphAnalyticsResult` ctor -
+the contract's real members belong in the whole-type prompt the way `type-model.json` grounds
+fragments).
 
 **Closed by:** (open)
 
@@ -157,6 +196,15 @@ operator's, against a live F8 + GPU):**
   pinning the property-NAME side, so the two bare-string-predicate surfaces are held
   apart). `eval/fixture.ts` gains TechNova/Globex industry values and Bob's role so each
   new row selects a distinctive non-empty subset (the FT-8 semantic gate is not vacuous).
+
+**Eval (2026-07-30/31): absorbed by phi4-f8, partially by the mini - stays PENDING for the
+mini.** phi4-f8 passes all three rows (correct per-field idiom on `vf-compound-strings`).
+The mini learned the member (`vf-any-prop-contains` and `vf-value-not-name` PASS on both
+eval hosts) but `vf-compound-strings` fails unstably: on one host it drafts
+`AnyPropertyValueMatches` for the per-field intent (semantically equal, wrong idiom), on the
+other a non-compiling `GetAllProperties().TryGetValue` chain. Next iteration (mini): reweight
+`label-and-2str` and/or sharpen the prompt's steering between named-field and any-field
+phrasings.
 
 **Closed by:** (open)
 
@@ -209,5 +257,33 @@ Studio capture path; dedupe makes it harmless for training. Hallucinated vertex 
 (`GetCategory()`, `IsInStock()`) are the known invent-a-member mode the compile gate
 already catches. The Tech/Solutions compound-string down is the target phrasing of the
 element-fulltext-match entry above - covered there, not re-litigated.
+
+**Action 2 wired 2026-07-30 (branch feature/retrain-log-drain-prep; the fine-tune RUN
+remains the operator's):** `dataset-gen/generate.ts` rows `edge-type-eq`,
+`edge-type-and-prop`, `ec-type-switch`, `ec-type-ternary`, `vc-prop-default`,
+`label-or-and-prop`, `ec-additive-ternary` (training constants
+friend/colleague/PURCHASED/risk_score/... stay disjoint from the eval constants).
+Held-out eval rows `ef-edge-type` (the "edge type" phrasing tempts EdgeType/EDGETYPE;
+the fixture's new SUPPLIES edge carries a label that DIFFERS from its type, so the FT-8
+gate separates the two surfaces) and `ec-edge-type-switch` (regex proxy - cost kinds have
+no element-set mapping). The keep-every-clause rule landed in BOTH
+`buildGenerationPrompt`'s variant turn (the captured drops actually happened across
+ranked drafts, not only refines) and `buildRefinePrompt`; `nl/prompt.ts` is a drift-hash
+source, so the next generate run regenerates the meta. Deferred (honest): refine-SHAPED
+dataset rows - the corpus is generation-shaped, and the prompt rule plus the
+captured-feedback loop cover the failure until a refine corpus is designed deliberately.
+
+**Eval (2026-07-30/31): absorbed by phi4-f8, NOT by the mini - stays PENDING for the
+mini.** phi4-f8 passes both rows exactly (`e.EdgePropertyId == "SUPPLIES"`, the
+`EdgePropertyId switch`). The mini still drafts the hallucinated `EdgeType` on
+`ef-edge-type` (both eval hosts) and mixes `TryGetProperty` into the switch on
+`ec-edge-type-switch`; 8 edge-type rows among 330 did not overcome the prior at mini
+scale. Root-cause hypothesis for the next iteration: the member's doc in
+`type-model.json` ("The edge-property id this edge belongs to.") never contains the word
+TYPE, so intents phrased "edge type" have no lexical bridge to `EdgePropertyId` - reword
+the doc (say "the edge TYPE" explicitly), add an EdgePropertyId snippet, and boost the
+edge-type rows (count and phrasing/casing variety). The cost-fallback shape holds on its
+existing held-out rows (`ec-weight-default`, `ec-distance` pass); the precedence and
+vc-prop-default classes have no dedicated held-out rows and are pinned only by training.
 
 **Closed by:** (open)

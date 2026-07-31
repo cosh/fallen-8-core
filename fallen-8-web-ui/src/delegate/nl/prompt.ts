@@ -103,11 +103,13 @@ export function buildGenerationPrompt(
   // (nl-assist-ux FR-8).
   const user = [
     `Write the ${kind} fragment for: ${intent}`,
+    // "Different" must not mean "weaker": captured field drafts (batch 1, 2026-07-29)
+    // made variants distinct by silently dropping a condition the request stated.
     ...(priorDrafts.length > 0
       ? [
           `Already drafted for this request (do NOT repeat these):\n${priorDrafts
             .map((draft) => `- ${draft}`)
-            .join("\n")}\nProduce a meaningfully different valid variant.`,
+            .join("\n")}\nProduce a meaningfully different valid variant. It must still satisfy the COMPLETE request - never drop a condition the request states.`,
         ]
       : []),
   ].join("\n\n");
@@ -133,7 +135,8 @@ export function buildRefinePrompt(
     "Compiler errors:",
     list,
     // Small models rarely restructure from bare diagnostics; restate the shape rule.
-    `Fix it. The fragment must stay a single ${info.lambdaShape} lambda calling members directly on "${info.parameterName}" - no inline-invoked lambdas${info.parameterType !== "string" ? " (a predicate passed as a member argument is fine)" : ""}. Output ONLY the corrected C# fragment, no prose, no markdown.`,
+    // Keep-every-clause: field refine attempts "fixed" errors by deleting the failing check.
+    `Fix it. The fragment must stay a single ${info.lambdaShape} lambda calling members directly on "${info.parameterName}" - no inline-invoked lambdas${info.parameterType !== "string" ? " (a predicate passed as a member argument is fine)" : ""}. Keep every condition the request states - repair the code, do not delete checks. Output ONLY the corrected C# fragment, no prose, no markdown.`,
   ].join("\n");
 }
 

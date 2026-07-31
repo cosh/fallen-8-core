@@ -134,6 +134,11 @@ for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
 # we injected and fail FAST (VM kept, no .done) BEFORE the ~30-min driver install and ~40-min
 # train - not after. (This checks the daemon uses OUR key; run.sh's post-push manifest check is
 # the final authority that the upload actually landed.)
+# The inverse guard (deploy.sh checks it too; re-checked here for direct/manual runs): train-only
+# + self-destruct would delete the only copy of the models on success (the 2026-07-30 loss).
+if [ -z "${PUBLISH_PREFIX:-}" ] && [ "$DESTROY_ON_FINISH" = "1" ]; then
+  fail "PUBLISH_PREFIX is empty while DESTROY_ON_FINISH=1 - a successful run would self-destruct the only copy of the trained models. Set PUBLISH_PREFIX, or DESTROY_ON_FINISH=0 for a deliberate train-only run." 32
+fi
 if [ -n "${PUBLISH_PREFIX:-}" ]; then
   [ -s "$WORK/ollama_id_ed25519" ] || fail "PUBLISH_PREFIX=$PUBLISH_PREFIX is set but no Ollama signing key was injected (deploy.sh OLLAMA_KEY_FILE). Refusing a ~40-min train that cannot publish." 32
   if [ -f "$WORK/ollama_id_ed25519.pub" ] && [ -n "${OLLAMA_HOME:-}" ] \
@@ -203,6 +208,15 @@ curl -sf http://localhost:5000/status >/dev/null 2>&1 || fail "apiApp did not be
 log "apiApp healthy."
 
 cd "$WORK/repo/nl-assist-finetune"
+
+# FL-3: consolidated feedback captures injected by deploy.sh (dataset/ is gitignored, so the
+# clone can never contain them). train_lora.py folds dataset/captured.jsonl in automatically
+# once it sits next to train.jsonl.
+if [ -s /opt/f8/captured.jsonl ]; then
+  mkdir -p dataset
+  install -m 644 /opt/f8/captured.jsonl dataset/captured.jsonl
+  log "installed $(wc -l < dataset/captured.jsonl) consolidated feedback row(s) into dataset/captured.jsonl."
+fi
 
 # Build the venv ONCE - it is variant-agnostic (same torch/deps for both the mini and the 14B).
 PYTHON="$PY313" ./run.sh deps || fail "run.sh deps failed" 30

@@ -33,6 +33,11 @@ end.
   half is registered at <https://ollama.com/settings/keys>. Without it the run still trains, it
   just skips the push (and the models are lost on teardown).
 
+**Feedback captures travel automatically** (FL-3): if `../dataset/captured.jsonl` exists on
+your box (the output of `feedback/consolidate.ts` — gitignored, so the VM's clone can never
+contain it), `deploy.sh` injects it and the VM trains with it; otherwise the VM trains on the
+generated dataset only (deploy prints which).
+
 ## Run it
 
 ```bash

@@ -112,6 +112,13 @@ dataset() {
     return 0
   fi
   log "dataset (phase 2): generating (needs Node + apiApp)"
+  # The generator imports the web UI's SHIPPING prompt modules (that is the grounding), whose
+  # import chain needs runtime deps (e.g. zustand) from fallen-8-web-ui/node_modules - absent
+  # on a fresh clone such as the Azure VM. Install them once.
+  if [ ! -d "$REPO/fallen-8-web-ui/node_modules" ]; then
+    log "dataset: installing fallen-8-web-ui deps (fresh clone)"
+    (cd "$REPO/fallen-8-web-ui" && npm ci)
+  fi
   (cd "$REPO" && npx tsx nl-assist-finetune/dataset-gen/generate.ts)
 }
 
