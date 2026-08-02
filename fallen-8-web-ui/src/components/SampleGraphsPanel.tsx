@@ -38,6 +38,7 @@ import {
   type LoadStep,
 } from "../lib/sampleLoader";
 import { buildJsonlGraph } from "../lib/jsonlGraph";
+import { CANVAS_ELEMENT_CAP } from "../lib/canvasCap";
 import { describeGithubSbomFailure, sbomToGraph, type SpdxSbom } from "../lib/sbomGraph";
 import { importBulk, tabulaRasa, getGraph } from "../api/endpoints";
 import { invalidateInstanceQueries } from "../api/queries";
@@ -162,7 +163,7 @@ export function SampleGraphsPanel() {
       setStep("importing");
       await importBulk(instance, new Blob([jsonl]));
       setStep("rendering");
-      const graph = (await getGraph(instance, 20_000)) ?? { vertices: [], edges: [] };
+      const graph = (await getGraph(instance, CANVAS_ELEMENT_CAP)) ?? { vertices: [], edges: [] };
       return { repo, graph, vertices: vertices.length, edges: edges.length, ecosystemCounts };
     },
     onSuccess: ({ repo, graph, vertices, edges, ecosystemCounts }) => {

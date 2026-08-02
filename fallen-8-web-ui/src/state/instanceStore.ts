@@ -144,6 +144,19 @@ export function buildCanvasModel(
   return { nodes, edges: edgeMap };
 }
 
+/**
+ * What the last "Show whole graph" load fetched vs the namespace's true counts (feature
+ * canvas-view-controls FR-3). Persisted alongside the canvas it describes, so the honest
+ * truncation notice survives leaving and returning; cleared with the canvas. Only set
+ * when something was actually truncated.
+ */
+export interface WholeGraphTruncation {
+  fetchedVertices: number;
+  fetchedEdges: number;
+  totalVertices: number;
+  totalEdges: number;
+}
+
 export interface ResultSet {
   id: string;
   title: string;
@@ -349,6 +362,7 @@ export interface WorkspaceState {
   canvasEdges: Record<number, CanvasEdge>;
   styleConfig: StyleConfig;
   pathOverlay: PathREST | null;
+  wholeGraphTruncation: WholeGraphTruncation | null;
   resultSets: ResultSet[];
   pathDraft: PathDraft;
   queryDraft: QueryDraft;
@@ -360,6 +374,7 @@ export interface WorkspaceState {
   mergeIntoCanvas: (vertices: VertexREST[], edges: EdgeREST[]) => void;
   removeFromCanvas: (kind: "node" | "edge", id: number) => void;
   clearCanvas: () => void;
+  setWholeGraphTruncation: (truncation: WholeGraphTruncation | null) => void;
   setStyleConfig: (patch: Partial<StyleConfig>) => void;
   setPathOverlay: (path: PathREST | null) => void;
   addResultSet: (title: string, elementIds: number[]) => void;
@@ -387,6 +402,7 @@ function createWorkspaceStore(instanceId: string) {
         canvasEdges: {},
         styleConfig: { ...DEFAULT_STYLE_CONFIG },
         pathOverlay: null,
+        wholeGraphTruncation: null,
         resultSets: [],
         pathDraft: { ...DEFAULT_PATH_DRAFT },
         queryDraft: { ...DEFAULT_QUERY_DRAFT },
@@ -423,7 +439,15 @@ function createWorkspaceStore(instanceId: string) {
             return { canvasNodes, canvasEdges };
           }),
 
-        clearCanvas: () => set({ canvasNodes: {}, canvasEdges: {}, pathOverlay: null }),
+        clearCanvas: () =>
+          set({
+            canvasNodes: {},
+            canvasEdges: {},
+            pathOverlay: null,
+            wholeGraphTruncation: null,
+          }),
+
+        setWholeGraphTruncation: (wholeGraphTruncation) => set({ wholeGraphTruncation }),
 
         setStyleConfig: (patch) =>
           set((s) => ({ styleConfig: { ...s.styleConfig, ...patch } })),

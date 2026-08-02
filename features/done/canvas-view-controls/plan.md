@@ -29,11 +29,13 @@ and spec + plan are the record here.
 - Button "Show whole graph" in the top-left toolbar strip (before "Clear view"),
   disabled and labeled "Loading..." while pending. Merge-only: no replace mode, no
   cancellation; a clear racing an in-flight load is resolved by clicking clear again.
-- Truncation notice derived from the mutation result: when status counts exceed the
-  fetched counts, render "showing the first X of Y vertices" (and/or edges) next to
-  the element count. It stays until the next load or a clear on this visit; it is
-  mutation state, not persisted store state (deliberate: the element count chip is
-  the persistent truth).
+- Truncation notice: when status counts exceed the fetched counts, render "showing the
+  first X of Y vertices" (and/or edges) next to the element count. It stays until the
+  next load or a clear. Amended in council review: the record lives in the persisted
+  workspace store (`wholeGraphTruncation`, cleared by `clearCanvas`), not in mutation
+  state as first planned - the canvas working set is persisted, so an ephemeral notice
+  would silently vanish on revisit while the truncated canvas remained, exactly the
+  dishonesty FR-3 forbids.
 - Fetch failure: `ErrorBox` rendered under the toolbar strip; canvas contents are
   untouched because the merge only happens after a successful fetch.
 

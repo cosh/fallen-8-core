@@ -85,7 +85,7 @@ Stored queries are not managed here: a stored query is unique to its scenario (`
 
 ## Canvas
 
-Renders exactly what you send from the Browser, Query, Path, Subgraph, or Analytics screens — it never auto-loads the whole graph. The style panel is sectioned:
+Renders exactly what you send from the Browser, Query, Path, Subgraph, or Analytics screens; it never loads anything on its own. Two toolbar actions control that working set, both view-only (the database is never touched). **Show whole graph** is the one explicit way to put everything on the canvas in a single click: it merges up to 20,000 vertices and 20,000 edges into the view, and when the namespace is bigger an honest "showing the first X of Y" notice appears next to the element count instead of silently pretending the graph is complete. **Clear view** empties the working set entirely: nodes, edges, the path overlay, and the current selection; your style configuration and the other screens' state survive. The style panel is sectioned:
 
 ![Canvas style panel: node color and size driven by a graph property, each with an editable property-name field](../../assets/images/screen-canvas-style.png)
 
