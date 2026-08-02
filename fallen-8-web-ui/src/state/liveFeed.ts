@@ -27,6 +27,8 @@ import { useEffect, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { InstanceConfig } from "../instances/types";
 import { getInstanceStore } from "./instanceStore";
+import { getEventFeed } from "./eventFeed";
+import { matchesFilter } from "./feedFilter";
 import { getEdge } from "../api/endpoints";
 import { streamChanges, type ChangeEvent } from "../api/changefeed";
 
@@ -91,6 +93,12 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
 
   const onEvent = (event: ChangeEvent) => {
     const state = store.getState();
+
+    // Tee into the Events panel's buffer (feature studio-event-feed) - the panel rides
+    // this one stream; the interest filter only decides unread accounting here.
+    getEventFeed(instance.id)
+      .getState()
+      .record(event, matchesFilter(event, state.feedFilter));
 
     switch (event.kind) {
       case "vertexRemoved":
@@ -162,6 +170,8 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
   };
 
   const onResync = (event: ChangeEvent) => {
+    // The panel lists resyncs as gap markers; they flag the bell instead of counting.
+    getEventFeed(instance.id).getState().record(event, false);
     // Continuity lost: re-fetch the visible state - every query this instance owns.
     if (timer !== null) {
       clearTimeout(timer);
@@ -235,6 +245,16 @@ export function useLiveChangeFeed(instance: InstanceConfig | null): LiveFeedStat
 
     void streamChanges(instance, {
       signal: controller.signal,
+      // Catch-up contract (feature studio-event-feed): resume from the last event this
+      // namespace's feed saw, so returning to it replays what was missed from the server
+      // ring - or says so in-band with resync(seekOutOfRange). Null on the first
+      // subscribe of a session: the stream starts live.
+      since: getEventFeed(instance.id).getState().lastEventId ?? undefined,
+      // Re-resolved per frame, NEVER captured: a purge (factory reset, namespace drop)
+      // replaces the store under this key while the stream is still up, and a captured
+      // reference would keep writing the position to the detached store - the next
+      // resubscribe would then silently skip catch-up.
+      onFrameId: (id) => getEventFeed(instance.id).getState().setLastEventId(id),
       onEvent: handlers.onEvent,
       onResync: handlers.onResync,
       onOpen: () => setStatus("live"),

@@ -34,6 +34,7 @@
 import type { InstanceConfig } from "../instances/types";
 import type { GraphREST, StatusREST } from "../api/types";
 import { createIndex, getGraph, importBulk, tabulaRasa } from "../api/endpoints";
+import { CANVAS_ELEMENT_CAP } from "./canvasCap";
 import type { SampleEmbeddingInfo, SampleManifestEntry, SamplesManifest } from "./samples";
 
 /**
@@ -47,9 +48,6 @@ export function samplesBaseUrl(): string {
   const override = (import.meta.env.VITE_F8_SAMPLES_BASE as string | undefined)?.trim();
   return (override || "/samples").replace(/\/$/, "");
 }
-
-/** Upper bound on elements re-read into the canvas after import (all file samples fit). */
-const CANVAS_ELEMENT_CAP = 20_000;
 
 export async function fetchSamplesManifest(
   baseUrl: string,

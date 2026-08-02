@@ -30,7 +30,8 @@ import { GraphCanvas, type ElementRef } from "../canvas/GraphCanvas";
 import { StylePanel } from "../canvas/StylePanel";
 import { buildLegend, knownPropertyKeys } from "../canvas/styleEngine";
 import { GRADIENT_HIGH, GRADIENT_LOW } from "../canvas/styling";
-import { getEdge, getGraphElement } from "../api/endpoints";
+import { getEdge, getGraph, getGraphElement, getStatus } from "../api/endpoints";
+import { CANVAS_ELEMENT_CAP } from "../lib/canvasCap";
 import { EXPAND_EDGE_CAP, fetchVertexNeighborhood } from "../lib/neighborhood";
 import { previewVector } from "../lib/embeddingProperties";
 import { DISPLAY_CAP } from "../lib/truncate";
@@ -38,10 +39,13 @@ import { ErrorBox } from "../components/ErrorBox";
 import { Truncated } from "../components/Truncated";
 
 /**
- * Graph canvas screen (FR-18/19/20 + studio-canvas-viz): renders the active instance's
- * canvas store in 2D or 3D, a sectioned style panel (data-driven color/size/image/width,
- * layouts, render toggles), a color legend, selection-driven detail panel, remove-from-view
- * (view only!), and expand-on-demand which merges a vertex's edges + neighbors.
+ * Graph canvas screen (FR-18/19/20 + studio-canvas-viz + canvas-view-controls): renders the
+ * active instance's canvas store in 2D or 3D, a sectioned style panel (data-driven
+ * color/size/image/width, layouts, render toggles), a color legend, selection-driven detail
+ * panel, remove-from-view (view only!), expand-on-demand which merges a vertex's edges +
+ * neighbors, and the working-set controls: "Show whole graph" (an explicit, capped,
+ * merge-only load; the canvas still never auto-loads anything) and "Clear view" (empties
+ * the working set including the selection; style config and result sets survive).
  */
 export function CanvasScreen() {
   const { instance, store } = useInstanceStore();
@@ -54,6 +58,8 @@ export function CanvasScreen() {
   const removeFromCanvas = store((s) => s.removeFromCanvas);
   const clearCanvas = store((s) => s.clearCanvas);
   const setPathOverlay = store((s) => s.setPathOverlay);
+  const wholeGraphTruncation = store((s) => s.wholeGraphTruncation);
+  const setWholeGraphTruncation = store((s) => s.setWholeGraphTruncation);
 
   const [selected, setSelected] = useState<ElementRef | null>(null);
 
@@ -91,6 +97,45 @@ export function CanvasScreen() {
     },
   });
 
+  const wholeGraph = useMutation({
+    mutationFn: async () => {
+      // The merge happens only after BOTH fetches succeed, so a failed fetch leaves the
+      // canvas untouched.
+      const [graph, status] = await Promise.all([
+        getGraph(instance, CANVAS_ELEMENT_CAP),
+        getStatus(instance),
+      ]);
+      const g = graph ?? { vertices: [], edges: [] };
+      mergeIntoCanvas(g.vertices, g.edges);
+      const fetchedVertices = g.vertices.length;
+      const fetchedEdges = g.edges.length;
+      const totalVertices = status?.vertexCount ?? fetchedVertices;
+      const totalEdges = status?.edgeCount ?? fetchedEdges;
+      // The truncation record travels with the canvas it describes (persisted store state,
+      // see WholeGraphTruncation), so the honest notice survives leaving and returning.
+      // Fetched counts are the raw server payload, not the post-merge store, so stub nodes
+      // synthesized by buildCanvasModel never inflate them.
+      setWholeGraphTruncation(
+        totalVertices > fetchedVertices || totalEdges > fetchedEdges
+          ? { fetchedVertices, fetchedEdges, totalVertices, totalEdges }
+          : null,
+      );
+    },
+  });
+
+  const truncationNotice = useMemo(() => {
+    const t = wholeGraphTruncation;
+    if (!t) return null;
+    const parts: string[] = [];
+    if (t.totalVertices > t.fetchedVertices) {
+      parts.push(`${t.fetchedVertices.toLocaleString()} of ${t.totalVertices.toLocaleString()} vertices`);
+    }
+    if (t.totalEdges > t.fetchedEdges) {
+      parts.push(`${t.fetchedEdges.toLocaleString()} of ${t.totalEdges.toLocaleString()} edges`);
+    }
+    return parts.length > 0 ? `showing the first ${parts.join(" and ")}` : null;
+  }, [wholeGraphTruncation]);
+
   const elementCount = Object.keys(canvasNodes).length + Object.keys(canvasEdges).length;
 
   return (
@@ -103,21 +148,48 @@ export function CanvasScreen() {
           pathOverlay={pathOverlay}
           onSelect={setSelected}
         />
-        <div className="absolute top-2 left-2 flex items-center gap-2">
-          <span className="text-fg-dim text-[11px]">{elementCount} elements</span>
-          {pathOverlay && (
-            <button type="button" className="btn" onClick={() => setPathOverlay(null)}>
-              Clear path overlay
+        <div className="absolute top-2 left-2 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-fg-dim text-[11px]">{elementCount} elements</span>
+            {truncationNotice && (
+              <span className="text-warn text-[11px]" data-testid="whole-graph-truncation">
+                {truncationNotice}
+              </span>
+            )}
+            {pathOverlay && (
+              <button type="button" className="btn" onClick={() => setPathOverlay(null)}>
+                Clear path overlay
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn"
+              data-testid="show-whole-graph"
+              disabled={wholeGraph.isPending}
+              title={`Fetches up to ${CANVAS_ELEMENT_CAP.toLocaleString()} vertices and edges and merges them into this view. View only: the database is never touched.`}
+              onClick={() => wholeGraph.mutate()}
+            >
+              {wholeGraph.isPending ? "Loading…" : "Show whole graph"}
             </button>
-          )}
-          <button
-            type="button"
-            className="btn btn-danger"
-            disabled={elementCount === 0}
-            onClick={() => clearCanvas()}
-          >
-            Clear view
-          </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={elementCount === 0}
+              onClick={() => {
+                // Complete clear (canvas-view-controls FR-1): the selection is content too,
+                // so the detail panel returns to its empty hint. clearCanvas also drops the
+                // truncation record; the mutation reset dismisses a shown fetch error. A
+                // clear during an in-flight load cancels nothing (FR-5): the late merge
+                // lands together with its own truncation record.
+                clearCanvas();
+                setSelected(null);
+                wholeGraph.reset();
+              }}
+            >
+              Clear view
+            </button>
+          </div>
+          {wholeGraph.isError && <ErrorBox error={wholeGraph.error} />}
         </div>
         <div className="absolute bottom-2 left-2 space-y-0.5">
           {legend.kind === "gradient" ? (
@@ -168,7 +240,7 @@ export function CanvasScreen() {
             {!selected && (
               <div className="text-fg-faint">
                 Select a node or edge. Empty canvas? Send elements here from the browser,
-                query, path, or subgraph screens.
+                query, path, or subgraph screens, or show the whole graph.
               </div>
             )}
             {selected && detail.isPending && <div className="text-fg-faint">loading…</div>}

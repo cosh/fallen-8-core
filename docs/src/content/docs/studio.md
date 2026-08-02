@@ -7,13 +7,21 @@ F8 Studio is the browser UI for Fallen-8: a React single-page app the API app se
 
 ## Layout
 
-A fixed icon rail on the left switches screens; a top bar names the **active instance** (dropdown), the **active namespace** (dropdown), and the resulting endpoint prefix (`baseUrl → /ns/{ns}/*`), with a link to these docs plus live-feed and health chips pinned right. Every screen except Connect is locked until the active instance answers `GET /status` and the credential is authorized. Switching either instance or namespace remounts the current screen, so in-progress results never leak across contexts.
+A fixed icon rail on the left switches screens; a top bar names the **active instance** (dropdown), the **active namespace** (dropdown), and the resulting endpoint prefix (`baseUrl → /ns/{ns}/*`), with a link to these docs plus the events bell (below), live-feed and health chips pinned right. Every screen except Connect is locked until the active instance answers `GET /status` and the credential is authorized. Switching either instance or namespace remounts the current screen, so in-progress results never leak across contexts.
 
 Each screen's input form and the Canvas contents are remembered per instance-and-namespace: leaving a screen and returning restores exactly what you had entered. Fetched results are re-run on demand rather than persisted. Instance registrations and API keys live only in this browser's local storage.
 
 Connect, Save games, and Benchmark are Fallen-8-level (they can span namespaces); the rest operate on the active namespace and live under `/q/{ns}/…`.
 
 A low-key **Replay intro** button is pinned to the bottom of the rail and is always available: it plays the first-run walkthrough (below) on demand.
+
+## Events
+
+![Events panel: the change-feed slide-over with live rows and the interest filter](../../assets/images/screen-events.png)
+
+The bell in the top bar is the [change feed](/fallen-8-core/change-feed/) made visible. Without being clicked, it counts the events matching your interest filter (display capped at 99+), and it switches to a warning when the stream lost continuity (a `resync`) while you weren't looking. Clicking it slides in the **Events panel**: the newest 100 events of the **active namespace**, newest first, live as they commit, from any client of the same instance (another tab, `curl`, an MCP agent). Each row shows the kind, the element id as a click-to-inspect link into the Browser, the label, the property key for property events, the edge type and endpoints for edge creations, the sequence number, and the commit time. Event payloads carry keys only, never property values; the link is how you reach the current value. `resync` entries render as gap markers with the reason (buffer overflow, graph replaced, catch-up position out of range, direct delegate write).
+
+The filter block speaks the REST grammar verbatim: **kinds**, **elements**, **labels**, and **keys** combine with AND across dimensions and OR within one, matching exactly and case-sensitively; an unlabeled element never matches a `labels` filter, and a `keys` filter hides creations/removals (only property events carry a key). Studio holds a single stream per namespace and applies the filter in the browser, so changing it is instant, applies to the badge as well as the list, and can reveal already-buffered events; the filter persists per instance and namespace. **Copy as REST** hands the configured filter over as the equivalent `GET /changefeed` query for `curl` or a service, never including the API key. Switching namespaces (or instances) and back resumes the stream from the last seen event, so what happened while you were away replays from the server's catch-up buffer; when it no longer can, a `resync` entry says so instead of silently skipping. The event list itself is session-only: a reload starts it empty, since the server keeps no readable history beyond its replay buffer.
 
 | Screen | Scope | Purpose |
 |---|---|---|
@@ -83,7 +91,7 @@ Stored queries are not managed here: a stored query is unique to its scenario (`
 
 ## Canvas
 
-Renders exactly what you send from the Browser, Query, Path, Subgraph, or Analytics screens — it never auto-loads the whole graph. The style panel is sectioned:
+Renders exactly what you send from the Browser, Query, Path, Subgraph, or Analytics screens; it never loads anything on its own. Two toolbar actions control that working set, both view-only (the database is never touched). **Show whole graph** is the one explicit way to put everything on the canvas in a single click: it merges up to 20,000 vertices and 20,000 edges into the view, and when the namespace is bigger an honest "showing the first X of Y" notice appears next to the element count instead of silently pretending the graph is complete. **Clear view** empties the working set entirely: nodes, edges, the path overlay, and the current selection; your style configuration and the other screens' state survive. The style panel is sectioned:
 
 ![Canvas style panel: node color and size driven by a graph property, each with an editable property-name field](../../assets/images/screen-canvas-style.png)
 
@@ -173,7 +181,7 @@ Studio degrades gracefully when a capability is off, but these features need ser
 | NL assist drafting (custom mode) | A reachable model backend the browser calls directly (`OLLAMA_ORIGINS` for a browser-direct Ollama) | [security.md](/fallen-8-core/security/) |
 | Text-in embedding, semantic search, text query vectors | Embedding provider enabled | [semantic-traversal.md](/fallen-8-core/semantic-traversal/) |
 | Stored-query invocation (Path / Subgraph) | Nothing (invocation is never gated) | [stored-queries.md](/fallen-8-core/stored-queries/) |
-| Live chip and push refreshes | Change feed enabled | [change-feed.md](/fallen-8-core/change-feed/) |
+| Live chip, push refreshes, the Events panel | Change feed enabled | [change-feed.md](/fallen-8-core/change-feed/) |
 | "Any GitHub repo" sample card | Internet access to GitHub's dependency graph | [samples.md](/fallen-8-core/samples/) |
 
 ## See also

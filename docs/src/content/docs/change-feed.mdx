@@ -7,6 +7,8 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 `GET /changefeed` streams every committed graph mutation as [Server-Sent Events](https://developer.mozilla.org/docs/Web/API/Server-sent_events), in commit order, over one long-lived `text/event-stream` connection. Each event is metadata about one mutation — ids, labels, the edge type, and property *keys*, never property values — with declarative server-side filtering and a bounded in-memory catch-up buffer. The whole client contract is: **fetch the state you display, then stream; on any `resync` event, re-fetch.**
 
+In F8 Studio the feed is visible as the [Events panel](/fallen-8-core/studio/#events): a bell in the top bar that counts filtered events live, opening onto the newest 100 with the same filter grammar.
+
 ## Endpoint
 
 | | |

@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { getEdge, getGraph, getGraphElement, getVertex } from "../api/endpoints";
@@ -98,6 +98,18 @@ export function BrowserScreen() {
     setBrowserDraft({ idInput: String(id), lookupKind: "graphelement" });
     runLookup("graphelement", id);
   };
+
+  // Consume a one-shot prefill (the Events panel's InspectLink, feature
+  // studio-event-feed) - same pattern as the Query screen's scanPrefill.
+  const inspectPrefill = store((s) => s.inspectPrefill);
+  const setInspectPrefill = store((s) => s.setInspectPrefill);
+  useEffect(() => {
+    if (inspectPrefill !== null) {
+      setBrowserDraft({ idInput: String(inspectPrefill), lookupKind: "graphelement" });
+      runLookup("graphelement", inspectPrefill);
+      setInspectPrefill(null);
+    }
+  }, [inspectPrefill, setInspectPrefill, setBrowserDraft]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
