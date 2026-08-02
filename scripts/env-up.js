@@ -67,6 +67,18 @@ function main() {
   files.push('-f', 'docker-compose.observability.yml');
   if (gpu) files.push('-f', 'docker-compose.gpu.yml');
 
+  // Unstructured ingestion (feature unstructured-ingestion): the docling-serve sidecar rides
+  // the "ingestion" profile, default ON like the rest of the environment. F8_INGESTION=false
+  // skips the ~4.4 GB image AND turns the capability off (the fallen8 service reads the same
+  // variable). env:down/logs/status always pass the profile, so a running sidecar is covered.
+  const ingestion = process.env.F8_INGESTION !== 'false';
+  const profiles = ingestion ? ['--profile', 'ingestion'] : [];
+  console.log(
+    ingestion
+      ? 'Ingestion is ON - the docling sidecar (document conversion, ~4.4 GB image) comes up.'
+      : 'F8_INGESTION=false - no docling sidecar; txt/md ingestion stays off too (capability disabled).'
+  );
+
   // The AI-agent MCP surface (feature mcp-server) starts with the rest of the environment on
   // http://localhost:8090 — anonymous + read-only for local dev. Securing it for an off-box
   // setup is env-var config on the f8-mcp service (F8_MCP_AUTH_MODE / F8_MCP_TOKEN / tier
@@ -74,7 +86,7 @@ function main() {
   // --remove-orphans: if a previous run used a different set of compose files, drop any
   // container no longer in this configuration, so a recreated f8-net never strands a stale
   // container on an old network id ("network ... not found").
-  const result = spawnSync('docker', ['compose', ...files, 'up', '-d', '--build', '--remove-orphans'], {
+  const result = spawnSync('docker', ['compose', ...files, ...profiles, 'up', '-d', '--build', '--remove-orphans'], {
     cwd: path.join(__dirname, '..'),
     stdio: 'inherit',
   });
