@@ -317,6 +317,29 @@ describe("streamChanges", () => {
     await done;
   });
 
+  it("reports every frame id through onFrameId (the caller's future catch-up position)", async () => {
+    const abort = new AbortController();
+    let stream!: MockStream;
+    stubFetch((_, init) => (stream = sseResponse(init?.signal)));
+
+    const ids: string[] = [];
+    const done = streamChanges(instance, {
+      signal: abort.signal,
+      onEvent: () => {},
+      onResync: () => {},
+      onFrameId: (id) => ids.push(id),
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+
+    stream.emit('id: e:1\nevent: vertexCreated\ndata: {"seq":1,"ts":"t","kind":"vertexCreated","element":"vertex","id":7}\n\n');
+    stream.emit('id: e:2\nevent: resync\ndata: {"seq":2,"ts":"t","kind":"resync","reason":"overflow"}\n\n');
+
+    // Both element events AND resyncs advance the position.
+    await vi.waitFor(() => expect(ids).toEqual(["e:1", "e:2"]));
+    abort.abort();
+    await done;
+  });
+
   it("reconnects with since=<last seen id> after a dropped stream (catch-up contract)", async () => {
     const abort = new AbortController();
     const streams: MockStream[] = [];

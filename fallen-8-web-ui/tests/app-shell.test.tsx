@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { InstanceConfig } from "../src/instances/types";
@@ -74,6 +74,7 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
 
 import { AppShell } from "../src/app/AppShell";
 import { SAME_ORIGIN_INSTANCE, useRegistry } from "../src/instances/registry";
+import { getEventFeed, resetEventFeedsForTests } from "../src/state/eventFeed";
 
 const STATUS: StatusREST = {
   vertexCount: 201,
@@ -239,5 +240,63 @@ describe("deep-link guard", () => {
     );
     expect(screen.getByTestId("screen")).toBeInTheDocument();
     expectLocked("nav-dashboard");
+  });
+});
+
+/**
+ * The Events bell (feature studio-event-feed): signals without being clicked. The active
+ * scope here is SAME_ORIGIN_INSTANCE + the "default" namespace, whose feed collapses onto
+ * the bare instance id. useLiveChangeFeed is mocked to "connecting" file-wide, so the
+ * bell renders its muted state unless the feed store says otherwise.
+ */
+describe("events bell", () => {
+  beforeEach(() => {
+    resetEventFeedsForTests();
+    statusMock.mockResolvedValue(STATUS);
+  });
+
+  it("renders muted (no badge) while the stream is not live and nothing is unread", () => {
+    renderShell();
+    const bell = screen.getByTestId("event-feed-bell");
+    expect(bell.className).toContain("opacity-60");
+    expect(screen.queryByTestId("event-feed-badge")).not.toBeInTheDocument();
+  });
+
+  it("shows the interest-filtered unread count, display capped at 99+", () => {
+    getEventFeed(SAME_ORIGIN_INSTANCE.id).setState({ unread: 3 });
+    renderShell();
+    expect(screen.getByTestId("event-feed-badge")).toHaveTextContent("3");
+
+    act(() => getEventFeed(SAME_ORIGIN_INSTANCE.id).setState({ unread: 150 }));
+    expect(screen.getByTestId("event-feed-badge")).toHaveTextContent("99+");
+    expect(screen.getByTestId("event-feed-bell").getAttribute("aria-label")).toBe(
+      "Events (99+ unread)",
+    );
+  });
+
+  it("treats an unseen resync as a distinct warning, not a +1", () => {
+    getEventFeed(SAME_ORIGIN_INSTANCE.id).setState({ resyncSinceOpen: true });
+    renderShell();
+    const bell = screen.getByTestId("event-feed-bell");
+    expect(bell.className).toContain("text-danger");
+    expect(screen.getByTestId("event-feed-resync-flag")).toBeInTheDocument();
+    expect(bell.title).toMatch(/continuity was lost/);
+  });
+
+  it("opens the Events panel; opening resets the unread count (visible = read)", async () => {
+    getEventFeed(SAME_ORIGIN_INSTANCE.id).setState({ unread: 2 });
+    renderShell();
+
+    fireEvent.click(screen.getByTestId("event-feed-bell"));
+
+    expect(await screen.findByTestId("event-feed-panel")).toBeInTheDocument();
+    expect(getEventFeed(SAME_ORIGIN_INSTANCE.id).getState().unread).toBe(0);
+    expect(screen.queryByTestId("event-feed-badge")).not.toBeInTheDocument();
+  });
+
+  it("is absent without an active instance", () => {
+    useRegistry.setState({ instances: [], activeId: null });
+    renderShell();
+    expect(screen.queryByTestId("event-feed-bell")).not.toBeInTheDocument();
   });
 });

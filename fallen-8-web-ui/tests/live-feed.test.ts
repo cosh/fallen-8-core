@@ -24,15 +24,33 @@
 // SOFTWARE.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { QueryClient } from "@tanstack/react-query";
-import { createLiveFeedHandlers } from "../src/state/liveFeed";
+import { createElement, type ReactNode } from "react";
+import { renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createLiveFeedHandlers, useLiveChangeFeed } from "../src/state/liveFeed";
 import {
   getInstanceStore,
   resetInstanceStoresForTests,
 } from "../src/state/instanceStore";
-import type { ChangeEvent } from "../src/api/changefeed";
+import { getEventFeed, resetEventFeedsForTests } from "../src/state/eventFeed";
+import type { ChangeEvent, StreamChangesOptions } from "../src/api/changefeed";
 import type { InstanceConfig } from "../src/instances/types";
 import type { VertexREST } from "../src/api/types";
+
+// The hook tests pin WHAT the stream is opened with (the since handoff); the stream
+// loop itself is covered in changefeed.test.ts, so it is the one thing mocked here.
+const streamChangesMock = vi.fn(
+  (_instance: InstanceConfig, _options: StreamChangesOptions): Promise<void> =>
+    new Promise(() => {}),
+);
+vi.mock("../src/api/changefeed", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/api/changefeed")>();
+  return {
+    ...original,
+    streamChanges: (instance: InstanceConfig, options: StreamChangesOptions) =>
+      streamChangesMock(instance, options),
+  };
+});
 
 /**
  * Live mode semantics (feature change-feed, spec §3.7): feed events become targeted
@@ -77,6 +95,7 @@ const flushDebounce = () => new Promise((resolve) => setTimeout(resolve, 5));
 describe("live feed handlers", () => {
   beforeEach(() => {
     resetInstanceStoresForTests();
+    resetEventFeedsForTests();
     window.localStorage.clear();
   });
 
@@ -282,5 +301,75 @@ describe("live feed handlers", () => {
     handlers.dispose();
     await flushDebounce();
     expect(invalidated).toEqual([]);
+  });
+
+  it("tees element events into the namespace's event feed with interest accounting", () => {
+    const { handlers } = makeHandlers();
+    const feed = getEventFeed(instance.id);
+
+    handlers.onEvent(event({ kind: "vertexCreated", element: "vertex", id: 1, label: "person" }));
+    expect(feed.getState().entries).toHaveLength(1);
+    expect(feed.getState().unread).toBe(1);
+
+    // Narrow the persisted interest filter to edges: the next vertex event still
+    // BUFFERS (the ring stores raw) but does not count as unread.
+    getInstanceStore(instance.id).getState().setFeedFilter({ elements: ["edge"] });
+    handlers.onEvent(event({ kind: "vertexCreated", element: "vertex", id: 2 }));
+    expect(feed.getState().entries).toHaveLength(2);
+    expect(feed.getState().unread).toBe(1);
+    handlers.dispose();
+  });
+
+  it("tees resyncs as buffered gap markers that flag the bell instead of counting", () => {
+    const { handlers } = makeHandlers();
+    const feed = getEventFeed(instance.id);
+
+    handlers.onResync(event({ kind: "resync", reason: "overflow" }));
+
+    expect(feed.getState().entries[0].event.kind).toBe("resync");
+    expect(feed.getState().unread).toBe(0);
+    expect(feed.getState().resyncSinceOpen).toBe(true);
+    handlers.dispose();
+  });
+});
+
+describe("useLiveChangeFeed catch-up handoff", () => {
+  beforeEach(() => {
+    resetInstanceStoresForTests();
+    resetEventFeedsForTests();
+    streamChangesMock.mockClear();
+    window.localStorage.clear();
+  });
+
+  function renderFeedHook() {
+    const client = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    return renderHook(() => useLiveChangeFeed(instance), { wrapper });
+  }
+
+  it("the first subscribe of a session starts live (no since)", async () => {
+    const { unmount } = renderFeedHook();
+    await vi.waitFor(() => expect(streamChangesMock).toHaveBeenCalledTimes(1));
+    expect(streamChangesMock.mock.calls[0][1].since).toBeUndefined();
+    unmount();
+  });
+
+  it("records every frame id and resubscribes from it (catch-up via since)", async () => {
+    const first = renderFeedHook();
+    await vi.waitFor(() => expect(streamChangesMock).toHaveBeenCalledTimes(1));
+
+    // The stream reports positions as frames arrive; the feed keeps the newest.
+    streamChangesMock.mock.calls[0][1].onFrameId?.("0b1e:41");
+    streamChangesMock.mock.calls[0][1].onFrameId?.("0b1e:42");
+    expect(getEventFeed(instance.id).getState().lastEventId).toBe("0b1e:42");
+    first.unmount();
+
+    // Leaving and returning (namespace switch and back): the next stream resumes
+    // from the stored position so the server ring replays what was missed.
+    const second = renderFeedHook();
+    await vi.waitFor(() => expect(streamChangesMock).toHaveBeenCalledTimes(2));
+    expect(streamChangesMock.mock.calls[1][1].since).toBe("0b1e:42");
+    second.unmount();
   });
 });

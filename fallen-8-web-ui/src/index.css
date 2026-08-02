@@ -79,6 +79,11 @@ body {
 .modal-center {
   @apply fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2;
 }
+/* A dialog docked to the right edge (the Events panel): same scrim and z-order, the
+   panel's rounding/border flattened where it meets the viewport edge. */
+.modal-right {
+  @apply fixed inset-y-0 right-0 z-50 w-[min(420px,92vw)] rounded-none border-y-0 border-r-0;
+}
 
 .btn {
   @apply border-line bg-panel-2 text-fg hover:border-fg-faint inline-flex cursor-pointer items-center gap-1.5 rounded border px-2.5 py-1 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-40;

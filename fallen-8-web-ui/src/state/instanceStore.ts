@@ -43,6 +43,8 @@ import {
 } from "../lib/semantic";
 import type { TypedValue } from "../lib/literals";
 import type { IndexCapability } from "../lib/indexCapabilities";
+import { DEFAULT_FEED_FILTER, type FeedFilterDraft } from "./feedFilter";
+import { migrateEventFeed, purgeAllEventFeeds, purgeEventFeed } from "./eventFeed";
 
 /**
  * Per-instance workspace state (FR-1c), via a memoized store factory. Each instance id
@@ -338,6 +340,10 @@ export interface ScanPrefill {
 
 
 export interface WorkspaceState {
+  /** The Events panel's interest filter (feature studio-event-feed, see feedFilter.ts). */
+  feedFilter: FeedFilterDraft;
+  /** One-shot navigation intent: "open the Browser inspecting this element id". */
+  inspectPrefill: number | null;
   canvasNodes: Record<number, CanvasNode>;
   canvasEdges: Record<number, CanvasEdge>;
   styleConfig: StyleConfig;
@@ -368,6 +374,8 @@ export interface WorkspaceState {
   setAnalyticsDraft: (patch: Partial<AnalyticsDraft>) => void;
   resetAnalyticsDraft: () => void;
   setScanPrefill: (prefill: ScanPrefill | null) => void;
+  setFeedFilter: (patch: Partial<FeedFilterDraft>) => void;
+  setInspectPrefill: (id: number | null) => void;
 }
 
 function createWorkspaceStore(instanceId: string) {
@@ -385,6 +393,8 @@ function createWorkspaceStore(instanceId: string) {
         browserDraft: { ...DEFAULT_BROWSER_DRAFT },
         analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT },
         scanPrefill: null,
+        feedFilter: { ...DEFAULT_FEED_FILTER },
+        inspectPrefill: null,
 
         mergeIntoCanvas: (vertices, edges) =>
           set((s) => {
@@ -461,6 +471,11 @@ function createWorkspaceStore(instanceId: string) {
         resetAnalyticsDraft: () => set({ analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT } }),
 
         setScanPrefill: (scanPrefill) => set({ scanPrefill }),
+
+        setFeedFilter: (patch) =>
+          set((s) => ({ feedFilter: { ...s.feedFilter, ...patch } })),
+
+        setInspectPrefill: (inspectPrefill) => set({ inspectPrefill }),
       }),
       {
         name: `f8.workspace.${instanceId}`,
@@ -497,6 +512,7 @@ function createWorkspaceStore(instanceId: string) {
             browserDraft: { ...DEFAULT_BROWSER_DRAFT, ...(p.browserDraft ?? {}) },
             analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT, ...(p.analyticsDraft ?? {}) },
             styleConfig: { ...DEFAULT_STYLE_CONFIG, ...(p.styleConfig ?? {}) },
+            feedFilter: { ...DEFAULT_FEED_FILTER, ...(p.feedFilter ?? {}) },
           };
         },
       },
@@ -542,6 +558,9 @@ export function purgeInstanceStore(instanceId: string, namespace?: string): void
   const key = storeKey(instanceId, namespace);
   stores.delete(key);
   localStorage.removeItem(`f8.workspace.${key}`);
+  // The session-only event feed shares the workspace's blast radius: its buffered events
+  // (and catch-up position) describe the graph that just went away.
+  purgeEventFeed(instanceId, namespace);
 }
 
 /** Purges EVERY namespace's workspace of one instance (the factory-reset blast radius). */
@@ -558,6 +577,7 @@ export function purgeAllInstanceStores(instanceId: string): void {
       localStorage.removeItem(name);
     }
   }
+  purgeAllEventFeeds(instanceId);
 }
 
 /**
@@ -576,6 +596,8 @@ export function migrateInstanceStore(instanceId: string, from: string, to: strin
   }
   stores.delete(fromKey);
   stores.delete(toKey);
+  // A rename keeps the graph (and its feed epoch/sequence): the buffer moves along.
+  migrateEventFeed(instanceId, from, to);
 }
 
 /** Test hook: drop all memoized stores (does not clear persisted state). */
