@@ -35,10 +35,13 @@ auto-created on first ingest (the operator wants to choose), and upload is a pla
   exact cost objection that made the original spec defer *LLM* entity extraction (~75% of
   GraphRAG indexing cost), while delivering the entity network. It is a separate deployable
   like docling and Ollama: the engine and apiApp never import a model runtime.
-- **German AND English, chosen deliberately.** The service loads `de_core_news_sm` and
-  `en_core_web_sm` (both MIT) and routes each document by detected language (hint overridable).
-  Running English NER on German legal text was explicitly rejected: it produces near-garbage
-  entities. Other languages are a config/model-add follow-up.
+- **German AND English, chosen deliberately, with the model configurable.** The service loads
+  a German and an English spaCy model (both MIT) and routes each document by detected language
+  (hint overridable). Running English NER on German legal text was explicitly rejected: it
+  produces near-garbage entities. The model per language is a config/build knob
+  (`F8_NLP_MODEL_DE`/`F8_NLP_MODEL_EN`, default the `sm` models) so a hard domain like legal
+  German can trade up to `md`/`lg` without a code change - the build bakes the chosen model,
+  the runtime loads the same name. Other languages are a further model-add.
 - **`spacy-layout` is NOT used.** docling already does layout, reading order and tables (it is
   the reason docling is in the stack, and `spacy-layout` wraps docling anyway). spaCy's value
   here is NER + noun-chunk terms over the text docling already extracted - no second layout

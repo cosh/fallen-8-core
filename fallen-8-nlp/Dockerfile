@@ -7,11 +7,20 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# System deps kept minimal; spaCy sm models are pure-Python wheels (no build toolchain needed).
+# The spaCy model per language is a build ARG so md/lg can be baked in for accuracy without a
+# code change (defaults to the small models). The runtime reads the SAME names from env
+# (F8_NLP_MODEL_DE/EN), so build and run stay in lockstep. A larger model just needs its name
+# here and the matching env at run time.
+ARG F8_NLP_MODEL_DE=de_core_news_sm
+ARG F8_NLP_MODEL_EN=en_core_web_sm
+ENV F8_NLP_MODEL_DE=${F8_NLP_MODEL_DE}
+ENV F8_NLP_MODEL_EN=${F8_NLP_MODEL_EN}
+
+# System deps kept minimal; spaCy sm/md models are pure-Python wheels (no build toolchain).
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && python -m spacy download de_core_news_sm \
-    && python -m spacy download en_core_web_sm
+    && python -m spacy download ${F8_NLP_MODEL_DE} \
+    && python -m spacy download ${F8_NLP_MODEL_EN}
 
 COPY app ./app
 

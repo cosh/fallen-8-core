@@ -12,11 +12,14 @@ import threading
 
 from .models import EnrichedItem, EnrichItem, Entity
 
-# The two shipped languages and their MIT spaCy models. Adding a language is a model install
-# plus one row here (revisit trigger in the spec).
+# The two shipped languages and their MIT spaCy models. The model per language is
+# CONFIGURABLE (F8_NLP_MODEL_DE / F8_NLP_MODEL_EN) so an operator can trade the small model
+# for md/lg accuracy - important for hard domains like legal German - without a code change.
+# Whatever is configured must be installed in the image (the Dockerfile downloads these same
+# names via build args). Adding a language is one more env var + row here.
 _MODEL_BY_LANGUAGE = {
-    "de": "de_core_news_sm",
-    "en": "en_core_web_sm",
+    "de": os.environ.get("F8_NLP_MODEL_DE", "de_core_news_sm"),
+    "en": os.environ.get("F8_NLP_MODEL_EN", "en_core_web_sm"),
 }
 _DEFAULT_LANGUAGE = os.environ.get("F8_NLP_DEFAULT_LANGUAGE", "en")
 

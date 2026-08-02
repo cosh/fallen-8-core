@@ -41,6 +41,20 @@ In the compose environment the sidecar comes up behind the `ingestion` profile a
 wired to it via `Fallen8:Nlp` (default on; `F8_NLP=false` opts out). A bare `dotnet run` of the
 apiApp has NLP off and ingestion simply produces no entities.
 
+### Choosing the model (accuracy vs size)
+
+The spaCy model per language is configurable, defaulting to the small models. For a hard
+domain like legal German, trade up to `md`/`lg` without touching code: set the build args (so
+the larger model is baked into the image) and the matching run-time env, e.g.
+
+```bash
+docker build -t fallen-8-nlp --build-arg F8_NLP_MODEL_DE=de_core_news_lg fallen-8-nlp
+docker run --rm -p 8100:8100 -e F8_NLP_MODEL_DE=de_core_news_lg fallen-8-nlp
+```
+
+Build arg and env must name the SAME model (the build downloads it; the runtime loads it). In
+compose, `F8_NLP_MODEL_DE` / `F8_NLP_MODEL_EN` drive both.
+
 ## Test
 
 ```bash
