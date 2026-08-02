@@ -72,6 +72,12 @@ services:
       - Fallen8__Chat__Backend=Ollama
       - Fallen8__Chat__Ollama__Endpoint=http://ollama:11434
       - Fallen8__Chat__Ollama__Model=phi4-f8-mini
+      # Documents in, graph out (feature unstructured-ingestion): binary formats convert in
+      # the docling sidecar below; txt/md ingest without it. F8_INGESTION=false opts out as
+      # one unit: the document endpoints answer 403 AND env:up skips the sidecar (compose
+      # profile "ingestion").
+      - Fallen8__Ingestion__Enabled=${F8_INGESTION:-true}
+      - Fallen8__Ingestion__Docling__Endpoint=http://docling:5001
       # Fleet observability (feature fleet-observability): push metrics + traces + logs to the
       # in-network collector and declare this instance's fleet identity. Always on with env:up;
       # override the identity per deployment (F8_TENANT_ID / F8_INSTANCE_ID / ...).
@@ -120,6 +126,23 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+    networks:
+      - f8-net
+
+  # Document conversion for unstructured ingestion (feature unstructured-ingestion): binary
+  # formats (pdf/docx/xlsx/pptx/html) convert here; the apiApp is the ONLY caller - the
+  # browser never talks to docling. CPU image, ~4.4 GB with the bundled layout/OCR models
+  # (quay.io/docling-project/docling-serve-cpu, MIT); F8_INGESTION=false skips it via the
+  # "ingestion" profile and turns the capability off in one move. No container healthcheck:
+  # F8 probes GET /health itself (cached; surfaced on /status as docling.reachable).
+  docling:
+    # Pinned (not :latest) so the DoclingDocument schema the chunker's fixtures pin against
+    # cannot drift under the environment without a deliberate bump. Override with F8_DOCLING_IMAGE.
+    image: ${F8_DOCLING_IMAGE:-quay.io/docling-project/docling-serve-cpu:v1.29.0}
+    restart: unless-stopped
+    profiles: ["ingestion"]
+    ports:
+      - "${F8_DOCLING_PORT:-5001}:5001"
     networks:
       - f8-net
 

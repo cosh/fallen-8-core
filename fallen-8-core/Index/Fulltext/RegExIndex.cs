@@ -307,6 +307,18 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
             {
                 try
                 {
+                    // Never index a removed element. A concurrent add-after-remove would otherwise
+                    // pin a tombstone the engine's write-end purge already passed (the purge runs
+                    // once, at removal-commit time), leaking its body and, after an id-reusing Trim,
+                    // surfacing as a stale hit. This mirrors VectorIndex.AddOrUpdateCore's guard;
+                    // it is inside the write lock so it is ordered against a concurrent RemoveValue
+                    // (which takes the same lock). Refusing a removed element is correct for every
+                    // index caller.
+                    if (graphElement != null && graphElement._removed)
+                    {
+                        return;
+                    }
+
                     ImmutableList<AGraphElementModel> values;
                     if (_idx.TryGetValue(key, out values))
                     {

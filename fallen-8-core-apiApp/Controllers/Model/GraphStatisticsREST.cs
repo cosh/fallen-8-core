@@ -301,6 +301,14 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>The unstructured-ingestion state (feature unstructured-ingestion): the
+        /// same block as /status, so either discovery surface answers capability questions.</summary>
+        [JsonPropertyName("ingestion")]
+        public IngestionStatsREST Ingestion
+        {
+            get; set;
+        }
     }
 
     /// <summary>The active embedding provider and its declared model identity (feature

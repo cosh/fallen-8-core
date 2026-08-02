@@ -23,10 +23,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { apiRequest, authHeaders, buildUrl, scopedPath, throwIfNotOk } from "./client";
+import { apiForm, apiRequest, authHeaders, buildUrl, scopedPath, throwIfNotOk } from "./client";
 import type { InstanceConfig } from "../instances/types";
 import type {
   AnalyticsResultREST,
+  DocumentDetail,
+  DocumentList,
+  DocumentSearchResult,
+  DocumentSearchSpecification,
+  DocumentSummary,
+  IngestTextSpecification,
   NamespaceEntry,
   NamespacesResponse,
   AnalyticsSpecification,
@@ -605,3 +611,38 @@ export const validateDelegate = (
     signal,
     scope: "fallen8",
   });
+
+// ---- unstructured ingestion (feature unstructured-ingestion) ----
+// Capability-gated (403 when Fallen8:Ingestion:Enabled is off); the Documents screen gates
+// its UI on StatusREST.ingestion. Binary formats convert in the docling sidecar server-side;
+// the browser only ever talks to Fallen-8.
+
+export const listDocuments = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<DocumentList>(i, "/document", { signal });
+
+export const getDocument = (i: InstanceConfig, id: number, signal?: AbortSignal) =>
+  apiRequest<DocumentDetail>(i, `/document/${id}`, { signal });
+
+export const deleteDocument = (i: InstanceConfig, id: number) =>
+  apiRequest<void>(i, `/document/${id}`, { method: "DELETE", query: WAIT });
+
+export const ingestText = (i: InstanceConfig, spec: IngestTextSpecification) =>
+  apiRequest<DocumentSummary>(i, "/document/text", { method: "POST", body: spec });
+
+/** Multipart upload; `embed=false` ingests without vectors (provider off). */
+export const ingestFile = (
+  i: InstanceConfig,
+  file: File,
+  options: { name?: string; embed?: boolean; sourceUri?: string } = {},
+) => {
+  const form = new FormData();
+  form.append("file", file);
+  if (options.name) form.append("name", options.name);
+  if (options.embed !== undefined) form.append("embed", String(options.embed));
+  if (options.sourceUri) form.append("sourceUri", options.sourceUri);
+  return apiForm<DocumentSummary>(i, "/document", form);
+};
+
+/** Fused (dense + lexical) chunk retrieval; hits are chunk vertex ids. */
+export const searchDocuments = (i: InstanceConfig, spec: DocumentSearchSpecification) =>
+  apiRequest<DocumentSearchResult>(i, "/document/search", { method: "POST", body: spec });

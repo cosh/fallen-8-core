@@ -51,7 +51,12 @@ namespace NoSQL.GraphDB.App.Security
 
             /// <summary>The chat gateway (feature instance-config, <c>Fallen8:Chat:Enabled</c>) -
             /// default off: no backend client is constructed and <c>POST /chat</c> answers 403.</summary>
-            Chat
+            Chat,
+
+            /// <summary>Unstructured ingestion (feature unstructured-ingestion,
+            /// <c>Fallen8:Ingestion:Enabled</c>) - default off: the document endpoints answer 403
+            /// and no sidecar is contacted.</summary>
+            Ingestion
         }
 
         public DynamicCapabilityRequirement(Capability which)
@@ -73,18 +78,21 @@ namespace NoSQL.GraphDB.App.Security
         private readonly Fallen8SecurityOptions _security;
         private readonly Fallen8EmbeddingOptions _embedding;
         private readonly Fallen8ChatOptions _chat;
+        private readonly Fallen8IngestionOptions _ingestion;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly Fallen8Namespaces _namespaces;
 
         public DynamicCapabilityAuthorizationHandler(IOptions<Fallen8SecurityOptions> security,
             IOptions<Fallen8EmbeddingOptions> embedding,
             IOptions<Fallen8ChatOptions> chat,
+            IOptions<Fallen8IngestionOptions> ingestion,
             IHttpContextAccessor httpContextAccessor,
             Fallen8Namespaces namespaces)
         {
             _security = security.Value;
             _embedding = embedding.Value;
             _chat = chat.Value;
+            _ingestion = ingestion.Value;
             _httpContextAccessor = httpContextAccessor;
             _namespaces = namespaces;
         }
@@ -107,6 +115,9 @@ namespace NoSQL.GraphDB.App.Security
                     break;
                 case DynamicCapabilityRequirement.Capability.Chat:
                     enabled = _chat.Enabled;
+                    break;
+                case DynamicCapabilityRequirement.Capability.Ingestion:
+                    enabled = _ingestion.Enabled;
                     break;
                 // Explicit so a capability added later cannot silently inherit the plugin gate.
                 default:

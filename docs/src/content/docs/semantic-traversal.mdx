@@ -180,6 +180,9 @@ Configure it under `Fallen8:Embedding` (off unless `Enabled`):
 | `QueryPrefix` | `""` | Retrieval prefix applied to **query-time** embeddings only |
 | `Onnx.{ModelPath,VocabPath,…}`, `LLamaSharp.ModelPath`, `Ollama.{Endpoint,Model}` | — | Backend-specific settings |
 
+The provider's biggest consumer is [unstructured ingestion](/fallen-8-core/unstructured-ingestion/):
+document chunks embed through it on the way into the graph.
+
 ## The chat gateway (its sibling)
 
 The embedding provider has a sibling under the same "semantic gateway" idea (feature

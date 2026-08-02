@@ -160,6 +160,13 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
     if (event.kind !== "propertySet" && event.kind !== "propertyRemoved") {
       schedule([instance.id, "graph"]);
     }
+
+    // Document lifecycle (feature unstructured-ingestion): the ingest pipeline commits the
+    // Document stub first and flips its status via property writes, so the feed carries live
+    // ingest progress - refetch the Documents screen's list on any Document/Chunk event.
+    if (event.label === "Document" || event.label === "Chunk") {
+      schedule([instance.id, "documents"]);
+    }
   };
 
   const onResync = (event: ChangeEvent) => {

@@ -1070,7 +1070,119 @@ namespace NoSQL.GraphDB.Tests
                     ComputedInMs = 1.4,
                     Sampled = false,
                     SampleStride = 1
-                }, "GraphStatisticsREST")
+                }, "GraphStatisticsREST"),
+                (new IngestionStatsREST
+                {
+                    Enabled = true,
+                    TextFormats = new List<string> { "txt", "md" },
+                    BinaryFormats = new List<string> { "pdf" },
+                    Docling = new DoclingStatsREST { Configured = true, Reachable = false },
+                    Limits = new IngestionLimitsREST
+                    {
+                        MaxUploadBytes = 33554432L,
+                        MaxPages = 500,
+                        MaxChunksPerDocument = 2000,
+                        MaxChunksPerNamespace = 100000,
+                        MaxLinksPerChunk = 16
+                    },
+                    EmbeddingName = "default",
+                    VectorIndexId = "documents",
+                    FulltextIndexId = null
+                }, "IngestionStatsREST"),
+                (new DoclingStatsREST { Configured = true, Reachable = true }, "DoclingStatsREST"),
+                (new IngestionLimitsREST { MaxUploadBytes = 1L, MaxPages = 2, MaxChunksPerDocument = 3, MaxChunksPerNamespace = 4, MaxLinksPerChunk = 5 }, "IngestionLimitsREST"),
+                (new IngestTextSpecification
+                {
+                    Name = "notes",
+                    Text = "# H\n\nBody",
+                    Format = "markdown",
+                    Embed = false,
+                    Properties = new Dictionary<string, string> { { "team", "core" } },
+                    SourceUri = "https://wiki/notes",
+                    ReplaceDocumentId = 7,
+                    Link = new LinkSpecificationREST { IndexIds = new List<string> { "sku" }, MaxLinksPerChunk = 4 }
+                }, "IngestTextSpecification"),
+                (new LinkSpecificationREST { IndexIds = new List<string> { "sku" }, MaxLinksPerChunk = 2 }, "LinkSpecificationREST"),
+                (new DocumentSummaryREST
+                {
+                    DocumentId = 3,
+                    Name = "spec.pdf",
+                    SourceFormat = "pdf",
+                    SourceUri = null,
+                    Status = "indexed",
+                    Error = null,
+                    ChunkCount = 12,
+                    PageCount = 4,
+                    ContentHash = "abc123",
+                    Converter = "docling-serve",
+                    ChunkerConfig = "structured/v1;min=800;max=4000",
+                    EmbeddingModel = "bge-m3#1024#Cosine",
+                    EmbeddingDimension = 1024,
+                    Embedded = true,
+                    EmbeddingModelStale = false,
+                    LinksCreated = 2
+                }, "DocumentSummaryREST"),
+                (new DocumentListREST
+                {
+                    Documents = new List<DocumentSummaryREST> { new DocumentSummaryREST { DocumentId = 1, Name = "a", Status = "indexed" } },
+                    NamespaceChunkCount = 12,
+                    ChunkCeiling = 100000,
+                    CurrentEmbeddingModel = "bge-m3#1024#Cosine"
+                }, "DocumentListREST"),
+                (new ChunkSummaryREST
+                {
+                    ChunkId = 9,
+                    Order = 1,
+                    Kind = "table",
+                    HeadingPath = "A > B",
+                    PageFrom = 2,
+                    PageTo = 3,
+                    Identifiers = new List<string> { "PORT_X9" },
+                    TextPreview = "| a | b |"
+                }, "ChunkSummaryREST"),
+                (new DocumentDetailREST
+                {
+                    Summary = new DocumentSummaryREST { DocumentId = 1, Name = "a", Status = "indexed" },
+                    Chunks = new List<ChunkSummaryREST> { new ChunkSummaryREST { ChunkId = 2, Order = 0, Kind = "text", TextPreview = "t" } }
+                }, "DocumentDetailREST"),
+                (new DocumentSearchSpecification
+                {
+                    QueryText = "tls terminator",
+                    QueryVector = new List<float> { 0.1f, 0.2f },
+                    Mode = "fused",
+                    K = 5,
+                    Window = 1,
+                    GroupByDocument = true
+                }, "DocumentSearchSpecification"),
+                (new DocumentSearchResultREST
+                {
+                    ModeUsed = "fused",
+                    Hits = new List<ChunkHitREST>
+                    {
+                        new ChunkHitREST
+                        {
+                            ChunkId = 2,
+                            DocumentId = 1,
+                            Score = 0.032f,
+                            Order = 0,
+                            Text = "chunk text",
+                            HeadingPath = "A",
+                            PageFrom = 1,
+                            PageTo = 1,
+                            Identifiers = new List<string> { "PORT_X9" },
+                            Window = new List<ChunkWindowEntryREST> { new ChunkWindowEntryREST { ChunkId = 3, Order = 1, Text = "sibling" } }
+                        }
+                    },
+                    Documents = null
+                }, "DocumentSearchResultREST"),
+                (new ChunkHitREST { ChunkId = 2, Score = 1f, Order = 0, Text = "t" }, "ChunkHitREST"),
+                (new ChunkWindowEntryREST { ChunkId = 3, Order = 1, Text = "s" }, "ChunkWindowEntryREST"),
+                (new DocumentGroupREST
+                {
+                    Document = new DocumentSummaryREST { DocumentId = 1, Name = "a", Status = "indexed" },
+                    BestScore = 0.03f,
+                    Chunks = new List<ChunkHitREST> { new ChunkHitREST { ChunkId = 2, Score = 0.03f, Order = 0, Text = "t" } }
+                }, "DocumentGroupREST")
             };
         }
 

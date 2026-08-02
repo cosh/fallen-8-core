@@ -343,6 +343,17 @@ namespace NoSQL.GraphDB.App
                     }
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Chat));
                 });
+
+                // The unstructured-ingestion gate (feature unstructured-ingestion): same shape -
+                // off by default, orthogonal to auth, 403 when off.
+                o.AddPolicy(Fallen8IngestionOptions.IngestionPolicy, p =>
+                {
+                    if (keyConfigured)
+                    {
+                        p.RequireAuthenticatedUser();
+                    }
+                    p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Ingestion));
+                });
             });
 
             // Embedding provider (feature embedding-provider). The backend generator resolves
@@ -368,6 +379,19 @@ namespace NoSQL.GraphDB.App
             builder.Services.AddSingleton(sp => new Fallen8ChatProvider(
                 sp.GetRequiredService<IOptions<Fallen8ChatOptions>>(),
                 new Lazy<IChatBackend>(() => sp.GetRequiredService<IChatBackend>())));
+
+            // Unstructured ingestion (feature unstructured-ingestion): the docling client is
+            // inert until the first conversion - with the flag off (the default) the document
+            // endpoints answer 403, and text formats never contact the sidecar even when on.
+            // Tests replace the IDoclingConverter registration with a deterministic fake.
+            builder.Services.Configure<Fallen8IngestionOptions>(
+                builder.Configuration.GetSection(Fallen8IngestionOptions.SectionName));
+            builder.Services.AddSingleton<NoSQL.GraphDB.App.Ingestion.IDoclingConverter>(sp =>
+                new NoSQL.GraphDB.App.Ingestion.DoclingClient(
+                    sp.GetRequiredService<IOptions<Fallen8IngestionOptions>>(),
+                    sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Ingestion.DoclingClient>>()));
+            builder.Services.AddSingleton<NoSQL.GraphDB.App.Ingestion.DocumentIngestionService>();
+            builder.Services.AddSingleton<NoSQL.GraphDB.App.Ingestion.DocumentSearchService>();
 
             // CORS: one named policy, default deny. Only the configured origins are allowed; never a
             // wildcard-with-credentials.

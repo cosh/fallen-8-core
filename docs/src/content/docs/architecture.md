@@ -23,6 +23,7 @@ flowchart TB
         rest["REST controllers + OpenAPI"]:::sys
         roslyn["Roslyn delegate compiler<br/>+ code cache"]:::sys
         semantic["Semantic gateway<br/>(embeddings + chat, optional)"]:::sys
+        ingestion["Ingestion pipeline<br/>(parse · chunk · embed · write, optional)"]:::sys
         wwwroot["wwwroot (serves F8 Studio)"]:::sys
     end
     subgraph engine["fallen-8-core (in-memory engine)"]
@@ -34,6 +35,7 @@ flowchart TB
         durab["Durability<br/>(WAL + checkpoints + registry)"]:::sys
     end
     sidecar["Model sidecar (Ollama)<br/>embeddings + delegate assist"]:::ext
+    docling["Document sidecar (docling-serve)<br/>binary-to-structured conversion"]:::ext
 
     subgraph obs["Observability · one Grafana pane"]
         direction TB
@@ -59,7 +61,9 @@ flowchart TB
     rest --> ns
     rest --> roslyn
     rest --> semantic
+    rest --> ingestion
     semantic -.->|embeddings + chat| sidecar
+    ingestion -.->|document conversion| docling
     rest -.->|OTLP metrics/traces/logs| collector
     mcp -.->|OTLP| collector
     ns --> writer --> model
@@ -99,7 +103,7 @@ as a library (see the `Try*` API in [Graph model](/fallen-8-core/graph-model/)).
 
 ## The REST app (`fallen-8-core-apiApp`)
 
-A thin ASP.NET Core layer. It owns three things the engine deliberately does not:
+A thin ASP.NET Core layer. It owns four things the engine deliberately does not:
 
 - **The HTTP surface** — versioned controllers, an OpenAPI document, and the Scalar reference
   ([REST API](/fallen-8-core/rest-api/)), plus the [security](/fallen-8-core/security/) boundary (the API key; dynamic
@@ -111,6 +115,9 @@ A thin ASP.NET Core layer. It owns three things the engine deliberately does not
 - **The optional [embedding provider](/fallen-8-core/semantic-traversal/).** Text-in embedding lives only
   in the app so the engine stays model-free; a bare run has it off, and the compose
   environment wires it to the model sidecar.
+- **The optional [ingestion pipeline](/fallen-8-core/unstructured-ingestion/).** Documents become
+  Document/Chunk vertices through parse, chunk, embed, write; binary formats convert in the
+  docling sidecar (the app is the only caller), and the engine gains no parser.
 
 The app also serves [F8 Studio](/fallen-8-core/studio/) as static files from its `wwwroot`.
 
@@ -149,7 +156,8 @@ not guaranteed, is in [Observability](/fallen-8-core/observability/).
 ## One deployable unit
 
 The [compose environment](/fallen-8-core/running/) builds the SPA, publishes the app, and ships them in
-one container (the app serves the UI from `wwwroot`), alongside the Ollama sidecar. Managed as
+one container (the app serves the UI from `wwwroot`), alongside the Ollama sidecar and the
+docling document-conversion sidecar (skippable with `F8_INGESTION=false`). Managed as
 a whole, it is the "just works" default. The container is durable by default — checkpoints and
 the WAL live on a mounted volume.
 

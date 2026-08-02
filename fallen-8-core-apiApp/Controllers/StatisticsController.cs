@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -54,16 +55,25 @@ namespace NoSQL.GraphDB.App.Controllers
 
         public StatisticsController(ILogger<StatisticsController> logger, IFallen8 fallen8,
             IOptions<Fallen8ObservabilityOptions> options = null,
-            Embedding.Fallen8EmbeddingProvider embeddingProvider = null)
+            Embedding.Fallen8EmbeddingProvider embeddingProvider = null,
+            Ingestion.IDoclingConverter doclingConverter = null,
+            IOptions<Fallen8IngestionOptions> ingestionOptions = null)
         {
             _fallen8 = fallen8;
             _options = options?.Value ?? new Fallen8ObservabilityOptions();
             _embeddingProvider = embeddingProvider;
+            _doclingConverter = doclingConverter;
+            _ingestionOptions = ingestionOptions?.Value;
         }
 
         /// <summary>The embedding provider whose identity is surfaced (feature
         /// embedding-provider); null under direct unit construction.</summary>
         private readonly Embedding.Fallen8EmbeddingProvider _embeddingProvider;
+
+        /// <summary>The ingestion pieces surfaced in the snapshot (feature
+        /// unstructured-ingestion); null under direct unit construction.</summary>
+        private readonly Ingestion.IDoclingConverter _doclingConverter;
+        private readonly Fallen8IngestionOptions _ingestionOptions;
 
         /// <summary>
         /// Returns a graph-shape snapshot: counts, cardinalities, degrees, indices, memory
@@ -95,7 +105,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [ProducesResponseType(typeof(GraphStatisticsREST), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
-        public GraphStatisticsREST GetStatistics()
+        public async Task<GraphStatisticsREST> GetStatistics()
         {
             var stopwatch = Stopwatch.StartNew();
 
@@ -180,7 +190,9 @@ namespace NoSQL.GraphDB.App.Controllers
                 ComputedInMs = stopwatch.Elapsed.TotalMilliseconds,
                 Sampled = stride > 1,
                 SampleStride = stride,
-                Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider)
+                Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider),
+                Ingestion = await IngestionStatsREST.From(_ingestionOptions, _doclingConverter,
+                    HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None)
             };
         }
 

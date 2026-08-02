@@ -53,6 +53,8 @@ export const SCROLL_ROWS = {
   instances: 8,
   /** Namespaces (NamespacesPanel). */
   namespaces: 12,
+  /** Ingested documents (DocumentsScreen). */
+  documents: 12,
 } as const;
 
 /**
