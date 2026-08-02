@@ -37,14 +37,14 @@ using NoSQL.GraphDB.Mcp.Configuration;
 namespace NoSQL.GraphDB.Mcp.Tools
 {
     /// <summary>
-    ///   <c>f8_documents</c> — unstructured ingestion (feature unstructured-ingestion): agents
+    ///   <c>f8_documents</c> - unstructured ingestion (feature unstructured-ingestion): agents
     ///   write knowledge into the graph as Document/Chunk vertices and retrieve chunks with
     ///   fused (dense + lexical) search; a hit is a vertex and seeds f8_paths like any other.
     ///
     ///   <para><c>list</c>/<c>get</c>/<c>search</c> are Read tier; <c>ingest_text</c>/<c>delete</c>
     ///   are gated on the write capability AND hidden from the schema when it is off (the
     ///   f8_plugins pattern). Binary file upload is deliberately NOT bridged: base64 payloads
-    ///   through tool calls are token-hostile — agents hold text, and POST /document is one
+    ///   through tool calls are token-hostile; agents hold text, and POST /document is one
     ///   curl away (recorded deferral).</para>
     /// </summary>
     public sealed class DocumentsTool : IMcpTool

@@ -39,6 +39,9 @@ Each feature has a deep-dive doc — follow the link.
   embeddings (cosine, dot product, L2).
 - **[Semantic traversal](https://cosh.github.io/fallen-8-core/semantic-traversal/)** — embeddings as element state; a
   code-free `semantic` block steers paths and subgraphs by similarity.
+- **[Unstructured ingestion](https://cosh.github.io/fallen-8-core/unstructured-ingestion/)**: documents in, graph out:
+  PDFs/Office/markdown become Document and Chunk vertices with embedded text, found again by
+  fused semantic + exact-token search and traversable like everything else.
 - **[Bulk import/export](https://cosh.github.io/fallen-8-core/bulk-import-export/)** — stream whole graphs as newline-delimited
   JSON that round-trips exactly.
 - **[Live change feed](https://cosh.github.io/fallen-8-core/change-feed/)** — committed mutations as Server-Sent Events, in
@@ -92,6 +95,7 @@ flowchart TB
     end
 
     sidecar["Model sidecar<br/>Ollama"]:::ext
+    docling["Document sidecar<br/>docling-serve"]:::ext
     obs["Observability<br/>Collector · Prometheus · Tempo · Loki · Grafana"]:::obs
 
     agents -->|MCP| mcp
@@ -99,6 +103,7 @@ flowchart TB
     studio -->|HTTP| rest
     services -->|HTTP| rest
     rest -.->|embeddings + chat| sidecar
+    rest -.->|document conversion| docling
     rest -.->|OTLP push| obs
     mcp -.->|OTLP push| obs
 

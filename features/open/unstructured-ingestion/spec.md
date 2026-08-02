@@ -295,7 +295,11 @@ over `mentions` edges into the domain graph.
   transitions.
 - **Studio UI:** new screen and nav entry, `ingestion` status block, memory budget
   element, stale-model badge, screenshots recaptured.
-- **NL-assist dataset/eval:** new user-facing endpoints; append a RETRAIN-LOG entry.
+- **NL-assist dataset/eval:** checked against `nl-assist-finetune/RETRAIN-LOG.md`'s own
+  contract at implementation time: the log records changes to the delegate-fragment
+  surface only ("Do NOT log general engine/API work that leaves fragments unchanged"),
+  and this feature adds no delegate kind, fragment idiom, or prompt-contract change - so
+  no entry. Conscious decision, not an omission.
 - **Docs site:** new page `unstructured-ingestion.md` (+ sidebar), traversal recipe
   section (FR-12), pointers from embedding-provider and studio pages, README
   key-features line.

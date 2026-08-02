@@ -71,6 +71,7 @@ export default defineConfig({
 						{ label: 'Indexes', slug: 'indexes' },
 						{ label: 'Vector search', slug: 'vector-search' },
 						{ label: 'Semantic traversal', slug: 'semantic-traversal' },
+						{ label: 'Unstructured ingestion', slug: 'unstructured-ingestion' },
 						{ label: 'Bulk import/export', slug: 'bulk-import-export' },
 						{ label: 'Change feed', slug: 'change-feed' },
 						{ label: 'Save games', slug: 'save-games' },
