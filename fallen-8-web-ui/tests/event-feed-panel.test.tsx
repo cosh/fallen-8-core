@@ -221,7 +221,7 @@ describe("panel chrome", () => {
 
 describe("copy as REST", () => {
   it("copies the filter as the equivalent /changefeed query, no credentials", async () => {
-    const writeText = vi.fn(async () => {});
+    const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 
     getInstanceStore(instance.id)
@@ -234,7 +234,7 @@ describe("copy as REST", () => {
     // findBy waits inside act, covering the post-clipboard "copied" state flip.
     await screen.findByText("copied");
     expect(writeText).toHaveBeenCalledTimes(1);
-    const url = writeText.mock.calls[0][0] as unknown as string;
+    const url = writeText.mock.calls[0][0];
     expect(url).toBe(
       "http://f8.test/ns/ns1/changefeed?kinds=vertexCreated%2CpropertySet&labels=person",
     );
