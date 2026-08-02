@@ -205,8 +205,9 @@ auto-created on first ingest (the operator wants to choose), and upload is a pla
   are deduped per `(normalized,type)`, `mentions` edges are created and capped, `keyTerms`
   land as a chunk property, enrichment-off leaves zero entities and `enriched:false`, an NLP
   failure does not fail the ingest.
-- **Binding:** ingest is 428 until the binding is satisfied; `ensure` creates exactly the
-  bound indices; `PUT` validates shapes (409 on mismatch); no path auto-creates.
+- **Binding:** ingest is 428 until the binding is satisfied; `GET /document/binding` reports the
+  per-role state; `POST /document/binding/ensure` creates exactly the bound indices (idempotent)
+  and refuses a wrong-shape bound id (409); no ingest path auto-creates.
 - **Studio vitest:** State-panel gating (ingest disabled until bound), create/pick actions,
   dropzone (drop event ingests), entities view, async `processing` row, degraded NLP.
 - **Gates:** OpenAPI snapshot; MCP coverage/contract; docs build link-checked; convention
