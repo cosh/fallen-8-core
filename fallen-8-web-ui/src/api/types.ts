@@ -246,6 +246,39 @@ export interface DocumentSearchResult {
   documents?: { document?: DocumentSummary; bestScore: number; chunks: ChunkHit[] }[];
 }
 
+// ---- semantic layer (feature semantic-layer) ----
+
+/** One index role in the binding: whether it is required, exists, and is usable. */
+export interface DocumentBindingRole {
+  role: "vector" | "fulltext" | "entity";
+  indexId: string;
+  required: boolean;
+  exists: boolean;
+  ready: boolean;
+  detail?: string;
+}
+
+/** The semantic layer's index binding: ingestion is refused (428) until `ready`. */
+export interface DocumentBinding {
+  ready: boolean;
+  vector: DocumentBindingRole;
+  fulltext: DocumentBindingRole;
+  entity: DocumentBindingRole;
+}
+
+/** A deduplicated entity the corpus mentions; the id is a graph vertex (a valid seed). */
+export interface DocumentEntity {
+  id: number;
+  text: string;
+  type: string;
+  mentionCount: number;
+}
+
+export interface DocumentEntityList {
+  entities: DocumentEntity[];
+  total: number;
+}
+
 export interface PropertyREST {
   propertyId: string;
   propertyValue: unknown;

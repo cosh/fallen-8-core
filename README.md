@@ -96,6 +96,7 @@ flowchart TB
 
     sidecar["Model sidecar<br/>Ollama"]:::ext
     docling["Document sidecar<br/>docling-serve"]:::ext
+    nlp["NLP sidecar<br/>spaCy · entities + terms"]:::ext
     obs["Observability<br/>Collector · Prometheus · Tempo · Loki · Grafana"]:::obs
 
     agents -->|MCP| mcp
@@ -104,6 +105,7 @@ flowchart TB
     services -->|HTTP| rest
     rest -.->|embeddings + chat| sidecar
     rest -.->|document conversion| docling
+    rest -.->|entity + term enrichment| nlp
     rest -.->|OTLP push| obs
     mcp -.->|OTLP push| obs
 

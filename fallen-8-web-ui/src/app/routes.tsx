@@ -46,7 +46,7 @@ import { AnalyticsScreen } from "../screens/AnalyticsScreen";
 import { PluginsScreen } from "../screens/PluginsScreen";
 import { CanvasScreen } from "../screens/CanvasScreen";
 import { BenchmarkScreen } from "../screens/BenchmarkScreen";
-import { DocumentsScreen } from "../screens/DocumentsScreen";
+import { KnowledgeScreen } from "../screens/KnowledgeScreen";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -112,13 +112,22 @@ const browserRoute = createRoute({
   component: BrowserScreen,
 });
 
-// NOTE: "documents" (plural) - the singular path is the real POST /document API route (same
-// reason "indexes"/"subgraphs" are plural). Namespace-scoped: ingestion writes into the
-// active graph (feature unstructured-ingestion).
-const documentsRoute = createRoute({
+// The semantic-layer screen (feature semantic-layer, renamed from "documents"). "knowledge"
+// avoids the singular /document API route the SPA fallback would otherwise lose to. Namespace-
+// scoped: ingestion writes into the active graph.
+const knowledgeRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "knowledge",
+  component: KnowledgeScreen,
+});
+
+// Continuity for bookmarks to the old /q/{ns}/documents URL: redirect to /q/{ns}/knowledge.
+const knowledgeLegacyRoute = createRoute({
   getParentRoute: () => namespaceRoute,
   path: "documents",
-  component: DocumentsScreen,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/q/$ns/knowledge", params: { ns: (params as { ns: string }).ns } });
+  },
 });
 
 const queryRoute = createRoute({
@@ -209,7 +218,8 @@ const routeTree = rootRoute.addChildren([
     dashboardRoute,
     samplesRoute,
     browserRoute,
-    documentsRoute,
+    knowledgeRoute,
+    knowledgeLegacyRoute,
     queryRoute,
     indexesRoute,
     pathRoute,

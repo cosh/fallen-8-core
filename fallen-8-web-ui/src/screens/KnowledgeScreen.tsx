@@ -1,6 +1,6 @@
 // MIT License
 //
-// DocumentsScreen.tsx
+// KnowledgeScreen.tsx
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -23,20 +23,29 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useRef, useState } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import {
   deleteDocument,
+  ensureDocumentBinding,
   getDocument,
+  getDocumentBinding,
   getVertex,
   ingestFile,
   ingestText,
   listDocuments,
+  listEntities,
   searchDocuments,
 } from "../api/endpoints";
-import type { ChunkHit, DocumentSearchResult, DocumentSummary, VertexREST } from "../api/types";
+import type {
+  ChunkHit,
+  DocumentBindingRole,
+  DocumentSearchResult,
+  DocumentSummary,
+  VertexREST,
+} from "../api/types";
 import { useStatus } from "../state/status";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -44,13 +53,13 @@ import { ListCapNote } from "../components/ListCapNote";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
- * Documents (feature unstructured-ingestion): documents in, graph out. Uploads become one
- * Document vertex plus Chunk vertices with embedded text; fused search finds chunks by
- * describing them, and a hit is a vertex - send it to the canvas and traverse from there.
- * The screen gates on the /status ingestion block and states its degraded modes honestly:
- * capability off, embedding provider off (text-only ingest), docling unreachable (txt/md
- * only). Ingest progress rides the change feed (the pipeline commits the Document stub
- * first and flips its status via property writes).
+ * Knowledge (feature semantic-layer, evolving unstructured-ingestion): the semantic layer over
+ * the graph. Documents in, graph out - uploads become Document/Chunk vertices with embedded
+ * text, an NLP sidecar folds them into a deduplicated Entity network, and fused search finds
+ * chunks by describing them (a hit is a vertex - send it to the canvas and traverse). The layer
+ * creates no index implicitly: the State panel reports the index binding and is the one place
+ * that creates the required indices; ingestion is refused until the layer is bound. Uploads run
+ * off-thread on a global queue - a row appears `processing` and flips live via the change feed.
  */
 
 /** The spec's per-chunk resident estimate (text + vector + index slab), for the budget line. */
@@ -66,7 +75,7 @@ function statusTone(status: DocumentSummary["status"]): string {
   return "text-fg-dim";
 }
 
-export function DocumentsScreen() {
+export function KnowledgeScreen() {
   const { instance, store } = useInstanceStore();
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
   const queryClient = useQueryClient();
@@ -77,6 +86,7 @@ export function DocumentsScreen() {
 
   // ---- ingest state ----
   const fileRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
   const [textName, setTextName] = useState("");
   const [textBody, setTextBody] = useState("");
   const [textFormat, setTextFormat] = useState<"markdown" | "plain">("markdown");
@@ -91,27 +101,61 @@ export function DocumentsScreen() {
   const [window, setWindow] = useState(0);
   const [result, setResult] = useState<DocumentSearchResult | null>(null);
 
+  // ---- entities state ----
+  const [entityType, setEntityType] = useState("");
+
+  const enabled = ingestion?.enabled === true;
+
+  const binding = useQuery({
+    queryKey: [instance.id, "binding"],
+    queryFn: ({ signal }) => getDocumentBinding(instance, signal),
+    enabled,
+  });
+  const bound = binding.data?.ready === true;
+
   const list = useQuery({
     queryKey: [instance.id, "documents"],
     queryFn: ({ signal }) => listDocuments(instance, signal),
-    enabled: ingestion?.enabled === true,
+    enabled,
+  });
+
+  const entities = useQuery({
+    queryKey: [instance.id, "entities", entityType],
+    queryFn: ({ signal }) => listEntities(instance, { type: entityType || undefined }, signal),
+    enabled,
   });
 
   const detail = useQuery({
     queryKey: [instance.id, "documents", selected],
     queryFn: ({ signal }) => getDocument(instance, selected!, signal),
-    enabled: ingestion?.enabled === true && selected !== null,
+    enabled: enabled && selected !== null,
   });
 
   const invalidate = () =>
     void queryClient.invalidateQueries({ queryKey: [instance.id, "documents"] });
 
-  const summarize = (summary: DocumentSummary | null) =>
-    summary
-      ? `Ingested “${summary.name}”: ${summary.chunkCount} chunk${summary.chunkCount === 1 ? "" : "s"}${
-          summary.linksCreated ? `, ${summary.linksCreated} link(s)` : ""
-        }${summary.embedded ? "" : " (not embedded)"}.`
-      : "Ingested.";
+  const summarize = (summary: DocumentSummary | null) => {
+    if (!summary) return "Ingested.";
+    if (summary.status === "processing") {
+      return `Queued “${summary.name}” - it is converting and indexing off-thread; the row flips to indexed when done.`;
+    }
+    return `Ingested “${summary.name}”: ${summary.chunkCount} chunk${summary.chunkCount === 1 ? "" : "s"}${
+      summary.linksCreated ? `, ${summary.linksCreated} link(s)` : ""
+    }${summary.embedded ? "" : " (not embedded)"}.`;
+  };
+
+  const bind = useMutation({
+    mutationFn: () => ensureDocumentBinding(instance),
+    onSuccess: (b) => {
+      queryClient.setQueryData([instance.id, "binding"], b);
+      void queryClient.invalidateQueries({ queryKey: [instance.id, "status"] });
+      setMessage(
+        b?.ready
+          ? "The semantic layer is bound: the required indices exist and ingestion is open."
+          : "Bind ran, but an index id is taken by a wrong-shape index (see the State panel).",
+      );
+    },
+  });
 
   const uploadFile = useMutation({
     mutationFn: (file: File) => ingestFile(instance, file, { embed: providerOn }),
@@ -171,17 +215,35 @@ export function DocumentsScreen() {
     },
   });
 
+  const sendEntityToCanvas = useMutation({
+    mutationFn: (id: number) => getVertex(instance, id),
+    onSuccess: (vertex) => {
+      if (vertex) {
+        mergeIntoCanvas([vertex], []);
+        setMessage("Entity sent to the canvas - expand its mentions to reach the chunks it appears in.");
+      }
+    },
+  });
+
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(false);
+    if (!bound) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) uploadFile.mutate(file);
+  };
+
   // ---- gate: capability off (stated, with the switch to flip) ----
-  if (status.data && (!ingestion || !ingestion.enabled)) {
+  if (status.data && !enabled) {
     return (
       <div className="mx-auto max-w-5xl space-y-4">
         <section className="panel">
-          <h2 className="panel-title">Documents</h2>
+          <h2 className="panel-title">Knowledge</h2>
           <p className="text-fg-dim p-3 text-[12px]">
             Unstructured ingestion is off on this instance
             (<code>Fallen8:Ingestion:Enabled</code>). In the compose environment it is on by
-            default; <code>F8_INGESTION=false</code> turns it off together with the docling
-            sidecar.
+            default; <code>F8_INGESTION=false</code> turns it off together with the docling and
+            NLP sidecars.
           </p>
         </section>
       </div>
@@ -198,16 +260,87 @@ export function DocumentsScreen() {
 
   const flatHits: ChunkHit[] = result?.hits ?? result?.documents?.flatMap((g) => g.chunks) ?? [];
 
+  const entityRows = capList(entities.data?.entities ?? []);
+  const entityTotal = entities.data?.total ?? 0;
+
+  const roleLine = (role: DocumentBindingRole | undefined, label: string) => {
+    if (!role) return null;
+    const tone = role.ready ? "text-fg-dim" : role.required ? "text-warn" : "text-fg-faint";
+    const state = role.ready ? "ready" : role.exists ? "conflict" : role.required ? "missing" : "not needed";
+    return (
+      <li className={`text-[11px] ${tone}`} data-testid={`role-${role.role}`}>
+        <span className="text-fg-dim">{label}</span> <code>{role.indexId}</code> - {state}
+        {role.detail ? ` (${role.detail})` : ""}
+      </li>
+    );
+  };
+
   return (
     <div className="mx-auto max-w-5xl space-y-4">
+      {/* ---- state: the index binding (feature semantic-layer FR-7) ---- */}
+      <section className="panel" data-testid="state-panel">
+        <h2 className="panel-title">State</h2>
+        <div className="space-y-2 p-3">
+          {binding.error && <ErrorBox error={binding.error} />}
+          {binding.data && (
+            <>
+              <p className={`text-[12px] ${bound ? "text-fg-dim" : "text-warn"}`} data-testid="binding-state">
+                {bound
+                  ? "The semantic layer is bound: the indices below exist and ingestion is open."
+                  : "The semantic layer is not bound yet. Nothing is created automatically - create the required indices, or point the configured ids at indices you already have."}
+              </p>
+              <ul className="space-y-1">
+                {roleLine(binding.data.vector, "vector")}
+                {roleLine(binding.data.fulltext, "fulltext")}
+                {roleLine(binding.data.entity, "entity")}
+              </ul>
+              {!bound && (
+                <div className="flex items-center gap-2">
+                  <button
+                    className="btn btn-accent"
+                    disabled={bind.isPending}
+                    onClick={() => bind.mutate()}
+                    data-testid="bind-create"
+                  >
+                    {bind.isPending ? "Creating…" : "Create the required indexes"}
+                  </button>
+                  <span className="text-fg-faint text-[11px]">
+                    or create them yourself on the Indexes screen with these ids.
+                  </span>
+                </div>
+              )}
+              {bind.error && <ErrorBox error={bind.error} />}
+            </>
+          )}
+        </div>
+      </section>
+
       {/* ---- ingest ---- */}
       <section className="panel">
         <h2 className="panel-title">Ingest</h2>
-        <div className="flex flex-wrap items-end gap-2 p-3">
+        {!bound && (
+          <p className="text-warn px-3 pt-3 text-[11px]" data-testid="bind-gate-note">
+            Bind the semantic layer in the State panel above before ingesting - uploads are
+            refused until the required indices exist.
+          </p>
+        )}
+        <div
+          className={`m-3 rounded border border-dashed p-4 text-center text-[12px] ${
+            dragging ? "border-accent text-accent" : "border-line text-fg-faint"
+          } ${bound ? "" : "opacity-50"}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (bound) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          data-testid="dropzone"
+        >
+          Drop a file here to ingest it ({acceptedFormats.map((f) => `.${f}`).join(" ")})
+        </div>
+        <div className="flex flex-wrap items-end gap-2 px-3">
           <label className="grow">
-            <span className="text-fg-faint text-[11px]">
-              File ({acceptedFormats.map((f) => `.${f}`).join(" ")})
-            </span>
+            <span className="text-fg-faint text-[11px]">or pick a file</span>
             <input
               ref={fileRef}
               type="file"
@@ -218,7 +351,7 @@ export function DocumentsScreen() {
           </label>
           <button
             className="btn btn-accent"
-            disabled={uploadFile.isPending}
+            disabled={uploadFile.isPending || !bound}
             onClick={() => {
               const file = fileRef.current?.files?.[0];
               if (file) uploadFile.mutate(file);
@@ -228,13 +361,13 @@ export function DocumentsScreen() {
           </button>
         </div>
         {ingestion && !doclingReachable && (
-          <p className="text-fg-faint px-3 pb-3 text-[11px]">
+          <p className="text-fg-faint px-3 pt-2 text-[11px]">
             The docling sidecar is not reachable - only{" "}
             {ingestion.textFormats.map((f) => `.${f}`).join("/")} ingest right now; binary
             formats (pdf/docx/xlsx/pptx/html) need it.
           </p>
         )}
-        <div className="flex flex-wrap items-end gap-2 px-3 pb-3">
+        <div className="flex flex-wrap items-end gap-2 px-3 pt-3 pb-3">
           <label>
             <span className="text-fg-faint text-[11px]">Name</span>
             <input
@@ -268,7 +401,7 @@ export function DocumentsScreen() {
           </label>
           <button
             className="btn btn-accent"
-            disabled={submitText.isPending || !textName.trim() || !textBody.trim()}
+            disabled={submitText.isPending || !bound || !textName.trim() || !textBody.trim()}
             onClick={() => submitText.mutate()}
             data-testid="ingest-text"
           >
@@ -305,8 +438,8 @@ export function DocumentsScreen() {
         )}
         {shown.length === 0 ? (
           <p className="text-fg-faint p-3 text-[12px]">
-            Nothing ingested yet. Upload a file or paste text above; documents become vertices
-            you can search and traverse.
+            Nothing ingested yet. Drop a file or paste text above; documents become vertices you
+            can search and traverse.
           </p>
         ) : (
           <div className="scroll-list" style={scrollRows(SCROLL_ROWS.documents)}>
@@ -386,6 +519,71 @@ export function DocumentsScreen() {
             </div>
           </div>
         )}
+      </section>
+
+      {/* ---- entities (feature semantic-layer FR-6) ---- */}
+      <section className="panel" data-testid="entities">
+        <h2 className="panel-title">Entities</h2>
+        <div className="flex flex-wrap items-end gap-2 p-3">
+          <label>
+            <span className="text-fg-faint text-[11px]">Type filter (PER/ORG/LOC/…)</span>
+            <input
+              className="input w-40"
+              value={entityType}
+              onChange={(e) => setEntityType(e.target.value)}
+              placeholder="all types"
+              data-testid="entity-type"
+            />
+          </label>
+          <span className="text-fg-dim text-[12px]">
+            {entityRows.shown.length} of {entityTotal} entit{entityTotal === 1 ? "y" : "ies"} (most
+            mentioned first)
+          </span>
+        </div>
+        {entities.error && (
+          <div className="px-3 pb-3">
+            <ErrorBox error={entities.error} />
+          </div>
+        )}
+        {entityRows.shown.length === 0 ? (
+          <p className="text-fg-faint p-3 text-[12px]">
+            No entities yet. When the NLP sidecar is on, ingested chunks are enriched into a
+            deduplicated Entity network you can filter and traverse from.
+          </p>
+        ) : (
+          <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr>
+                  <th className="table-cell">Entity</th>
+                  <th className="table-cell">Type</th>
+                  <th className="table-cell text-right">Mentions</th>
+                  <th className="table-cell text-right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {entityRows.shown.map((entity) => (
+                  <tr key={entity.id} data-testid={`entity-row-${entity.id}`}>
+                    <td className="table-cell font-semibold">{entity.text}</td>
+                    <td className="table-cell text-fg-dim">{entity.type}</td>
+                    <td className="table-cell text-right">{entity.mentionCount}</td>
+                    <td className="table-cell text-right">
+                      <button
+                        className="btn"
+                        disabled={sendEntityToCanvas.isPending}
+                        onClick={() => sendEntityToCanvas.mutate(entity.id)}
+                        data-testid={`entity-canvas-${entity.id}`}
+                      >
+                        Canvas
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <ListCapNote shown={entityRows.shown.length} total={entityRows.total} />
       </section>
 
       {/* ---- search ---- */}
