@@ -231,6 +231,46 @@ describe("Show whole graph (FR-2/FR-3)", () => {
     );
   });
 
+  it("keeps the truncation notice across unmount and remount (persisted with the canvas)", async () => {
+    const user = userEvent.setup();
+    getGraphMock.mockResolvedValue({ vertices: [vertex(1)], edges: [] });
+    getStatusMock.mockResolvedValue(status(5, 0));
+    const first = renderScreen();
+
+    await user.click(screen.getByTestId("show-whole-graph"));
+    await screen.findByTestId("whole-graph-truncation");
+    first.unmount();
+
+    renderScreen();
+    expect(screen.getByTestId("whole-graph-truncation")).toBeInTheDocument();
+  });
+
+  it("lands a late merge after a mid-flight clear, with its truncation record (FR-5)", async () => {
+    const user = userEvent.setup();
+    let resolveGraph!: (g: GraphREST) => void;
+    getGraphMock.mockReturnValue(new Promise<GraphREST>((r) => (resolveGraph = r)));
+    getStatusMock.mockResolvedValue(status(5, 0));
+    store().getState().mergeIntoCanvas([vertex(99)], []);
+    renderScreen();
+
+    await user.click(screen.getByTestId("show-whole-graph"));
+    // Clear while the load is in flight: nothing is cancelled.
+    await user.click(screen.getByRole("button", { name: "Clear view" }));
+    expect(store().getState().canvasNodes).toEqual({});
+
+    resolveGraph({ vertices: [vertex(1)], edges: [] });
+    await waitFor(() => expect(Object.keys(store().getState().canvasNodes)).toEqual(["1"]));
+    // The late merge is truncated (1 of 5) and says so.
+    expect(await screen.findByTestId("whole-graph-truncation")).toBeInTheDocument();
+
+    // A second clear recovers completely.
+    await user.click(screen.getByRole("button", { name: "Clear view" }));
+    expect(store().getState().canvasNodes).toEqual({});
+    await waitFor(() =>
+      expect(screen.queryByTestId("whole-graph-truncation")).not.toBeInTheDocument(),
+    );
+  });
+
   it("reports vertex-only truncation without mentioning edges", async () => {
     const user = userEvent.setup();
     getGraphMock.mockResolvedValue({ vertices: [vertex(1)], edges: [] });
@@ -258,6 +298,20 @@ describe("Show whole graph (FR-2/FR-3)", () => {
     expect(screen.queryByTestId("whole-graph-truncation")).not.toBeInTheDocument();
     // The button recovered for a retry.
     expect(screen.getByRole("button", { name: "Show whole graph" })).toBeEnabled();
+  });
+
+  it("leaves the canvas intact when only the status fetch fails", async () => {
+    const user = userEvent.setup();
+    store().getState().mergeIntoCanvas([vertex(99)], []);
+    getGraphMock.mockResolvedValue({ vertices: [vertex(1)], edges: [] });
+    getStatusMock.mockRejectedValue(new Error("status unavailable"));
+    renderScreen();
+
+    await user.click(screen.getByTestId("show-whole-graph"));
+
+    await waitFor(() => expect(screen.getByText(/status unavailable/)).toBeInTheDocument());
+    expect(Object.keys(store().getState().canvasNodes)).toEqual(["99"]);
+    expect(screen.queryByTestId("whole-graph-truncation")).not.toBeInTheDocument();
   });
 
   it("treats a null graph response as an empty merge", async () => {

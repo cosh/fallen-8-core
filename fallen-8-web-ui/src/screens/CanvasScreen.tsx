@@ -58,6 +58,8 @@ export function CanvasScreen() {
   const removeFromCanvas = store((s) => s.removeFromCanvas);
   const clearCanvas = store((s) => s.clearCanvas);
   const setPathOverlay = store((s) => s.setPathOverlay);
+  const wholeGraphTruncation = store((s) => s.wholeGraphTruncation);
+  const setWholeGraphTruncation = store((s) => s.setWholeGraphTruncation);
 
   const [selected, setSelected] = useState<ElementRef | null>(null);
 
@@ -97,38 +99,42 @@ export function CanvasScreen() {
 
   const wholeGraph = useMutation({
     mutationFn: async () => {
-      // Explicit and capped, never automatic: this runs only on click. The merge happens
-      // after BOTH fetches succeed, so a failed fetch leaves the canvas untouched.
+      // The merge happens only after BOTH fetches succeed, so a failed fetch leaves the
+      // canvas untouched.
       const [graph, status] = await Promise.all([
         getGraph(instance, CANVAS_ELEMENT_CAP),
         getStatus(instance),
       ]);
       const g = graph ?? { vertices: [], edges: [] };
       mergeIntoCanvas(g.vertices, g.edges);
-      return {
-        fetchedVertices: g.vertices.length,
-        fetchedEdges: g.edges.length,
-        totalVertices: status?.vertexCount ?? g.vertices.length,
-        totalEdges: status?.edgeCount ?? g.edges.length,
-      };
+      const fetchedVertices = g.vertices.length;
+      const fetchedEdges = g.edges.length;
+      const totalVertices = status?.vertexCount ?? fetchedVertices;
+      const totalEdges = status?.edgeCount ?? fetchedEdges;
+      // The truncation record travels with the canvas it describes (persisted store state,
+      // see WholeGraphTruncation), so the honest notice survives leaving and returning.
+      // Fetched counts are the raw server payload, not the post-merge store, so stub nodes
+      // synthesized by buildCanvasModel never inflate them.
+      setWholeGraphTruncation(
+        totalVertices > fetchedVertices || totalEdges > fetchedEdges
+          ? { fetchedVertices, fetchedEdges, totalVertices, totalEdges }
+          : null,
+      );
     },
   });
 
-  // Honest truncation notice (mutation state, not persisted: the element count chip is the
-  // persistent truth). Also covers edges rendered as stub-endpoint edges: the counts come
-  // from the server, not from what buildCanvasModel synthesized.
   const truncationNotice = useMemo(() => {
-    const d = wholeGraph.data;
-    if (!d) return null;
+    const t = wholeGraphTruncation;
+    if (!t) return null;
     const parts: string[] = [];
-    if (d.totalVertices > d.fetchedVertices) {
-      parts.push(`${d.fetchedVertices.toLocaleString()} of ${d.totalVertices.toLocaleString()} vertices`);
+    if (t.totalVertices > t.fetchedVertices) {
+      parts.push(`${t.fetchedVertices.toLocaleString()} of ${t.totalVertices.toLocaleString()} vertices`);
     }
-    if (d.totalEdges > d.fetchedEdges) {
-      parts.push(`${d.fetchedEdges.toLocaleString()} of ${d.totalEdges.toLocaleString()} edges`);
+    if (t.totalEdges > t.fetchedEdges) {
+      parts.push(`${t.fetchedEdges.toLocaleString()} of ${t.totalEdges.toLocaleString()} edges`);
     }
     return parts.length > 0 ? `showing the first ${parts.join(" and ")}` : null;
-  }, [wholeGraph.data]);
+  }, [wholeGraphTruncation]);
 
   const elementCount = Object.keys(canvasNodes).length + Object.keys(canvasEdges).length;
 
@@ -171,8 +177,10 @@ export function CanvasScreen() {
               disabled={elementCount === 0}
               onClick={() => {
                 // Complete clear (canvas-view-controls FR-1): the selection is content too,
-                // so the detail panel returns to its empty hint. The truncation notice goes
-                // with it: it described a working set that no longer exists.
+                // so the detail panel returns to its empty hint. clearCanvas also drops the
+                // truncation record; the mutation reset dismisses a shown fetch error. A
+                // clear during an in-flight load cancels nothing (FR-5): the late merge
+                // lands together with its own truncation record.
                 clearCanvas();
                 setSelected(null);
                 wholeGraph.reset();
