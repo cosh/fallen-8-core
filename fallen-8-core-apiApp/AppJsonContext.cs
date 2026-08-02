@@ -151,6 +151,7 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(IngestionStatsREST))]
     [JsonSerializable(typeof(DoclingStatsREST))]
     [JsonSerializable(typeof(IngestionLimitsREST))]
+    [JsonSerializable(typeof(NlpStatsREST))]
     [JsonSerializable(typeof(IngestTextSpecification))]
     [JsonSerializable(typeof(LinkSpecificationREST))]
     [JsonSerializable(typeof(DocumentSummaryREST))]

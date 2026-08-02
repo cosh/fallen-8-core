@@ -57,13 +57,17 @@ namespace NoSQL.GraphDB.App.Controllers
             IOptions<Fallen8ObservabilityOptions> options = null,
             Embedding.Fallen8EmbeddingProvider embeddingProvider = null,
             Ingestion.IDoclingConverter doclingConverter = null,
-            IOptions<Fallen8IngestionOptions> ingestionOptions = null)
+            IOptions<Fallen8IngestionOptions> ingestionOptions = null,
+            Ingestion.INlpClient nlpClient = null,
+            IOptions<Fallen8NlpOptions> nlpOptions = null)
         {
             _fallen8 = fallen8;
             _options = options?.Value ?? new Fallen8ObservabilityOptions();
             _embeddingProvider = embeddingProvider;
             _doclingConverter = doclingConverter;
             _ingestionOptions = ingestionOptions?.Value;
+            _nlpClient = nlpClient;
+            _nlpOptions = nlpOptions?.Value;
         }
 
         /// <summary>The embedding provider whose identity is surfaced (feature
@@ -74,6 +78,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// unstructured-ingestion); null under direct unit construction.</summary>
         private readonly Ingestion.IDoclingConverter _doclingConverter;
         private readonly Fallen8IngestionOptions _ingestionOptions;
+        private readonly Ingestion.INlpClient _nlpClient;
+        private readonly Fallen8NlpOptions _nlpOptions;
 
         /// <summary>
         /// Returns a graph-shape snapshot: counts, cardinalities, degrees, indices, memory
@@ -192,6 +198,8 @@ namespace NoSQL.GraphDB.App.Controllers
                 SampleStride = stride,
                 Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider),
                 Ingestion = await IngestionStatsREST.From(_ingestionOptions, _doclingConverter,
+                    HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None),
+                Nlp = await NlpStatsREST.From(_nlpOptions, _nlpClient,
                     HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None)
             };
         }

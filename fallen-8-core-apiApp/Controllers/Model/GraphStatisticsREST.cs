@@ -309,6 +309,14 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>The semantic-layer NLP enrichment state (feature semantic-layer): same
+        /// block as /status.</summary>
+        [JsonPropertyName("nlp")]
+        public NlpStatsREST Nlp
+        {
+            get; set;
+        }
     }
 
     /// <summary>The active embedding provider and its declared model identity (feature

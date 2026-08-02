@@ -1090,6 +1090,7 @@ namespace NoSQL.GraphDB.Tests
                     FulltextIndexId = null
                 }, "IngestionStatsREST"),
                 (new DoclingStatsREST { Configured = true, Reachable = true }, "DoclingStatsREST"),
+                (new NlpStatsREST { Enabled = true, Configured = true, Reachable = false }, "NlpStatsREST"),
                 (new IngestionLimitsREST { MaxUploadBytes = 1L, MaxPages = 2, MaxChunksPerDocument = 3, MaxChunksPerNamespace = 4, MaxLinksPerChunk = 5 }, "IngestionLimitsREST"),
                 (new IngestTextSpecification
                 {
