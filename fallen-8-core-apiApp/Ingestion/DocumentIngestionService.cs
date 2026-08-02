@@ -116,26 +116,31 @@ namespace NoSQL.GraphDB.App.Ingestion
     {
         private readonly IFallen8 _fallen8;
         private readonly IDoclingConverter _docling;
+        private readonly INlpClient _nlp;
         private readonly Fallen8EmbeddingProvider _provider;
         private readonly Fallen8IngestionOptions _options;
         private readonly Fallen8EmbeddingOptions _embeddingOptions;
+        private readonly Fallen8NlpOptions _nlpOptions;
         private readonly NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces _namespaces;
         private readonly IngestionJobQueue _queue;
         private readonly ILogger<DocumentIngestionService> _logger;
 
-        public DocumentIngestionService(IFallen8 fallen8, IDoclingConverter docling,
+        public DocumentIngestionService(IFallen8 fallen8, IDoclingConverter docling, INlpClient nlp,
             Fallen8EmbeddingProvider provider,
             IOptions<Fallen8IngestionOptions> options,
             IOptions<Fallen8EmbeddingOptions> embeddingOptions,
+            IOptions<Fallen8NlpOptions> nlpOptions,
             NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces namespaces,
             IngestionJobQueue queue,
             ILogger<DocumentIngestionService> logger)
         {
             _fallen8 = fallen8;
             _docling = docling;
+            _nlp = nlp;
             _provider = provider;
             _options = options.Value;
             _embeddingOptions = embeddingOptions.Value;
+            _nlpOptions = nlpOptions.Value;
             _namespaces = namespaces;
             _queue = queue;
             _logger = logger;
@@ -315,7 +320,12 @@ namespace NoSQL.GraphDB.App.Ingestion
                     var mentions = ResolveLinks(chunks, job.LinkIndexIds, job.LinkCap, job.DocumentId);
 
                     await WriteChunks(job.DocumentId, request, chunks, vectors, fulltextIndex, mentions, writtenChunkIds);
-                    await FinishDocument(job.DocumentId, request, chunks.Count, pageCount, chunkerConfig);
+
+                    // NLP enrichment (feature semantic-layer): entities + key terms. Additive -
+                    // a failure here never fails the ingest (the chunks are already written).
+                    var enriched = await EnrichAndLink(writtenChunkIds, chunks, cancellationToken);
+
+                    await FinishDocument(job.DocumentId, request, chunks.Count, pageCount, chunkerConfig, enriched);
 
                     _logger.LogInformation("Ingested document {DocumentId} ({ChunkCount} chunks, {Links} links)",
                         job.DocumentId, writtenChunkIds.Count, mentions.Count);
@@ -528,6 +538,46 @@ namespace NoSQL.GraphDB.App.Ingestion
             return index;
         }
 
+        /// <summary>Ensures the entity dedup index (a dictionary index over the entity key), or
+        /// null when disabled. Same create-then-recheck race handling as the others.</summary>
+        private IIndex EnsureEntityIndex()
+        {
+            if (!_options.EnsureEntityIndex)
+            {
+                return null;
+            }
+
+            if (_fallen8.IndexFactory.TryGetIndex(out var existing, _options.EntityIndexId))
+            {
+                return ValidateEntityIndexShape(existing);
+            }
+
+            if (_fallen8.IndexFactory.TryCreateIndex(out var created, _options.EntityIndexId, "DictionaryIndex"))
+            {
+                return created;
+            }
+
+            // Lost the create race: an existing dictionary index is success.
+            if (_fallen8.IndexFactory.TryGetIndex(out var raced, _options.EntityIndexId))
+            {
+                return ValidateEntityIndexShape(raced);
+            }
+
+            throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Index creation failed",
+                String.Format("The entity index '{0}' could not be created.", _options.EntityIndexId));
+        }
+
+        private IIndex ValidateEntityIndexShape(IIndex index)
+        {
+            if (index is IVectorIndex || index is IFulltextIndex)
+            {
+                throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
+                    String.Format("Index '{0}' exists but is not a dictionary index.", _options.EntityIndexId));
+            }
+
+            return index;
+        }
+
         #endregion
 
         #region embedding (embed BEFORE write)
@@ -675,6 +725,179 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         #endregion
 
+        #region NLP enrichment -> entity network (FR-6)
+
+        /// <summary>
+        ///   Enriches the just-written chunks via the NLP sidecar and folds the result into the
+        ///   graph: deduplicated <c>Entity</c> vertices (one per (type, normalized) per namespace,
+        ///   via the entity index), <c>mentions</c> edges chunk -&gt; entity (capped), and a
+        ///   <c>keyTerms</c> property per chunk. Returns whether enrichment ran. ADDITIVE: NLP
+        ///   off, unreachable, or any fault leaves the document indexed with no entities and never
+        ///   throws (the chunks are already written).
+        /// </summary>
+        private async Task<Boolean> EnrichAndLink(List<Int32> chunkIds, List<DocumentChunk> chunks,
+            CancellationToken cancellationToken)
+        {
+            if (!_nlpOptions.Enabled || chunkIds.Count == 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                var items = new List<(String Id, String Text)>(chunkIds.Count);
+                for (var i = 0; i < chunkIds.Count; i++)
+                {
+                    items.Add((chunkIds[i].ToString(), Truncate(chunks[i].Text, _nlpOptions.MaxCharsPerChunk)));
+                }
+
+                var enriched = await _nlp.EnrichAsync(items, _nlpOptions.LanguageHint, cancellationToken);
+                var byChunkId = enriched.ToDictionary(item => item.Id, item => item);
+
+                var entityIndex = EnsureEntityIndex();
+                if (entityIndex == null)
+                {
+                    // Entities need the dedup index; without it, only key terms are stored.
+                    await WriteKeyTerms(chunkIds, chunks, byChunkId);
+                    return true;
+                }
+
+                var now = DateHelper.GetNowStamp();
+
+                // Pass 1: resolve every distinct (type, normalized) entity to a vertex id, creating
+                // the new ones in one batch and indexing them, so dedup holds within and across
+                // documents. `mentionsByChunk` records which entity each chunk mentions (capped).
+                var resolved = new Dictionary<String, Int32>(StringComparer.Ordinal);
+                var newDefs = new List<VertexDefinition>();
+                var newKeys = new List<String>();
+                var mentionKeys = new List<KeyValuePair<Int32, String>>();
+
+                for (var i = 0; i < chunkIds.Count; i++)
+                {
+                    if (!byChunkId.TryGetValue(chunkIds[i].ToString(), out var item) || item.Entities == null)
+                    {
+                        continue;
+                    }
+
+                    var seen = new HashSet<String>(StringComparer.Ordinal);
+                    var linked = 0;
+                    foreach (var entity in item.Entities)
+                    {
+                        if (linked >= _nlpOptions.MaxEntitiesPerChunk)
+                        {
+                            break;
+                        }
+
+                        var normalized = (entity.Text ?? String.Empty).Trim();
+                        if (normalized.Length == 0 || String.IsNullOrEmpty(entity.Label))
+                        {
+                            continue;
+                        }
+
+                        var key = entity.Label + "|" + normalized.ToLowerInvariant();
+                        if (!seen.Add(key))
+                        {
+                            continue;
+                        }
+
+                        linked++;
+                        mentionKeys.Add(new KeyValuePair<Int32, String>(chunkIds[i], key));
+
+                        if (resolved.ContainsKey(key))
+                        {
+                            continue;
+                        }
+
+                        if (entityIndex.TryGetValue(out var hits, key) && hits.Count > 0)
+                        {
+                            resolved[key] = hits[0].Id;   // existing entity (cross-document dedup)
+                        }
+                        else if (!newDefs.Any(d => String.Equals(
+                            (String)d.Properties[DocumentGraphSchema.EntityKeyProperty], key, StringComparison.Ordinal)))
+                        {
+                            newDefs.Add(new VertexDefinition
+                            {
+                                CreationDate = now,
+                                Label = DocumentGraphSchema.EntityLabel,
+                                Properties = new Dictionary<String, Object>
+                                {
+                                    { DocumentGraphSchema.EntityTextProperty, normalized },
+                                    { DocumentGraphSchema.EntityTypeProperty, entity.Label },
+                                    { DocumentGraphSchema.EntityNormalizedProperty, normalized.ToLowerInvariant() },
+                                    { DocumentGraphSchema.EntityKeyProperty, key }
+                                }
+                            });
+                            newKeys.Add(key);
+                        }
+                    }
+                }
+
+                if (newDefs.Count > 0)
+                {
+                    var createEntities = new CreateVerticesTransaction { Vertices = newDefs };
+                    await Enqueue(createEntities, "entity creation");
+                    var created = createEntities.GetCreatedVertices();
+                    for (var i = 0; i < created.Count; i++)
+                    {
+                        resolved[newKeys[i]] = created[i].Id;
+                        if (_fallen8.TryGetGraphElement(out var element, created[i].Id))
+                        {
+                            entityIndex.AddOrUpdate(newKeys[i], element);   // index for later dedup
+                        }
+                    }
+                }
+
+                // Pass 2: the mentions edges (dedup per (chunk, entity)).
+                var edges = new CreateEdgesTransaction();
+                var edgeSeen = new HashSet<(Int32, Int32)>();
+                foreach (var mention in mentionKeys)
+                {
+                    if (resolved.TryGetValue(mention.Value, out var entityId) &&
+                        edgeSeen.Add((mention.Key, entityId)))
+                    {
+                        edges.AddEdge(mention.Key, DocumentGraphSchema.MentionsEdge, entityId, now);
+                    }
+                }
+
+                if (edges.Edges.Count > 0)
+                {
+                    await Enqueue(edges, "entity mentions");
+                }
+
+                await WriteKeyTerms(chunkIds, chunks, byChunkId);
+                return true;
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && cancellationToken.IsCancellationRequested))
+            {
+                // Additive: never fail the ingest on enrichment. (NlpUnavailable and any other
+                // fault land here.) A caller cancellation still propagates.
+                _logger.LogWarning(ex, "NLP enrichment failed for the document; it is indexed without entities");
+                return false;
+            }
+        }
+
+        private async Task WriteKeyTerms(List<Int32> chunkIds, List<DocumentChunk> chunks,
+            Dictionary<String, NlpEnrichedItem> byChunkId)
+        {
+            for (var i = 0; i < chunkIds.Count; i++)
+            {
+                if (byChunkId.TryGetValue(chunkIds[i].ToString(), out var item) &&
+                    item.KeyTerms != null && item.KeyTerms.Count > 0)
+                {
+                    var terms = item.KeyTerms.Take(_nlpOptions.MaxKeyTermsPerChunk);
+                    await SetProperty(chunkIds[i], DocumentGraphSchema.KeyTermsProperty, String.Join("\n", terms));
+                }
+            }
+        }
+
+        private static String Truncate(String text, Int32 max)
+        {
+            text ??= String.Empty;
+            return text.Length <= max ? text : text.Substring(0, max);
+        }
+
+        #endregion
+
         #region graph writes
 
         private async Task<Int32> CreateDocumentStub(IngestionRequest request, String contentHash)
@@ -817,7 +1040,7 @@ namespace NoSQL.GraphDB.App.Ingestion
         }
 
         private async Task FinishDocument(Int32 documentId, IngestionRequest request, Int32 chunkCount,
-            Int32? pageCount, String chunkerConfig)
+            Int32? pageCount, String chunkerConfig, Boolean enriched)
         {
             await SetProperty(documentId, DocumentGraphSchema.ChunkCountProperty, chunkCount);
             if (pageCount != null)
@@ -826,6 +1049,7 @@ namespace NoSQL.GraphDB.App.Ingestion
             }
 
             await SetProperty(documentId, DocumentGraphSchema.ChunkerConfigProperty, chunkerConfig);
+            await SetProperty(documentId, DocumentGraphSchema.EnrichedProperty, enriched);
             if (request.Embed)
             {
                 await SetProperty(documentId, DocumentGraphSchema.EmbeddingModelProperty, _provider.Identity.Stamp);

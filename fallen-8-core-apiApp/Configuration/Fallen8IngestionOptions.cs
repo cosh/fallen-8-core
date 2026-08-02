@@ -95,6 +95,13 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>The ensured fulltext index id.</summary>
         public String FulltextIndexId { get; set; } = "documents-text";
 
+        /// <summary>Ensure the entity dedup index (feature semantic-layer): a dictionary index
+        /// over the Entity vertices' dedup key, so an entity is one vertex per namespace.</summary>
+        public Boolean EnsureEntityIndex { get; set; } = true;
+
+        /// <summary>The ensured entity dedup index id.</summary>
+        public String EntityIndexId { get; set; } = "documents-entities";
+
         /// <summary>docling-serve sidecar settings.</summary>
         public DoclingOptions Docling { get; set; } = new DoclingOptions();
 

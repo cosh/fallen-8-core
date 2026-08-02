@@ -74,13 +74,52 @@ namespace NoSQL.GraphDB.Tests
         }
     }
 
+    /// <summary>A deterministic in-test NLP client: entities and key terms are produced by a
+    /// configurable rule (default: none). `ThrowUnavailable` simulates the sidecar being down.</summary>
+    internal sealed class FakeNlpClient : INlpClient
+    {
+        internal Func<String, (List<NlpEntity> Entities, List<String> KeyTerms)> OnEnrich =
+            _ => (new List<NlpEntity>(), new List<String>());
+        internal Boolean ThrowUnavailable;
+        internal Boolean ConfiguredFlag = true;
+
+        public Boolean Configured => ConfiguredFlag;
+
+        public Task<IReadOnlyList<NlpEnrichedItem>> EnrichAsync(
+            IReadOnlyList<(String Id, String Text)> items, String languageHint, CancellationToken cancellationToken)
+        {
+            if (ThrowUnavailable)
+            {
+                throw new NlpUnavailableException("fake NLP down");
+            }
+
+            var result = new List<NlpEnrichedItem>(items.Count);
+            foreach (var item in items)
+            {
+                var (entities, keyTerms) = OnEnrich(item.Text);
+                result.Add(new NlpEnrichedItem
+                {
+                    Id = item.Id,
+                    Language = languageHint ?? "en",
+                    Entities = entities,
+                    KeyTerms = keyTerms
+                });
+            }
+
+            return Task.FromResult<IReadOnlyList<NlpEnrichedItem>>(result);
+        }
+
+        public Task<Boolean> IsReachableAsync(CancellationToken cancellationToken) => Task.FromResult(ConfiguredFlag);
+    }
+
     /// <summary>The full-stack test host for the /document surface: volatile engine, the
-    /// deterministic embedding fake, the in-test docling.</summary>
+    /// deterministic embedding fake, the in-test docling, the in-test NLP client.</summary>
     internal sealed class IngestionFactory : WebApplicationFactory<Program>
     {
         internal const Int32 Dim = 4;
 
         internal readonly FakeDoclingConverter Docling = new FakeDoclingConverter();
+        internal readonly FakeNlpClient Nlp = new FakeNlpClient();
 
         private readonly Dictionary<String, String> _settings;
         private readonly Int32 _fakeDimension;
@@ -111,6 +150,7 @@ namespace NoSQL.GraphDB.Tests
                 services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
                     new FakeEmbeddingGenerator(_fakeDimension));
                 services.AddSingleton<IDoclingConverter>(Docling);
+                services.AddSingleton<INlpClient>(Nlp);
             });
         }
     }
