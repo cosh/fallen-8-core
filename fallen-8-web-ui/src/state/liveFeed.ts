@@ -234,7 +234,6 @@ export function useLiveChangeFeed(instance: InstanceConfig | null): LiveFeedStat
 
     const controller = new AbortController();
     const handlers = createLiveFeedHandlers({ instance, queryClient });
-    const feed = getEventFeed(instance.id);
     setStatus("connecting");
 
     void streamChanges(instance, {
@@ -243,8 +242,12 @@ export function useLiveChangeFeed(instance: InstanceConfig | null): LiveFeedStat
       // namespace's feed saw, so returning to it replays what was missed from the server
       // ring - or says so in-band with resync(seekOutOfRange). Null on the first
       // subscribe of a session: the stream starts live.
-      since: feed.getState().lastEventId ?? undefined,
-      onFrameId: (id) => feed.getState().setLastEventId(id),
+      since: getEventFeed(instance.id).getState().lastEventId ?? undefined,
+      // Re-resolved per frame, NEVER captured: a purge (factory reset, namespace drop)
+      // replaces the store under this key while the stream is still up, and a captured
+      // reference would keep writing the position to the detached store - the next
+      // resubscribe would then silently skip catch-up.
+      onFrameId: (id) => getEventFeed(instance.id).getState().setLastEventId(id),
       onEvent: handlers.onEvent,
       onResync: handlers.onResync,
       onOpen: () => setStatus("live"),

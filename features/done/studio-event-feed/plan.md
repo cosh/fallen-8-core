@@ -79,8 +79,13 @@ Contract in [spec.md](./spec.md); no engine/REST/OpenAPI/MCP work anywhere in th
 
 ## Status
 
-- [ ] Phase 1 - buffer state + stream tee
-- [ ] Phase 2 - interest filter model
-- [ ] Phase 3 - the bell + the panel
-- [ ] Phase 4 - docs + screenshots
-- [ ] Phase 5 - verify + council
+- [x] Phase 1 - buffer state + stream tee
+- [x] Phase 2 - interest filter model
+- [x] Phase 3 - the bell + the panel
+- [x] Phase 4 - docs + screenshots (14 capture specs against an isolated durable apiApp;
+  all top-bar images refreshed, new `screen-events.png` shot over a live feed)
+- [x] Phase 5 - verify + council (3 parallel reviewers: no blockers; every should-fix
+  applied on the branch, most notably the onFrameId detached-store fix so a purge
+  mid-stream cannot silently lose the catch-up position, plus a clipboard fallback and
+  the recorded as-built deltas in spec.md; 560 web-ui tests, 1061 dotnet tests, docs
+  build link-clean)

@@ -45,6 +45,7 @@ import type { TypedValue } from "../lib/literals";
 import type { IndexCapability } from "../lib/indexCapabilities";
 import { DEFAULT_FEED_FILTER, type FeedFilterDraft } from "./feedFilter";
 import { migrateEventFeed, purgeAllEventFeeds, purgeEventFeed } from "./eventFeed";
+import { scopeKey } from "./scopeKey";
 
 /**
  * Per-instance workspace state (FR-1c), via a memoized store factory. Each instance id
@@ -479,6 +480,9 @@ function createWorkspaceStore(instanceId: string) {
       }),
       {
         name: `f8.workspace.${instanceId}`,
+        // One-shot navigation intents are session state: persisted, a never-consumed
+        // one would fire a surprise lookup on a later session's first visit.
+        partialize: ({ scanPrefill: _scan, inspectPrefill: _inspect, ...rest }) => rest,
         // Deep-merge drafts/config so state persisted before a field existed picks
         // up its default instead of rehydrating as undefined.
         merge: (persisted, current) => {
@@ -513,6 +517,10 @@ function createWorkspaceStore(instanceId: string) {
             analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT, ...(p.analyticsDraft ?? {}) },
             styleConfig: { ...DEFAULT_STYLE_CONFIG, ...(p.styleConfig ?? {}) },
             feedFilter: { ...DEFAULT_FEED_FILTER, ...(p.feedFilter ?? {}) },
+            // One-shots never rehydrate (see partialize); this also drops values
+            // persisted before the partialize existed.
+            scanPrefill: null,
+            inspectPrefill: null,
           };
         },
       },
@@ -534,8 +542,7 @@ const stores = new Map<string, WorkspaceStore>();
  * never contain "/".
  */
 export function getInstanceStore(instanceId: string, namespace?: string): WorkspaceStore {
-  const compound = namespace === undefined ? instanceId : `${instanceId}/${namespace}`;
-  const key = compound.endsWith("/default") ? compound.slice(0, -"/default".length) : compound;
+  const key = scopeKey(instanceId, namespace);
   let store = stores.get(key);
   if (!store) {
     store = createWorkspaceStore(key);
@@ -544,18 +551,13 @@ export function getInstanceStore(instanceId: string, namespace?: string): Worksp
   return store;
 }
 
-function storeKey(instanceId: string, namespace?: string): string {
-  const compound = namespace === undefined ? instanceId : `${instanceId}/${namespace}`;
-  return compound.endsWith("/default") ? compound.slice(0, -"/default".length) : compound;
-}
-
 /**
  * Drops a namespace's memoized store AND its persisted state (feature graph-namespaces):
  * after a drop, a recreate, or a factory reset the old canvas/results would reference
  * elements that no longer exist (or worse, ids now naming different elements).
  */
 export function purgeInstanceStore(instanceId: string, namespace?: string): void {
-  const key = storeKey(instanceId, namespace);
+  const key = scopeKey(instanceId, namespace);
   stores.delete(key);
   localStorage.removeItem(`f8.workspace.${key}`);
   // The session-only event feed shares the workspace's blast radius: its buffered events
@@ -586,8 +588,8 @@ export function purgeAllInstanceStores(instanceId: string): void {
  * persist key is baked in at creation), so the next access rehydrates from the moved state.
  */
 export function migrateInstanceStore(instanceId: string, from: string, to: string): void {
-  const fromKey = storeKey(instanceId, from);
-  const toKey = storeKey(instanceId, to);
+  const fromKey = scopeKey(instanceId, from);
+  const toKey = scopeKey(instanceId, to);
   if (fromKey === toKey) return;
   const persisted = localStorage.getItem(`f8.workspace.${fromKey}`);
   if (persisted !== null) {

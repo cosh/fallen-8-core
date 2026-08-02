@@ -25,11 +25,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement, type ReactNode } from "react";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createLiveFeedHandlers, useLiveChangeFeed } from "../src/state/liveFeed";
+import {
+  bumpFeedGeneration,
+  createLiveFeedHandlers,
+  useLiveChangeFeed,
+} from "../src/state/liveFeed";
 import {
   getInstanceStore,
+  purgeAllInstanceStores,
+  purgeInstanceStore,
   resetInstanceStoresForTests,
 } from "../src/state/instanceStore";
 import { getEventFeed, resetEventFeedsForTests } from "../src/state/eventFeed";
@@ -371,5 +377,38 @@ describe("useLiveChangeFeed catch-up handoff", () => {
     await vi.waitFor(() => expect(streamChangesMock).toHaveBeenCalledTimes(2));
     expect(streamChangesMock.mock.calls[1][1].since).toBe("0b1e:42");
     second.unmount();
+  });
+
+  it("keeps recording the position after a purge replaces the store mid-stream", async () => {
+    const { unmount } = renderFeedHook();
+    await vi.waitFor(() => expect(streamChangesMock).toHaveBeenCalledTimes(1));
+    const options = streamChangesMock.mock.calls[0][1];
+    options.onFrameId?.("0b1e:1");
+
+    // Factory reset while the stream survives (the server says tabulaRasa in-band): the
+    // feed store under this key is cleared AND replaced. onFrameId must write to the
+    // CURRENT store, not a reference captured at subscribe time - otherwise the next
+    // resubscribe silently skips catch-up with no gap marker.
+    purgeAllInstanceStores(instance.id);
+    options.onFrameId?.("0b1e:2");
+
+    expect(getEventFeed(instance.id).getState().lastEventId).toBe("0b1e:2");
+    unmount();
+  });
+
+  it("a namespace recreate purges the feed, and the bump resubscribes live (no stale since)", async () => {
+    getEventFeed(instance.id).getState().setLastEventId("0b1e:41");
+    const { unmount } = renderFeedHook();
+    await vi.waitFor(() => expect(streamChangesMock).toHaveBeenCalledTimes(1));
+    expect(streamChangesMock.mock.calls[0][1].since).toBe("0b1e:41");
+
+    // The exact recreate-in-place sequence (NamespaceScope): purge, THEN bump. The clear
+    // rides the purge, so this pins the coupling a bare bump would not provide.
+    purgeInstanceStore(instance.id);
+    act(() => bumpFeedGeneration());
+
+    await vi.waitFor(() => expect(streamChangesMock).toHaveBeenCalledTimes(2));
+    expect(streamChangesMock.mock.calls[1][1].since).toBeUndefined();
+    unmount();
   });
 });

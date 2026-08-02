@@ -166,6 +166,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [feedOpen, setFeedOpen] = useState(false);
   const inspectFromFeed = (id: number) => {
     if (!feedInstance) return;
+    // Writes to the namespace-BOUND store; a pre-namespace server's Browser reads the
+    // UNBOUND one, but there the /ns/... stream dies fatal, so the panel never has rows.
     getInstanceStore(feedInstance.id).getState().setInspectPrefill(id);
     setFeedOpen(false);
     void navigate({ to: "/q/$ns/browser", params: { ns } });

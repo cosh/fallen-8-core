@@ -113,13 +113,29 @@ describe("event rows", () => {
     expect(edgeCreated).toHaveTextContent("#7");
   });
 
-  it("renders a resync entry as a gap marker with the per-reason line", () => {
-    seed(ev({ seq: 9, kind: "resync", reason: "seekOutOfRange" }));
+  it.each([
+    ["trim", "the graph was compacted"],
+    ["tabulaRasa", "the graph was replaced"],
+    ["load", "a save game was loaded"],
+    ["delegateWrite", "a compiled delegate wrote directly"],
+    ["overflow", "the stream fell behind"],
+    ["seekOutOfRange", "events in between were not observed"],
+  ] as const)("renders a resync(%s) gap marker with its reason line", (reason, line) => {
+    seed(ev({ seq: 9, kind: "resync", reason }));
     renderPanel();
 
     const row = screen.getByTestId("feed-row-resync");
-    expect(row).toHaveTextContent("resync (seekOutOfRange)");
-    expect(row).toHaveTextContent("events in between were not observed");
+    expect(row).toHaveTextContent(`resync (${reason})`);
+    expect(row).toHaveTextContent(line);
+  });
+
+  it("a resync without a reason (contract violation) falls back to the overflow line", () => {
+    seed(ev({ seq: 9, kind: "resync" }));
+    renderPanel();
+
+    const row = screen.getByTestId("feed-row-resync");
+    expect(row).toHaveTextContent("resync (overflow)");
+    expect(row).toHaveTextContent("events were missed");
   });
 
   it("element ids are InspectLinks", () => {
@@ -178,6 +194,18 @@ describe("the interest filter as a view", () => {
     // The chip persists into the workspace store (survives a remount).
     expect(getInstanceStore(instance.id).getState().feedFilter.labels).toEqual(["person"]);
   });
+
+  it("chips also commit on comma and on blur", () => {
+    renderPanel();
+    const input = screen.getByTestId("feed-keys");
+
+    fireEvent.change(input, { target: { value: "name," } });
+    expect(getInstanceStore(instance.id).getState().feedFilter.keys).toEqual(["name"]);
+
+    fireEvent.change(input, { target: { value: "age" } });
+    fireEvent.blur(input);
+    expect(getInstanceStore(instance.id).getState().feedFilter.keys).toEqual(["name", "age"]);
+  });
 });
 
 describe("panel chrome", () => {
@@ -217,17 +245,40 @@ describe("panel chrome", () => {
     fireEvent.click(screen.getByTestId("event-feed-close"));
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("Escape closes (the Radix dismiss contract)", () => {
+    const onClose = vi.fn();
+    renderPanel({ onClose });
+    fireEvent.keyDown(screen.getByTestId("event-feed-panel"), { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
+  });
 });
 
 describe("copy as REST", () => {
-  it("copies the filter as the equivalent /changefeed query, no credentials", async () => {
+  it("copies the filter as the equivalent /changefeed query, never the API key", async () => {
     const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 
-    getInstanceStore(instance.id)
+    // A key-protected instance: the credential travels in headers only and must never
+    // appear in the copied URL (the feed's documented auth posture).
+    const secured: InstanceConfig = {
+      ...instance,
+      auth: { kind: "apiKey", key: "s3cret-key" },
+    };
+    getInstanceStore(secured.id)
       .getState()
       .setFeedFilter({ kinds: ["vertexCreated", "propertySet"], labels: ["person"] });
-    renderPanel();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <EventFeedPanel
+          instance={secured}
+          status="live"
+          open
+          onClose={() => {}}
+          onInspect={() => {}}
+        />
+      </QueryClientProvider>,
+    );
 
     fireEvent.click(screen.getByTestId("event-feed-copy-rest"));
 
@@ -238,6 +289,16 @@ describe("copy as REST", () => {
     expect(url).toBe(
       "http://f8.test/ns/ns1/changefeed?kinds=vertexCreated%2CpropertySet&labels=person",
     );
+    expect(url).not.toContain("s3cret");
+  });
+
+  it("fails visibly when the clipboard is unavailable (plain-HTTP deployment)", async () => {
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId("event-feed-copy-rest"));
+
+    expect(await screen.findByText("copy failed")).toBeInTheDocument();
   });
 
   it("is disabled when the selection matches nothing (inexpressible over REST)", () => {

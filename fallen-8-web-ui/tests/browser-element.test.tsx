@@ -94,7 +94,8 @@ vi.mock("../src/canvas/GraphCanvas", () => {
 });
 
 import { BrowserScreen } from "../src/screens/BrowserScreen";
-import { resetInstanceStoresForTests } from "../src/state/instanceStore";
+import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/instanceStore";
+import { SAME_ORIGIN_INSTANCE } from "../src/instances/registry";
 
 const STATUS: StatusREST = {
   vertexCount: 1,
@@ -237,6 +238,19 @@ describe("element detail", () => {
       ).toBeInTheDocument(),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("consumes a one-shot inspect prefill (the Events panel handoff) on mount", async () => {
+    // The active scope is SAME_ORIGIN_INSTANCE + "default", whose store key collapses
+    // onto the bare instance id - the same store AppShell's inspectFromFeed writes to.
+    getInstanceStore(SAME_ORIGIN_INSTANCE.id).getState().setInspectPrefill(42);
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByText("vertex #42")).toBeInTheDocument());
+    expect(getGraphElementMock).toHaveBeenCalledWith(expect.anything(), 42, undefined);
+    expect(screen.getByTestId("lookup-id")).toHaveValue("42");
+    // One-shot: consumed and cleared, so a later remount does not re-fire.
+    expect(getInstanceStore(SAME_ORIGIN_INSTANCE.id).getState().inspectPrefill).toBeNull();
   });
 });
 

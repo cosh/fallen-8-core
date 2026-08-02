@@ -74,7 +74,9 @@ export function EventFeedBell({
     <button
       type="button"
       data-testid="event-feed-bell"
-      aria-label={`Events${unread > 0 ? ` (${display} unread)` : ""}`}
+      aria-label={`Events${unread > 0 ? ` (${display} unread)` : ""}${
+        resyncSinceOpen ? " (continuity lost)" : ""
+      }`}
       title={title}
       onClick={onOpen}
       className={`flex cursor-pointer items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase transition-colors ${tone} ${

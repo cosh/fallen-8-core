@@ -133,6 +133,20 @@ describe("event feed buffer", () => {
     expect(feed.getState().unread).toBe(0);
   });
 
+  it("persists nothing: recorded events and positions never reach localStorage", () => {
+    const feed = getEventFeed("a");
+    feed.getState().record(ev(1, { label: "sentinel-label" }), true);
+    feed.getState().setLastEventId("sentinel-epoch:99");
+
+    // A reload starting empty is the contract; any hit here means the feed leaked into
+    // some persisted store.
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const value = window.localStorage.getItem(window.localStorage.key(i)!) ?? "";
+      expect(value).not.toContain("sentinel-label");
+      expect(value).not.toContain("sentinel-epoch");
+    }
+  });
+
   it("clear resets buffer, unread, flag AND the catch-up position", () => {
     const feed = getEventFeed("a");
     feed.getState().record(ev(1), true);

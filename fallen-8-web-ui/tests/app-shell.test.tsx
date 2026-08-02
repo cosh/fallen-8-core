@@ -281,6 +281,8 @@ describe("events bell", () => {
     expect(bell.className).toContain("text-danger");
     expect(screen.getByTestId("event-feed-resync-flag")).toBeInTheDocument();
     expect(bell.title).toMatch(/continuity was lost/);
+    // The warning is audible, not just visual: the aria-label carries it too.
+    expect(bell.getAttribute("aria-label")).toBe("Events (continuity lost)");
   });
 
   it("opens the Events panel; opening resets the unread count (visible = read)", async () => {

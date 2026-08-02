@@ -153,7 +153,8 @@ function ChipInput({
           value={text}
           placeholder={values.length === 0 ? placeholder : ""}
           onChange={(e) => {
-            // A datalist pick lands as a change event; commas add mid-typing.
+            // A comma commits mid-typing; a datalist pick lands as plain text and
+            // commits like typed text does, on Enter or blur.
             if (e.target.value.endsWith(",")) add(e.target.value.slice(0, -1));
             else setText(e.target.value);
           }}
@@ -293,12 +294,12 @@ export function EventFeedPanel({
     return () => clearInterval(timer);
   }, [open]);
 
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2_000);
+    if (copyState === "idle") return;
+    const timer = setTimeout(() => setCopyState("idle"), 2_000);
     return () => clearTimeout(timer);
-  }, [copied]);
+  }, [copyState]);
 
   // Label/key suggestions ride the Graph shape snapshot when one has been computed;
   // free typing always works (the snapshot is never fetched from here).
@@ -317,6 +318,18 @@ export function EventFeedPanel({
     buildChangeFeedQuery(toChangeFeedFilter(filter)),
   );
   const expressible = isExpressibleAsRest(filter);
+
+  // navigator.clipboard exists only in secure contexts; a plain-HTTP deployment (the
+  // documented self-hosted posture) must fail VISIBLY, not throw into the void.
+  const copyRestUrl = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(restUrl);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+  };
 
   const toggle = <T,>(values: T[], value: T): T[] =>
     values.includes(value) ? values.filter((v) => v !== value) : [...values, value];
@@ -445,11 +458,9 @@ export function EventFeedPanel({
                   ? help("feedCopyRest")
                   : "An empty kinds/elements selection matches nothing and cannot be expressed as a REST filter."
               }
-              onClick={() => {
-                void navigator.clipboard.writeText(restUrl).then(() => setCopied(true));
-              }}
+              onClick={() => void copyRestUrl()}
             >
-              {copied ? "copied" : "copy as REST"}
+              {copyState === "copied" ? "copied" : copyState === "failed" ? "copy failed" : "copy as REST"}
             </button>
           </div>
         </Dialog.Content>

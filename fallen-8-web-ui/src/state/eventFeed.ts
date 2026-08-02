@@ -25,6 +25,7 @@
 
 import { create, type UseBoundStore, type StoreApi } from "zustand";
 import type { ChangeEvent } from "../api/changefeed";
+import { scopeKey } from "./scopeKey";
 
 /**
  * Per-namespace event-feed state (feature studio-event-feed): the newest
@@ -111,19 +112,9 @@ type EventFeedStore = UseBoundStore<StoreApi<EventFeedState>>;
 
 const feeds = new Map<string, EventFeedStore>();
 
-/**
- * Same scope rule as the workspace store (instanceStore.getInstanceStore): a compound
- * "<id>/<namespace>" or an (id, namespace) pair, with the reserved "default" namespace
- * collapsing onto the bare id so both call shapes hit the same feed.
- */
-function feedKey(instanceId: string, namespace?: string): string {
-  const compound = namespace === undefined ? instanceId : `${instanceId}/${namespace}`;
-  return compound.endsWith("/default") ? compound.slice(0, -"/default".length) : compound;
-}
-
 /** Returns the one feed belonging to this instance id + namespace (memoized). */
 export function getEventFeed(instanceId: string, namespace?: string): EventFeedStore {
-  const key = feedKey(instanceId, namespace);
+  const key = scopeKey(instanceId, namespace);
   let feed = feeds.get(key);
   if (!feed) {
     feed = createEventFeedStore();
@@ -138,7 +129,7 @@ export function getEventFeed(instanceId: string, namespace?: string): EventFeedS
  * and a stale `since` against its successor's feed would be meaningless.
  */
 export function purgeEventFeed(instanceId: string, namespace?: string): void {
-  const key = feedKey(instanceId, namespace);
+  const key = scopeKey(instanceId, namespace);
   // Clear before dropping the map entry: a mounted component may still hold the store.
   feeds.get(key)?.getState().clear();
   feeds.delete(key);
@@ -159,10 +150,13 @@ export function purgeAllEventFeeds(instanceId: string): void {
  * the buffer and the catch-up position stay valid under the new address.
  */
 export function migrateEventFeed(instanceId: string, from: string, to: string): void {
-  const fromKey = feedKey(instanceId, from);
-  const toKey = feedKey(instanceId, to);
+  const fromKey = scopeKey(instanceId, from);
+  const toKey = scopeKey(instanceId, to);
   if (fromKey === toKey) return;
   const feed = feeds.get(fromKey);
+  // A displaced destination store (unreachable today: rename targets cannot exist) is
+  // cleared like a purge, so a component still holding it never shows stale entries.
+  feeds.get(toKey)?.getState().clear();
   feeds.delete(fromKey);
   feeds.delete(toKey);
   if (feed) feeds.set(toKey, feed);
