@@ -92,12 +92,23 @@ auto-created on first ingest (the operator wants to choose), and upload is a pla
   is additive). `GET /status` gains `nlp: { enabled, configured, reachable }` (cached probe,
   like docling). The compose environment runs the sidecar by default; a bare `dotnet run` has
   it off.
-- **FR-3 Async ingestion.** `POST /document` and `POST /document/text` validate up front
-  (as today: format, gate, dup-hash, byte cap, binding satisfied), create the `processing`
-  stub, ENQUEUE a background job, and return `202 Accepted` with the stub summary. A bounded
-  `Channel`-backed `IHostedService` processes jobs (bounded concurrency; over-capacity enqueue
-  answers 503 with a reason). The pipeline, its failure/cleanup invariant (one failed Document,
-  zero chunks), and the change-feed lifecycle are unchanged except for running off-thread.
+- **FR-3 Async ingestion, one global FIFO queue.** `POST /document` and `POST /document/text`
+  validate up front (as today: format, gate, dup-hash, byte cap, binding satisfied), create the
+  `processing` stub, ENQUEUE a job, and return `202 Accepted` with the stub summary. There is a
+  **single global `Channel`-backed queue shared across ALL namespaces**, drained by ONE
+  consumer (`IHostedService`) in strict **arrival order** (FIFO) - a large scanned PDF in one
+  namespace delays later jobs everywhere, which is the honest trade for in-order, bounded,
+  single-writer-friendly processing. The queue is bounded; over-capacity enqueue answers `503`
+  with a reason. **Each job carries its namespace name** (plus the stub's documentId and the
+  validated request); the worker re-resolves the concrete engine from that name via
+  `Fallen8Namespaces` at processing time. This is deliberate: the namespace is addressed on the
+  request thread through an `AsyncLocal` that does NOT flow to the worker thread, so the job
+  must name its namespace rather than rely on the ambient. If the namespace was dropped before
+  the job ran, the job is discarded with a log line (its Document went with the namespace); if
+  the stub is gone or no longer a `processing` `Document` (a reload reassigned ids), the job is
+  skipped. The pipeline, its failure/cleanup invariant (one failed Document, zero chunks), and
+  the change-feed lifecycle are unchanged except for running off the request thread on the
+  re-resolved engine.
 - **FR-4 docling async + knobs.** The docling client submits via `/v1/convert/file/async`,
   polls `/v1/status/poll/{task_id}`, fetches `/v1/result/{task_id}`, honouring the configured
   timeout across the poll loop. Conversion options are sent per request:
