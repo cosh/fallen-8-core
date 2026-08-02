@@ -27,7 +27,9 @@ import { apiForm, apiRequest, authHeaders, buildUrl, scopedPath, throwIfNotOk } 
 import type { InstanceConfig } from "../instances/types";
 import type {
   AnalyticsResultREST,
+  DocumentBinding,
   DocumentDetail,
+  DocumentEntityList,
   DocumentList,
   DocumentSearchResult,
   DocumentSearchSpecification,
@@ -646,3 +648,26 @@ export const ingestFile = (
 /** Fused (dense + lexical) chunk retrieval; hits are chunk vertex ids. */
 export const searchDocuments = (i: InstanceConfig, spec: DocumentSearchSpecification) =>
   apiRequest<DocumentSearchResult>(i, "/document/search", { method: "POST", body: spec });
+
+// ---- semantic layer (feature semantic-layer): explicit index binding + the entity network ----
+// The layer creates no index implicitly: ingestion is refused (428) until the binding is ready.
+// The Knowledge screen's "State" panel reads the binding and offers the one create path.
+
+/** The index binding state: which indices exist, are the right shape, and whether ingest is ready. */
+export const getDocumentBinding = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<DocumentBinding>(i, "/document/binding", { signal });
+
+/** Create the required indices (idempotent). The ONLY path that creates a bound index. */
+export const ensureDocumentBinding = (i: InstanceConfig) =>
+  apiRequest<DocumentBinding>(i, "/document/binding/ensure", { method: "POST" });
+
+/** The deduplicated Entity network, ranked by mention count; each id is a graph seed. */
+export const listEntities = (
+  i: InstanceConfig,
+  options: { type?: string; contains?: string; limit?: number } = {},
+  signal?: AbortSignal,
+) =>
+  apiRequest<DocumentEntityList>(i, "/document/entities", {
+    signal,
+    query: { type: options.type, contains: options.contains, limit: options.limit },
+  });

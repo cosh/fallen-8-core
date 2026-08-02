@@ -54,7 +54,6 @@ const NAV = [
   { leaf: "samples", label: "Samples", icon: "◈", scoped: true },
   { leaf: "/save-games", label: "Save games", icon: "⭯", scoped: false },
   { leaf: "browser", label: "Browser", icon: "☰", scoped: true },
-  { leaf: "documents", label: "Documents", icon: "▤", scoped: true },
   { leaf: "query", label: "Query", icon: "∴", scoped: true },
   { leaf: "indexes", label: "Indexes", icon: "⌗", scoped: true },
   { leaf: "path", label: "Path", icon: "↝", scoped: true },
@@ -63,6 +62,9 @@ const NAV = [
   { leaf: "plugins", label: "Plugins", icon: "⧉", scoped: true },
   { leaf: "canvas", label: "Canvas", icon: "❉", scoped: true },
   { leaf: "/benchmarks", label: "Benchmark", icon: "◔", scoped: false },
+  // Knowledge (feature semantic-layer): the semantic layer over the graph. Deliberately last,
+  // after Benchmark - it is the "documents in, graph out" entry point, not a core-graph screen.
+  { leaf: "knowledge", label: "Knowledge", icon: "▤", scoped: true },
 ] as const;
 
 /**

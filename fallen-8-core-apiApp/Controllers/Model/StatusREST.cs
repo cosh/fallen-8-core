@@ -187,5 +187,14 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   The semantic-layer NLP enrichment state (feature semantic-layer): a config read
+        ///   plus a cached sidecar probe. Null only when the host wired no NLP options.
+        /// </summary>
+        public NlpStatsREST Nlp
+        {
+            get; set;
+        }
     }
 }

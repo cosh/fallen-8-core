@@ -75,11 +75,11 @@ The one-click demo-graph gallery. Each full-width card names a curated dataset, 
 
 Look up a graph element, vertex, or edge by id. The inspector shows the label, timestamps, edge endpoints, and two tabs: **Properties**, and **Embeddings** — set, replace, or remove a named embedding on the element from a pasted vector or (with the provider) from text ([semantic-traversal.md](/fallen-8-core/semantic-traversal/)). An adjacency panel lists neighbors with degrees for one-click hopping, and a bulk view loads up to `maxElements` with a truncation badge and a filter. A mutations panel creates and edits vertices, edges, and properties ([graph-model.md](/fallen-8-core/graph-model/)). "Send to canvas" is available throughout.
 
-## Documents
+## Knowledge
 
-![Documents screen](../../assets/images/screen-documents.png)
+![Knowledge screen](../../assets/images/screen-knowledge.png)
 
-Documents in, graph out ([unstructured-ingestion.md](/fallen-8-core/unstructured-ingestion/)): upload a file or paste text, watch the ingest land live (progress rides the change feed), and search the chunks with fused semantic + exact-token retrieval; "Send hits to canvas" turns hits into path seeds. The screen gates on the instance's ingestion capability and states its degraded modes plainly: provider off means text-only ingest, docling sidecar unreachable means txt/md only. A budget line tracks chunk usage against the enforced namespace ceiling.
+Documents in, graph out ([unstructured-ingestion.md](/fallen-8-core/unstructured-ingestion/)): the semantic layer over the graph, last in the rail after Benchmark. A **State** panel reports the index binding and creates the required indices on request (nothing is created implicitly; ingestion is refused until the layer is bound). Drop a file on the dropzone or paste text, watch the ingest land live (it is queued and its row flips from processing to indexed over the change feed), browse the deduplicated **entity network** the text mentions, and search the chunks with fused semantic + exact-token retrieval; "Send hits to canvas" turns hits into path seeds. The screen gates on the instance's ingestion capability and states its degraded modes plainly: provider off means text-only ingest, docling sidecar unreachable means txt/md only. A budget line tracks chunk usage against the enforced namespace ceiling.
 
 ## Query
 

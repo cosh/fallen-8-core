@@ -392,6 +392,21 @@ namespace NoSQL.GraphDB.App
                     sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Ingestion.DoclingClient>>()));
             builder.Services.AddSingleton<NoSQL.GraphDB.App.Ingestion.DocumentIngestionService>();
             builder.Services.AddSingleton<NoSQL.GraphDB.App.Ingestion.DocumentSearchService>();
+            // The single global ingestion queue + its one background consumer (feature
+            // semantic-layer): POST /document returns 202 and the worker drains jobs in arrival
+            // order, resolving each job's namespace off the request thread.
+            builder.Services.AddSingleton<NoSQL.GraphDB.App.Ingestion.IngestionJobQueue>();
+            builder.Services.AddHostedService<NoSQL.GraphDB.App.Ingestion.IngestionWorker>();
+
+            // Semantic-layer NLP enrichment (feature semantic-layer): the client is inert until
+            // ingestion enriches a chunk - with the flag off (the default) nothing is contacted,
+            // and enrichment is additive so ingestion still runs. Tests replace INlpClient.
+            builder.Services.Configure<Fallen8NlpOptions>(
+                builder.Configuration.GetSection(Fallen8NlpOptions.SectionName));
+            builder.Services.AddSingleton<NoSQL.GraphDB.App.Ingestion.INlpClient>(sp =>
+                new NoSQL.GraphDB.App.Ingestion.NlpClient(
+                    sp.GetRequiredService<IOptions<Fallen8NlpOptions>>(),
+                    sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Ingestion.NlpClient>>()));
 
             // CORS: one named policy, default deny. Only the configured origins are allowed; never a
             // wildcard-with-credentials.

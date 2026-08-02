@@ -53,6 +53,23 @@ namespace NoSQL.GraphDB.App.Ingestion
         }
     }
 
+    /// <summary>The async task API's submit/poll payload (feature semantic-layer): docling-serve
+    /// returns a task id and a status the poll loop watches (pending/started/success/failure).</summary>
+    public sealed class DoclingTaskStatus
+    {
+        [JsonPropertyName("task_id")]
+        public String TaskId
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("task_status")]
+        public String TaskStatus
+        {
+            get; set;
+        }
+    }
+
     public sealed class DoclingConvertDocument
     {
         [JsonPropertyName("md_content")]

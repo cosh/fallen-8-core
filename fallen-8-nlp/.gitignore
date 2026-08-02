@@ -1,0 +1,4 @@
+# Python bytecode and caches (feature semantic-layer NLP sidecar).
+__pycache__/
+*.pyc
+.pytest_cache/

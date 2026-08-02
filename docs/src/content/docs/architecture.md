@@ -36,6 +36,7 @@ flowchart TB
     end
     sidecar["Model sidecar (Ollama)<br/>embeddings + delegate assist"]:::ext
     docling["Document sidecar (docling-serve)<br/>binary-to-structured conversion"]:::ext
+    nlp["NLP sidecar (spaCy)<br/>named entities + key terms"]:::ext
 
     subgraph obs["Observability · one Grafana pane"]
         direction TB
@@ -64,6 +65,7 @@ flowchart TB
     rest --> ingestion
     semantic -.->|embeddings + chat| sidecar
     ingestion -.->|document conversion| docling
+    ingestion -.->|entity + term enrichment| nlp
     rest -.->|OTLP metrics/traces/logs| collector
     mcp -.->|OTLP| collector
     ns --> writer --> model
@@ -116,8 +118,10 @@ A thin ASP.NET Core layer. It owns four things the engine deliberately does not:
   in the app so the engine stays model-free; a bare run has it off, and the compose
   environment wires it to the model sidecar.
 - **The optional [ingestion pipeline](/fallen-8-core/unstructured-ingestion/).** Documents become
-  Document/Chunk vertices through parse, chunk, embed, write; binary formats convert in the
-  docling sidecar (the app is the only caller), and the engine gains no parser.
+  Document/Chunk vertices through parse, chunk, embed, write, running off-thread on a single
+  global queue; binary formats convert in the docling sidecar and an optional spaCy sidecar
+  enriches chunks into a deduplicated Entity graph (both app-only callers), and the engine gains
+  no parser.
 
 The app also serves [F8 Studio](/fallen-8-core/studio/) as static files from its `wwwroot`.
 

@@ -116,28 +116,53 @@ namespace NoSQL.GraphDB.App.Ingestion
     {
         private readonly IFallen8 _fallen8;
         private readonly IDoclingConverter _docling;
+        private readonly INlpClient _nlp;
         private readonly Fallen8EmbeddingProvider _provider;
         private readonly Fallen8IngestionOptions _options;
         private readonly Fallen8EmbeddingOptions _embeddingOptions;
+        private readonly Fallen8NlpOptions _nlpOptions;
+        private readonly NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces _namespaces;
+        private readonly IngestionJobQueue _queue;
         private readonly ILogger<DocumentIngestionService> _logger;
 
-        public DocumentIngestionService(IFallen8 fallen8, IDoclingConverter docling,
+        /// <summary>This process's boot id (feature semantic-layer FR-5): stamped on every stub so
+        /// the startup sweep tells a live in-flight stub of THIS process from a zombie left by a
+        /// previous one. One value per process.</summary>
+        private static readonly String _bootId = Guid.NewGuid().ToString("N");
+
+        /// <summary>The current process's boot id (stamped on stubs; read by the startup-sweep
+        /// boot-window logic and its test).</summary>
+        public static String CurrentBootId => _bootId;
+
+        public DocumentIngestionService(IFallen8 fallen8, IDoclingConverter docling, INlpClient nlp,
             Fallen8EmbeddingProvider provider,
             IOptions<Fallen8IngestionOptions> options,
             IOptions<Fallen8EmbeddingOptions> embeddingOptions,
+            IOptions<Fallen8NlpOptions> nlpOptions,
+            NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces namespaces,
+            IngestionJobQueue queue,
             ILogger<DocumentIngestionService> logger)
         {
             _fallen8 = fallen8;
             _docling = docling;
+            _nlp = nlp;
             _provider = provider;
             _options = options.Value;
             _embeddingOptions = embeddingOptions.Value;
+            _nlpOptions = nlpOptions.Value;
+            _namespaces = namespaces;
+            _queue = queue;
             _logger = logger;
         }
 
         #region ingest
 
-        public async Task<IngestionOutcome> IngestAsync(IngestionRequest request, CancellationToken cancellationToken)
+        /// <summary>Request-thread entry (FR-3): validate, create the processing stub, and
+        /// enqueue the heavy pipeline onto the global FIFO queue. Returns 202 with the stub
+        /// summary; the worker finishes it off-thread. <paramref name="namespaceName"/> (null =
+        /// default) is carried on the job so the worker re-resolves the same engine.</summary>
+        public async Task<IngestionOutcome> IngestAsync(IngestionRequest request, String namespaceName,
+            CancellationToken cancellationToken)
         {
             // ---- pre-stub validation: nothing below touches the graph.
             var isBinary = request.FileBytes != null;
@@ -205,85 +230,218 @@ namespace NoSQL.GraphDB.App.Ingestion
                 }
             }
 
-            var linkError = ValidateLinkRequest(request, out var linkIndices, out var linkCap);
+            var linkError = ValidateLinkRequest(request, out var linkCap);
             if (linkError != null)
             {
                 return linkError;
             }
 
-            // ---- the stub: from here on, every failure leaves exactly one failed Document.
+            // The semantic layer never creates indices implicitly (FR-7): 428 until the operator
+            // has bound the indices this request needs (POST /document/binding/ensure).
+            var bindingError = CheckBindingForIngest(request);
+            if (bindingError != null)
+            {
+                return bindingError;
+            }
+
+            // ---- the stub, then hand off. The heavy pipeline runs on the worker; a failure
+            // there marks THIS stub failed (FR-2 invariant preserved), off the request thread.
             var documentId = await CreateDocumentStub(request, contentHash);
 
-            // Every chunk this ingest commits is tracked here so ANY later failure - including
-            // in FinishDocument, which runs after the chunk writes - removes the whole subtree,
-            // keeping the FR-2 invariant (one failed Document vertex, zero chunks). The fulltext
-            // index is captured for the same cleanup (its mirror is not transactional).
-            var writtenChunkIds = new List<Int32>();
-            IIndex fulltextIndex = null;
-
-            try
+            var job = new IngestionJob
             {
-                var (chunks, pageCount, chunkerConfig) = await ParseAndChunk(request, cancellationToken);
+                Namespace = namespaceName,
+                DocumentId = documentId,
+                Request = request,
+                LinkIndexIds = request.LinkIndexIds,
+                LinkCap = linkCap
+            };
 
-                if (chunks.Count > _options.MaxChunksPerDocument)
+            if (!_queue.TryEnqueue(job))
+            {
+                // The queue is full: fail the stub we just created and tell the caller to retry.
+                await FailDocument(documentId, "The ingestion queue is full; retry shortly.");
+                return IngestionOutcome.Fail(StatusCodes.Status503ServiceUnavailable, "Ingestion queue full",
+                    String.Format("The global ingestion queue is at capacity ({0}); retry shortly.",
+                        _options.MaxQueueLength), documentId);
+            }
+
+            _fallen8.TryGetVertex(out var stub, documentId);
+            return new IngestionOutcome
+            {
+                Status = StatusCodes.Status202Accepted,
+                Summary = Summarize(stub)
+            };
+        }
+
+        /// <summary>Worker-thread entry (FR-3): runs the heavy pipeline for one job on the
+        /// engine of its namespace. Binds that namespace so every graph call resolves it (the
+        /// request-thread addressing AsyncLocal does not flow here). Never returns an HTTP
+        /// outcome - success finishes the document, failure marks it failed with cleanup.</summary>
+        public async Task ProcessJobAsync(IngestionJob job, CancellationToken cancellationToken)
+        {
+            using (NoSQL.GraphDB.App.Namespaces.AddressedFallen8.PushNamespace(job.Namespace))
+            {
+                // The namespace may have been dropped, or a reload may have reassigned ids, since
+                // the job was enqueued. Verify the stub is still a processing Document; else skip.
+                try
                 {
-                    throw new IngestionFailedException(StatusCodes.Status413PayloadTooLarge, "Too many chunks",
-                        String.Format("The document yields {0} chunks; the per-document cap is {1}.",
-                            chunks.Count, _options.MaxChunksPerDocument));
+                    if (!_fallen8.TryGetVertex(out var stub, job.DocumentId) ||
+                        !String.Equals(stub.Label, DocumentGraphSchema.DocumentLabel, StringComparison.Ordinal) ||
+                        !(stub.TryGetProperty<String>(out var status, DocumentGraphSchema.StatusProperty) &&
+                          status == DocumentGraphSchema.StatusProcessing))
+                    {
+                        _logger.LogInformation("Skipping ingestion job for document {DocumentId}: no processing stub (namespace dropped or reloaded)",
+                            job.DocumentId);
+                        return;
+                    }
+                }
+                catch (NoSQL.GraphDB.App.Namespaces.UnknownNamespaceException)
+                {
+                    _logger.LogInformation("Skipping ingestion job for document {DocumentId}: namespace '{Namespace}' is gone",
+                        job.DocumentId, job.Namespace ?? "default");
+                    return;
                 }
 
-                if (chunksBefore + chunks.Count > _options.MaxChunksPerNamespace)
+                var request = job.Request;
+                var chunksBefore = CountChunks();
+                var writtenChunkIds = new List<Int32>();
+                IIndex fulltextIndex = null;
+
+                try
                 {
-                    throw new IngestionFailedException(StatusCodes.Status507InsufficientStorage, "Chunk ceiling reached",
-                        String.Format("{0} existing plus {1} new chunks would cross the ceiling of {2}.",
-                            chunksBefore, chunks.Count, _options.MaxChunksPerNamespace));
-                }
+                    var (chunks, pageCount, chunkerConfig) = await ParseAndChunk(request, cancellationToken);
 
-                Single[][] vectors = null;
-                if (request.Embed)
+                    if (chunks.Count > _options.MaxChunksPerDocument)
+                    {
+                        throw new IngestionFailedException(StatusCodes.Status413PayloadTooLarge, "Too many chunks",
+                            String.Format("The document yields {0} chunks; the per-document cap is {1}.",
+                                chunks.Count, _options.MaxChunksPerDocument));
+                    }
+
+                    if (chunksBefore + chunks.Count > _options.MaxChunksPerNamespace)
+                    {
+                        throw new IngestionFailedException(StatusCodes.Status507InsufficientStorage, "Chunk ceiling reached",
+                            String.Format("{0} existing plus {1} new chunks would cross the ceiling of {2}.",
+                                chunksBefore, chunks.Count, _options.MaxChunksPerNamespace));
+                    }
+
+                    Single[][] vectors = null;
+                    if (request.Embed)
+                    {
+                        // The bound vector index existence was gated on the request thread (FR-7);
+                        // embeddings project into it automatically. No implicit create here.
+                        vectors = await EmbedChunks(chunks, cancellationToken);
+                    }
+
+                    fulltextIndex = ResolveFulltextIndex();
+                    var mentions = ResolveLinks(chunks, job.LinkIndexIds, job.LinkCap, job.DocumentId);
+
+                    await WriteChunks(job.DocumentId, request, chunks, vectors, fulltextIndex, mentions, writtenChunkIds);
+
+                    // NLP enrichment (feature semantic-layer): entities + key terms. Additive -
+                    // a failure here never fails the ingest (the chunks are already written).
+                    var enriched = await EnrichAndLink(writtenChunkIds, chunks, cancellationToken);
+
+                    await FinishDocument(job.DocumentId, request, chunks.Count, pageCount, chunkerConfig, enriched);
+
+                    _logger.LogInformation("Ingested document {DocumentId} ({ChunkCount} chunks, {Links} links)",
+                        job.DocumentId, writtenChunkIds.Count, mentions.Count);
+
+                    if (request.ReplaceDocumentId != null)
+                    {
+                        await DeleteAsync(request.ReplaceDocumentId.Value, true);
+                    }
+                }
+                catch (Exception ex) when (ex is IngestionFailedException || ex is DoclingUnavailableException
+                    || ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)
                 {
-                    EnsureVectorIndex();
-                    vectors = await EmbedChunks(chunks, cancellationToken);
+                    await CleanupAndFail(job.DocumentId, writtenChunkIds, fulltextIndex, ex.Message);
+                    _logger.LogWarning("Ingestion of document {DocumentId} failed: {Reason}", job.DocumentId, ex.Message);
                 }
-
-                fulltextIndex = EnsureFulltextIndex();
-                var mentions = ResolveLinks(chunks, linkIndices, linkCap, documentId);
-
-                await WriteChunks(documentId, request, chunks, vectors, fulltextIndex, mentions, writtenChunkIds);
-                await FinishDocument(documentId, request, chunks.Count, pageCount, chunkerConfig);
-
-                _logger.LogInformation("Ingested document {DocumentId} ({ChunkCount} chunks, {Links} links)",
-                    documentId, writtenChunkIds.Count, mentions.Count);
-
-                if (request.ReplaceDocumentId != null)
+                catch (Exception ex) when (!(ex is OperationCanceledException))
                 {
-                    await DeleteAsync(request.ReplaceDocumentId.Value, true);
+                    // An UNEXPECTED fault still honors FR-2 (no orphan chunks under a non-indexed
+                    // document): remove any committed chunks and record the failure. A shutdown
+                    // OperationCanceledException is deliberately left to propagate - the stub stays
+                    // `processing` and the next boot's sweep reclaims it and its chunks.
+                    await CleanupAndFail(job.DocumentId, writtenChunkIds, fulltextIndex, "unexpected error: " + ex.Message);
+                    _logger.LogError(ex, "Unexpected failure ingesting document {DocumentId}", job.DocumentId);
                 }
+            }
+        }
 
-                return new IngestionOutcome { Summary = BuildSummary(documentId, mentions.Count) };
-            }
-            catch (IngestionFailedException failure)
+        /// <summary>Startup sweep (FR-5): reclaim state a previous process left mid-flight, in every
+        /// namespace. A Document left <c>processing</c> by a ZOMBIE (its boot id is not this
+        /// process's) is cleaned up - its committed chunks removed (FR-2: a non-indexed document
+        /// leaves no searchable chunks) and its status flipped to <c>failed:interrupted</c>. A stub
+        /// carrying THIS process's boot id is a live in-flight ingest accepted during the boot
+        /// window (Kestrel accepts before this runs) and is left for the worker. The entity dedup
+        /// index is also reconciled from Entity vertices (dictionary indices are not rebuilt from
+        /// element state on load, so a hard crash can strand keys - see FR-6).</summary>
+        public void SweepInterruptedDocuments()
+        {
+            foreach (var ns in _namespaces.Snapshot())
             {
-                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, failure.Message);
-                return IngestionOutcome.Fail(failure.Status, failure.Title, failure.Message, documentId);
+                using (NoSQL.GraphDB.App.Namespaces.AddressedFallen8.PushNamespace(ns.Name))
+                {
+                    ReconcileEntityIndex();
+
+                    foreach (var document in _fallen8.GetAllVertices(DocumentGraphSchema.DocumentLabel))
+                    {
+                        if (!(document.TryGetProperty<String>(out var status, DocumentGraphSchema.StatusProperty) &&
+                              status == DocumentGraphSchema.StatusProcessing))
+                        {
+                            continue;
+                        }
+
+                        // Live in-flight stub of THIS process (accepted during the boot window):
+                        // leave it, the worker will finish it. Only a zombie is reclaimed.
+                        if (document.TryGetProperty<String>(out var bootId, DocumentGraphSchema.BootIdProperty) &&
+                            String.Equals(bootId, _bootId, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        // Best-effort; a sweep failure must not stop the worker from starting.
+                        try
+                        {
+                            var chunkIds = ChunksOf(document).Select(chunk => chunk.Id).ToList();
+                            var fulltext = _fallen8.IndexFactory.TryGetIndex(out var ft, _options.FulltextIndexId)
+                                ? ft
+                                : null;
+                            CleanupAndFail(document.Id, chunkIds, fulltext, "interrupted").GetAwaiter().GetResult();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to sweep interrupted document {DocumentId}", document.Id);
+                        }
+                    }
+                }
             }
-            catch (DoclingUnavailableException unavailable)
+        }
+
+        /// <summary>Rebuilds the entity dedup index from the <c>Entity</c> vertices' keys (FR-6).
+        /// Dictionary indices persist only in snapshots and are not rebuilt from element state on
+        /// load, so after a hard crash (WAL replay without a fresh snapshot) an Entity vertex can
+        /// outlive its index key; without this, the next ingest would create a duplicate. Idempotent
+        /// (<c>AddOrUpdate</c>), cheap, and a no-op when the index is absent or NLP is off.</summary>
+        private void ReconcileEntityIndex()
+        {
+            if (!_options.EnsureEntityIndex ||
+                !_fallen8.IndexFactory.TryGetIndex(out var index, _options.EntityIndexId) ||
+                index is IVectorIndex || index is IFulltextIndex)
             {
-                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, unavailable.Message);
-                return IngestionOutcome.Fail(StatusCodes.Status503ServiceUnavailable,
-                    "Document conversion unavailable", unavailable.Message, documentId);
+                return;
             }
-            catch (EmbeddingProviderUnavailableException unavailable)
+
+            foreach (var entity in _fallen8.GetAllVertices(DocumentGraphSchema.EntityLabel))
             {
-                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, unavailable.Message);
-                return IngestionOutcome.Fail(StatusCodes.Status503ServiceUnavailable,
-                    "Embedding provider unavailable", unavailable.Message, documentId);
-            }
-            catch (EmbeddingProviderOutputException invalid)
-            {
-                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, invalid.Message);
-                return IngestionOutcome.Fail(StatusCodes.Status502BadGateway,
-                    "Embedding backend produced invalid output", invalid.Message, documentId);
+                if (entity.TryGetProperty<String>(out var key, DocumentGraphSchema.EntityKeyProperty) &&
+                    !String.IsNullOrEmpty(key))
+                {
+                    index.AddOrUpdate(key, entity);
+                }
             }
         }
 
@@ -348,15 +506,181 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         #endregion
 
-        #region indices (FR-5)
+        #region indices + binding (FR-5, FR-7)
 
-        private void EnsureVectorIndex()
+        // The semantic layer never creates indices implicitly (FR-7): ingestion resolves the bound
+        // indices and answers 428 until they exist. The operator binds them explicitly with POST
+        // /document/binding/ensure (the Studio "State" panel). Three roles: the vector index over
+        // the chunk embeddings, the fulltext index over chunk text, and the entity dedup dictionary
+        // index. Each is part of the binding per its config flag.
+
+        /// <summary>The current binding state (FR-7): which of the three indices exist and are the
+        /// right shape, and whether the layer is ready. The vector index counts as required only
+        /// while embeddings are on.</summary>
+        public Controllers.Model.DocumentBindingREST GetBinding()
         {
-            if (!_options.EnsureVectorIndex)
+            var vector = VectorRole(_embeddingOptions.Enabled);
+            var fulltext = FulltextRole();
+            var entity = EntityRole();
+            return new Controllers.Model.DocumentBindingREST
             {
-                return;
+                Ready = (!vector.Required || vector.Ready)
+                    && (!fulltext.Required || fulltext.Ready)
+                    && (!entity.Required || entity.Ready),
+                Vector = vector,
+                Fulltext = fulltext,
+                Entity = entity
+            };
+        }
+
+        /// <summary>Explicit bind (FR-7): create the missing required indices, then report the
+        /// state. Idempotent; an existing index of the right shape is success, a wrong-shape one is
+        /// a 409. This is the ONLY path that creates a bound index - ingestion never does.</summary>
+        public Controllers.Model.DocumentBindingREST EnsureBinding()
+        {
+            if (_options.EnsureVectorIndex && _embeddingOptions.Enabled)
+            {
+                CreateVectorIndex();
             }
 
+            if (_options.EnsureFulltextIndex)
+            {
+                CreateFulltextIndex();
+            }
+
+            if (_options.EnsureEntityIndex)
+            {
+                CreateEntityIndex();
+            }
+
+            return GetBinding();
+        }
+
+        /// <summary>Pre-stub gate (FR-7): 428 until the indices THIS request needs are present, so
+        /// ingestion never silently creates them. Vector only when embedding; entity only when NLP
+        /// is on. A wrong-shape existing index folds into the same "not ready" detail.</summary>
+        private IngestionOutcome CheckBindingForIngest(IngestionRequest request)
+        {
+            var missing = new List<String>();
+
+            var vector = VectorRole(request.Embed);
+            if (vector.Required && !vector.Ready)
+            {
+                missing.Add(DescribeRole(vector));
+            }
+
+            var fulltext = FulltextRole();
+            if (fulltext.Required && !fulltext.Ready)
+            {
+                missing.Add(DescribeRole(fulltext));
+            }
+
+            var entity = EntityRole();
+            if (entity.Required && !entity.Ready)
+            {
+                missing.Add(DescribeRole(entity));
+            }
+
+            if (missing.Count == 0)
+            {
+                return null;
+            }
+
+            return IngestionOutcome.Fail(StatusCodes.Status428PreconditionRequired, "Semantic layer not bound",
+                String.Format("Bind the required indices before ingesting (POST /document/binding/ensure): {0}.",
+                    String.Join("; ", missing)));
+        }
+
+        private static String DescribeRole(Controllers.Model.DocumentBindingRoleREST role)
+        {
+            return role.Exists
+                ? String.Format("index '{0}' {1}", role.IndexId, role.Detail)
+                : String.Format("index '{0}' is absent", role.IndexId);
+        }
+
+        private Controllers.Model.DocumentBindingRoleREST VectorRole(Boolean needed)
+        {
+            var role = new Controllers.Model.DocumentBindingRoleREST
+            {
+                Role = "vector",
+                IndexId = _options.VectorIndexId,
+                Required = _options.EnsureVectorIndex && _embeddingOptions.Enabled && needed
+            };
+
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.VectorIndexId))
+            {
+                role.Exists = true;
+                if (!(index is IVectorIndex vectorIndex))
+                {
+                    role.Detail = "exists but is not a vector index";
+                }
+                else if (!String.Equals(vectorIndex.EmbeddingName, _options.EmbeddingName, StringComparison.Ordinal))
+                {
+                    role.Detail = String.Format("is bound to embedding '{0}', not '{1}'",
+                        vectorIndex.EmbeddingName ?? "(unbound)", _options.EmbeddingName);
+                }
+                else
+                {
+                    role.Ready = true;
+                    role.Detail = String.Format("bound to embedding '{0}'", _options.EmbeddingName);
+                }
+            }
+
+            return role;
+        }
+
+        private Controllers.Model.DocumentBindingRoleREST FulltextRole()
+        {
+            var role = new Controllers.Model.DocumentBindingRoleREST
+            {
+                Role = "fulltext",
+                IndexId = _options.FulltextIndexId,
+                Required = _options.EnsureFulltextIndex
+            };
+
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.FulltextIndexId))
+            {
+                role.Exists = true;
+                if (index is IFulltextIndex)
+                {
+                    role.Ready = true;
+                }
+                else
+                {
+                    role.Detail = "exists but is not a fulltext index";
+                }
+            }
+
+            return role;
+        }
+
+        private Controllers.Model.DocumentBindingRoleREST EntityRole()
+        {
+            var role = new Controllers.Model.DocumentBindingRoleREST
+            {
+                Role = "entity",
+                IndexId = _options.EntityIndexId,
+                Required = _options.EnsureEntityIndex && _nlpOptions.Enabled
+            };
+
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.EntityIndexId))
+            {
+                role.Exists = true;
+                if (index is IVectorIndex || index is IFulltextIndex)
+                {
+                    role.Detail = "exists but is not a dictionary index";
+                }
+                else
+                {
+                    role.Ready = true;
+                }
+            }
+
+            return role;
+        }
+
+        private void CreateVectorIndex()
+        {
             if (_fallen8.IndexFactory.TryGetIndex(out var existing, _options.VectorIndexId))
             {
                 ValidateVectorIndexShape(existing);
@@ -373,15 +697,13 @@ namespace NoSQL.GraphDB.App.Ingestion
 
             if (_fallen8.IndexFactory.TryCreateIndex(out _, _options.VectorIndexId, "VectorIndex", parameters))
             {
-                _logger.LogInformation("Ensured bound vector index '{IndexId}' ({Dimension} dims)",
+                _logger.LogInformation("Bound vector index '{IndexId}' ({Dimension} dims)",
                     _options.VectorIndexId, _provider.Identity.Dimension);
                 return;
             }
 
-            // TryCreateIndex returns false when the name already exists - which is exactly what a
-            // concurrent first-ingest into the same namespace does (both miss TryGetIndex, both
-            // create, the loser sees "already exists"). Re-check: an existing index of the right
-            // shape IS success, not a 500. Only a genuinely absent index is a real failure.
+            // Lost the create race (a concurrent ensure): an existing index of the right shape IS
+            // success, not a 500. Only a genuinely absent index is a real failure.
             if (_fallen8.IndexFactory.TryGetIndex(out var raced, _options.VectorIndexId))
             {
                 ValidateVectorIndexShape(raced);
@@ -411,30 +733,44 @@ namespace NoSQL.GraphDB.App.Ingestion
             // BoundIndexContract pre-check (one home).
         }
 
-        /// <summary>Returns the fulltext index chunk text is mirrored into, or null when the
-        /// lexical side is disabled (fused search then degrades to dense, stated in /status).</summary>
-        private IIndex EnsureFulltextIndex()
+        /// <summary>Resolves the fulltext index chunk text is mirrored into (worker path), or null
+        /// when the lexical side is disabled. A bound-but-vanished index (dropped since the accept
+        /// gate) fails this document.</summary>
+        private IIndex ResolveFulltextIndex()
         {
             if (!_options.EnsureFulltextIndex)
             {
                 return null;
             }
 
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.FulltextIndexId))
+            {
+                return ValidateFulltextIndexShape(index);
+            }
+
+            throw new IngestionFailedException(StatusCodes.Status409Conflict, "Fulltext index missing",
+                String.Format("The bound fulltext index '{0}' is not present; bind the semantic layer (POST /document/binding/ensure).",
+                    _options.FulltextIndexId));
+        }
+
+        private void CreateFulltextIndex()
+        {
             if (_fallen8.IndexFactory.TryGetIndex(out var existing, _options.FulltextIndexId))
             {
-                return ValidateFulltextIndexShape(existing);
+                ValidateFulltextIndexShape(existing);
+                return;
             }
 
-            if (_fallen8.IndexFactory.TryCreateIndex(out var created, _options.FulltextIndexId, "RegExIndex"))
+            if (_fallen8.IndexFactory.TryCreateIndex(out _, _options.FulltextIndexId, "RegExIndex"))
             {
-                _logger.LogInformation("Ensured fulltext index '{IndexId}'", _options.FulltextIndexId);
-                return created;
+                _logger.LogInformation("Bound fulltext index '{IndexId}'", _options.FulltextIndexId);
+                return;
             }
 
-            // Lost the create race (see EnsureVectorIndex): an existing fulltext index is success.
             if (_fallen8.IndexFactory.TryGetIndex(out var raced, _options.FulltextIndexId))
             {
-                return ValidateFulltextIndexShape(raced);
+                ValidateFulltextIndexShape(raced);
+                return;
             }
 
             throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Index creation failed",
@@ -447,6 +783,61 @@ namespace NoSQL.GraphDB.App.Ingestion
             {
                 throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
                     String.Format("Index '{0}' exists but is not a fulltext index.", _options.FulltextIndexId));
+            }
+
+            return index;
+        }
+
+        /// <summary>Resolves the entity dedup index (a dictionary index over the entity key), or
+        /// null when disabled. A bound-but-vanished index fails enrichment, which is additive - the
+        /// document still indexes.</summary>
+        private IIndex ResolveEntityIndex()
+        {
+            if (!_options.EnsureEntityIndex)
+            {
+                return null;
+            }
+
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.EntityIndexId))
+            {
+                return ValidateEntityIndexShape(index);
+            }
+
+            throw new IngestionFailedException(StatusCodes.Status409Conflict, "Entity index missing",
+                String.Format("The bound entity index '{0}' is not present; bind the semantic layer (POST /document/binding/ensure).",
+                    _options.EntityIndexId));
+        }
+
+        private void CreateEntityIndex()
+        {
+            if (_fallen8.IndexFactory.TryGetIndex(out var existing, _options.EntityIndexId))
+            {
+                ValidateEntityIndexShape(existing);
+                return;
+            }
+
+            if (_fallen8.IndexFactory.TryCreateIndex(out _, _options.EntityIndexId, "DictionaryIndex"))
+            {
+                _logger.LogInformation("Bound entity index '{IndexId}'", _options.EntityIndexId);
+                return;
+            }
+
+            if (_fallen8.IndexFactory.TryGetIndex(out var raced, _options.EntityIndexId))
+            {
+                ValidateEntityIndexShape(raced);
+                return;
+            }
+
+            throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Index creation failed",
+                String.Format("The entity index '{0}' could not be created.", _options.EntityIndexId));
+        }
+
+        private IIndex ValidateEntityIndexShape(IIndex index)
+        {
+            if (index is IVectorIndex || index is IFulltextIndex)
+            {
+                throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
+                    String.Format("Index '{0}' exists but is not a dictionary index.", _options.EntityIndexId));
             }
 
             return index;
@@ -483,9 +874,8 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         #region structural linking (FR-13)
 
-        private IngestionOutcome ValidateLinkRequest(IngestionRequest request, out List<IIndex> linkIndices, out Int32 linkCap)
+        private IngestionOutcome ValidateLinkRequest(IngestionRequest request, out Int32 linkCap)
         {
-            linkIndices = null;
             linkCap = 0;
 
             if (request.LinkIndexIds == null || request.LinkIndexIds.Count == 0)
@@ -501,25 +891,20 @@ namespace NoSQL.GraphDB.App.Ingestion
                         _options.MaxLinksPerChunk));
             }
 
-            linkIndices = new List<IIndex>(request.LinkIndexIds.Count);
             foreach (var indexId in request.LinkIndexIds)
             {
                 if (!_fallen8.IndexFactory.TryGetIndex(out var index, indexId))
                 {
-                    linkIndices = null;
                     return IngestionOutcome.Fail(StatusCodes.Status400BadRequest, "Unknown link index",
                         String.Format("No index named '{0}'.", indexId));
                 }
 
                 if (index is IVectorIndex || index is IFulltextIndex)
                 {
-                    linkIndices = null;
                     return IngestionOutcome.Fail(StatusCodes.Status400BadRequest, "Link index not equality-capable",
                         String.Format("Index '{0}' is a {1} index; linking needs exact-equality lookups (dictionary family).",
                             indexId, index is IVectorIndex ? "vector" : "fulltext"));
                 }
-
-                linkIndices.Add(index);
             }
 
             linkCap = request.LinkMaxPerChunk ?? _options.MaxLinksPerChunk;
@@ -528,12 +913,29 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         /// <summary>Exact ordinal identifier-to-index-key matching, deterministic (token order,
         /// then index order, then ascending element id), capped per chunk, live vertices only.
-        /// Chunk vertices of THIS ingest cannot be targets: they are created after this runs.</summary>
+        /// Re-resolves the allowlisted index IDs against the current (worker-bound) engine, so a
+        /// dropped index since enqueue is simply skipped. Chunk vertices of THIS ingest cannot be
+        /// targets: they are created after this runs.</summary>
         private List<KeyValuePair<Int32, Int32>> ResolveLinks(List<DocumentChunk> chunks,
-            List<IIndex> linkIndices, Int32 linkCap, Int32 documentId)
+            List<String> linkIndexIds, Int32 linkCap, Int32 documentId)
         {
             var mentions = new List<KeyValuePair<Int32, Int32>>();
-            if (linkIndices == null)
+            if (linkIndexIds == null || linkIndexIds.Count == 0)
+            {
+                return mentions;
+            }
+
+            var linkIndices = new List<IIndex>(linkIndexIds.Count);
+            foreach (var indexId in linkIndexIds)
+            {
+                if (_fallen8.IndexFactory.TryGetIndex(out var index, indexId) &&
+                    !(index is IVectorIndex) && !(index is IFulltextIndex))
+                {
+                    linkIndices.Add(index);
+                }
+            }
+
+            if (linkIndices.Count == 0)
             {
                 return mentions;
             }
@@ -588,6 +990,179 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         #endregion
 
+        #region NLP enrichment -> entity network (FR-6)
+
+        /// <summary>
+        ///   Enriches the just-written chunks via the NLP sidecar and folds the result into the
+        ///   graph: deduplicated <c>Entity</c> vertices (one per (type, normalized) per namespace,
+        ///   via the entity index), <c>mentions</c> edges chunk -&gt; entity (capped), and a
+        ///   <c>keyTerms</c> property per chunk. Returns whether enrichment ran. ADDITIVE: NLP
+        ///   off, unreachable, or any fault leaves the document indexed with no entities and never
+        ///   throws (the chunks are already written).
+        /// </summary>
+        private async Task<Boolean> EnrichAndLink(List<Int32> chunkIds, List<DocumentChunk> chunks,
+            CancellationToken cancellationToken)
+        {
+            if (!_nlpOptions.Enabled || chunkIds.Count == 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                var items = new List<(String Id, String Text)>(chunkIds.Count);
+                for (var i = 0; i < chunkIds.Count; i++)
+                {
+                    items.Add((chunkIds[i].ToString(), Truncate(chunks[i].Text, _nlpOptions.MaxCharsPerChunk)));
+                }
+
+                var enriched = await _nlp.EnrichAsync(items, _nlpOptions.LanguageHint, cancellationToken);
+                var byChunkId = enriched.ToDictionary(item => item.Id, item => item);
+
+                var entityIndex = ResolveEntityIndex();
+                if (entityIndex == null)
+                {
+                    // Entities need the dedup index; without it, only key terms are stored.
+                    await WriteKeyTerms(chunkIds, chunks, byChunkId);
+                    return true;
+                }
+
+                var now = DateHelper.GetNowStamp();
+
+                // Pass 1: resolve every distinct (type, normalized) entity to a vertex id, creating
+                // the new ones in one batch and indexing them, so dedup holds within and across
+                // documents. `mentionsByChunk` records which entity each chunk mentions (capped).
+                var resolved = new Dictionary<String, Int32>(StringComparer.Ordinal);
+                var newDefs = new List<VertexDefinition>();
+                var newKeys = new List<String>();
+                var mentionKeys = new List<KeyValuePair<Int32, String>>();
+
+                for (var i = 0; i < chunkIds.Count; i++)
+                {
+                    if (!byChunkId.TryGetValue(chunkIds[i].ToString(), out var item) || item.Entities == null)
+                    {
+                        continue;
+                    }
+
+                    var seen = new HashSet<String>(StringComparer.Ordinal);
+                    var linked = 0;
+                    foreach (var entity in item.Entities)
+                    {
+                        if (linked >= _nlpOptions.MaxEntitiesPerChunk)
+                        {
+                            break;
+                        }
+
+                        var normalized = (entity.Text ?? String.Empty).Trim();
+                        if (normalized.Length == 0 || String.IsNullOrEmpty(entity.Label))
+                        {
+                            continue;
+                        }
+
+                        var key = entity.Label + "|" + normalized.ToLowerInvariant();
+                        if (!seen.Add(key))
+                        {
+                            continue;
+                        }
+
+                        linked++;
+                        mentionKeys.Add(new KeyValuePair<Int32, String>(chunkIds[i], key));
+
+                        if (resolved.ContainsKey(key))
+                        {
+                            continue;
+                        }
+
+                        if (entityIndex.TryGetValue(out var hits, key) && hits.Count > 0)
+                        {
+                            resolved[key] = hits[0].Id;   // existing entity (cross-document dedup)
+                        }
+                        else if (!newDefs.Any(d => String.Equals(
+                            (String)d.Properties[DocumentGraphSchema.EntityKeyProperty], key, StringComparison.Ordinal)))
+                        {
+                            newDefs.Add(new VertexDefinition
+                            {
+                                CreationDate = now,
+                                Label = DocumentGraphSchema.EntityLabel,
+                                Properties = new Dictionary<String, Object>
+                                {
+                                    { DocumentGraphSchema.EntityTextProperty, normalized },
+                                    { DocumentGraphSchema.EntityTypeProperty, entity.Label },
+                                    { DocumentGraphSchema.EntityNormalizedProperty, normalized.ToLowerInvariant() },
+                                    { DocumentGraphSchema.EntityKeyProperty, key }
+                                }
+                            });
+                            newKeys.Add(key);
+                        }
+                    }
+                }
+
+                if (newDefs.Count > 0)
+                {
+                    var createEntities = new CreateVerticesTransaction { Vertices = newDefs };
+                    await Enqueue(createEntities, "entity creation");
+                    var created = createEntities.GetCreatedVertices();
+                    for (var i = 0; i < created.Count; i++)
+                    {
+                        resolved[newKeys[i]] = created[i].Id;
+                        if (_fallen8.TryGetGraphElement(out var element, created[i].Id))
+                        {
+                            entityIndex.AddOrUpdate(newKeys[i], element);   // index for later dedup
+                        }
+                    }
+                }
+
+                // Pass 2: the mentions edges (dedup per (chunk, entity)).
+                var edges = new CreateEdgesTransaction();
+                var edgeSeen = new HashSet<(Int32, Int32)>();
+                foreach (var mention in mentionKeys)
+                {
+                    if (resolved.TryGetValue(mention.Value, out var entityId) &&
+                        edgeSeen.Add((mention.Key, entityId)))
+                    {
+                        edges.AddEdge(mention.Key, DocumentGraphSchema.MentionsEdge, entityId, now);
+                    }
+                }
+
+                if (edges.Edges.Count > 0)
+                {
+                    await Enqueue(edges, "entity mentions");
+                }
+
+                await WriteKeyTerms(chunkIds, chunks, byChunkId);
+                return true;
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && cancellationToken.IsCancellationRequested))
+            {
+                // Additive: never fail the ingest on enrichment. (NlpUnavailable and any other
+                // fault land here.) A caller cancellation still propagates.
+                _logger.LogWarning(ex, "NLP enrichment failed for the document; it is indexed without entities");
+                return false;
+            }
+        }
+
+        private async Task WriteKeyTerms(List<Int32> chunkIds, List<DocumentChunk> chunks,
+            Dictionary<String, NlpEnrichedItem> byChunkId)
+        {
+            for (var i = 0; i < chunkIds.Count; i++)
+            {
+                if (byChunkId.TryGetValue(chunkIds[i].ToString(), out var item) &&
+                    item.KeyTerms != null && item.KeyTerms.Count > 0)
+                {
+                    var terms = item.KeyTerms.Take(_nlpOptions.MaxKeyTermsPerChunk);
+                    await SetProperty(chunkIds[i], DocumentGraphSchema.KeyTermsProperty, String.Join("\n", terms));
+                }
+            }
+        }
+
+        private static String Truncate(String text, Int32 max)
+        {
+            text ??= String.Empty;
+            return text.Length <= max ? text : text.Substring(0, max);
+        }
+
+        #endregion
+
         #region graph writes
 
         private async Task<Int32> CreateDocumentStub(IngestionRequest request, String contentHash)
@@ -597,6 +1172,7 @@ namespace NoSQL.GraphDB.App.Ingestion
                 { DocumentGraphSchema.NameProperty, request.Name },
                 { DocumentGraphSchema.SourceFormatProperty, request.SourceFormat },
                 { DocumentGraphSchema.StatusProperty, DocumentGraphSchema.StatusProcessing },
+                { DocumentGraphSchema.BootIdProperty, _bootId },
                 { DocumentGraphSchema.ContentHashProperty, contentHash },
                 {
                     DocumentGraphSchema.ConverterProperty,
@@ -682,12 +1258,30 @@ namespace NoSQL.GraphDB.App.Ingestion
                 }
             }
 
-            foreach (var mention in mentions)
-            {
-                createEdges.AddEdge(chunkIds[mention.Key], DocumentGraphSchema.MentionsEdge, mention.Value, now);
-            }
-
             await Enqueue(createEdges, "edge creation");
+
+            // Structural-link mention edges (FR-13) are BEST-EFFORT, in their own transaction: a
+            // link target deleted concurrently between ResolveLinks and here must degrade the link,
+            // not fail the whole document (CreateEdgesTransaction rolls back the batch atomically
+            // on an unresolved endpoint). This mirrors the additive entity-mention write.
+            if (mentions.Count > 0)
+            {
+                var linkEdges = new CreateEdgesTransaction();
+                foreach (var mention in mentions)
+                {
+                    linkEdges.AddEdge(chunkIds[mention.Key], DocumentGraphSchema.MentionsEdge, mention.Value, now);
+                }
+
+                try
+                {
+                    await Enqueue(linkEdges, "structural link edges");
+                }
+                catch (IngestionFailedException ex)
+                {
+                    _logger.LogWarning("Structural links degraded for document {DocumentId}: {Reason}",
+                        documentId, ex.Message);
+                }
+            }
 
             if (vectors != null)
             {
@@ -730,7 +1324,7 @@ namespace NoSQL.GraphDB.App.Ingestion
         }
 
         private async Task FinishDocument(Int32 documentId, IngestionRequest request, Int32 chunkCount,
-            Int32? pageCount, String chunkerConfig)
+            Int32? pageCount, String chunkerConfig, Boolean enriched)
         {
             await SetProperty(documentId, DocumentGraphSchema.ChunkCountProperty, chunkCount);
             if (pageCount != null)
@@ -739,6 +1333,7 @@ namespace NoSQL.GraphDB.App.Ingestion
             }
 
             await SetProperty(documentId, DocumentGraphSchema.ChunkerConfigProperty, chunkerConfig);
+            await SetProperty(documentId, DocumentGraphSchema.EnrichedProperty, enriched);
             if (request.Embed)
             {
                 await SetProperty(documentId, DocumentGraphSchema.EmbeddingModelProperty, _provider.Identity.Stamp);
@@ -861,6 +1456,52 @@ namespace NoSQL.GraphDB.App.Ingestion
                 ChunkCeiling = _options.MaxChunksPerNamespace,
                 CurrentEmbeddingModel = _embeddingOptions.Enabled ? _provider.Identity.Stamp : null
             };
+        }
+
+        /// <summary>The entity network (feature semantic-layer FR-6): Entity vertices ranked by
+        /// mention count, optionally filtered by type or a text substring. Bounded to a page; the
+        /// full match count rides along so the caller knows whether more exist.</summary>
+        public Controllers.Model.DocumentEntityListREST ListEntities(String type, String contains, Int32 limit)
+        {
+            var cap = Math.Clamp(limit <= 0 ? 200 : limit, 1, 10_000);
+            var rows = new List<Controllers.Model.DocumentEntityREST>();
+            foreach (var entity in _fallen8.GetAllVertices(DocumentGraphSchema.EntityLabel))
+            {
+                entity.TryGetProperty<String>(out var text, DocumentGraphSchema.EntityTextProperty);
+                entity.TryGetProperty<String>(out var entityType, DocumentGraphSchema.EntityTypeProperty);
+
+                if (!String.IsNullOrEmpty(type) && !String.Equals(entityType, type, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!String.IsNullOrEmpty(contains) &&
+                    (text == null || text.IndexOf(contains, StringComparison.OrdinalIgnoreCase) < 0))
+                {
+                    continue;
+                }
+
+                var mentionCount = entity.TryGetInEdge(out var mentions, DocumentGraphSchema.MentionsEdge)
+                    ? mentions.Count
+                    : 0;
+                rows.Add(new Controllers.Model.DocumentEntityREST
+                {
+                    Id = entity.Id,
+                    Text = text,
+                    Type = entityType,
+                    MentionCount = mentionCount
+                });
+            }
+
+            var total = rows.Count;
+            var page = rows
+                .OrderByDescending(row => row.MentionCount)
+                .ThenBy(row => row.Text, StringComparer.Ordinal)
+                .ThenBy(row => row.Id)
+                .Take(cap)
+                .ToList();
+
+            return new Controllers.Model.DocumentEntityListREST { Entities = page, Total = total };
         }
 
         public Boolean TryGetDetail(Int32 documentId, out Controllers.Model.DocumentDetailREST detail, out String problem)

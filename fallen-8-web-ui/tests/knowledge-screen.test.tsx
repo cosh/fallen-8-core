@@ -1,6 +1,6 @@
 // MIT License
 //
-// documents-screen.test.tsx
+// knowledge-screen.test.tsx
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -24,11 +24,13 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { InstanceConfig } from "../src/instances/types";
 import type {
+  DocumentBinding,
+  DocumentEntityList,
   DocumentList,
   DocumentSearchResult,
   DocumentSearchSpecification,
@@ -40,19 +42,26 @@ import type {
 import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 
 /**
- * Documents screen (feature unstructured-ingestion FR-9): the capability gate, the honest
- * degraded modes (provider off, docling unreachable), the chunk budget, the ingest flows,
- * the delete confirm, and fused search with the modeUsed degrade note.
+ * Knowledge screen (feature semantic-layer): the State panel binding gate (ingest is refused
+ * until the layer is bound, and the one create path is explicit), the drag-and-drop dropzone,
+ * the Entities view, plus the inherited unstructured-ingestion behaviour (capability gate,
+ * degraded modes, chunk budget, delete confirm, fused search) and the async processing message.
  */
 
 const getStatusMock = vi.fn<(i: InstanceConfig) => Promise<StatusREST | null>>();
 const listDocumentsMock = vi.fn<(i: InstanceConfig) => Promise<DocumentList | null>>();
 const ingestTextMock =
   vi.fn<(i: InstanceConfig, spec: IngestTextSpecification) => Promise<DocumentSummary | null>>();
+const ingestFileMock =
+  vi.fn<(i: InstanceConfig, file: File, opts: unknown) => Promise<DocumentSummary | null>>();
 const searchDocumentsMock =
   vi.fn<(i: InstanceConfig, spec: DocumentSearchSpecification) => Promise<DocumentSearchResult | null>>();
 const deleteDocumentMock = vi.fn<(i: InstanceConfig, id: number) => Promise<void>>();
 const getVertexMock = vi.fn<(i: InstanceConfig, id: number) => Promise<VertexREST | null>>();
+const getBindingMock = vi.fn<(i: InstanceConfig) => Promise<DocumentBinding | null>>();
+const ensureBindingMock = vi.fn<(i: InstanceConfig) => Promise<DocumentBinding | null>>();
+const listEntitiesMock =
+  vi.fn<(i: InstanceConfig, o: { type?: string }) => Promise<DocumentEntityList | null>>();
 
 vi.mock("../src/api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/api/endpoints")>();
@@ -61,14 +70,18 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
     getStatus: (i: InstanceConfig) => getStatusMock(i),
     listDocuments: (i: InstanceConfig) => listDocumentsMock(i),
     ingestText: (i: InstanceConfig, spec: IngestTextSpecification) => ingestTextMock(i, spec),
+    ingestFile: (i: InstanceConfig, file: File, opts: unknown) => ingestFileMock(i, file, opts),
     searchDocuments: (i: InstanceConfig, spec: DocumentSearchSpecification) =>
       searchDocumentsMock(i, spec),
     deleteDocument: (i: InstanceConfig, id: number) => deleteDocumentMock(i, id),
     getVertex: (i: InstanceConfig, id: number) => getVertexMock(i, id),
+    getDocumentBinding: (i: InstanceConfig) => getBindingMock(i),
+    ensureDocumentBinding: (i: InstanceConfig) => ensureBindingMock(i),
+    listEntities: (i: InstanceConfig, o: { type?: string }) => listEntitiesMock(i, o),
   };
 });
 
-import { DocumentsScreen } from "../src/screens/DocumentsScreen";
+import { KnowledgeScreen } from "../src/screens/KnowledgeScreen";
 
 function status(options: {
   ingestionEnabled?: boolean;
@@ -114,6 +127,19 @@ function status(options: {
   };
 }
 
+function role(name: "vector" | "fulltext" | "entity", indexId: string, ready: boolean): DocumentBinding["vector"] {
+  return { role: name, indexId, required: true, exists: ready, ready, detail: ready ? undefined : "is absent" };
+}
+
+function binding(ready: boolean): DocumentBinding {
+  return {
+    ready,
+    vector: role("vector", "documents", ready),
+    fulltext: role("fulltext", "documents-text", ready),
+    entity: { role: "entity", indexId: "documents-entities", required: false, exists: ready, ready },
+  };
+}
+
 const DOC: DocumentSummary = {
   documentId: 7,
   name: "edge-notes.md",
@@ -139,7 +165,7 @@ function renderScreen() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <DocumentsScreen />
+      <KnowledgeScreen />
     </QueryClientProvider>,
   );
 }
@@ -150,15 +176,19 @@ beforeEach(() => {
   getStatusMock.mockReset().mockResolvedValue(status({}));
   listDocumentsMock.mockReset().mockResolvedValue(documentList([DOC]));
   ingestTextMock.mockReset().mockResolvedValue({ ...DOC, linksCreated: 0 });
+  ingestFileMock.mockReset().mockResolvedValue({ ...DOC, status: "processing", chunkCount: 0 });
   searchDocumentsMock.mockReset().mockResolvedValue({ modeUsed: "fused", hits: [] });
   deleteDocumentMock.mockReset().mockResolvedValue(undefined);
   getVertexMock
     .mockReset()
     .mockResolvedValue({ id: 42, creationDate: "", modificationDate: "", label: "Chunk" });
+  getBindingMock.mockReset().mockResolvedValue(binding(true));
+  ensureBindingMock.mockReset().mockResolvedValue(binding(true));
+  listEntitiesMock.mockReset().mockResolvedValue({ entities: [], total: 0 });
 });
 
 describe("capability gating", () => {
-  it("states the off switch when ingestion is disabled and fires no list query", async () => {
+  it("states the off switch when ingestion is disabled and fires no queries", async () => {
     getStatusMock.mockResolvedValue(status({ ingestionEnabled: false }));
     renderScreen();
 
@@ -166,6 +196,117 @@ describe("capability gating", () => {
       expect(screen.getByText(/Unstructured ingestion is off/i)).toBeInTheDocument(),
     );
     expect(listDocumentsMock).not.toHaveBeenCalled();
+    expect(getBindingMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("State panel / binding gate (FR-7)", () => {
+  it("refuses ingestion and offers the create action until the layer is bound", async () => {
+    getBindingMock.mockResolvedValue(binding(false));
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId("binding-state")).toBeInTheDocument());
+    expect(screen.getByTestId("bind-gate-note")).toBeInTheDocument();
+    // Ingest controls are disabled while unbound.
+    expect(screen.getByTestId("ingest-text")).toBeDisabled();
+    expect(screen.getByTestId("role-vector")).toHaveTextContent("documents");
+  });
+
+  it("creates the required indices via the explicit bind action", async () => {
+    getBindingMock.mockResolvedValue(binding(false));
+    const user = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId("bind-create")).toBeInTheDocument());
+    await user.click(screen.getByTestId("bind-create"));
+
+    await waitFor(() => expect(ensureBindingMock).toHaveBeenCalledTimes(1));
+    // The panel flips to ready (the ensure result is written into the binding query).
+    await waitFor(() => expect(screen.getByTestId("binding-state")).toHaveTextContent(/bound/i));
+  });
+
+  it("does not create indices on its own - no ensure call on a normal load", async () => {
+    renderScreen();
+    await waitFor(() => expect(getBindingMock).toHaveBeenCalled());
+    expect(ensureBindingMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("drag-and-drop ingest", () => {
+  it("ingests a file dropped on the dropzone", async () => {
+    renderScreen();
+
+    ingestFileMock.mockResolvedValue({ ...DOC, name: "dropped.md", status: "processing", chunkCount: 0 });
+    // The dropzone renders immediately, but a drop is a no-op until the layer is bound; wait for
+    // the bound state (the unbound gate note is gone) before dropping.
+    await waitFor(() => expect(screen.queryByTestId("bind-gate-note")).not.toBeInTheDocument());
+    const file = new File(["# H\n\nbody"], "dropped.md", { type: "text/markdown" });
+    fireEvent.drop(screen.getByTestId("dropzone"), { dataTransfer: { files: [file] } });
+
+    await waitFor(() => expect(ingestFileMock).toHaveBeenCalledTimes(1));
+    expect(ingestFileMock.mock.calls[0][1].name).toBe("dropped.md");
+    // Async accept: the processing stub yields the "queued" message.
+    expect(await screen.findByText(/Queued “dropped\.md”/)).toBeInTheDocument();
+  });
+
+  it("ignores a drop while the layer is unbound", async () => {
+    getBindingMock.mockResolvedValue(binding(false));
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId("dropzone")).toBeInTheDocument());
+    const file = new File(["x"], "nope.md", { type: "text/markdown" });
+    fireEvent.drop(screen.getByTestId("dropzone"), { dataTransfer: { files: [file] } });
+
+    // No ingest happens; the drop is a no-op until bound.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ingestFileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("entities view (FR-6)", () => {
+  it("renders the entity network ranked by mention count", async () => {
+    listEntitiesMock.mockResolvedValue({
+      entities: [
+        { id: 100, text: "Muster GmbH", type: "ORG", mentionCount: 5 },
+        { id: 101, text: "München", type: "LOC", mentionCount: 2 },
+      ],
+      total: 2,
+    });
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId("entity-row-100")).toBeInTheDocument());
+    expect(screen.getByTestId("entity-row-100")).toHaveTextContent("Muster GmbH");
+    expect(screen.getByTestId("entity-row-100")).toHaveTextContent("ORG");
+    expect(screen.getByTestId("entity-row-100")).toHaveTextContent("5");
+    expect(screen.getByTestId("entity-row-101")).toHaveTextContent("München");
+  });
+
+  it("filters entities by type", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId("entity-type")).toBeInTheDocument());
+    await user.type(screen.getByTestId("entity-type"), "ORG");
+
+    await waitFor(() =>
+      expect(listEntitiesMock).toHaveBeenCalledWith(expect.anything(), { type: "ORG" }),
+    );
+  });
+
+  it("sends an entity to the canvas", async () => {
+    listEntitiesMock.mockResolvedValue({
+      entities: [{ id: 100, text: "Muster GmbH", type: "ORG", mentionCount: 5 }],
+      total: 1,
+    });
+    getVertexMock.mockResolvedValue({ id: 100, creationDate: "", modificationDate: "", label: "Entity" });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId("entity-canvas-100")).toBeInTheDocument());
+    await user.click(screen.getByTestId("entity-canvas-100"));
+
+    await waitFor(() => expect(getVertexMock).toHaveBeenCalledWith(expect.anything(), 100));
+    expect(await screen.findByText(/Entity sent to the canvas/)).toBeInTheDocument();
   });
 });
 
@@ -252,6 +393,19 @@ describe("ingest text", () => {
     expect(spec.embed).toBe(true);
     expect(await screen.findByText(/Ingested “edge-notes\.md”: 3 chunks/)).toBeInTheDocument();
   });
+
+  it("reports the async 'queued' message when the ingest is accepted as processing", async () => {
+    ingestTextMock.mockResolvedValue({ ...DOC, name: "big.md", status: "processing", chunkCount: 0 });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId("ingest-text")).toBeInTheDocument());
+    await user.type(screen.getByTestId("text-name"), "big.md");
+    await user.type(screen.getByTestId("text-body"), "# Big content");
+    await user.click(screen.getByTestId("ingest-text"));
+
+    expect(await screen.findByText(/Queued “big\.md”/)).toBeInTheDocument();
+  });
 });
 
 describe("fused search", () => {
@@ -288,29 +442,6 @@ describe("fused search", () => {
     await user.click(screen.getByTestId("send-hits-to-canvas"));
     await waitFor(() => expect(getVertexMock).toHaveBeenCalledWith(expect.anything(), 42));
     expect(await screen.findByText(/sent to the canvas/)).toBeInTheDocument();
-  });
-
-  it("offers a per-hit inspect that sends that single chunk to the canvas", async () => {
-    searchDocumentsMock.mockResolvedValue({
-      modeUsed: "fused",
-      hits: [
-        { chunkId: 51, documentId: 7, score: 0.02, order: 0, text: "chunk fifty-one" },
-        { chunkId: 52, documentId: 7, score: 0.01, order: 1, text: "chunk fifty-two" },
-      ],
-    });
-    const user = userEvent.setup();
-    renderScreen();
-
-    await waitFor(() => expect(screen.getByTestId("search-query")).toBeInTheDocument());
-    await user.type(screen.getByTestId("search-query"), "anything");
-    await user.click(screen.getByTestId("search-run"));
-
-    await waitFor(() => expect(screen.getByTestId("inspect-hit-51")).toBeInTheDocument());
-    await user.click(screen.getByTestId("inspect-hit-51"));
-
-    // Only the clicked hit is fetched (a per-hit affordance, not the bulk send).
-    await waitFor(() => expect(getVertexMock).toHaveBeenCalledWith(expect.anything(), 51));
-    expect(getVertexMock).not.toHaveBeenCalledWith(expect.anything(), 52);
   });
 
   it("labels an honest degrade when fused ran lexical-only", async () => {

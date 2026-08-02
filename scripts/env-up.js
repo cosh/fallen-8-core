@@ -79,6 +79,19 @@ function main() {
       : 'F8_INGESTION=false - no docling sidecar; txt/md ingestion stays off too (capability disabled).'
   );
 
+  // NLP enrichment (feature semantic-layer): the nlp sidecar (entities + key terms) rides its
+  // own "nlp" profile, started only when ingestion is on AND F8_NLP != false. So F8_NLP=false is
+  // a true opt-out (no sidecar built, capability off via the fallen8 service's Fallen8__Nlp__Enabled).
+  const nlp = ingestion && process.env.F8_NLP !== 'false';
+  if (nlp) profiles.push('--profile', 'nlp');
+  console.log(
+    nlp
+      ? 'NLP enrichment is ON - the spaCy sidecar (entities + key terms) comes up.'
+      : ingestion
+        ? 'F8_NLP=false - no NLP sidecar; ingestion still writes Document/Chunk vertices (no entity graph).'
+        : 'NLP enrichment is off (ingestion is off).'
+  );
+
   // The AI-agent MCP surface (feature mcp-server) starts with the rest of the environment on
   // http://localhost:8090 — anonymous + read-only for local dev. Securing it for an off-box
   // setup is env-var config on the f8-mcp service (F8_MCP_AUTH_MODE / F8_MCP_TOKEN / tier

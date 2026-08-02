@@ -124,6 +124,11 @@ namespace NoSQL.GraphDB.App.Controllers
         private readonly Ingestion.IDoclingConverter _doclingConverter;
         private readonly Fallen8IngestionOptions _ingestionOptions;
 
+        /// <summary>The NLP enrichment pieces surfaced on /status (feature semantic-layer);
+        /// null under direct unit construction.</summary>
+        private readonly Ingestion.INlpClient _nlpClient;
+        private readonly Fallen8NlpOptions _nlpOptions;
+
         #endregion
 
         /// <summary>The namespace collection (feature graph-namespaces); null under direct unit
@@ -135,7 +140,8 @@ namespace NoSQL.GraphDB.App.Controllers
             Fallen8Namespaces namespaces = null, IOptions<Fallen8DurabilityOptions> durability = null,
             Chat.Fallen8ChatProvider chatProvider = null, IOptions<Fallen8ObservabilityOptions> observability = null,
             IOptions<Fallen8EmbeddingOptions> embeddingOptions = null,
-            Ingestion.IDoclingConverter doclingConverter = null, IOptions<Fallen8IngestionOptions> ingestionOptions = null)
+            Ingestion.IDoclingConverter doclingConverter = null, IOptions<Fallen8IngestionOptions> ingestionOptions = null,
+            Ingestion.INlpClient nlpClient = null, IOptions<Fallen8NlpOptions> nlpOptions = null)
         {
             _embeddingProvider = embeddingProvider;
             _chatProvider = chatProvider;
@@ -143,6 +149,8 @@ namespace NoSQL.GraphDB.App.Controllers
             _embeddingOptions = embeddingOptions?.Value;
             _doclingConverter = doclingConverter;
             _ingestionOptions = ingestionOptions?.Value;
+            _nlpClient = nlpClient;
+            _nlpOptions = nlpOptions?.Value;
 
             _namespaces = namespaces;
 
@@ -262,6 +270,8 @@ namespace NoSQL.GraphDB.App.Controllers
                 Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider),
                 Chat = ChatProviderStatsREST.From(_chatProvider),
                 Ingestion = await IngestionStatsREST.From(_ingestionOptions, _doclingConverter,
+                    HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None),
+                Nlp = await NlpStatsREST.From(_nlpOptions, _nlpClient,
                     HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None),
             };
         }

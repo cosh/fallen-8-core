@@ -1007,7 +1007,7 @@
           "Document"
         ],
         "summary": "Ingests a document file into the graph",
-        "description": "The pipeline is parse, chunk, embed, write: the Document vertex is created first\r\n(status `processing`, visible on the change feed), chunks are written only\r\nafter embedding succeeded, and any later failure removes them again - a failed\r\ningest leaves exactly one failed Document vertex and zero chunks.",
+        "description": "Asynchronous (feature semantic-layer): the Document vertex is created first (status\r\n`processing`, visible on the change feed) and the pipeline - convert, chunk,\r\nembed, write, then additive NLP enrichment into the entity graph - runs off the request\r\nthread on a single global queue; the row flips to `indexed` when it finishes. Any\r\nfailure leaves exactly one failed Document vertex and zero chunks.",
         "parameters": [
           {
             "name": "api-version",
@@ -1099,8 +1099,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "The document was ingested; the summary reports chunk and link counts",
+          "202": {
+            "description": "The document was accepted for asynchronous ingestion; the stub starts `processing` and flips to `indexed` on the change feed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -1176,6 +1176,17 @@
               "application/json": { }
             }
           },
+          "428": {
+            "description": "The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "502": {
             "description": "The embedding backend produced invalid output",
             "content": {
@@ -1183,7 +1194,7 @@
             }
           },
           "503": {
-            "description": "The docling sidecar or the embedding backend is unavailable",
+            "description": "The docling sidecar or the embedding backend is unavailable, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -1225,6 +1236,227 @@
               "application/json; ver=0.1": {
                 "schema": {
                   "$ref": "#/components/schemas/DocumentListREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/document/binding": {
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Reports the semantic layer's index binding state",
+        "description": "The three indices the layer uses (vector, fulltext, entity), whether each\r\n    exists and is usable, and whether ingestion is ready. The layer never creates an index\r\n    implicitly (FR-7); bind them with POST /document/binding/ensure.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The binding state",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentBindingREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/document/binding/ensure": {
+      "post": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Creates the required indices, binding the semantic layer",
+        "description": "The explicit, idempotent bind (FR-7): creates the vector, fulltext and entity\r\n    indices the configuration requires and that do not yet exist, then reports the state.\r\n    This is the only path that creates a bound index; ingestion answers 428 until it runs.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The binding state after creation (Ready when all required indices exist)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentBindingREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "An index with a bound id exists but is the wrong shape",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/document/entities": {
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Lists the entities the corpus mentions",
+        "description": "Deduplicated Entity vertices (feature semantic-layer) ranked by mention count.\r\n    Each id is a valid /path or /subgraph seed. A bounded page; `total` reports the full\r\n    match count.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Optional entity-type filter (case-insensitive, e.g. PER/ORG/LOC)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "contains",
+            "in": "query",
+            "description": "Optional case-insensitive substring the entity text must contain",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page cap (default 200, max 10000)",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 200
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entity page and the total match count",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentEntityListREST"
                 }
               },
               "application/json": { }
@@ -1405,8 +1637,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "The document was ingested",
+          "202": {
+            "description": "The document was accepted for asynchronous ingestion; the stub starts `processing` and flips to `indexed` on the change feed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -1482,6 +1714,17 @@
               "application/json": { }
             }
           },
+          "428": {
+            "description": "The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "502": {
             "description": "The embedding backend produced invalid output",
             "content": {
@@ -1489,7 +1732,7 @@
             }
           },
           "503": {
-            "description": "The embedding backend is unavailable",
+            "description": "The embedding backend is unavailable, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -5110,7 +5353,7 @@
           "Document"
         ],
         "summary": "Ingests a document file into the graph",
-        "description": "The pipeline is parse, chunk, embed, write: the Document vertex is created first\r\n(status `processing`, visible on the change feed), chunks are written only\r\nafter embedding succeeded, and any later failure removes them again - a failed\r\ningest leaves exactly one failed Document vertex and zero chunks.",
+        "description": "Asynchronous (feature semantic-layer): the Document vertex is created first (status\r\n`processing`, visible on the change feed) and the pipeline - convert, chunk,\r\nembed, write, then additive NLP enrichment into the entity graph - runs off the request\r\nthread on a single global queue; the row flips to `indexed` when it finishes. Any\r\nfailure leaves exactly one failed Document vertex and zero chunks.",
         "parameters": [
           {
             "name": "ns",
@@ -5210,8 +5453,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "The document was ingested; the summary reports chunk and link counts",
+          "202": {
+            "description": "The document was accepted for asynchronous ingestion; the stub starts `processing` and flips to `indexed` on the change feed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -5287,6 +5530,17 @@
               "application/json": { }
             }
           },
+          "428": {
+            "description": "The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "502": {
             "description": "The embedding backend produced invalid output",
             "content": {
@@ -5294,7 +5548,7 @@
             }
           },
           "503": {
-            "description": "The docling sidecar or the embedding backend is unavailable",
+            "description": "The docling sidecar or the embedding backend is unavailable, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -5344,6 +5598,251 @@
               "application/json; ver=0.1": {
                 "schema": {
                   "$ref": "#/components/schemas/DocumentListREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/document/binding": {
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Reports the semantic layer's index binding state",
+        "description": "The three indices the layer uses (vector, fulltext, entity), whether each\r\n    exists and is usable, and whether ingestion is ready. The layer never creates an index\r\n    implicitly (FR-7); bind them with POST /document/binding/ensure.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The binding state",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentBindingREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/document/binding/ensure": {
+      "post": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Creates the required indices, binding the semantic layer",
+        "description": "The explicit, idempotent bind (FR-7): creates the vector, fulltext and entity\r\n    indices the configuration requires and that do not yet exist, then reports the state.\r\n    This is the only path that creates a bound index; ingestion answers 428 until it runs.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The binding state after creation (Ready when all required indices exist)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentBindingREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "An index with a bound id exists but is the wrong shape",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/document/entities": {
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Lists the entities the corpus mentions",
+        "description": "Deduplicated Entity vertices (feature semantic-layer) ranked by mention count.\r\n    Each id is a valid /path or /subgraph seed. A bounded page; `total` reports the full\r\n    match count.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Optional entity-type filter (case-insensitive, e.g. PER/ORG/LOC)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "contains",
+            "in": "query",
+            "description": "Optional case-insensitive substring the entity text must contain",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page cap (default 200, max 10000)",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 200
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entity page and the total match count",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentEntityListREST"
                 }
               },
               "application/json": { }
@@ -5540,8 +6039,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "The document was ingested",
+          "202": {
+            "description": "The document was accepted for asynchronous ingestion; the stub starts `processing` and flips to `indexed` on the change feed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -5617,6 +6116,17 @@
               "application/json": { }
             }
           },
+          "428": {
+            "description": "The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "502": {
             "description": "The embedding backend produced invalid output",
             "content": {
@@ -5624,7 +6134,7 @@
             }
           },
           "503": {
-            "description": "The embedding backend is unavailable",
+            "description": "The embedding backend is unavailable, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -16168,6 +16678,67 @@
         },
         "description": "The sidecar's config/health state (spec FR-1)."
       },
+      "DocumentBindingREST": {
+        "type": "object",
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "description": "True when every required index exists and is the right shape: ingestion will\r\n    be accepted (subject to the other gates)."
+          },
+          "vector": {
+            "description": "The vector index over the chunk embeddings (kNN side of fused search).",
+            "$ref": "#/components/schemas/DocumentBindingRoleREST"
+          },
+          "fulltext": {
+            "description": "The fulltext index over chunk text (lexical side of fused search).",
+            "$ref": "#/components/schemas/DocumentBindingRoleREST"
+          },
+          "entity": {
+            "description": "The dictionary index that deduplicates Entity vertices (one per (type,\r\n    normalized) per namespace).",
+            "$ref": "#/components/schemas/DocumentBindingRoleREST"
+          }
+        },
+        "description": "The semantic layer's index binding (feature semantic-layer FR-7): the state the Studio\r\n\"State\" panel reads to decide whether to offer \"create the required indexes\". The layer\r\nnever creates indices implicitly - ingestion answers 428 until bool DocumentBindingREST.Ready."
+      },
+      "DocumentBindingRoleREST": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "`vector`, `fulltext` or `entity`."
+          },
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The configured index id this role binds."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether the current configuration needs this index (embeddings on for the\r\n    vector role, NLP on for the entity role, the fulltext role whenever it is enabled)."
+          },
+          "exists": {
+            "type": "boolean",
+            "description": "Whether an index with this id exists at all."
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Whether the index exists AND is the right shape for this role."
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "A short note: the binding detail when ready, or the shape conflict when not."
+          }
+        },
+        "description": "One index role in the binding: its id, whether the current configuration requires\r\n    it, whether it exists, whether it is usable (right shape), and a short human note."
+      },
       "DocumentDetailREST": {
         "type": "object",
         "properties": {
@@ -16185,6 +16756,69 @@
           }
         },
         "description": "GET /document/{id}: the summary plus its chunks in document order."
+      },
+      "DocumentEntityListREST": {
+        "type": "object",
+        "properties": {
+          "entities": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DocumentEntityREST"
+            },
+            "description": "The entities, most-mentioned first (ties by text, then id)."
+          },
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The total number of entities matching the filter, before the page cap.",
+            "format": "int32"
+          }
+        },
+        "description": "The entity network the corpus mentions (feature semantic-layer FR-6): deduplicated\r\nEntity vertices ranked by how often chunks mention them. Backs the MCP `entities`\r\nop and the Studio \"Entities\" view. A page (bounded); int DocumentEntityListREST.Total is the full\r\ncount so the caller knows whether more exist."
+      },
+      "DocumentEntityREST": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The Entity vertex id - usable directly as a /path or /subgraph seed.",
+            "format": "int32"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The entity's surface form (the first one seen)."
+          },
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The entity type (the NLP label, e.g. PER/ORG/LOC)."
+          },
+          "mentionCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many chunks mention this entity (incoming `mentions` edges).",
+            "format": "int32"
+          }
+        },
+        "description": "One deduplicated entity: the vertex id (a valid graph seed), its surface text,\r\n    its type, and how many chunks mention it."
       },
       "DocumentGroupREST": {
         "type": "object",
@@ -17386,6 +18020,10 @@
           "ingestion": {
             "description": "The unstructured-ingestion state (feature unstructured-ingestion): the\r\n    same block as /status, so either discovery surface answers capability questions.",
             "$ref": "#/components/schemas/IngestionStatsREST"
+          },
+          "nlp": {
+            "description": "The semantic-layer NLP enrichment state (feature semantic-layer): same\r\n    block as /status.",
+            "$ref": "#/components/schemas/NlpStatsREST"
           }
         },
         "description": "The graph-shape snapshot behind GET /statistics (feature observability). An ADVISORY,\r\nlock-free snapshot - not transactionally consistent - computed on demand under an\r\nelement budget: exact when V+E fits the budget, uniformly strided (and flagged) above it."
@@ -18021,6 +18659,22 @@
           }
         },
         "description": "Request body for updating a namespace via `PATCH /ns/{name}`: rename it and/or set its\r\nplugin-registration override. Both fields are optional; supply at least one."
+      },
+      "NlpStatsREST": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "Cached, short-TTL probe; only run when the capability is on (like docling)."
+          }
+        },
+        "description": "The semantic-layer NLP enrichment state on the discovery surfaces (feature\r\nsemantic-layer, /status and /statistics): the flag plus a cached sidecar probe. The\r\nStudio's entity controls gate on this; enrichment is additive, so \"off\" just means no\r\nentity network is built. Null only when the host wired no NLP options."
       },
       "ObservabilityConfigREST": {
         "type": "object",
@@ -19470,8 +20124,12 @@
             "$ref": "#/components/schemas/ChatProviderStatsREST"
           },
           "ingestion": {
-            "description": "The unstructured-ingestion state (feature unstructured-ingestion) — a config read\r\nplus a cached sidecar probe, so it rides the cheap discovery surface too. Null\r\nonly when the host wired no ingestion options.",
+            "description": "The unstructured-ingestion state (feature unstructured-ingestion): a config read\r\nplus a cached sidecar probe, so it rides the cheap discovery surface too. Null\r\nonly when the host wired no ingestion options.",
             "$ref": "#/components/schemas/IngestionStatsREST"
+          },
+          "nlp": {
+            "description": "The semantic-layer NLP enrichment state (feature semantic-layer): a config read\r\nplus a cached sidecar probe. Null only when the host wired no NLP options.",
+            "$ref": "#/components/schemas/NlpStatsREST"
           }
         },
         "description": "Represents the current status of the Fallen-8 database",

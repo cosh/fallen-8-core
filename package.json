@@ -9,9 +9,9 @@
     "test:ui": "npm run test --prefix fallen-8-web-ui",
     "e2e": "npm run e2e --prefix fallen-8-web-ui",
     "env:up": "node scripts/env-up.js && node scripts/env-info.js",
-    "env:down": "docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile ingestion down --remove-orphans",
-    "env:logs": "docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile ingestion logs -f",
-    "env:status": "docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile ingestion ps && node scripts/env-info.js"
+    "env:down": "docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile ingestion --profile nlp down --remove-orphans",
+    "env:logs": "docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile ingestion --profile nlp logs -f",
+    "env:status": "docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile ingestion --profile nlp ps && node scripts/env-info.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1"

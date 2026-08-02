@@ -37,6 +37,7 @@ namespace NoSQL.GraphDB.App.Ingestion
     {
         public const String DocumentLabel = "Document";
         public const String ChunkLabel = "Chunk";
+        public const String EntityLabel = "Entity";
 
         public const String ContainsEdge = "contains";
         public const String NextEdge = "next";
@@ -66,6 +67,26 @@ namespace NoSQL.GraphDB.App.Ingestion
         /// allow-list (a string, not a list type).</summary>
         public const String IdentifiersProperty = "identifiers";
 
+        /// <summary>NLP noun-chunk key terms on a chunk (feature semantic-layer), newline-joined
+        /// (a single term never spans lines) so it stays an exportable scalar string.</summary>
+        public const String KeyTermsProperty = "keyTerms";
+
+        /// <summary>Whether NLP enrichment ran successfully for the document.</summary>
+        public const String EnrichedProperty = "enriched";
+
+        /// <summary>The id of the process that created this stub (feature semantic-layer). The
+        /// startup sweep only reclaims <c>processing</c> documents whose boot id differs from the
+        /// current process, so a stub accepted during THIS process's boot window is never mistaken
+        /// for a zombie left by a previous one.</summary>
+        public const String BootIdProperty = "bootId";
+
+        // Entity vertex (feature semantic-layer): a deduplicated named entity the corpus mentions.
+        public const String EntityTextProperty = "text";
+        public const String EntityTypeProperty = "type";
+        public const String EntityNormalizedProperty = "normalized";
+        /// <summary>The per-namespace dedup key: <c>type + '|' + normalized</c>.</summary>
+        public const String EntityKeyProperty = "entityKey";
+
         public const String StatusProcessing = "processing";
         public const String StatusIndexed = "indexed";
         public const String StatusFailed = "failed";
@@ -84,7 +105,8 @@ namespace NoSQL.GraphDB.App.Ingestion
             ChunkCountProperty, PageCountProperty, ContentHashProperty, ConverterProperty,
             ChunkerConfigProperty, EmbeddingModelProperty, EmbeddingDimensionProperty,
             TextProperty, OrderProperty, KindProperty, HeadingPathProperty,
-            PageFromProperty, PageToProperty, IdentifiersProperty
+            PageFromProperty, PageToProperty, IdentifiersProperty, KeyTermsProperty,
+            EnrichedProperty, BootIdProperty, EntityTypeProperty, EntityNormalizedProperty, EntityKeyProperty
         };
 
         /// <summary>Formats that ingest without the sidecar.</summary>

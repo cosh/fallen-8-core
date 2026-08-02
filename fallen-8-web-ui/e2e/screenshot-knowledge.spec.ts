@@ -1,6 +1,6 @@
 // MIT License
 //
-// screenshot-documents.spec.ts
+// screenshot-knowledge.spec.ts
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -26,15 +26,17 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Docs screenshot capture: the Documents screen (feature unstructured-ingestion) - ingest
- * forms, the document table with the chunk budget, and a fused search with hits. Capture-only.
- * Ingests two markdown documents through the REAL text endpoint, so the shot needs an
- * instance with Fallen8:Ingestion:Enabled=true (the compose environment default); the
- * embedding provider may be on or off - the screen states either mode honestly.
+ * Docs screenshot capture: the Knowledge screen (feature semantic-layer) - the State panel
+ * (index binding), the drag-and-drop ingest, the document table with the chunk budget, the
+ * Entities view, and a fused search with hits. Capture-only. The semantic layer creates no
+ * index implicitly, so this binds it first (POST /document/binding/ensure), then ingests two
+ * markdown documents through the REAL text endpoint (needs Fallen8:Ingestion:Enabled=true, the
+ * compose default). Ingestion is async now, so it waits for the documents to reach `indexed`.
+ * The embedding provider may be on or off - the screen states either mode honestly.
  *
- *   F8_SCREENSHOT=1 F8_UI_URL=http://127.0.0.1:<port> npx playwright test e2e/screenshot-documents.spec.ts
+ *   F8_SCREENSHOT=1 F8_UI_URL=http://127.0.0.1:<port> npx playwright test e2e/screenshot-knowledge.spec.ts
  *
- * Output: docs/src/assets/images/screen-documents.png.
+ * Output: docs/src/assets/images/screen-knowledge.png.
  */
 
 const API_KEY = process.env.F8_E2E_API_KEY ?? "e2e-key";
@@ -43,10 +45,13 @@ const JSON_HEADERS = { ...AUTH, "Content-Type": "application/json" };
 
 test.skip(process.env.F8_SCREENSHOT !== "1", "docs screenshot capture (set F8_SCREENSHOT=1)");
 
-test("capture the Documents screen", async ({ page, request }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
+test("capture the Knowledge screen", async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 1400 });
 
   await request.head("/tabularasa/all", { headers: AUTH });
+
+  // The semantic layer creates no index implicitly (FR-7): bind it before ingesting.
+  expect((await request.post("/document/binding/ensure", { headers: AUTH })).ok()).toBeTruthy();
 
   const embed = (await request.get("/status")).ok()
     ? ((await (await request.get("/status")).json()).embedding?.enabled ?? false)
@@ -75,6 +80,19 @@ test("capture the Documents screen", async ({ page, request }) => {
     ).ok(),
   ).toBeTruthy();
 
+  // Ingestion runs off-thread; wait for both documents to finish indexing before the shot.
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get("/document", { headers: AUTH });
+        if (!response.ok()) return false;
+        const documents = (await response.json()).documents ?? [];
+        return documents.length >= 2 && documents.every((d: { status: string }) => d.status === "indexed");
+      },
+      { timeout: 30_000, intervals: [500] },
+    )
+    .toBeTruthy();
+
   await page.goto("/");
   await page.getByRole("button", { name: "Edit" }).first().click();
   await page.getByLabel(/api key/i).fill(API_KEY);
@@ -84,7 +102,8 @@ test("capture the Documents screen", async ({ page, request }) => {
   await page.reload();
   await expect(page.getByTestId("health-chip")).toContainText(/online/i, { timeout: 20_000 });
 
-  await page.goto("/q/default/documents");
+  await page.goto("/q/default/knowledge");
+  await expect(page.getByTestId("state-panel")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("chunk-budget")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("edge-servers.md")).toBeVisible();
 
@@ -93,5 +112,5 @@ test("capture the Documents screen", async ({ page, request }) => {
   await page.getByTestId("search-run").click();
   await expect(page.getByTestId("search-results")).toBeVisible({ timeout: 20_000 });
 
-  await page.screenshot({ path: "../docs/src/assets/images/screen-documents.png" });
+  await page.screenshot({ path: "../docs/src/assets/images/screen-knowledge.png", fullPage: true });
 });

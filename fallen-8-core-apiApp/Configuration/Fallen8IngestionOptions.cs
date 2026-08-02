@@ -61,6 +61,10 @@ namespace NoSQL.GraphDB.App.Configuration
         /// ingestion with 507 instead of letting the in-memory engine grow toward OOM.</summary>
         public Int32 MaxChunksPerNamespace { get; set; } = 100_000;
 
+        /// <summary>Depth of the single global ingestion queue (feature semantic-layer). Enqueue
+        /// beyond this answers 503; one consumer drains it in arrival order.</summary>
+        public Int32 MaxQueueLength { get; set; } = 256;
+
         /// <summary>Adjacent chunks below this merge (chars).</summary>
         public Int32 ChunkMinChars { get; set; } = 800;
 
@@ -91,6 +95,13 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>The ensured fulltext index id.</summary>
         public String FulltextIndexId { get; set; } = "documents-text";
 
+        /// <summary>Ensure the entity dedup index (feature semantic-layer): a dictionary index
+        /// over the Entity vertices' dedup key, so an entity is one vertex per namespace.</summary>
+        public Boolean EnsureEntityIndex { get; set; } = true;
+
+        /// <summary>The ensured entity dedup index id.</summary>
+        public String EntityIndexId { get; set; } = "documents-entities";
+
         /// <summary>docling-serve sidecar settings.</summary>
         public DoclingOptions Docling { get; set; } = new DoclingOptions();
 
@@ -100,8 +111,27 @@ namespace NoSQL.GraphDB.App.Configuration
             /// still ingest, binary formats answer 503).</summary>
             public String Endpoint { get; set; } = String.Empty;
 
-            /// <summary>Per-conversion request timeout.</summary>
-            public Int32 TimeoutSeconds { get; set; } = 120;
+            /// <summary>OVERALL budget for an async conversion (submit + poll loop + result).
+            /// Async ingestion runs off-thread, so this can be generous for a large scanned PDF
+            /// without holding any request open.</summary>
+            public Int32 TimeoutSeconds { get; set; } = 600;
+
+            /// <summary>Seconds between task-status polls.</summary>
+            public Int32 PollIntervalSeconds { get; set; } = 2;
+
+            /// <summary>Run OCR. Default FALSE: born-digital PDFs need none, and OCR is the
+            /// dominant cost on large scanned documents. Turn on for scanned corpora, accepting
+            /// the latency.</summary>
+            public Boolean DoOcr
+            {
+                get; set;
+            }
+
+            /// <summary>Table structure detection: <c>fast</c> (default) or <c>accurate</c>.</summary>
+            public String TableMode { get; set; } = "fast";
+
+            /// <summary>Optional OCR engine name (docling default when empty).</summary>
+            public String OcrEngine { get; set; } = String.Empty;
         }
     }
 }

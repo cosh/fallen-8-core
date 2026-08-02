@@ -1090,6 +1090,7 @@ namespace NoSQL.GraphDB.Tests
                     FulltextIndexId = null
                 }, "IngestionStatsREST"),
                 (new DoclingStatsREST { Configured = true, Reachable = true }, "DoclingStatsREST"),
+                (new NlpStatsREST { Enabled = true, Configured = true, Reachable = false }, "NlpStatsREST"),
                 (new IngestionLimitsREST { MaxUploadBytes = 1L, MaxPages = 2, MaxChunksPerDocument = 3, MaxChunksPerNamespace = 4, MaxLinksPerChunk = 5 }, "IngestionLimitsREST"),
                 (new IngestTextSpecification
                 {
@@ -1129,6 +1130,23 @@ namespace NoSQL.GraphDB.Tests
                     ChunkCeiling = 100000,
                     CurrentEmbeddingModel = "bge-m3#1024#Cosine"
                 }, "DocumentListREST"),
+                (new DocumentBindingREST
+                {
+                    Ready = true,
+                    Vector = new DocumentBindingRoleREST { Role = "vector", IndexId = "documents", Required = true, Exists = true, Ready = true, Detail = "bound to embedding 'default'" },
+                    Fulltext = new DocumentBindingRoleREST { Role = "fulltext", IndexId = "documents-text", Required = true, Exists = true, Ready = true },
+                    Entity = new DocumentBindingRoleREST { Role = "entity", IndexId = "documents-entities", Required = false, Exists = false, Ready = false }
+                }, "DocumentBindingREST"),
+                (new DocumentBindingRoleREST
+                {
+                    Role = "fulltext", IndexId = "documents-text", Required = true, Exists = false, Ready = false, Detail = "exists but is not a fulltext index"
+                }, "DocumentBindingRoleREST"),
+                (new DocumentEntityListREST
+                {
+                    Entities = new List<DocumentEntityREST> { new DocumentEntityREST { Id = 7, Text = "Muster GmbH", Type = "ORG", MentionCount = 3 } },
+                    Total = 1
+                }, "DocumentEntityListREST"),
+                (new DocumentEntityREST { Id = 7, Text = "Muster GmbH", Type = "ORG", MentionCount = 3 }, "DocumentEntityREST"),
                 (new ChunkSummaryREST
                 {
                     ChunkId = 9,

@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // DocumentController.cs
 //
@@ -83,21 +83,23 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="linkJson">Structural linking (FR-13) as JSON: {"indexIds":[...],"maxLinksPerChunk":n}</param>
         /// <param name="cancellationToken">Aborts conversion/embedding when the request is cancelled</param>
         /// <remarks>
-        /// The pipeline is parse, chunk, embed, write: the Document vertex is created first
-        /// (status <c>processing</c>, visible on the change feed), chunks are written only
-        /// after embedding succeeded, and any later failure removes them again - a failed
-        /// ingest leaves exactly one failed Document vertex and zero chunks.
+        /// Asynchronous (feature semantic-layer): the Document vertex is created first (status
+        /// <c>processing</c>, visible on the change feed) and the pipeline - convert, chunk,
+        /// embed, write, then additive NLP enrichment into the entity graph - runs off the request
+        /// thread on a single global queue; the row flips to <c>indexed</c> when it finishes. Any
+        /// failure leaves exactly one failed Document vertex and zero chunks.
         /// </remarks>
-        /// <response code="200">The document was ingested; the summary reports chunk and link counts</response>
+        /// <response code="202">The document was accepted for asynchronous ingestion; the stub starts <c>processing</c> and flips to <c>indexed</c> on the change feed</response>
         /// <response code="400">Unsupported format, reserved tag key, invalid link allowlist, empty conversion, or no chunks</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Ingestion is disabled (Fallen8:Ingestion:Enabled), or embed=true while the embedding provider is off</response>
         /// <response code="404">The replace target does not exist</response>
         /// <response code="409">Duplicate content hash, or an index shape/model conflict</response>
         /// <response code="413">Above Fallen8:Ingestion:MaxUploadBytes, MaxPages, or MaxChunksPerDocument</response>
+        /// <response code="428">The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         /// <response code="502">The embedding backend produced invalid output</response>
-        /// <response code="503">The docling sidecar or the embedding backend is unavailable</response>
+        /// <response code="503">The docling sidecar or the embedding backend is unavailable, or the ingestion queue is full</response>
         /// <response code="507">The namespace chunk ceiling is reached (Fallen8:Ingestion:MaxChunksPerNamespace)</response>
         [HttpPost("/document")]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
@@ -105,13 +107,14 @@ namespace NoSQL.GraphDB.App.Controllers
         [RequestFormLimits(MultipartBodyLengthLimit = TransportUploadLimit)]
         [Consumes("multipart/form-data")]
         [Produces("application/json")]
-        [ProducesResponseType(typeof(DocumentSummaryREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(DocumentSummaryREST), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
+        [ProducesResponseType(StatusCodes.Status428PreconditionRequired)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         [ProducesResponseType(StatusCodes.Status507InsufficientStorage)]
@@ -185,7 +188,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             }
 
-            return Render(await _service.IngestAsync(request, cancellationToken));
+            return Render(await _service.IngestAsync(request, CurrentNamespaceName(), cancellationToken));
         }
 
         /// <summary>
@@ -195,29 +198,31 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="cancellationToken">Aborts embedding when the request is cancelled</param>
         /// <remarks>The sidecar-free path (FR-3): markdown chunks along its headings, plain
         /// text as one bounded section. Same lifecycle and failure semantics as the file route.</remarks>
-        /// <response code="200">The document was ingested</response>
+        /// <response code="202">The document was accepted for asynchronous ingestion; the stub starts <c>processing</c> and flips to <c>indexed</c> on the change feed</response>
         /// <response code="400">Missing name/text, an unknown format, a reserved tag key, or an invalid link allowlist</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Ingestion is disabled, or embed=true while the embedding provider is off</response>
         /// <response code="404">The replace target does not exist</response>
         /// <response code="409">Duplicate content hash, or an index shape/model conflict</response>
         /// <response code="413">The text exceeds Fallen8:Ingestion:MaxUploadBytes, or the chunk cap</response>
+        /// <response code="428">The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         /// <response code="502">The embedding backend produced invalid output</response>
-        /// <response code="503">The embedding backend is unavailable</response>
+        /// <response code="503">The embedding backend is unavailable, or the ingestion queue is full</response>
         /// <response code="507">The namespace chunk ceiling is reached</response>
         [HttpPost("/document/text")]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [RequestSizeLimit(TransportUploadLimit)]
         [Consumes("application/json")]
         [Produces("application/json")]
-        [ProducesResponseType(typeof(DocumentSummaryREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(DocumentSummaryREST), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
+        [ProducesResponseType(StatusCodes.Status428PreconditionRequired)]
         [ProducesResponseType(StatusCodes.Status502BadGateway)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         [ProducesResponseType(StatusCodes.Status507InsufficientStorage)]
@@ -265,7 +270,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 LinkMaxPerChunk = definition.Link?.MaxLinksPerChunk
             };
 
-            return Render(await _service.IngestAsync(request, cancellationToken));
+            return Render(await _service.IngestAsync(request, CurrentNamespaceName(), cancellationToken));
         }
 
         /// <summary>
@@ -395,13 +400,86 @@ namespace NoSQL.GraphDB.App.Controllers
                 : ProblemResults.Create(outcome.Status, outcome.Title, outcome.Error);
         }
 
+        /// <summary>
+        /// Reports the semantic layer's index binding state
+        /// </summary>
+        /// <remarks>The three indices the layer uses (vector, fulltext, entity), whether each
+        /// exists and is usable, and whether ingestion is ready. The layer never creates an index
+        /// implicitly (FR-7); bind them with POST /document/binding/ensure.</remarks>
+        /// <response code="200">The binding state</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Ingestion is disabled (Fallen8:Ingestion:Enabled)</response>
+        [HttpGet("/document/binding")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(DocumentBindingREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public IActionResult GetBinding()
+        {
+            return Ok(_service.GetBinding());
+        }
+
+        /// <summary>
+        /// Creates the required indices, binding the semantic layer
+        /// </summary>
+        /// <remarks>The explicit, idempotent bind (FR-7): creates the vector, fulltext and entity
+        /// indices the configuration requires and that do not yet exist, then reports the state.
+        /// This is the only path that creates a bound index; ingestion answers 428 until it runs.</remarks>
+        /// <response code="200">The binding state after creation (Ready when all required indices exist)</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Ingestion is disabled (Fallen8:Ingestion:Enabled)</response>
+        /// <response code="409">An index with a bound id exists but is the wrong shape</response>
+        [HttpPost("/document/binding/ensure")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(DocumentBindingREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public IActionResult EnsureBinding()
+        {
+            try
+            {
+                return Ok(_service.EnsureBinding());
+            }
+            catch (IngestionFailedException ex)
+            {
+                return ProblemResults.Create(ex.Status, ex.Title, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Lists the entities the corpus mentions
+        /// </summary>
+        /// <param name="type">Optional entity-type filter (case-insensitive, e.g. PER/ORG/LOC)</param>
+        /// <param name="contains">Optional case-insensitive substring the entity text must contain</param>
+        /// <param name="limit">Page cap (default 200, max 10000)</param>
+        /// <remarks>Deduplicated Entity vertices (feature semantic-layer) ranked by mention count.
+        /// Each id is a valid /path or /subgraph seed. A bounded page; <c>total</c> reports the full
+        /// match count.</remarks>
+        /// <response code="200">The entity page and the total match count</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Ingestion is disabled (Fallen8:Ingestion:Enabled)</response>
+        [HttpGet("/document/entities")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(DocumentEntityListREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public IActionResult ListEntities([FromQuery] String type, [FromQuery] String contains,
+            [FromQuery] Int32 limit = 200)
+        {
+            return Ok(_service.ListEntities(type, contains, limit));
+        }
+
         #region helpers
 
         private IActionResult Render(IngestionOutcome outcome)
         {
-            if (outcome.Status == StatusCodes.Status200OK)
+            // Async ingestion (feature semantic-layer): every success path returns 202 - the stub
+            // was created and the job queued; the row appears `processing` and flips live via the
+            // change feed. (There is no synchronous 200 ingest path anymore.)
+            if (outcome.Status == StatusCodes.Status202Accepted)
             {
-                return Ok(outcome.Summary);
+                return Accepted(outcome.Summary);
             }
 
             return ProblemResults.Create(outcome.Status, outcome.Title, outcome.Error, problem =>
@@ -411,6 +489,16 @@ namespace NoSQL.GraphDB.App.Controllers
                     problem.Extensions["documentId"] = outcome.FailedDocumentId.Value;
                 }
             });
+        }
+
+        /// <summary>The addressed namespace name for the ingestion job (null = default / bare
+        /// route), read from the route the same way the engine resolver does.</summary>
+        private String CurrentNamespaceName()
+        {
+            return RouteData.Values.TryGetValue(
+                NoSQL.GraphDB.App.Namespaces.NamespaceRouteConvention.RouteParameterName, out var value)
+                ? value as String
+                : null;
         }
 
         [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
