@@ -41,11 +41,13 @@ namespace NoSQL.GraphDB.Mcp.Tools
     ///   write knowledge into the graph as Document/Chunk vertices and retrieve chunks with
     ///   fused (dense + lexical) search; a hit is a vertex and seeds f8_paths like any other.
     ///
-    ///   <para><c>list</c>/<c>get</c>/<c>search</c> are Read tier; <c>ingest_text</c>/<c>delete</c>
-    ///   are gated on the write capability AND hidden from the schema when it is off (the
-    ///   f8_plugins pattern). Binary file upload is deliberately NOT bridged: base64 payloads
-    ///   through tool calls are token-hostile; agents hold text, and POST /document is one
-    ///   curl away (recorded deferral).</para>
+    ///   <para><c>list</c>/<c>get</c>/<c>search</c>/<c>binding</c> are Read tier;
+    ///   <c>ingest_text</c>/<c>delete</c>/<c>bind</c> are gated on the write capability AND hidden
+    ///   from the schema when it is off (the f8_plugins pattern). The semantic layer never creates
+    ///   indices implicitly (feature semantic-layer): <c>binding</c> reports the state, ingest is
+    ///   refused (428) until bound, and <c>bind</c> creates the required indices. Binary file
+    ///   upload is deliberately NOT bridged: base64 payloads through tool calls are token-hostile;
+    ///   agents hold text, and POST /document is one curl away (recorded deferral).</para>
     /// </summary>
     public sealed class DocumentsTool : IMcpTool
     {
@@ -62,11 +64,12 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
         public Tool Describe(McpToolsOptions tools)
         {
-            var ops = new List<String> { "list", "get", "search" };
+            var ops = new List<String> { "list", "get", "search", "binding" };
             if (tools.EnableWrite)
             {
                 ops.Add("ingest_text");
                 ops.Add("delete");
+                ops.Add("bind");
             }
 
             return new Tool
@@ -76,7 +79,9 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 Description =
                     "Unstructured ingestion: documents live in the graph as Document/Chunk vertices with embedded text. " +
                     "search fuses semantic and exact-token retrieval (hits are chunk vertex ids - seed f8_paths with them); " +
-                    "list/get inspect documents. ingest_text/delete need the write capability. " +
+                    "list/get inspect documents. The semantic layer never creates indices implicitly: binding reports whether " +
+                    "the required indices exist, and ingest is refused until they do - bind (write) creates them. " +
+                    "ingest_text/delete/bind need the write capability. " +
                     "Requires ingestion to be enabled on the target (Fallen8:Ingestion:Enabled, see f8_overview).",
                 InputSchema = SchemaBuilder.Create()
                     .Str("op", "The operation.", required: true, choices: ops)
@@ -275,6 +280,33 @@ namespace NoSQL.GraphDB.Mcp.Tools
                         $"ingested '{name}' as document {documentId}: {chunkCount} chunk(s), {links} link(s).", node);
                 }
 
+                case "binding":
+                {
+                    var raw = await _bridge.RequestRawAsync(HttpMethod.Get, @namespace, "document/binding", null,
+                        cancellationToken).ConfigureAwait(false);
+                    var node = ToolResults.Pass(raw);
+                    var ready = node?["ready"]?.GetValue<Boolean>() ?? false;
+                    return ToolResults.Ok(ready
+                        ? "the semantic layer is bound and ready to ingest."
+                        : "the semantic layer is NOT bound; call op=bind (write) to create the required indices.", node);
+                }
+
+                case "bind":
+                {
+                    if (!tools.EnableWrite)
+                    {
+                        return ToolResults.Error(403, "Forbidden",
+                            "Binding the semantic layer needs the write capability (Mcp:Tools:EnableWrite).");
+                    }
+                    var raw = await _bridge.RequestRawAsync(HttpMethod.Post, @namespace, "document/binding/ensure", null,
+                        cancellationToken).ConfigureAwait(false);
+                    var node = ToolResults.Pass(raw);
+                    var ready = node?["ready"]?.GetValue<Boolean>() ?? false;
+                    return ToolResults.Ok(ready
+                        ? "the semantic layer is now bound and ready to ingest."
+                        : "bind ran but the layer is not ready (a bound index has a conflicting shape; see the state).", node);
+                }
+
                 case "delete":
                 {
                     if (!tools.EnableWrite)
@@ -295,7 +327,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
                 default:
                     return ToolResults.Error(400, "Invalid arguments",
-                        "op must be list, get, search, ingest_text, or delete.");
+                        "op must be list, get, search, binding, ingest_text, delete, or bind.");
             }
         }
     }

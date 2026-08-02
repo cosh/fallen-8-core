@@ -97,10 +97,10 @@ namespace NoSQL.GraphDB.Tests
             var engine = IngestionTestHelper.EngineOf(factory);
 
             // Fire many ingests with DISTINCT content (no duplicate-hash 409) at an EMPTY
-            // namespace at once. The single-consumer worker serializes the index-ensure (so the
-            // create race cannot occur through the queue), and the re-check-after-create fix
-            // still guards a direct concurrent create. All must accept (202), all must index,
-            // and each index must exist exactly once.
+            // namespace at once. Each request first binds the layer (POST /document/binding/ensure
+            // on the request thread), so many concurrent creates of the SAME index race directly -
+            // the re-check-after-create guard makes each index resolve to exactly one. All must
+            // accept (202), all must index, and each index must exist exactly once.
             var tasks = Enumerable.Range(0, 12)
                 .Select(i => IngestionTestHelper.PostText(client, $"doc{i}.md",
                     $"# H{i}\n\nDistinct body number {i} with words."))

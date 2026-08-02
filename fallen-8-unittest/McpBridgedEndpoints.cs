@@ -60,14 +60,17 @@ namespace NoSQL.GraphDB.Tests
             ("DELETE", "/plugins/{name}"),
             ("POST", "/plugins/algorithm"),
             ("POST", "/plugins/function"),
-            // Documents (feature unstructured-ingestion). f8_documents: list/get/search are Read;
-            // ingest_text/delete are gated on the write capability. The multipart file route is a
-            // recorded deferral (see McpRestCoverageTest.Deferrals).
+            // Documents (features unstructured-ingestion, semantic-layer). f8_documents:
+            // list/get/search/binding are Read; ingest_text/delete/bind are gated on the write
+            // capability. The multipart file route is a recorded deferral (see
+            // McpRestCoverageTest.Deferrals).
             ("GET", "/document"),
             ("GET", "/document/{documentId}"),
             ("POST", "/document/text"),
             ("POST", "/document/search"),
             ("DELETE", "/document/{documentId}"),
+            ("GET", "/document/binding"),
+            ("POST", "/document/binding/ensure"),
             // Write tier.
             ("PUT", "/vertex"),
             ("PUT", "/edge"),

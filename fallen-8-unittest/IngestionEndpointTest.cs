@@ -170,9 +170,21 @@ namespace NoSQL.GraphDB.Tests
                 JsonSerializer.Serialize(name), JsonSerializer.Serialize(text),
                 String.IsNullOrEmpty(extraJson) ? "" : ", " + extraJson);
 
+        /// <summary>Binds the semantic layer (FR-7) - creates the required indices - so ingestion
+        /// is accepted. Explicit binding is required (ingestion never auto-creates); the happy-path
+        /// helpers do it transparently. Idempotent. <paramref name="prefix"/> targets a namespace
+        /// (e.g. "/ns/side").</summary>
+        internal static async Task EnsureBinding(HttpClient client, String prefix = "")
+        {
+            using var response = await client.PostAsync(prefix + "/document/binding/ensure", null);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "binding ensure should succeed: " + await response.Content.ReadAsStringAsync());
+        }
+
         /// <summary>POSTs text, asserts the async 202 accept, and returns the stub's documentId.</summary>
         internal static async Task<Int32> PostText(HttpClient client, String name, String text, String extraJson = null)
         {
+            await EnsureBinding(client);
             using var response = await client.PostAsync("/document/text", Json(TextPayload(name, text, extraJson)));
             var body = await response.Content.ReadAsStringAsync();
             Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode, body);
@@ -220,6 +232,7 @@ namespace NoSQL.GraphDB.Tests
         /// <summary>POSTs a multipart upload, asserts the async 202 accept, returns the documentId.</summary>
         internal static async Task<Int32> PostFile(HttpClient client, MultipartFormDataContent upload)
         {
+            await EnsureBinding(client);
             using var response = await client.PostAsync("/document", upload);
             var body = await response.Content.ReadAsStringAsync();
             Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode, body);
@@ -863,6 +876,9 @@ namespace NoSQL.GraphDB.Tests
 
             using var create = await client.PutAsync("/ns/side", null);
             Assert.IsTrue(create.IsSuccessStatusCode, await create.Content.ReadAsStringAsync());
+
+            // Binding is per-namespace and explicit (FR-7): bind 'side' before ingesting into it.
+            await IngestionTestHelper.EnsureBinding(client, "/ns/side");
 
             using var response = await client.PostAsync("/ns/side/document/text",
                 IngestionTestHelper.Json("{ \"name\": \"n\", \"text\": \"# S\\n\\nside content\" }"));

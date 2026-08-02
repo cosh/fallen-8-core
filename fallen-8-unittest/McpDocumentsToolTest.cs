@@ -43,6 +43,15 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class McpDocumentsToolTest
     {
+        /// <summary>Binds the semantic layer on the target apiApp (FR-7) so the tool's ingest is
+        /// accepted. The MCP binding op is covered separately; here it is plain setup.</summary>
+        private static async Task SeedBinding(IngestionFactory api)
+        {
+            using var client = api.CreateClient();
+            using var response = await client.PostAsync("/document/binding/ensure", null);
+            Assert.IsTrue(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        }
+
         private static JsonElement Str(String value) => JsonSerializer.SerializeToElement(value);
 
         private static JsonElement Num(Int32 value) => JsonSerializer.SerializeToElement(value);
@@ -65,6 +74,11 @@ namespace NoSQL.GraphDB.Tests
             var bridge = McpTestSupport.Bridge(api.Server.CreateHandler());
             var tools = new McpToolsOptions { EnableWrite = true };
             var catalog = McpTestSupport.Catalog(tools, new IMcpTool[] { new DocumentsTool(bridge) });
+
+            // bind: the semantic layer creates no indices implicitly - bind through the tool first.
+            var bind = await catalog.CallAsync("f8_documents", Args(("op", Str("bind"))), CancellationToken.None);
+            Assert.IsFalse(bind.IsError, bind.Content?.OfType<ModelContextProtocol.Protocol.TextContentBlock>().FirstOrDefault()?.Text);
+            Assert.IsTrue(bind.StructuredContent!.Value.GetProperty("ready").GetBoolean());
 
             // ingest_text
             var ingest = await catalog.CallAsync("f8_documents", Args(
@@ -124,9 +138,42 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Binding_ReadIsOpen_BindNeedsWriteTier()
+        {
+            using var api = new IngestionFactory();
+            var bridge = McpTestSupport.Bridge(api.Server.CreateHandler());
+
+            // Read tier: the binding state is visible, and reports NOT ready before any bind.
+            var readCatalog = McpTestSupport.Catalog(new McpToolsOptions(), new IMcpTool[] { new DocumentsTool(bridge) });
+            var state = await readCatalog.CallAsync("f8_documents", Args(("op", Str("binding"))), CancellationToken.None);
+            Assert.IsFalse(state.IsError);
+            Assert.IsFalse(state.StructuredContent!.Value.GetProperty("ready").GetBoolean());
+
+            // bind is a write op: hidden from the advertised op set and refused without the tier.
+            var tool = new DocumentsTool(bridge);
+            var readOnly = new McpToolsOptions();
+            var schema = JsonSerializer.SerializeToElement(tool.Describe(readOnly).InputSchema);
+            var ops = schema.GetProperty("properties").GetProperty("op").GetProperty("enum")
+                .EnumerateArray().Select(e => e.GetString()).ToList();
+            CollectionAssert.Contains(ops, "binding");
+            CollectionAssert.DoesNotContain(ops, "bind");
+
+            var refused = await readCatalog.CallAsync("f8_documents", Args(("op", Str("bind"))), CancellationToken.None);
+            Assert.IsTrue(refused.IsError, "bind without the write tier is rejected");
+
+            // With the write tier, bind makes the layer ready.
+            var writeCatalog = McpTestSupport.Catalog(new McpToolsOptions { EnableWrite = true },
+                new IMcpTool[] { new DocumentsTool(bridge) });
+            var bound = await writeCatalog.CallAsync("f8_documents", Args(("op", Str("bind"))), CancellationToken.None);
+            Assert.IsFalse(bound.IsError);
+            Assert.IsTrue(bound.StructuredContent!.Value.GetProperty("ready").GetBoolean());
+        }
+
+        [TestMethod]
         public async Task WriteOps_AreGatedAndHidden_WithoutTheWriteTier()
         {
             using var api = new IngestionFactory();
+            await SeedBinding(api);
             var bridge = McpTestSupport.Bridge(api.Server.CreateHandler());
 
             // First ingest a REAL document WITH the write tier, so the gate test below deletes
@@ -148,7 +195,7 @@ namespace NoSQL.GraphDB.Tests
             var schema = JsonSerializer.SerializeToElement(tool.Describe(tools).InputSchema);
             var ops = schema.GetProperty("properties").GetProperty("op").GetProperty("enum")
                 .EnumerateArray().Select(e => e.GetString()).ToList();
-            CollectionAssert.AreEquivalent(new List<String> { "list", "get", "search" }, ops);
+            CollectionAssert.AreEquivalent(new List<String> { "list", "get", "search", "binding" }, ops);
 
             var ingest = await catalog.CallAsync("f8_documents", Args(
                 ("op", Str("ingest_text")), ("name", Str("n")), ("text", Str("t"))), CancellationToken.None);

@@ -227,6 +227,14 @@ namespace NoSQL.GraphDB.App.Ingestion
                 return linkError;
             }
 
+            // The semantic layer never creates indices implicitly (FR-7): 428 until the operator
+            // has bound the indices this request needs (POST /document/binding/ensure).
+            var bindingError = CheckBindingForIngest(request);
+            if (bindingError != null)
+            {
+                return bindingError;
+            }
+
             // ---- the stub, then hand off. The heavy pipeline runs on the worker; a failure
             // there marks THIS stub failed (FR-2 invariant preserved), off the request thread.
             var documentId = await CreateDocumentStub(request, contentHash);
@@ -312,11 +320,12 @@ namespace NoSQL.GraphDB.App.Ingestion
                     Single[][] vectors = null;
                     if (request.Embed)
                     {
-                        EnsureVectorIndex();
+                        // The bound vector index existence was gated on the request thread (FR-7);
+                        // embeddings project into it automatically. No implicit create here.
                         vectors = await EmbedChunks(chunks, cancellationToken);
                     }
 
-                    fulltextIndex = EnsureFulltextIndex();
+                    fulltextIndex = ResolveFulltextIndex();
                     var mentions = ResolveLinks(chunks, job.LinkIndexIds, job.LinkCap, job.DocumentId);
 
                     await WriteChunks(job.DocumentId, request, chunks, vectors, fulltextIndex, mentions, writtenChunkIds);
@@ -434,15 +443,181 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         #endregion
 
-        #region indices (FR-5)
+        #region indices + binding (FR-5, FR-7)
 
-        private void EnsureVectorIndex()
+        // The semantic layer never creates indices implicitly (FR-7): ingestion resolves the bound
+        // indices and answers 428 until they exist. The operator binds them explicitly with POST
+        // /document/binding/ensure (the Studio "State" panel). Three roles: the vector index over
+        // the chunk embeddings, the fulltext index over chunk text, and the entity dedup dictionary
+        // index. Each is part of the binding per its config flag.
+
+        /// <summary>The current binding state (FR-7): which of the three indices exist and are the
+        /// right shape, and whether the layer is ready. The vector index counts as required only
+        /// while embeddings are on.</summary>
+        public Controllers.Model.DocumentBindingREST GetBinding()
         {
-            if (!_options.EnsureVectorIndex)
+            var vector = VectorRole(_embeddingOptions.Enabled);
+            var fulltext = FulltextRole();
+            var entity = EntityRole();
+            return new Controllers.Model.DocumentBindingREST
             {
-                return;
+                Ready = (!vector.Required || vector.Ready)
+                    && (!fulltext.Required || fulltext.Ready)
+                    && (!entity.Required || entity.Ready),
+                Vector = vector,
+                Fulltext = fulltext,
+                Entity = entity
+            };
+        }
+
+        /// <summary>Explicit bind (FR-7): create the missing required indices, then report the
+        /// state. Idempotent; an existing index of the right shape is success, a wrong-shape one is
+        /// a 409. This is the ONLY path that creates a bound index - ingestion never does.</summary>
+        public Controllers.Model.DocumentBindingREST EnsureBinding()
+        {
+            if (_options.EnsureVectorIndex && _embeddingOptions.Enabled)
+            {
+                CreateVectorIndex();
             }
 
+            if (_options.EnsureFulltextIndex)
+            {
+                CreateFulltextIndex();
+            }
+
+            if (_options.EnsureEntityIndex)
+            {
+                CreateEntityIndex();
+            }
+
+            return GetBinding();
+        }
+
+        /// <summary>Pre-stub gate (FR-7): 428 until the indices THIS request needs are present, so
+        /// ingestion never silently creates them. Vector only when embedding; entity only when NLP
+        /// is on. A wrong-shape existing index folds into the same "not ready" detail.</summary>
+        private IngestionOutcome CheckBindingForIngest(IngestionRequest request)
+        {
+            var missing = new List<String>();
+
+            var vector = VectorRole(request.Embed);
+            if (vector.Required && !vector.Ready)
+            {
+                missing.Add(DescribeRole(vector));
+            }
+
+            var fulltext = FulltextRole();
+            if (fulltext.Required && !fulltext.Ready)
+            {
+                missing.Add(DescribeRole(fulltext));
+            }
+
+            var entity = EntityRole();
+            if (entity.Required && !entity.Ready)
+            {
+                missing.Add(DescribeRole(entity));
+            }
+
+            if (missing.Count == 0)
+            {
+                return null;
+            }
+
+            return IngestionOutcome.Fail(StatusCodes.Status428PreconditionRequired, "Semantic layer not bound",
+                String.Format("Bind the required indices before ingesting (POST /document/binding/ensure): {0}.",
+                    String.Join("; ", missing)));
+        }
+
+        private static String DescribeRole(Controllers.Model.DocumentBindingRoleREST role)
+        {
+            return role.Exists
+                ? String.Format("index '{0}' {1}", role.IndexId, role.Detail)
+                : String.Format("index '{0}' is absent", role.IndexId);
+        }
+
+        private Controllers.Model.DocumentBindingRoleREST VectorRole(Boolean needed)
+        {
+            var role = new Controllers.Model.DocumentBindingRoleREST
+            {
+                Role = "vector",
+                IndexId = _options.VectorIndexId,
+                Required = _options.EnsureVectorIndex && _embeddingOptions.Enabled && needed
+            };
+
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.VectorIndexId))
+            {
+                role.Exists = true;
+                if (!(index is IVectorIndex vectorIndex))
+                {
+                    role.Detail = "exists but is not a vector index";
+                }
+                else if (!String.Equals(vectorIndex.EmbeddingName, _options.EmbeddingName, StringComparison.Ordinal))
+                {
+                    role.Detail = String.Format("is bound to embedding '{0}', not '{1}'",
+                        vectorIndex.EmbeddingName ?? "(unbound)", _options.EmbeddingName);
+                }
+                else
+                {
+                    role.Ready = true;
+                    role.Detail = String.Format("bound to embedding '{0}'", _options.EmbeddingName);
+                }
+            }
+
+            return role;
+        }
+
+        private Controllers.Model.DocumentBindingRoleREST FulltextRole()
+        {
+            var role = new Controllers.Model.DocumentBindingRoleREST
+            {
+                Role = "fulltext",
+                IndexId = _options.FulltextIndexId,
+                Required = _options.EnsureFulltextIndex
+            };
+
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.FulltextIndexId))
+            {
+                role.Exists = true;
+                if (index is IFulltextIndex)
+                {
+                    role.Ready = true;
+                }
+                else
+                {
+                    role.Detail = "exists but is not a fulltext index";
+                }
+            }
+
+            return role;
+        }
+
+        private Controllers.Model.DocumentBindingRoleREST EntityRole()
+        {
+            var role = new Controllers.Model.DocumentBindingRoleREST
+            {
+                Role = "entity",
+                IndexId = _options.EntityIndexId,
+                Required = _options.EnsureEntityIndex && _nlpOptions.Enabled
+            };
+
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.EntityIndexId))
+            {
+                role.Exists = true;
+                if (index is IVectorIndex || index is IFulltextIndex)
+                {
+                    role.Detail = "exists but is not a dictionary index";
+                }
+                else
+                {
+                    role.Ready = true;
+                }
+            }
+
+            return role;
+        }
+
+        private void CreateVectorIndex()
+        {
             if (_fallen8.IndexFactory.TryGetIndex(out var existing, _options.VectorIndexId))
             {
                 ValidateVectorIndexShape(existing);
@@ -459,15 +634,13 @@ namespace NoSQL.GraphDB.App.Ingestion
 
             if (_fallen8.IndexFactory.TryCreateIndex(out _, _options.VectorIndexId, "VectorIndex", parameters))
             {
-                _logger.LogInformation("Ensured bound vector index '{IndexId}' ({Dimension} dims)",
+                _logger.LogInformation("Bound vector index '{IndexId}' ({Dimension} dims)",
                     _options.VectorIndexId, _provider.Identity.Dimension);
                 return;
             }
 
-            // TryCreateIndex returns false when the name already exists - which is exactly what a
-            // concurrent first-ingest into the same namespace does (both miss TryGetIndex, both
-            // create, the loser sees "already exists"). Re-check: an existing index of the right
-            // shape IS success, not a 500. Only a genuinely absent index is a real failure.
+            // Lost the create race (a concurrent ensure): an existing index of the right shape IS
+            // success, not a 500. Only a genuinely absent index is a real failure.
             if (_fallen8.IndexFactory.TryGetIndex(out var raced, _options.VectorIndexId))
             {
                 ValidateVectorIndexShape(raced);
@@ -497,30 +670,44 @@ namespace NoSQL.GraphDB.App.Ingestion
             // BoundIndexContract pre-check (one home).
         }
 
-        /// <summary>Returns the fulltext index chunk text is mirrored into, or null when the
-        /// lexical side is disabled (fused search then degrades to dense, stated in /status).</summary>
-        private IIndex EnsureFulltextIndex()
+        /// <summary>Resolves the fulltext index chunk text is mirrored into (worker path), or null
+        /// when the lexical side is disabled. A bound-but-vanished index (dropped since the accept
+        /// gate) fails this document.</summary>
+        private IIndex ResolveFulltextIndex()
         {
             if (!_options.EnsureFulltextIndex)
             {
                 return null;
             }
 
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.FulltextIndexId))
+            {
+                return ValidateFulltextIndexShape(index);
+            }
+
+            throw new IngestionFailedException(StatusCodes.Status409Conflict, "Fulltext index missing",
+                String.Format("The bound fulltext index '{0}' is not present; bind the semantic layer (POST /document/binding/ensure).",
+                    _options.FulltextIndexId));
+        }
+
+        private void CreateFulltextIndex()
+        {
             if (_fallen8.IndexFactory.TryGetIndex(out var existing, _options.FulltextIndexId))
             {
-                return ValidateFulltextIndexShape(existing);
+                ValidateFulltextIndexShape(existing);
+                return;
             }
 
-            if (_fallen8.IndexFactory.TryCreateIndex(out var created, _options.FulltextIndexId, "RegExIndex"))
+            if (_fallen8.IndexFactory.TryCreateIndex(out _, _options.FulltextIndexId, "RegExIndex"))
             {
-                _logger.LogInformation("Ensured fulltext index '{IndexId}'", _options.FulltextIndexId);
-                return created;
+                _logger.LogInformation("Bound fulltext index '{IndexId}'", _options.FulltextIndexId);
+                return;
             }
 
-            // Lost the create race (see EnsureVectorIndex): an existing fulltext index is success.
             if (_fallen8.IndexFactory.TryGetIndex(out var raced, _options.FulltextIndexId))
             {
-                return ValidateFulltextIndexShape(raced);
+                ValidateFulltextIndexShape(raced);
+                return;
             }
 
             throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Index creation failed",
@@ -538,29 +725,44 @@ namespace NoSQL.GraphDB.App.Ingestion
             return index;
         }
 
-        /// <summary>Ensures the entity dedup index (a dictionary index over the entity key), or
-        /// null when disabled. Same create-then-recheck race handling as the others.</summary>
-        private IIndex EnsureEntityIndex()
+        /// <summary>Resolves the entity dedup index (a dictionary index over the entity key), or
+        /// null when disabled. A bound-but-vanished index fails enrichment, which is additive - the
+        /// document still indexes.</summary>
+        private IIndex ResolveEntityIndex()
         {
             if (!_options.EnsureEntityIndex)
             {
                 return null;
             }
 
+            if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.EntityIndexId))
+            {
+                return ValidateEntityIndexShape(index);
+            }
+
+            throw new IngestionFailedException(StatusCodes.Status409Conflict, "Entity index missing",
+                String.Format("The bound entity index '{0}' is not present; bind the semantic layer (POST /document/binding/ensure).",
+                    _options.EntityIndexId));
+        }
+
+        private void CreateEntityIndex()
+        {
             if (_fallen8.IndexFactory.TryGetIndex(out var existing, _options.EntityIndexId))
             {
-                return ValidateEntityIndexShape(existing);
+                ValidateEntityIndexShape(existing);
+                return;
             }
 
-            if (_fallen8.IndexFactory.TryCreateIndex(out var created, _options.EntityIndexId, "DictionaryIndex"))
+            if (_fallen8.IndexFactory.TryCreateIndex(out _, _options.EntityIndexId, "DictionaryIndex"))
             {
-                return created;
+                _logger.LogInformation("Bound entity index '{IndexId}'", _options.EntityIndexId);
+                return;
             }
 
-            // Lost the create race: an existing dictionary index is success.
             if (_fallen8.IndexFactory.TryGetIndex(out var raced, _options.EntityIndexId))
             {
-                return ValidateEntityIndexShape(raced);
+                ValidateEntityIndexShape(raced);
+                return;
             }
 
             throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Index creation failed",
@@ -754,7 +956,7 @@ namespace NoSQL.GraphDB.App.Ingestion
                 var enriched = await _nlp.EnrichAsync(items, _nlpOptions.LanguageHint, cancellationToken);
                 var byChunkId = enriched.ToDictionary(item => item.Id, item => item);
 
-                var entityIndex = EnsureEntityIndex();
+                var entityIndex = ResolveEntityIndex();
                 if (entityIndex == null)
                 {
                     // Entities need the dedup index; without it, only key terms are stored.

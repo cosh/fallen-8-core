@@ -397,6 +397,53 @@ namespace NoSQL.GraphDB.App.Controllers
                 : ProblemResults.Create(outcome.Status, outcome.Title, outcome.Error);
         }
 
+        /// <summary>
+        /// Reports the semantic layer's index binding state
+        /// </summary>
+        /// <remarks>The three indices the layer uses (vector, fulltext, entity), whether each
+        /// exists and is usable, and whether ingestion is ready. The layer never creates an index
+        /// implicitly (FR-7); bind them with POST /document/binding/ensure.</remarks>
+        /// <response code="200">The binding state</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Ingestion is disabled (Fallen8:Ingestion:Enabled)</response>
+        [HttpGet("/document/binding")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(DocumentBindingREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public IActionResult GetBinding()
+        {
+            return Ok(_service.GetBinding());
+        }
+
+        /// <summary>
+        /// Creates the required indices, binding the semantic layer
+        /// </summary>
+        /// <remarks>The explicit, idempotent bind (FR-7): creates the vector, fulltext and entity
+        /// indices the configuration requires and that do not yet exist, then reports the state.
+        /// This is the only path that creates a bound index; ingestion answers 428 until it runs.</remarks>
+        /// <response code="200">The binding state after creation (Ready when all required indices exist)</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Ingestion is disabled (Fallen8:Ingestion:Enabled)</response>
+        /// <response code="409">An index with a bound id exists but is the wrong shape</response>
+        [HttpPost("/document/binding/ensure")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(DocumentBindingREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public IActionResult EnsureBinding()
+        {
+            try
+            {
+                return Ok(_service.EnsureBinding());
+            }
+            catch (IngestionFailedException ex)
+            {
+                return ProblemResults.Create(ex.Status, ex.Title, ex.Message);
+            }
+        }
+
         #region helpers
 
         private IActionResult Render(IngestionOutcome outcome)

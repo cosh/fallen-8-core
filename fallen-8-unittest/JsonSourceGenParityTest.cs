@@ -1130,6 +1130,17 @@ namespace NoSQL.GraphDB.Tests
                     ChunkCeiling = 100000,
                     CurrentEmbeddingModel = "bge-m3#1024#Cosine"
                 }, "DocumentListREST"),
+                (new DocumentBindingREST
+                {
+                    Ready = true,
+                    Vector = new DocumentBindingRoleREST { Role = "vector", IndexId = "documents", Required = true, Exists = true, Ready = true, Detail = "bound to embedding 'default'" },
+                    Fulltext = new DocumentBindingRoleREST { Role = "fulltext", IndexId = "documents-text", Required = true, Exists = true, Ready = true },
+                    Entity = new DocumentBindingRoleREST { Role = "entity", IndexId = "documents-entities", Required = false, Exists = false, Ready = false }
+                }, "DocumentBindingREST"),
+                (new DocumentBindingRoleREST
+                {
+                    Role = "fulltext", IndexId = "documents-text", Required = true, Exists = false, Ready = false, Detail = "exists but is not a fulltext index"
+                }, "DocumentBindingRoleREST"),
                 (new ChunkSummaryREST
                 {
                     ChunkId = 9,
