@@ -74,13 +74,14 @@ flowchart TB
     convert["docling convert<br/>(binary formats only, async task API)"]:::ext
     chunk["chunk + identifier extraction"]:::sys
     embed["embed chunks<br/>(embedding provider)"]:::ext
+    writeChunks["write Chunk vertices<br/>+ contains / next / embeddings / fulltext"]:::sys
     nlp["NLP enrich<br/>(spaCy: entities + key terms)"]:::ext
-    write["write Document / Chunk / Entity vertices<br/>+ contains / next / mentions edges"]:::sys
+    writeEntities["write Entity vertices + mentions edges<br/>(additive)"]:::sys
     done["Document · status indexed"]:::sys
     feed["change feed<br/>(live status)"]:::sys
 
     upload --> accept --> queue
-    queue --> convert --> chunk --> embed --> nlp --> write --> done
+    queue --> convert --> chunk --> embed --> writeChunks --> nlp --> writeEntities --> done
     accept -.->|processing| feed
     done -.->|indexed| feed
 
@@ -109,15 +110,16 @@ Step by step, and the order matters:
 4. **Embed.** Chunk texts embed through the [embedding provider](/fallen-8-core/vector-search/)
    in batches. With the provider off, pass `"embed": false` to ingest text-only; ingestion
    never silently skips embedding.
-5. **Enrich (optional).** When the `nlp` sidecar is on, each chunk's text is sent to it and
-   the result folds into the graph as an [entity network](#the-entity-network). Enrichment is
-   **additive**: if NLP is off, unreachable, or errors, the document still indexes with no
-   entities and `enriched: false`. It never fails an ingest.
-6. **Write.** Chunk vertices (`Chunk`), `contains` edges from the document, `next` edges in
-   reading order, the embeddings, a mirror of each chunk's text into the fulltext index, and
-   the entity vertices and `mentions` edges. A failed ingest never leaves partial chunks: it
-   leaves exactly one failed Document vertex whose `error` says why, and `DELETE
-   /document/{id}` removes any document with its whole subtree.
+5. **Write the chunks.** Chunk vertices (`Chunk`), `contains` edges from the document, `next`
+   edges in reading order, the embeddings, and a mirror of each chunk's text into the fulltext
+   index. This happens **before** enrichment on purpose: the chunks are durable first, which is
+   what lets the next step be additive. A failure up to here leaves exactly one failed Document
+   vertex and zero chunks; `DELETE /document/{id}` removes any document with its whole subtree.
+6. **Enrich (optional), then write entities.** When the `nlp` sidecar is on, the
+   already-written chunks are sent to it and the result folds into the graph as an
+   [entity network](#the-entity-network): Entity vertices and `mentions` edges in their own
+   pass. Enrichment is **additive** - if NLP is off, unreachable, or errors, the document still
+   reaches `indexed` with `enriched: false` and its chunks intact. It never fails an ingest.
 
 ## Binding the semantic layer
 

@@ -120,27 +120,94 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task StartupSweep_FlipsInterruptedProcessingDocumentsToFailed()
+        public void StartupSweep_ReclaimsZombie_RemovesChunksAndFails()
         {
             using var factory = new IngestionFactory();
             var engine = IngestionTestHelper.EngineOf(factory);
-            using var client = factory.CreateClient();  // starts the host + worker
+            using var client = factory.CreateClient();  // starts the host + worker (its own sweep ran)
 
-            // Simulate a Document a previous process left mid-flight: a bare `processing` stub.
-            // (The worker's own startup sweep already ran at host start, before this stub existed,
-            // so invoke the sweep directly - it is idempotent and this pins its logic.)
-            var stubId = IngestionTestHelper.CreateVertex(engine, "Document",
-                new Dictionary<String, Object> { { "status", "processing" }, { "name", "orphan.pdf" } });
+            // A Document a PREVIOUS process left mid-flight: `processing`, a FOREIGN boot id, and two
+            // chunks it had committed before dying. FR-2: a non-indexed document leaves no chunks,
+            // so the sweep must remove them, not just flip the status.
+            var docId = IngestionTestHelper.CreateVertex(engine, "Document",
+                new Dictionary<String, Object>
+                {
+                    { "status", "processing" }, { "name", "orphan.pdf" }, { "bootId", "previous-process" },
+                });
+            var chunkA = IngestionTestHelper.CreateVertex(engine, "Chunk",
+                new Dictionary<String, Object> { { "text", "a" }, { "order", 0 } });
+            var chunkB = IngestionTestHelper.CreateVertex(engine, "Chunk",
+                new Dictionary<String, Object> { { "text", "b" }, { "order", 1 } });
+            var edges = new CreateEdgesTransaction();
+            edges.AddEdge(docId, "contains", chunkA, 1u);
+            edges.AddEdge(docId, "contains", chunkB, 1u);
+            engine.EnqueueTransaction(edges).WaitUntilFinished();
+            Assert.AreEqual(2, engine.GetAllVertices("Chunk").Count);
 
             var service = factory.Services.GetRequiredService<NoSQL.GraphDB.App.Ingestion.DocumentIngestionService>();
             service.SweepInterruptedDocuments();
 
-            Assert.IsTrue(engine.TryGetVertex(out var stub, stubId));
+            Assert.IsTrue(engine.TryGetVertex(out var stub, docId));
+            Assert.IsTrue(stub.TryGetProperty<String>(out var status, "status") && status == "failed",
+                "the interrupted zombie is swept to failed");
+            Assert.IsTrue(stub.TryGetProperty<String>(out var error, "error") && error == "interrupted");
+            Assert.AreEqual(0, engine.GetAllVertices("Chunk").Count, "the zombie's chunks are removed (FR-2)");
+        }
+
+        [TestMethod]
+        public void StartupSweep_LeavesLiveInFlightStubOfThisProcess()
+        {
+            using var factory = new IngestionFactory();
+            var engine = IngestionTestHelper.EngineOf(factory);
+            using var client = factory.CreateClient();
+
+            // A `processing` stub carrying THIS process's boot id is a live in-flight ingest
+            // accepted during the boot window (Kestrel accepts before the sweep runs), NOT a
+            // zombie - the sweep must leave it for the worker instead of failing accepted work.
+            var liveId = IngestionTestHelper.CreateVertex(engine, "Document",
+                new Dictionary<String, Object>
+                {
+                    { "status", "processing" }, { "name", "in-flight.md" },
+                    { "bootId", NoSQL.GraphDB.App.Ingestion.DocumentIngestionService.CurrentBootId },
+                });
+
+            var service = factory.Services.GetRequiredService<NoSQL.GraphDB.App.Ingestion.DocumentIngestionService>();
+            service.SweepInterruptedDocuments();
+
+            Assert.IsTrue(engine.TryGetVertex(out var stub, liveId));
             Assert.IsTrue(stub.TryGetProperty<String>(out var status, "status"));
-            Assert.AreEqual("failed", status, "the interrupted processing document is swept to failed");
-            Assert.IsTrue(stub.TryGetProperty<String>(out var error, "error"));
-            Assert.AreEqual("interrupted", error);
-            await Task.CompletedTask;
+            Assert.AreEqual("processing", status, "a same-boot-id stub is left for the worker, not swept");
+        }
+
+        [TestMethod]
+        public void StartupSweep_ReconcilesEntityIndexFromEntityVertices()
+        {
+            using var factory = new IngestionFactory(new Dictionary<String, String>
+            {
+                { "Fallen8:Nlp:Enabled", "true" },
+            });
+            var engine = IngestionTestHelper.EngineOf(factory);
+            using var client = factory.CreateClient();
+
+            // Simulate a hard crash: an Entity vertex was WAL-replayed but its dictionary-index key
+            // is gone (dictionary indices are not rebuilt from element state on load). The sweep
+            // must reconcile the index so the next ingest dedupes instead of duplicating (FR-6).
+            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out _, "documents-entities", "DictionaryIndex"));
+            const String key = "ORG|muster gmbh";
+            var entityId = IngestionTestHelper.CreateVertex(engine, "Entity",
+                new Dictionary<String, Object>
+                {
+                    { "text", "Muster GmbH" }, { "type", "ORG" }, { "normalized", "muster gmbh" }, { "entityKey", key },
+                });
+
+            Assert.IsTrue(engine.IndexFactory.TryGetIndex(out var index, "documents-entities"));
+            Assert.IsFalse(index.TryGetValue(out _, key), "the index starts without the stranded key");
+
+            var service = factory.Services.GetRequiredService<NoSQL.GraphDB.App.Ingestion.DocumentIngestionService>();
+            service.SweepInterruptedDocuments();
+
+            Assert.IsTrue(index.TryGetValue(out var hits, key), "reconcile re-added the entity's key");
+            Assert.IsTrue(hits.Any(hit => hit.Id == entityId));
         }
 
         #endregion

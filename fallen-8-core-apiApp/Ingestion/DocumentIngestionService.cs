@@ -125,6 +125,15 @@ namespace NoSQL.GraphDB.App.Ingestion
         private readonly IngestionJobQueue _queue;
         private readonly ILogger<DocumentIngestionService> _logger;
 
+        /// <summary>This process's boot id (feature semantic-layer FR-5): stamped on every stub so
+        /// the startup sweep tells a live in-flight stub of THIS process from a zombie left by a
+        /// previous one. One value per process.</summary>
+        private static readonly String _bootId = Guid.NewGuid().ToString("N");
+
+        /// <summary>The current process's boot id (stamped on stubs; read by the startup-sweep
+        /// boot-window logic and its test).</summary>
+        public static String CurrentBootId => _bootId;
+
         public DocumentIngestionService(IFallen8 fallen8, IDoclingConverter docling, INlpClient nlp,
             Fallen8EmbeddingProvider provider,
             IOptions<Fallen8IngestionOptions> options,
@@ -350,34 +359,88 @@ namespace NoSQL.GraphDB.App.Ingestion
                     await CleanupAndFail(job.DocumentId, writtenChunkIds, fulltextIndex, ex.Message);
                     _logger.LogWarning("Ingestion of document {DocumentId} failed: {Reason}", job.DocumentId, ex.Message);
                 }
+                catch (Exception ex) when (!(ex is OperationCanceledException))
+                {
+                    // An UNEXPECTED fault still honors FR-2 (no orphan chunks under a non-indexed
+                    // document): remove any committed chunks and record the failure. A shutdown
+                    // OperationCanceledException is deliberately left to propagate - the stub stays
+                    // `processing` and the next boot's sweep reclaims it and its chunks.
+                    await CleanupAndFail(job.DocumentId, writtenChunkIds, fulltextIndex, "unexpected error: " + ex.Message);
+                    _logger.LogError(ex, "Unexpected failure ingesting document {DocumentId}", job.DocumentId);
+                }
             }
         }
 
-        /// <summary>Startup sweep (FR-5): a Document left <c>processing</c> by a worker that died
-        /// across a restart is flipped to <c>failed:interrupted</c> in every namespace, so the
-        /// list never shows a permanent zombie.</summary>
+        /// <summary>Startup sweep (FR-5): reclaim state a previous process left mid-flight, in every
+        /// namespace. A Document left <c>processing</c> by a ZOMBIE (its boot id is not this
+        /// process's) is cleaned up - its committed chunks removed (FR-2: a non-indexed document
+        /// leaves no searchable chunks) and its status flipped to <c>failed:interrupted</c>. A stub
+        /// carrying THIS process's boot id is a live in-flight ingest accepted during the boot
+        /// window (Kestrel accepts before this runs) and is left for the worker. The entity dedup
+        /// index is also reconciled from Entity vertices (dictionary indices are not rebuilt from
+        /// element state on load, so a hard crash can strand keys - see FR-6).</summary>
         public void SweepInterruptedDocuments()
         {
             foreach (var ns in _namespaces.Snapshot())
             {
                 using (NoSQL.GraphDB.App.Namespaces.AddressedFallen8.PushNamespace(ns.Name))
                 {
+                    ReconcileEntityIndex();
+
                     foreach (var document in _fallen8.GetAllVertices(DocumentGraphSchema.DocumentLabel))
                     {
-                        if (document.TryGetProperty<String>(out var status, DocumentGraphSchema.StatusProperty) &&
-                            status == DocumentGraphSchema.StatusProcessing)
+                        if (!(document.TryGetProperty<String>(out var status, DocumentGraphSchema.StatusProperty) &&
+                              status == DocumentGraphSchema.StatusProcessing))
                         {
-                            // Best-effort; a sweep failure must not stop the worker from starting.
-                            try
-                            {
-                                FailDocument(document.Id, "interrupted").GetAwaiter().GetResult();
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Failed to sweep interrupted document {DocumentId}", document.Id);
-                            }
+                            continue;
+                        }
+
+                        // Live in-flight stub of THIS process (accepted during the boot window):
+                        // leave it, the worker will finish it. Only a zombie is reclaimed.
+                        if (document.TryGetProperty<String>(out var bootId, DocumentGraphSchema.BootIdProperty) &&
+                            String.Equals(bootId, _bootId, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        // Best-effort; a sweep failure must not stop the worker from starting.
+                        try
+                        {
+                            var chunkIds = ChunksOf(document).Select(chunk => chunk.Id).ToList();
+                            var fulltext = _fallen8.IndexFactory.TryGetIndex(out var ft, _options.FulltextIndexId)
+                                ? ft
+                                : null;
+                            CleanupAndFail(document.Id, chunkIds, fulltext, "interrupted").GetAwaiter().GetResult();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to sweep interrupted document {DocumentId}", document.Id);
                         }
                     }
+                }
+            }
+        }
+
+        /// <summary>Rebuilds the entity dedup index from the <c>Entity</c> vertices' keys (FR-6).
+        /// Dictionary indices persist only in snapshots and are not rebuilt from element state on
+        /// load, so after a hard crash (WAL replay without a fresh snapshot) an Entity vertex can
+        /// outlive its index key; without this, the next ingest would create a duplicate. Idempotent
+        /// (<c>AddOrUpdate</c>), cheap, and a no-op when the index is absent or NLP is off.</summary>
+        private void ReconcileEntityIndex()
+        {
+            if (!_options.EnsureEntityIndex ||
+                !_fallen8.IndexFactory.TryGetIndex(out var index, _options.EntityIndexId) ||
+                index is IVectorIndex || index is IFulltextIndex)
+            {
+                return;
+            }
+
+            foreach (var entity in _fallen8.GetAllVertices(DocumentGraphSchema.EntityLabel))
+            {
+                if (entity.TryGetProperty<String>(out var key, DocumentGraphSchema.EntityKeyProperty) &&
+                    !String.IsNullOrEmpty(key))
+                {
+                    index.AddOrUpdate(key, entity);
                 }
             }
         }
@@ -1109,6 +1172,7 @@ namespace NoSQL.GraphDB.App.Ingestion
                 { DocumentGraphSchema.NameProperty, request.Name },
                 { DocumentGraphSchema.SourceFormatProperty, request.SourceFormat },
                 { DocumentGraphSchema.StatusProperty, DocumentGraphSchema.StatusProcessing },
+                { DocumentGraphSchema.BootIdProperty, _bootId },
                 { DocumentGraphSchema.ContentHashProperty, contentHash },
                 {
                     DocumentGraphSchema.ConverterProperty,
@@ -1194,12 +1258,30 @@ namespace NoSQL.GraphDB.App.Ingestion
                 }
             }
 
-            foreach (var mention in mentions)
-            {
-                createEdges.AddEdge(chunkIds[mention.Key], DocumentGraphSchema.MentionsEdge, mention.Value, now);
-            }
-
             await Enqueue(createEdges, "edge creation");
+
+            // Structural-link mention edges (FR-13) are BEST-EFFORT, in their own transaction: a
+            // link target deleted concurrently between ResolveLinks and here must degrade the link,
+            // not fail the whole document (CreateEdgesTransaction rolls back the batch atomically
+            // on an unresolved endpoint). This mirrors the additive entity-mention write.
+            if (mentions.Count > 0)
+            {
+                var linkEdges = new CreateEdgesTransaction();
+                foreach (var mention in mentions)
+                {
+                    linkEdges.AddEdge(chunkIds[mention.Key], DocumentGraphSchema.MentionsEdge, mention.Value, now);
+                }
+
+                try
+                {
+                    await Enqueue(linkEdges, "structural link edges");
+                }
+                catch (IngestionFailedException ex)
+                {
+                    _logger.LogWarning("Structural links degraded for document {DocumentId}: {Reason}",
+                        documentId, ex.Message);
+                }
+            }
 
             if (vectors != null)
             {

@@ -1007,7 +1007,7 @@
           "Document"
         ],
         "summary": "Ingests a document file into the graph",
-        "description": "The pipeline is parse, chunk, embed, write: the Document vertex is created first\r\n(status `processing`, visible on the change feed), chunks are written only\r\nafter embedding succeeded, and any later failure removes them again - a failed\r\ningest leaves exactly one failed Document vertex and zero chunks.",
+        "description": "Asynchronous (feature semantic-layer): the Document vertex is created first (status\r\n`processing`, visible on the change feed) and the pipeline - convert, chunk,\r\nembed, write, then additive NLP enrichment into the entity graph - runs off the request\r\nthread on a single global queue; the row flips to `indexed` when it finishes. Any\r\nfailure leaves exactly one failed Document vertex and zero chunks.",
         "parameters": [
           {
             "name": "api-version",
@@ -1099,19 +1099,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "The document was ingested; the summary reports chunk and link counts",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/DocumentSummaryREST"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "202": {
-            "description": "Accepted",
+            "description": "The document was accepted for asynchronous ingestion; the stub starts `processing` and flips to `indexed` on the change feed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -1187,6 +1176,17 @@
               "application/json": { }
             }
           },
+          "428": {
+            "description": "The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "502": {
             "description": "The embedding backend produced invalid output",
             "content": {
@@ -1194,7 +1194,7 @@
             }
           },
           "503": {
-            "description": "The docling sidecar or the embedding backend is unavailable",
+            "description": "The docling sidecar or the embedding backend is unavailable, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -1637,19 +1637,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "The document was ingested",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/DocumentSummaryREST"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "202": {
-            "description": "Accepted",
+            "description": "The document was accepted for asynchronous ingestion; the stub starts `processing` and flips to `indexed` on the change feed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -1725,6 +1714,17 @@
               "application/json": { }
             }
           },
+          "428": {
+            "description": "The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "502": {
             "description": "The embedding backend produced invalid output",
             "content": {
@@ -1732,7 +1732,7 @@
             }
           },
           "503": {
-            "description": "The embedding backend is unavailable",
+            "description": "The embedding backend is unavailable, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -5353,7 +5353,7 @@
           "Document"
         ],
         "summary": "Ingests a document file into the graph",
-        "description": "The pipeline is parse, chunk, embed, write: the Document vertex is created first\r\n(status `processing`, visible on the change feed), chunks are written only\r\nafter embedding succeeded, and any later failure removes them again - a failed\r\ningest leaves exactly one failed Document vertex and zero chunks.",
+        "description": "Asynchronous (feature semantic-layer): the Document vertex is created first (status\r\n`processing`, visible on the change feed) and the pipeline - convert, chunk,\r\nembed, write, then additive NLP enrichment into the entity graph - runs off the request\r\nthread on a single global queue; the row flips to `indexed` when it finishes. Any\r\nfailure leaves exactly one failed Document vertex and zero chunks.",
         "parameters": [
           {
             "name": "ns",
@@ -5453,19 +5453,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "The document was ingested; the summary reports chunk and link counts",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/DocumentSummaryREST"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "202": {
-            "description": "Accepted",
+            "description": "The document was accepted for asynchronous ingestion; the stub starts `processing` and flips to `indexed` on the change feed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -5541,6 +5530,17 @@
               "application/json": { }
             }
           },
+          "428": {
+            "description": "The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "502": {
             "description": "The embedding backend produced invalid output",
             "content": {
@@ -5548,7 +5548,7 @@
             }
           },
           "503": {
-            "description": "The docling sidecar or the embedding backend is unavailable",
+            "description": "The docling sidecar or the embedding backend is unavailable, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -6039,19 +6039,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "The document was ingested",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/DocumentSummaryREST"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "202": {
-            "description": "Accepted",
+            "description": "The document was accepted for asynchronous ingestion; the stub starts `processing` and flips to `indexed` on the change feed",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6127,6 +6116,17 @@
               "application/json": { }
             }
           },
+          "428": {
+            "description": "The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "502": {
             "description": "The embedding backend produced invalid output",
             "content": {
@@ -6134,7 +6134,7 @@
             }
           },
           "503": {
-            "description": "The embedding backend is unavailable",
+            "description": "The embedding backend is unavailable, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }

@@ -43,9 +43,9 @@ apiApp has NLP off and ingestion simply produces no entities.
 
 ### Choosing the model (accuracy vs size)
 
-The spaCy model per language is configurable, defaulting to the small models. For a hard
-domain like legal German, trade up to `md`/`lg` without touching code: set the build args (so
-the larger model is baked into the image) and the matching run-time env, e.g.
+The spaCy model per language is configurable, defaulting to the small models. For a demanding
+domain, trade up to `md`/`lg` without touching code: set the build args (so the larger model is
+baked into the image) and the matching run-time env, e.g.
 
 ```bash
 docker build -t fallen-8-nlp --build-arg F8_NLP_MODEL_DE=de_core_news_lg fallen-8-nlp

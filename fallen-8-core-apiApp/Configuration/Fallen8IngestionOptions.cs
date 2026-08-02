@@ -120,8 +120,8 @@ namespace NoSQL.GraphDB.App.Configuration
             public Int32 PollIntervalSeconds { get; set; } = 2;
 
             /// <summary>Run OCR. Default FALSE: born-digital PDFs need none, and OCR is the
-            /// dominant cost on large scanned documents (the reason the Gutachten was slow).
-            /// Turn on for scanned corpora, accepting the latency.</summary>
+            /// dominant cost on large scanned documents. Turn on for scanned corpora, accepting
+            /// the latency.</summary>
             public Boolean DoOcr
             {
                 get; set;

@@ -14,10 +14,9 @@ Three things surfaced once the shipped feature met real documents:
 
 1. **"Documents" undersells it and hides in the middle of the rail.** The value is a semantic
    layer over a knowledge graph, not a document list.
-2. **Large real documents block.** A German legal Gutachten is scanned, so docling runs full
-   OCR + layout + table models per page (docling's own report: ~0.6 s/page CPU *before* heavy
-   OCR). Synchronous ingestion holds the HTTP request open for minutes and the row sits at
-   `processing` with no way to walk away.
+2. **Large real documents block.** A big scanned PDF runs full OCR + layout + table models per
+   page (docling's own report: ~0.6 s/page CPU *before* heavy OCR). Synchronous ingestion holds
+   the HTTP request open for minutes and the row sits at `processing` with no way to walk away.
 3. **A chunk graph is not a knowledge graph.** Retrieval finds chunks, but chunks only connect
    to their siblings and (optionally) to pre-existing domain vertices by exact identifier
    match. There is no notion of the *entities* a corpus is about, so you cannot traverse
@@ -37,11 +36,11 @@ auto-created on first ingest (the operator wants to choose), and upload is a pla
   like docling and Ollama: the engine and apiApp never import a model runtime.
 - **German AND English, chosen deliberately, with the model configurable.** The service loads
   a German and an English spaCy model (both MIT) and routes each document by detected language
-  (hint overridable). Running English NER on German legal text was explicitly rejected: it
-  produces near-garbage entities. The model per language is a config/build knob
-  (`F8_NLP_MODEL_DE`/`F8_NLP_MODEL_EN`, default the `sm` models) so a hard domain like legal
-  German can trade up to `md`/`lg` without a code change - the build bakes the chosen model,
-  the runtime loads the same name. Other languages are a further model-add.
+  (hint overridable). Running one language's NER model on another language's text was explicitly
+  rejected: it produces near-garbage entities. The model per language is a config/build knob
+  (`F8_NLP_MODEL_DE`/`F8_NLP_MODEL_EN`, default the `sm` models) so a demanding domain can trade
+  up to `md`/`lg` without a code change - the build bakes the chosen model, the runtime loads
+  the same name. Other languages are a further model-add.
 - **`spacy-layout` is NOT used.** docling already does layout, reading order and tables (it is
   the reason docling is in the stack, and `spacy-layout` wraps docling anyway). spaCy's value
   here is NER + noun-chunk terms over the text docling already extracted - no second layout
@@ -127,27 +126,29 @@ auto-created on first ingest (the operator wants to choose), and upload is a pla
   (capped per chunk by `MaxEntitiesPerChunk`), and writes `keyTerms` as a chunk property
   (deduped, capped). Enrichment failure does NOT fail the ingest (additive): the document
   still indexes, `enriched: false` is recorded, and the reason is logged.
-- **FR-7 Explicit index binding (no auto-create).** Per-namespace persisted binding
-  `{ vectorIndexId, fulltextIndexId, entityIndexId }` (defaults from config). `GET
-  /document/binding` returns the binding plus each index's live state (`exists`, `shapeOk`,
-  and for the vector index the dimension/metric/embeddingName/model vs the provider). `PUT
-  /document/binding` sets the ids (validates they exist with the right shape, else 409).
-  `POST /document/binding/ensure` creates the bound indices that are missing, with the correct
-  shapes, in one call (explicit button; never implicit). Ingestion resolves the binding and
-  answers **428** with a message naming the missing/incompatible index when it is not
-  satisfied - it NEVER auto-creates. The entity-key index is a dictionary index over the
-  entity dedup key.
+- **FR-7 Explicit index binding (no auto-create).** The binding is the three configured index
+  ids (`VectorIndexId`/`FulltextIndexId`/`EntityIndexId`), each part of the binding per its
+  config flag. `GET /document/binding` returns each role's live state
+  (`role`, `indexId`, `required`, `exists`, `ready`, `detail`) plus an overall `ready`. `POST
+  /document/binding/ensure` creates the bound indices that are missing, with the correct shapes,
+  in one call (idempotent; 409 if an id is held by a wrong-shape index) - the ONLY path that
+  creates a bound index. Ingestion resolves the binding and answers **428** with a message
+  naming the missing index when it is not satisfied; it NEVER auto-creates. The entity-key index
+  is a dictionary index over the entity dedup key. *(Shipped as config-driven ids with `GET` +
+  `ensure`; a `PUT` to repoint ids per namespace and picking an arbitrary existing index are a
+  deliberate deferral - see Revisit triggers.)*
 - **FR-8 Studio "Knowledge" screen.** The screen is renamed **Knowledge**, its route is
   `/q/{ns}/knowledge`, and its rail entry moves to the BOTTOM, after Benchmark. It gains: a
-  **State panel** at the top showing the binding and each index's state, with "Create the
-  required indexes" and per-index "pick existing" selectors (nothing is auto-created; ingestion
-  controls are disabled with the reason until the binding is satisfied); a **drag-and-drop
-  dropzone** over the upload area (drop a file anywhere on it; the file picker stays as a
-  fallback); an **Entities** view (the namespace's `Entity` vertices by type with mention
-  counts, each a send-to-canvas/inspect affordance); and per-search-hit entity chips. Async is
-  reflected: upload returns immediately, the row appears `processing` and flips live via the
-  change feed. Degraded modes stated: NLP off (no entities, labelled), provider off
-  (text-only), docling off (binary greyed). Screenshots + docs per the standing rule.
+  **State panel** at the top showing the binding and each index's state, with a "Create the
+  required indexes" action and a pointer to the Indexes screen for creating them by hand (nothing
+  is auto-created; ingestion controls are disabled with the reason until the binding is
+  satisfied); a **drag-and-drop dropzone** over the upload area (drop a file anywhere on it; the
+  file picker stays as a fallback); and an **Entities** view (the namespace's `Entity` vertices
+  by type with mention counts, each a send-to-canvas affordance). Async is reflected: upload
+  returns immediately, the row appears `processing` and flips live via the change feed. Degraded
+  modes stated: NLP off (no entities, labelled), provider off (text-only), docling off (binary
+  greyed). Screenshots + docs per the standing rule. *(Per-index "pick an arbitrary existing
+  index" selectors and per-search-hit entity chips are deferred - see Revisit triggers.)*
 - **FR-9 MCP surface.** `f8_documents` gains `entities` (read: list/inspect the namespace's
   entities, filter by type) and `binding` (read the layer binding + index state; `ensure`
   under the write tier). `ingest_text` returns the `202`/processing shape. Coverage/contract
@@ -223,3 +224,18 @@ auto-created on first ingest (the operator wants to choose), and upload is a pla
   between entities, not just co-mention.
 - The binding concept generalizing to other per-namespace feature settings (promote the
   persisted-settings mechanism).
+- **Per-namespace binding override** (a `PUT /document/binding` to repoint the ids and a Studio
+  "pick an arbitrary existing index" selector) - deferred; v1 binds the configured ids. Revisit
+  when an operator needs more than one document index set per namespace.
+- **Entity dedup durability.** The dedup dictionary index is not WAL-durable (dictionary indices
+  persist only in snapshots and are not rebuilt from element state on load), so a hard crash
+  between snapshots could strand keys. Mitigated: the startup sweep rebuilds the entity index
+  from `Entity` vertices. Revisit if the engine gains WAL-durable dictionary indices (drop the
+  rebuild) or if the boot-time rebuild cost matters at scale.
+- **Duplicate-content guard is advisory.** The 409 same-content-hash check runs on the request
+  thread only, so two identical documents submitted concurrently can both ingest. Revisit if
+  exact-once content dedup is needed (a worker-side re-check).
+- **Mid-flight index drop** degrades differently per role (fulltext hard-fails the document,
+  vector tolerates and self-heals on re-bind, entity is additive); reconcile if the divergence
+  confuses operators.
+- Per-search-hit entity chips in the Studio (deferred UI polish).

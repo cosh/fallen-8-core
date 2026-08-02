@@ -74,6 +74,12 @@ namespace NoSQL.GraphDB.App.Ingestion
         /// <summary>Whether NLP enrichment ran successfully for the document.</summary>
         public const String EnrichedProperty = "enriched";
 
+        /// <summary>The id of the process that created this stub (feature semantic-layer). The
+        /// startup sweep only reclaims <c>processing</c> documents whose boot id differs from the
+        /// current process, so a stub accepted during THIS process's boot window is never mistaken
+        /// for a zombie left by a previous one.</summary>
+        public const String BootIdProperty = "bootId";
+
         // Entity vertex (feature semantic-layer): a deduplicated named entity the corpus mentions.
         public const String EntityTextProperty = "text";
         public const String EntityTypeProperty = "type";
@@ -100,7 +106,7 @@ namespace NoSQL.GraphDB.App.Ingestion
             ChunkerConfigProperty, EmbeddingModelProperty, EmbeddingDimensionProperty,
             TextProperty, OrderProperty, KindProperty, HeadingPathProperty,
             PageFromProperty, PageToProperty, IdentifiersProperty, KeyTermsProperty,
-            EnrichedProperty, EntityTypeProperty, EntityNormalizedProperty, EntityKeyProperty
+            EnrichedProperty, BootIdProperty, EntityTypeProperty, EntityNormalizedProperty, EntityKeyProperty
         };
 
         /// <summary>Formats that ingest without the sidecar.</summary>
