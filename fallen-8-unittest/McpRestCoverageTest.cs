@@ -80,6 +80,12 @@ namespace NoSQL.GraphDB.Tests
                 "the plugin compile-check endpoints back the Studio authoring editor; agents register directly"),
             new(op => op.Contains("/bulk/"),
                 "bulk import/export is stream-shaped operator-tier I/O (spec §7)"),
+            // f8_documents bridges the document surface; only the multipart FILE route stays
+            // unbridged (feature unstructured-ingestion FR-10): base64 file payloads through LLM
+            // tool calls are token-hostile - agents hold text (ingest_text), and binary uploads
+            // are one curl away.
+            new(op => op == "POST /document",
+                "multipart file upload is token-hostile over MCP; agents ingest text via f8_documents ingest_text"),
             new(op => op.Contains("/changefeed"),
                 "the SSE change feed has no MCP-native primitive for a continuous ordered delta stream (spec §3.2)"),
             new(op => op.Contains("/delegates"),
