@@ -41,7 +41,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
     ///   write knowledge into the graph as Document/Chunk vertices and retrieve chunks with
     ///   fused (dense + lexical) search; a hit is a vertex and seeds f8_paths like any other.
     ///
-    ///   <para><c>list</c>/<c>get</c>/<c>search</c>/<c>binding</c> are Read tier;
+    ///   <para><c>list</c>/<c>get</c>/<c>search</c>/<c>binding</c>/<c>entities</c> are Read tier;
     ///   <c>ingest_text</c>/<c>delete</c>/<c>bind</c> are gated on the write capability AND hidden
     ///   from the schema when it is off (the f8_plugins pattern). The semantic layer never creates
     ///   indices implicitly (feature semantic-layer): <c>binding</c> reports the state, ingest is
@@ -64,7 +64,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
         public Tool Describe(McpToolsOptions tools)
         {
-            var ops = new List<String> { "list", "get", "search", "binding" };
+            var ops = new List<String> { "list", "get", "search", "binding", "entities" };
             if (tools.EnableWrite)
             {
                 ops.Add("ingest_text");
@@ -79,7 +79,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 Description =
                     "Unstructured ingestion: documents live in the graph as Document/Chunk vertices with embedded text. " +
                     "search fuses semantic and exact-token retrieval (hits are chunk vertex ids - seed f8_paths with them); " +
-                    "list/get inspect documents. The semantic layer never creates indices implicitly: binding reports whether " +
+                    "list/get inspect documents; entities lists the deduplicated named entities the corpus mentions " +
+                    "(each id is a graph seed too). The semantic layer never creates indices implicitly: binding reports whether " +
                     "the required indices exist, and ingest is refused until they do - bind (write) creates them. " +
                     "ingest_text/delete/bind need the write capability. " +
                     "Requires ingestion to be enabled on the target (Fallen8:Ingestion:Enabled, see f8_overview).",
@@ -102,6 +103,9 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     .Obj("properties", "User tag properties (string values) applied to document and chunks (ingest_text).")
                     .StrArray("linkIndexIds", "Structural linking: equality-capable index ids to match extracted identifiers against (ingest_text).")
                     .Int("maxLinksPerChunk", "Per-chunk cap for structural links (ingest_text).")
+                    .Str("entityType", "Filter entities by type (entities), e.g. PER/ORG/LOC.")
+                    .Str("contains", "Filter entities whose text contains this substring (entities).")
+                    .Int("limit", "Max entities to return (entities). Default 200, max 10000.")
                     .Build(),
                 Annotations = new ToolAnnotations
                 {
@@ -280,6 +284,38 @@ namespace NoSQL.GraphDB.Mcp.Tools
                         $"ingested '{name}' as document {documentId}: {chunkCount} chunk(s), {links} link(s).", node);
                 }
 
+                case "entities":
+                {
+                    var path = "document/entities";
+                    var query = new List<String>();
+                    var entityType = ToolArgs.GetString(arguments, "entityType");
+                    if (!String.IsNullOrWhiteSpace(entityType))
+                    {
+                        query.Add("type=" + Uri.EscapeDataString(entityType));
+                    }
+                    var contains = ToolArgs.GetString(arguments, "contains");
+                    if (!String.IsNullOrWhiteSpace(contains))
+                    {
+                        query.Add("contains=" + Uri.EscapeDataString(contains));
+                    }
+                    var limit = ToolArgs.GetInt(arguments, "limit");
+                    if (limit != null)
+                    {
+                        query.Add("limit=" + limit.Value);
+                    }
+                    if (query.Count > 0)
+                    {
+                        path += "?" + String.Join("&", query);
+                    }
+
+                    var raw = await _bridge.RequestRawAsync(HttpMethod.Get, @namespace, path, null, cancellationToken)
+                        .ConfigureAwait(false);
+                    var node = ToolResults.Pass(raw);
+                    var count = node?["entities"] is JsonArray entityArray ? entityArray.Count : 0;
+                    var total = node?["total"]?.GetValue<Int32>() ?? count;
+                    return ToolResults.Ok($"{count} of {total} entit{(total == 1 ? "y" : "ies")} (most-mentioned first).", node);
+                }
+
                 case "binding":
                 {
                     var raw = await _bridge.RequestRawAsync(HttpMethod.Get, @namespace, "document/binding", null,
@@ -327,7 +363,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
                 default:
                     return ToolResults.Error(400, "Invalid arguments",
-                        "op must be list, get, search, binding, ingest_text, delete, or bind.");
+                        "op must be list, get, search, binding, entities, ingest_text, delete, or bind.");
             }
         }
     }

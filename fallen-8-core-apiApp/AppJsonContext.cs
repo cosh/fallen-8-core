@@ -159,6 +159,8 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(DocumentDetailREST))]
     [JsonSerializable(typeof(DocumentBindingREST))]
     [JsonSerializable(typeof(DocumentBindingRoleREST))]
+    [JsonSerializable(typeof(DocumentEntityListREST))]
+    [JsonSerializable(typeof(DocumentEntityREST))]
     [JsonSerializable(typeof(ChunkSummaryREST))]
     [JsonSerializable(typeof(DocumentSearchSpecification))]
     [JsonSerializable(typeof(DocumentSearchResultREST))]

@@ -1141,6 +1141,12 @@ namespace NoSQL.GraphDB.Tests
                 {
                     Role = "fulltext", IndexId = "documents-text", Required = true, Exists = false, Ready = false, Detail = "exists but is not a fulltext index"
                 }, "DocumentBindingRoleREST"),
+                (new DocumentEntityListREST
+                {
+                    Entities = new List<DocumentEntityREST> { new DocumentEntityREST { Id = 7, Text = "Muster GmbH", Type = "ORG", MentionCount = 3 } },
+                    Total = 1
+                }, "DocumentEntityListREST"),
+                (new DocumentEntityREST { Id = 7, Text = "Muster GmbH", Type = "ORG", MentionCount = 3 }, "DocumentEntityREST"),
                 (new ChunkSummaryREST
                 {
                     ChunkId = 9,

@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Ingestion;
@@ -167,6 +168,46 @@ namespace NoSQL.GraphDB.Tests
             var document = engine.GetAllVertices(DocumentGraphSchema.DocumentLabel)[0];
             Assert.IsTrue(document.TryGetProperty<Boolean>(out var enriched, DocumentGraphSchema.EnrichedProperty));
             Assert.IsFalse(enriched);
+        }
+
+        [TestMethod]
+        public async Task ListEntities_RanksByMentionCount_AndFilters()
+        {
+            using var factory = new IngestionFactory(NlpOn());
+            // Alpha is mentioned by both chunks, Beta by one: Alpha outranks Beta.
+            var call = 0;
+            factory.Nlp.OnEnrich = _ =>
+            {
+                call++;
+                var entities = call == 1
+                    ? new List<NlpEntity> { Entity("Alpha", "ORG"), Entity("Beta", "LOC") }
+                    : new List<NlpEntity> { Entity("Alpha", "ORG") };
+                return (entities, new List<String>());
+            };
+            using var client = factory.CreateClient();
+            await IngestionTestHelper.EnsureBinding(client);
+
+            await IngestionTestHelper.IngestText(client, "a.md", "# A\n\nfirst\n\n# B\n\nsecond");
+
+            using var all = await client.GetAsync("/document/entities");
+            Assert.AreEqual(HttpStatusCode.OK, all.StatusCode);
+            var body = await IngestionTestHelper.ReadJson(all);
+            Assert.AreEqual(2, body.GetProperty("total").GetInt32());
+            var entities = body.GetProperty("entities");
+            Assert.AreEqual("Alpha", entities[0].GetProperty("text").GetString(), "most-mentioned first");
+            Assert.IsTrue(entities[0].GetProperty("mentionCount").GetInt32() >= entities[1].GetProperty("mentionCount").GetInt32());
+
+            // Type filter.
+            using var orgs = await client.GetAsync("/document/entities?type=ORG");
+            var orgBody = await IngestionTestHelper.ReadJson(orgs);
+            Assert.AreEqual(1, orgBody.GetProperty("total").GetInt32());
+            Assert.AreEqual("Alpha", orgBody.GetProperty("entities")[0].GetProperty("text").GetString());
+
+            // Substring filter (case-insensitive).
+            using var beta = await client.GetAsync("/document/entities?contains=bet");
+            var betaBody = await IngestionTestHelper.ReadJson(beta);
+            Assert.AreEqual(1, betaBody.GetProperty("total").GetInt32());
+            Assert.AreEqual("Beta", betaBody.GetProperty("entities")[0].GetProperty("text").GetString());
         }
 
         [TestMethod]

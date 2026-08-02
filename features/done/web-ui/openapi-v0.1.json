@@ -1397,6 +1397,96 @@
         }
       }
     },
+    "/document/entities": {
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Lists the entities the corpus mentions",
+        "description": "Deduplicated Entity vertices (feature semantic-layer) ranked by mention count.\r\n    Each id is a valid /path or /subgraph seed. A bounded page; `total` reports the full\r\n    match count.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Optional entity-type filter (case-insensitive, e.g. PER/ORG/LOC)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "contains",
+            "in": "query",
+            "description": "Optional case-insensitive substring the entity text must contain",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page cap (default 200, max 10000)",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 200
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entity page and the total match count",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentEntityListREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/document/search": {
       "post": {
         "tags": [
@@ -5673,6 +5763,104 @@
           },
           "409": {
             "description": "An index with a bound id exists but is the wrong shape",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/document/entities": {
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Lists the entities the corpus mentions",
+        "description": "Deduplicated Entity vertices (feature semantic-layer) ranked by mention count.\r\n    Each id is a valid /path or /subgraph seed. A bounded page; `total` reports the full\r\n    match count.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "description": "Optional entity-type filter (case-insensitive, e.g. PER/ORG/LOC)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "contains",
+            "in": "query",
+            "description": "Optional case-insensitive substring the entity text must contain",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page cap (default 200, max 10000)",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 200
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entity page and the total match count",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentEntityListREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -16568,6 +16756,69 @@
           }
         },
         "description": "GET /document/{id}: the summary plus its chunks in document order."
+      },
+      "DocumentEntityListREST": {
+        "type": "object",
+        "properties": {
+          "entities": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DocumentEntityREST"
+            },
+            "description": "The entities, most-mentioned first (ties by text, then id)."
+          },
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The total number of entities matching the filter, before the page cap.",
+            "format": "int32"
+          }
+        },
+        "description": "The entity network the corpus mentions (feature semantic-layer FR-6): deduplicated\r\nEntity vertices ranked by how often chunks mention them. Backs the MCP `entities`\r\nop and the Studio \"Entities\" view. A page (bounded); int DocumentEntityListREST.Total is the full\r\ncount so the caller knows whether more exist."
+      },
+      "DocumentEntityREST": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The Entity vertex id - usable directly as a /path or /subgraph seed.",
+            "format": "int32"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The entity's surface form (the first one seen)."
+          },
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The entity type (the NLP label, e.g. PER/ORG/LOC)."
+          },
+          "mentionCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many chunks mention this entity (incoming `mentions` edges).",
+            "format": "int32"
+          }
+        },
+        "description": "One deduplicated entity: the vertex id (a valid graph seed), its surface text,\r\n    its type, and how many chunks mention it."
       },
       "DocumentGroupREST": {
         "type": "object",

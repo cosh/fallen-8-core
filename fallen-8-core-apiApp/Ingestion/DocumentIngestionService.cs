@@ -1376,6 +1376,52 @@ namespace NoSQL.GraphDB.App.Ingestion
             };
         }
 
+        /// <summary>The entity network (feature semantic-layer FR-6): Entity vertices ranked by
+        /// mention count, optionally filtered by type or a text substring. Bounded to a page; the
+        /// full match count rides along so the caller knows whether more exist.</summary>
+        public Controllers.Model.DocumentEntityListREST ListEntities(String type, String contains, Int32 limit)
+        {
+            var cap = Math.Clamp(limit <= 0 ? 200 : limit, 1, 10_000);
+            var rows = new List<Controllers.Model.DocumentEntityREST>();
+            foreach (var entity in _fallen8.GetAllVertices(DocumentGraphSchema.EntityLabel))
+            {
+                entity.TryGetProperty<String>(out var text, DocumentGraphSchema.EntityTextProperty);
+                entity.TryGetProperty<String>(out var entityType, DocumentGraphSchema.EntityTypeProperty);
+
+                if (!String.IsNullOrEmpty(type) && !String.Equals(entityType, type, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!String.IsNullOrEmpty(contains) &&
+                    (text == null || text.IndexOf(contains, StringComparison.OrdinalIgnoreCase) < 0))
+                {
+                    continue;
+                }
+
+                var mentionCount = entity.TryGetInEdge(out var mentions, DocumentGraphSchema.MentionsEdge)
+                    ? mentions.Count
+                    : 0;
+                rows.Add(new Controllers.Model.DocumentEntityREST
+                {
+                    Id = entity.Id,
+                    Text = text,
+                    Type = entityType,
+                    MentionCount = mentionCount
+                });
+            }
+
+            var total = rows.Count;
+            var page = rows
+                .OrderByDescending(row => row.MentionCount)
+                .ThenBy(row => row.Text, StringComparer.Ordinal)
+                .ThenBy(row => row.Id)
+                .Take(cap)
+                .ToList();
+
+            return new Controllers.Model.DocumentEntityListREST { Entities = page, Total = total };
+        }
+
         public Boolean TryGetDetail(Int32 documentId, out Controllers.Model.DocumentDetailREST detail, out String problem)
         {
             detail = null;

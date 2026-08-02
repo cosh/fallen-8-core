@@ -444,6 +444,29 @@ namespace NoSQL.GraphDB.App.Controllers
             }
         }
 
+        /// <summary>
+        /// Lists the entities the corpus mentions
+        /// </summary>
+        /// <param name="type">Optional entity-type filter (case-insensitive, e.g. PER/ORG/LOC)</param>
+        /// <param name="contains">Optional case-insensitive substring the entity text must contain</param>
+        /// <param name="limit">Page cap (default 200, max 10000)</param>
+        /// <remarks>Deduplicated Entity vertices (feature semantic-layer) ranked by mention count.
+        /// Each id is a valid /path or /subgraph seed. A bounded page; <c>total</c> reports the full
+        /// match count.</remarks>
+        /// <response code="200">The entity page and the total match count</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Ingestion is disabled (Fallen8:Ingestion:Enabled)</response>
+        [HttpGet("/document/entities")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(DocumentEntityListREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public IActionResult ListEntities([FromQuery] String type, [FromQuery] String contains,
+            [FromQuery] Int32 limit = 200)
+        {
+            return Ok(_service.ListEntities(type, contains, limit));
+        }
+
         #region helpers
 
         private IActionResult Render(IngestionOutcome outcome)

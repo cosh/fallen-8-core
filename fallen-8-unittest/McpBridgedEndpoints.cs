@@ -71,6 +71,7 @@ namespace NoSQL.GraphDB.Tests
             ("DELETE", "/document/{documentId}"),
             ("GET", "/document/binding"),
             ("POST", "/document/binding/ensure"),
+            ("GET", "/document/entities"),
             // Write tier.
             ("PUT", "/vertex"),
             ("PUT", "/edge"),

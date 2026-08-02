@@ -116,6 +116,12 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(hits.GetArrayLength() >= 1);
             StringAssert.Contains(hits[0].GetProperty("text").GetString(), "EDGE_TLS_01");
 
+            // entities: the ingested chunk mentions no NLP entities (NLP off in this host), so the
+            // op still answers cleanly with an empty, well-formed page.
+            var entities = await catalog.CallAsync("f8_documents", Args(("op", Str("entities"))), CancellationToken.None);
+            Assert.IsFalse(entities.IsError);
+            Assert.AreEqual(0, entities.StructuredContent!.Value.GetProperty("total").GetInt32());
+
             // list
             var list = await catalog.CallAsync("f8_documents", Args(("op", Str("list"))), CancellationToken.None);
             Assert.IsFalse(list.IsError);
@@ -195,7 +201,7 @@ namespace NoSQL.GraphDB.Tests
             var schema = JsonSerializer.SerializeToElement(tool.Describe(tools).InputSchema);
             var ops = schema.GetProperty("properties").GetProperty("op").GetProperty("enum")
                 .EnumerateArray().Select(e => e.GetString()).ToList();
-            CollectionAssert.AreEquivalent(new List<String> { "list", "get", "search", "binding" }, ops);
+            CollectionAssert.AreEquivalent(new List<String> { "list", "get", "search", "binding", "entities" }, ops);
 
             var ingest = await catalog.CallAsync("f8_documents", Args(
                 ("op", Str("ingest_text")), ("name", Str("n")), ("text", Str("t"))), CancellationToken.None);
