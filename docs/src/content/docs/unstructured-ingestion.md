@@ -131,6 +131,41 @@ curl -sf -X POST http://localhost:8080/document/text \
 That is the whole describe-find-traverse loop: the document mentions `EDGE_TLS_01`, the
 chunk links to your server vertex, and a search hit is one hop from the real graph.
 
+### A worked example
+
+Start from a domain graph whose vertices carry identifier-shaped names and an index over
+them, then ingest a dossier that describes them:
+
+```bash
+# 1. A domain vertex named like an identifier, and an index over the name.
+curl -sf -X POST http://localhost:8080/index \
+     -H "Content-Type: application/json" \
+     -d '{ "uniqueId": "server-names", "pluginType": "DictionaryIndex" }'
+curl -sf -X PUT "http://localhost:8080/vertex?waitForCompletion=true" \
+     -H "Content-Type: application/json" \
+     -d '{ "label": "server", "properties": [
+           { "propertyId": "name", "propertyValue": "EDGE_TLS_01", "fullQualifiedTypeName": "System.String" } ] }'
+# (add EDGE_TLS_01 to the index via PUT /index/server-names with that vertex id)
+
+# 2. Ingest a dossier that mentions it, linking against the index.
+curl -sf -X POST http://localhost:8080/document/text \
+     -H "Content-Type: application/json" \
+     -d '{ "name": "runbook.md",
+           "text": "# TLS\n\nEDGE_TLS_01 terminates tls for the shop; it fronts the checkout service.",
+           "link": { "indexIds": ["server-names"] } }'
+# -> linksCreated: 1
+
+# 3. Describe it, land on the chunk, and traverse the mentions edge to the server.
+curl -sf -X POST http://localhost:8080/document/search \
+     -H "Content-Type: application/json" \
+     -d '{ "queryText": "what terminates tls for the shop", "k": 1 }'
+# the hit's chunkId --mentions--> the EDGE_TLS_01 vertex; POST /path/{chunkId}/to/{serverId}
+```
+
+Linking finds a domain vertex only when an extracted token equals its indexed value
+exactly, so this loop wants **identifier-shaped names** (`EDGE_TLS_01`, `CheckoutSvc`) on
+the vertices you link against; prose names with spaces do not extract.
+
 ## Limits and the memory ceiling
 
 Fallen-8 is an in-memory engine, so the ceiling is a first-class, enforced setting rather

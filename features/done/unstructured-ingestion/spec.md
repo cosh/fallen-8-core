@@ -307,9 +307,17 @@ over `mentions` edges into the domain graph.
   environment; house style.
 - **Compose environment:** new `docling` service, default on, `F8_INGESTION=false`
   disables the capability and skips the sidecar (profile in `env:up`).
-- **Samples:** one sample gains a dossier variant ingested through the real endpoints
-  at load time (linking enabled against the sample's indices) when the capability and
-  provider are on; loads without them, minus the semantic parts. Never references
+- **Samples:** DEFERRED, with reasoning (decided during implementation). A gallery
+  sample that actually demonstrates `mentions` linking needs vertex names that the
+  identifier extractor matches (underscore/CamelCase/hex), but every shipped sample names
+  vertices in prose with spaces/hyphens (`DC01`, `DOMAIN ADMINS`, `FIN-FS01`) that do not
+  extract, so a paired dossier would link nothing. Doing it right means a purpose-built
+  identifier-shaped dataset AND a new loader branch that ingests dossiers through
+  `/document/text` at load time (today's loader only bulk-imports baked jsonl). That is
+  real, fragile scope for a demo aid. Instead the docs page carries a robust end-to-end
+  worked example (create index, ingest with linking, search, traverse the `mentions`
+  edge). Revisit trigger: build the gallery sample when the loader gains a
+  document-ingest step for another reason, or on explicit request. Never references
   `PUT /unittest`.
 - **Element embeddings / embedding provider / stored queries / subgraph / bulk
   import-export:** consumed unchanged; their READMEs remain the single home for their

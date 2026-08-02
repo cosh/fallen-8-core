@@ -179,7 +179,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        ///   The unstructured-ingestion state (feature unstructured-ingestion) — a config read
+        ///   The unstructured-ingestion state (feature unstructured-ingestion): a config read
         ///   plus a cached sidecar probe, so it rides the cheap discovery surface too. Null
         ///   only when the host wired no ingestion options.
         /// </summary>
