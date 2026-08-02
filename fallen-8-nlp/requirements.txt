@@ -1,0 +1,9 @@
+# fallen-8-nlp runtime dependencies (feature semantic-layer). All permissive licences
+# (spaCy MIT, FastAPI MIT, uvicorn BSD, langdetect Apache-2.0). The two spaCy models
+# (de_core_news_sm, en_core_web_sm, both MIT) are installed via `python -m spacy download`
+# in the Dockerfile, not pinned here as packages.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+spacy==3.8.2
+langdetect==1.0.9
+pydantic==2.10.4
