@@ -30,6 +30,7 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.ChangeFeed;
@@ -96,35 +97,50 @@ namespace NoSQL.GraphDB.Tests
             var engine = IngestionTestHelper.EngineOf(factory);
 
             // Fire many ingests with DISTINCT content (no duplicate-hash 409) at an EMPTY
-            // namespace at once: they all miss TryGetIndex and race to create `documents` /
-            // `documents-text`. Before the fix the create losers threw 500 "Index creation
-            // failed"; now a lost race that finds a correct-shape index is success.
-            var tasks = Enumerable.Range(0, 12).Select(i =>
-                client.PostAsync("/document/text", IngestionTestHelper.Json(
-                    $"{{ \"name\": \"doc{i}.md\", \"text\": \"# H{i}\\n\\nDistinct body number {i} with words.\" }}")))
+            // namespace at once. The single-consumer worker serializes the index-ensure (so the
+            // create race cannot occur through the queue), and the re-check-after-create fix
+            // still guards a direct concurrent create. All must accept (202), all must index,
+            // and each index must exist exactly once.
+            var tasks = Enumerable.Range(0, 12)
+                .Select(i => IngestionTestHelper.PostText(client, $"doc{i}.md",
+                    $"# H{i}\n\nDistinct body number {i} with words."))
                 .ToArray();
+            var documentIds = await Task.WhenAll(tasks);
 
-            var responses = await Task.WhenAll(tasks);
-            try
+            foreach (var documentId in documentIds)
             {
-                foreach (var response in responses)
-                {
-                    var body = await response.Content.ReadAsStringAsync();
-                    Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
-                        "no concurrent first-ingest may fail on the index-ensure race: " + body);
-                }
-            }
-            finally
-            {
-                foreach (var response in responses)
-                {
-                    response.Dispose();
-                }
+                var summary = await IngestionTestHelper.AwaitTerminal(client, documentId);
+                Assert.AreEqual("indexed", summary.GetProperty("status").GetString(),
+                    "every concurrent first-ingest must index, not fail on the index-ensure race");
             }
 
             Assert.AreEqual(12, engine.GetAllVertices("Document").Count);
             Assert.IsTrue(engine.IndexFactory.TryGetIndex(out _, "documents"), "the bound vector index exists once");
             Assert.IsTrue(engine.IndexFactory.TryGetIndex(out _, "documents-text"), "the fulltext index exists once");
+        }
+
+        [TestMethod]
+        public async Task StartupSweep_FlipsInterruptedProcessingDocumentsToFailed()
+        {
+            using var factory = new IngestionFactory();
+            var engine = IngestionTestHelper.EngineOf(factory);
+            using var client = factory.CreateClient();  // starts the host + worker
+
+            // Simulate a Document a previous process left mid-flight: a bare `processing` stub.
+            // (The worker's own startup sweep already ran at host start, before this stub existed,
+            // so invoke the sweep directly - it is idempotent and this pins its logic.)
+            var stubId = IngestionTestHelper.CreateVertex(engine, "Document",
+                new Dictionary<String, Object> { { "status", "processing" }, { "name", "orphan.pdf" } });
+
+            var service = factory.Services.GetRequiredService<NoSQL.GraphDB.App.Ingestion.DocumentIngestionService>();
+            service.SweepInterruptedDocuments();
+
+            Assert.IsTrue(engine.TryGetVertex(out var stub, stubId));
+            Assert.IsTrue(stub.TryGetProperty<String>(out var status, "status"));
+            Assert.AreEqual("failed", status, "the interrupted processing document is swept to failed");
+            Assert.IsTrue(stub.TryGetProperty<String>(out var error, "error"));
+            Assert.AreEqual("interrupted", error);
+            await Task.CompletedTask;
         }
 
         #endregion

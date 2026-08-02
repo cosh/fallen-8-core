@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core;
@@ -58,17 +59,46 @@ namespace NoSQL.GraphDB.App.Namespaces
         private readonly Fallen8Namespaces _namespaces;
         private readonly IHttpContextAccessor _httpContextAccessor;
 
+        /// <summary>
+        ///   An off-request-thread namespace override (feature semantic-layer). Requests address
+        ///   a namespace through the route value on <see cref="IHttpContextAccessor"/>, but the
+        ///   ingestion worker runs OFF the request thread, where that ambient does not flow. A job
+        ///   carries its namespace name and the worker pushes it here for the duration of
+        ///   processing, so the existing resolution keeps working unchanged. It is an
+        ///   <see cref="AsyncLocal{T}"/>, so it is isolated per async flow (no leak between jobs
+        ///   or to request threads, which never set it). The override wins over the route ONLY
+        ///   when set (worker context); every request path is unaffected.
+        /// </summary>
+        private static readonly AsyncLocal<String> _ambientNamespace = new AsyncLocal<String>();
+
         public AddressedFallen8(Fallen8Namespaces namespaces, IHttpContextAccessor httpContextAccessor)
         {
             _namespaces = namespaces;
             _httpContextAccessor = httpContextAccessor;
         }
 
+        /// <summary>Binds the addressed namespace for the current async flow (the ingestion
+        /// worker uses this around one job); dispose restores the prior binding.</summary>
+        public static IDisposable PushNamespace(String name)
+        {
+            var previous = _ambientNamespace.Value;
+            _ambientNamespace.Value = name;
+            return new NamespaceScope(previous);
+        }
+
+        private sealed class NamespaceScope : IDisposable
+        {
+            private readonly String _previous;
+            public NamespaceScope(String previous) => _previous = previous;
+            public void Dispose() => _ambientNamespace.Value = _previous;
+        }
+
         private Fallen8 Engine
         {
             get
             {
-                var name = _httpContextAccessor.HttpContext?
+                // The worker-pushed override wins when present; otherwise the request route value.
+                var name = _ambientNamespace.Value ?? _httpContextAccessor.HttpContext?
                     .Request.RouteValues[NamespaceRouteConvention.RouteParameterName] as String;
                 if (name == null)
                 {
@@ -79,7 +109,7 @@ namespace NoSQL.GraphDB.App.Namespaces
                 {
                     // The validation filter answered 404 before the action ran, so reaching this
                     // line means a drop/rename raced the request; the exception filter renders it
-                    // as the same 404 problem+json.
+                    // as the same 404 problem+json. On the worker path the job is skipped instead.
                     throw new UnknownNamespaceException(name);
                 }
 

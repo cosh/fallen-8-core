@@ -74,7 +74,22 @@ namespace NoSQL.GraphDB.Tests
                 CancellationToken.None);
             Assert.IsFalse(ingest.IsError, ingest.Content?.OfType<ModelContextProtocol.Protocol.TextContentBlock>().FirstOrDefault()?.Text);
             var documentId = ingest.StructuredContent!.Value.GetProperty("documentId").GetInt32();
-            Assert.AreEqual("indexed", ingest.StructuredContent!.Value.GetProperty("status").GetString());
+            // Ingestion is async: the stub is accepted as `processing`; poll get until it indexes.
+            Assert.AreEqual("processing", ingest.StructuredContent!.Value.GetProperty("status").GetString());
+
+            var deadline = DateTime.UtcNow.AddSeconds(20);
+            while (DateTime.UtcNow < deadline)
+            {
+                var poll = await catalog.CallAsync("f8_documents", Args(
+                    ("op", Str("get")), ("documentId", Num(documentId))), CancellationToken.None);
+                if (poll.IsError != true &&
+                    poll.StructuredContent!.Value.GetProperty("summary").GetProperty("status").GetString() == "indexed")
+                {
+                    break;
+                }
+
+                await Task.Delay(50);
+            }
 
             // search (fused): the identifier query lands on the ingested chunk.
             var search = await catalog.CallAsync("f8_documents", Args(

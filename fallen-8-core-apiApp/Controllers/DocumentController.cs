@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // DocumentController.cs
 //
@@ -106,6 +106,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("multipart/form-data")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(DocumentSummaryREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(DocumentSummaryREST), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -185,7 +186,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             }
 
-            return Render(await _service.IngestAsync(request, cancellationToken));
+            return Render(await _service.IngestAsync(request, CurrentNamespaceName(), cancellationToken));
         }
 
         /// <summary>
@@ -212,6 +213,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(DocumentSummaryREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(DocumentSummaryREST), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -265,7 +267,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 LinkMaxPerChunk = definition.Link?.MaxLinksPerChunk
             };
 
-            return Render(await _service.IngestAsync(request, cancellationToken));
+            return Render(await _service.IngestAsync(request, CurrentNamespaceName(), cancellationToken));
         }
 
         /// <summary>
@@ -404,6 +406,13 @@ namespace NoSQL.GraphDB.App.Controllers
                 return Ok(outcome.Summary);
             }
 
+            // Async ingestion (feature semantic-layer): the stub was created and the job queued;
+            // the row appears `processing` and flips live via the change feed.
+            if (outcome.Status == StatusCodes.Status202Accepted)
+            {
+                return Accepted(outcome.Summary);
+            }
+
             return ProblemResults.Create(outcome.Status, outcome.Title, outcome.Error, problem =>
             {
                 if (outcome.FailedDocumentId != null)
@@ -411,6 +420,16 @@ namespace NoSQL.GraphDB.App.Controllers
                     problem.Extensions["documentId"] = outcome.FailedDocumentId.Value;
                 }
             });
+        }
+
+        /// <summary>The addressed namespace name for the ingestion job (null = default / bare
+        /// route), read from the route the same way the engine resolver does.</summary>
+        private String CurrentNamespaceName()
+        {
+            return RouteData.Values.TryGetValue(
+                NoSQL.GraphDB.App.Namespaces.NamespaceRouteConvention.RouteParameterName, out var value)
+                ? value as String
+                : null;
         }
 
         [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",

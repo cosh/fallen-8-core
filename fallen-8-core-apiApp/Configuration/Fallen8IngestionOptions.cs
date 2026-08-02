@@ -61,6 +61,10 @@ namespace NoSQL.GraphDB.App.Configuration
         /// ingestion with 507 instead of letting the in-memory engine grow toward OOM.</summary>
         public Int32 MaxChunksPerNamespace { get; set; } = 100_000;
 
+        /// <summary>Depth of the single global ingestion queue (feature semantic-layer). Enqueue
+        /// beyond this answers 503; one consumer drains it in arrival order.</summary>
+        public Int32 MaxQueueLength { get; set; } = 256;
+
         /// <summary>Adjacent chunks below this merge (chars).</summary>
         public Int32 ChunkMinChars { get; set; } = 800;
 

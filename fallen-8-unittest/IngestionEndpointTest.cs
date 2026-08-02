@@ -125,16 +125,65 @@ namespace NoSQL.GraphDB.Tests
         internal static async Task<JsonElement> ReadJson(HttpResponseMessage response)
             => JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
 
+        internal static String TextPayload(String name, String text, String extraJson) =>
+            String.Format("{{ \"name\": {0}, \"text\": {1}{2} }}",
+                JsonSerializer.Serialize(name), JsonSerializer.Serialize(text),
+                String.IsNullOrEmpty(extraJson) ? "" : ", " + extraJson);
+
+        /// <summary>POSTs text, asserts the async 202 accept, and returns the stub's documentId.</summary>
+        internal static async Task<Int32> PostText(HttpClient client, String name, String text, String extraJson = null)
+        {
+            using var response = await client.PostAsync("/document/text", Json(TextPayload(name, text, extraJson)));
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode, body);
+            return JsonDocument.Parse(body).RootElement.GetProperty("documentId").GetInt32();
+        }
+
+        /// <summary>Polls GET /document/{id} until the status is terminal (indexed|failed);
+        /// returns the document summary. The background worker processes the queued job.</summary>
+        internal static async Task<JsonElement> AwaitTerminal(HttpClient client, Int32 documentId, Int32 timeoutMs = 20000)
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            while (true)
+            {
+                using var get = await client.GetAsync($"/document/{documentId}");
+                if (get.StatusCode == HttpStatusCode.OK)
+                {
+                    var summary = (await ReadJson(get)).GetProperty("summary");
+                    var status = summary.GetProperty("status").GetString();
+                    if (status == "indexed" || status == "failed")
+                    {
+                        return summary;
+                    }
+                }
+
+                if (DateTime.UtcNow > deadline)
+                {
+                    Assert.Fail($"document {documentId} did not reach a terminal status within {timeoutMs} ms");
+                }
+
+                await Task.Delay(50);
+            }
+        }
+
+        /// <summary>The common happy path: POST text, await, assert it indexed, return the summary.</summary>
         internal static async Task<JsonElement> IngestText(HttpClient client, String name, String text,
             String extraJson = null)
         {
-            var payload = String.Format("{{ \"name\": {0}, \"text\": {1}{2} }}",
-                JsonSerializer.Serialize(name), JsonSerializer.Serialize(text),
-                String.IsNullOrEmpty(extraJson) ? "" : ", " + extraJson);
-            using var response = await client.PostAsync("/document/text", Json(payload));
+            var documentId = await PostText(client, name, text, extraJson);
+            var summary = await AwaitTerminal(client, documentId);
+            Assert.AreEqual("indexed", summary.GetProperty("status").GetString(),
+                "the ingest should reach 'indexed': " + summary.ToString());
+            return summary;
+        }
+
+        /// <summary>POSTs a multipart upload, asserts the async 202 accept, returns the documentId.</summary>
+        internal static async Task<Int32> PostFile(HttpClient client, MultipartFormDataContent upload)
+        {
+            using var response = await client.PostAsync("/document", upload);
             var body = await response.Content.ReadAsStringAsync();
-            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, body);
-            return JsonDocument.Parse(body).RootElement;
+            Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode, body);
+            return JsonDocument.Parse(body).RootElement.GetProperty("documentId").GetInt32();
         }
 
         internal static MultipartFormDataContent Upload(String fileName, Byte[] bytes,
@@ -227,11 +276,10 @@ namespace NoSQL.GraphDB.Tests
             using var client = factory.CreateClient();
 
             using var upload = IngestionTestHelper.Upload("notes.txt", Encoding.UTF8.GetBytes("Plain note content."));
-            using var response = await client.PostAsync("/document", upload);
-            var body = await response.Content.ReadAsStringAsync();
+            var documentId = await IngestionTestHelper.PostFile(client, upload);
+            var summary = await IngestionTestHelper.AwaitTerminal(client, documentId);
 
-            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, body);
-            var summary = JsonDocument.Parse(body).RootElement;
+            Assert.AreEqual("indexed", summary.GetProperty("status").GetString());
             Assert.AreEqual("txt", summary.GetProperty("sourceFormat").GetString());
             Assert.AreEqual("none", summary.GetProperty("converter").GetString());
             Assert.AreEqual(1, summary.GetProperty("chunkCount").GetInt32());
@@ -284,17 +332,15 @@ namespace NoSQL.GraphDB.Tests
             using var client = factory.CreateClient();
 
             using var upload = IngestionTestHelper.Upload("spec.pdf", new Byte[] { 0x25, 0x50 });
-            using var response = await client.PostAsync("/document", upload);
-            var body = await response.Content.ReadAsStringAsync();
-            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, body);
+            var documentId = await IngestionTestHelper.PostFile(client, upload);
+            var summary = await IngestionTestHelper.AwaitTerminal(client, documentId);
 
-            var summary = JsonDocument.Parse(body).RootElement;
+            Assert.AreEqual("indexed", summary.GetProperty("status").GetString(), summary.ToString());
             Assert.AreEqual("docling-serve", summary.GetProperty("converter").GetString());
             Assert.AreEqual(2, summary.GetProperty("pageCount").GetInt32());
             Assert.AreEqual(2, summary.GetProperty("chunkCount").GetInt32(), "one prose chunk, one table chunk");
             StringAssert.StartsWith(summary.GetProperty("chunkerConfig").GetString(), "structured/v1");
 
-            var documentId = summary.GetProperty("documentId").GetInt32();
             using var detail = await client.GetAsync($"/document/{documentId}");
             var detailJson = await IngestionTestHelper.ReadJson(detail);
             var chunks = detailJson.GetProperty("chunks");
@@ -405,21 +451,18 @@ namespace NoSQL.GraphDB.Tests
 
         #region post-stub failures (the invariant: one failed Document, zero chunks)
 
-        private static async Task AssertFailedStub(IngestionFactory factory, HttpClient client,
-            HttpStatusCode expected, HttpResponseMessage response)
+        // Async now: the POST accepts (202) and the failure surfaces on the document's terminal
+        // status. This awaits that terminal state and asserts the FR-2 invariant.
+        private static async Task AssertFailedStub(IngestionFactory factory, HttpClient client, Int32 documentId)
         {
-            var body = await response.Content.ReadAsStringAsync();
-            Assert.AreEqual(expected, response.StatusCode, body);
-            var problem = JsonDocument.Parse(body).RootElement;
-            var documentId = problem.GetProperty("documentId").GetInt32();
+            var summary = await IngestionTestHelper.AwaitTerminal(client, documentId);
+            Assert.AreEqual("failed", summary.GetProperty("status").GetString(), "the ingest should fail");
+            Assert.IsTrue(summary.TryGetProperty("error", out var error) && !String.IsNullOrWhiteSpace(error.GetString()),
+                "the failed document carries a reason");
 
             var engine = IngestionTestHelper.EngineOf(factory);
             Assert.AreEqual(0, engine.GetAllVertices("Chunk").Count, "a failed ingest leaves zero chunks");
-            Assert.IsTrue(engine.TryGetVertex(out var stub, documentId), "the failed stub survives");
-            Assert.IsTrue(stub.TryGetProperty<String>(out var status, "status"));
-            Assert.AreEqual("failed", status);
-            Assert.IsTrue(stub.TryGetProperty<String>(out var error, "error"));
-            Assert.IsFalse(String.IsNullOrWhiteSpace(error));
+            Assert.IsTrue(engine.TryGetVertex(out _, documentId), "the failed stub survives");
         }
 
         [TestMethod]
@@ -433,32 +476,32 @@ namespace NoSQL.GraphDB.Tests
             using var client = factory.CreateClient();
 
             using var upload = IngestionTestHelper.Upload("long.pdf", new Byte[] { 1 });
-            using var response = await client.PostAsync("/document", upload);
-            await AssertFailedStub(factory, client, HttpStatusCode.RequestEntityTooLarge, response);
+            var documentId = await IngestionTestHelper.PostFile(client, upload);
+            await AssertFailedStub(factory, client, documentId);
         }
 
         [TestMethod]
-        public async Task DoclingFault_FailsTheDocument_503()
+        public async Task DoclingFault_FailsTheDocument()
         {
             using var factory = new IngestionFactory();
             factory.Docling.OnConvert = () => throw new DoclingUnavailableException("sidecar melted");
             using var client = factory.CreateClient();
 
             using var upload = IngestionTestHelper.Upload("spec.pdf", new Byte[] { 1 });
-            using var response = await client.PostAsync("/document", upload);
-            await AssertFailedStub(factory, client, HttpStatusCode.ServiceUnavailable, response);
+            var documentId = await IngestionTestHelper.PostFile(client, upload);
+            await AssertFailedStub(factory, client, documentId);
         }
 
         [TestMethod]
-        public async Task EmptyConversion_FailsTheDocument_400()
+        public async Task EmptyConversion_FailsTheDocument()
         {
             using var factory = new IngestionFactory();
             factory.Docling.OnConvert = () => new DoclingConversionResult();
             using var client = factory.CreateClient();
 
             using var upload = IngestionTestHelper.Upload("empty.pdf", new Byte[] { 1 });
-            using var response = await client.PostAsync("/document", upload);
-            await AssertFailedStub(factory, client, HttpStatusCode.BadRequest, response);
+            var documentId = await IngestionTestHelper.PostFile(client, upload);
+            await AssertFailedStub(factory, client, documentId);
         }
 
         [TestMethod]
@@ -469,9 +512,8 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new IngestionFactory(fakeDimension: 3);
             using var client = factory.CreateClient();
 
-            using var response = await client.PostAsync("/document/text",
-                IngestionTestHelper.Json("{ \"name\": \"n\", \"text\": \"some text\" }"));
-            await AssertFailedStub(factory, client, HttpStatusCode.ServiceUnavailable, response);
+            var documentId = await IngestionTestHelper.PostText(client, "n", "some text");
+            await AssertFailedStub(factory, client, documentId);
         }
 
         [TestMethod]
@@ -483,9 +525,8 @@ namespace NoSQL.GraphDB.Tests
             });
             using var client = factory.CreateClient();
 
-            using var response = await client.PostAsync("/document/text", IngestionTestHelper.Json(
-                "{ \"name\": \"n\", \"text\": \"# A\\n\\none\\n\\n# B\\n\\ntwo\" }"));
-            await AssertFailedStub(factory, client, HttpStatusCode.RequestEntityTooLarge, response);
+            var documentId = await IngestionTestHelper.PostText(client, "n", "# A\n\none\n\n# B\n\ntwo");
+            await AssertFailedStub(factory, client, documentId);
         }
 
         #endregion
@@ -502,11 +543,10 @@ namespace NoSQL.GraphDB.Tests
             using var client = factory.CreateClient();
             var engine = IngestionTestHelper.EngineOf(factory);
 
-            // Post-chunk check: 3 chunks would cross the ceiling of 2 -> failed stub.
-            using var tooMany = await client.PostAsync("/document/text", IngestionTestHelper.Json(
-                "{ \"name\": \"big\", \"text\": \"# A\\n\\na\\n\\n# B\\n\\nb\\n\\n# C\\n\\nc\" }"));
-            Assert.AreEqual((HttpStatusCode)507, tooMany.StatusCode);
-            Assert.AreEqual(0, engine.GetAllVertices("Chunk").Count);
+            // Post-chunk check: 3 chunks would cross the ceiling of 2 -> the async job fails the
+            // stub (the pre-stub count was under the ceiling, so it accepts then fails on write).
+            var tooManyId = await IngestionTestHelper.PostText(client, "big", "# A\n\na\n\n# B\n\nb\n\n# C\n\nc");
+            await AssertFailedStub(factory, client, tooManyId);
 
             await IngestionTestHelper.IngestText(client, "ok", "# A\n\na\n\n# B\n\nb");
 
@@ -546,7 +586,10 @@ namespace NoSQL.GraphDB.Tests
                 $"\"replaceDocumentId\": {originalId}");
             Assert.AreEqual("indexed", replaced.GetProperty("status").GetString());
 
-            Assert.IsFalse(engine.TryGetVertex(out _, originalId), "the replaced document is gone");
+            // The old doc is removed by the worker right after the new one indexes; give that a
+            // moment (it is a separate committed transaction in the same job).
+            Assert.IsTrue(SpinWait.SpinUntil(() => !engine.TryGetVertex(out _, originalId), 5000),
+                "the replaced document is gone");
             Assert.AreEqual(1, engine.GetAllVertices("Document").Count);
 
             // Re-uploading the SAME bytes with replace of the target is not a duplicate.
@@ -659,11 +702,9 @@ namespace NoSQL.GraphDB.Tests
             var target = IndexedVertex(engine, "sku-idx", "EDGE_TLS_01");
             IndexedVertex(engine, "sku-idx", "OTHER_BOX_02");
 
-            var summary = await IngestionTestHelper.IngestText(client, "n",
+            await IngestionTestHelper.IngestText(client, "n",
                 "# Servers\n\nThe EDGE_TLS_01 box terminates tls.",
                 "\"link\": { \"indexIds\": [\"sku-idx\"] }");
-
-            Assert.AreEqual(1, summary.GetProperty("linksCreated").GetInt32());
 
             var chunk = engine.GetAllVertices("Chunk")[0];
             Assert.IsTrue(chunk.TryGetOutEdge(out var mentions, "mentions"));
@@ -682,11 +723,12 @@ namespace NoSQL.GraphDB.Tests
             IndexedVertex(engine, "sku-idx", "Edge_Tls_01");        // different case
             IndexedVertex(engine, "sku-idx", "EDGE_TLS_01_EXTRA");  // superstring
 
-            var summary = await IngestionTestHelper.IngestText(client, "n",
+            await IngestionTestHelper.IngestText(client, "n",
                 "EDGE_TLS_01 appears here.", "\"link\": { \"indexIds\": [\"sku-idx\"] }");
 
-            Assert.AreEqual(0, summary.GetProperty("linksCreated").GetInt32(),
-                "no fuzzy matching, no substring matching, ordinal case");
+            var chunk = engine.GetAllVertices("Chunk")[0];
+            Assert.IsFalse(chunk.TryGetOutEdge(out _, "mentions"),
+                "no fuzzy matching, no substring matching, ordinal case: nothing links");
         }
 
         [TestMethod]
@@ -701,11 +743,10 @@ namespace NoSQL.GraphDB.Tests
             var b = IndexedVertex(engine, "sku-idx", "EDGE_TLS_01");
             IndexedVertex(engine, "sku-idx", "EDGE_TLS_01");
 
-            var summary = await IngestionTestHelper.IngestText(client, "n",
+            await IngestionTestHelper.IngestText(client, "n",
                 "EDGE_TLS_01 appears here.",
                 "\"link\": { \"indexIds\": [\"sku-idx\"], \"maxLinksPerChunk\": 2 }");
 
-            Assert.AreEqual(2, summary.GetProperty("linksCreated").GetInt32());
             var chunk = engine.GetAllVertices("Chunk")[0];
             Assert.IsTrue(chunk.TryGetOutEdge(out var mentions, "mentions"));
             var targets = new List<Int32> { mentions[0].TargetVertex.Id, mentions[1].TargetVertex.Id };
@@ -784,12 +825,38 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(create.IsSuccessStatusCode, await create.Content.ReadAsStringAsync());
 
             using var response = await client.PostAsync("/ns/side/document/text",
-                IngestionTestHelper.Json("{ \"name\": \"n\", \"text\": \"side content\" }"));
-            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+                IngestionTestHelper.Json("{ \"name\": \"n\", \"text\": \"# S\\n\\nside content\" }"));
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode, body);
+            var documentId = JsonDocument.Parse(body).RootElement.GetProperty("documentId").GetInt32();
+
+            // The worker must resolve the job's namespace ('side'), NOT the default: poll the side
+            // route until it indexes there. This is the end-to-end proof of the job-carries-
+            // namespace design (the request-thread AsyncLocal does not flow to the worker).
+            var deadline = DateTime.UtcNow.AddSeconds(20);
+            String status = null;
+            while (DateTime.UtcNow < deadline)
+            {
+                using var poll = await client.GetAsync($"/ns/side/document/{documentId}");
+                if (poll.StatusCode == HttpStatusCode.OK)
+                {
+                    status = (await IngestionTestHelper.ReadJson(poll)).GetProperty("summary").GetProperty("status").GetString();
+                    if (status == "indexed" || status == "failed")
+                    {
+                        break;
+                    }
+                }
+
+                await Task.Delay(50);
+            }
+
+            Assert.AreEqual("indexed", status, "the document indexed in the 'side' namespace");
 
             using var sideList = await client.GetAsync("/ns/side/document");
             var sideJson = await IngestionTestHelper.ReadJson(sideList);
             Assert.AreEqual(1, sideJson.GetProperty("documents").GetArrayLength());
+            Assert.IsTrue(sideJson.GetProperty("documents")[0].GetProperty("chunkCount").GetInt32() >= 1,
+                "the chunks were written into the 'side' engine");
 
             using var defaultList = await client.GetAsync("/document");
             var defaultJson = await IngestionTestHelper.ReadJson(defaultList);

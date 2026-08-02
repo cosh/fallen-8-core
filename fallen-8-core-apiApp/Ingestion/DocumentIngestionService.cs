@@ -119,12 +119,16 @@ namespace NoSQL.GraphDB.App.Ingestion
         private readonly Fallen8EmbeddingProvider _provider;
         private readonly Fallen8IngestionOptions _options;
         private readonly Fallen8EmbeddingOptions _embeddingOptions;
+        private readonly NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces _namespaces;
+        private readonly IngestionJobQueue _queue;
         private readonly ILogger<DocumentIngestionService> _logger;
 
         public DocumentIngestionService(IFallen8 fallen8, IDoclingConverter docling,
             Fallen8EmbeddingProvider provider,
             IOptions<Fallen8IngestionOptions> options,
             IOptions<Fallen8EmbeddingOptions> embeddingOptions,
+            NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces namespaces,
+            IngestionJobQueue queue,
             ILogger<DocumentIngestionService> logger)
         {
             _fallen8 = fallen8;
@@ -132,12 +136,19 @@ namespace NoSQL.GraphDB.App.Ingestion
             _provider = provider;
             _options = options.Value;
             _embeddingOptions = embeddingOptions.Value;
+            _namespaces = namespaces;
+            _queue = queue;
             _logger = logger;
         }
 
         #region ingest
 
-        public async Task<IngestionOutcome> IngestAsync(IngestionRequest request, CancellationToken cancellationToken)
+        /// <summary>Request-thread entry (FR-3): validate, create the processing stub, and
+        /// enqueue the heavy pipeline onto the global FIFO queue. Returns 202 with the stub
+        /// summary; the worker finishes it off-thread. <paramref name="namespaceName"/> (null =
+        /// default) is carried on the job so the worker re-resolves the same engine.</summary>
+        public async Task<IngestionOutcome> IngestAsync(IngestionRequest request, String namespaceName,
+            CancellationToken cancellationToken)
         {
             // ---- pre-stub validation: nothing below touches the graph.
             var isBinary = request.FileBytes != null;
@@ -205,85 +216,150 @@ namespace NoSQL.GraphDB.App.Ingestion
                 }
             }
 
-            var linkError = ValidateLinkRequest(request, out var linkIndices, out var linkCap);
+            var linkError = ValidateLinkRequest(request, out var linkCap);
             if (linkError != null)
             {
                 return linkError;
             }
 
-            // ---- the stub: from here on, every failure leaves exactly one failed Document.
+            // ---- the stub, then hand off. The heavy pipeline runs on the worker; a failure
+            // there marks THIS stub failed (FR-2 invariant preserved), off the request thread.
             var documentId = await CreateDocumentStub(request, contentHash);
 
-            // Every chunk this ingest commits is tracked here so ANY later failure - including
-            // in FinishDocument, which runs after the chunk writes - removes the whole subtree,
-            // keeping the FR-2 invariant (one failed Document vertex, zero chunks). The fulltext
-            // index is captured for the same cleanup (its mirror is not transactional).
-            var writtenChunkIds = new List<Int32>();
-            IIndex fulltextIndex = null;
-
-            try
+            var job = new IngestionJob
             {
-                var (chunks, pageCount, chunkerConfig) = await ParseAndChunk(request, cancellationToken);
+                Namespace = namespaceName,
+                DocumentId = documentId,
+                Request = request,
+                LinkIndexIds = request.LinkIndexIds,
+                LinkCap = linkCap
+            };
 
-                if (chunks.Count > _options.MaxChunksPerDocument)
+            if (!_queue.TryEnqueue(job))
+            {
+                // The queue is full: fail the stub we just created and tell the caller to retry.
+                await FailDocument(documentId, "The ingestion queue is full; retry shortly.");
+                return IngestionOutcome.Fail(StatusCodes.Status503ServiceUnavailable, "Ingestion queue full",
+                    String.Format("The global ingestion queue is at capacity ({0}); retry shortly.",
+                        _options.MaxQueueLength), documentId);
+            }
+
+            _fallen8.TryGetVertex(out var stub, documentId);
+            return new IngestionOutcome
+            {
+                Status = StatusCodes.Status202Accepted,
+                Summary = Summarize(stub)
+            };
+        }
+
+        /// <summary>Worker-thread entry (FR-3): runs the heavy pipeline for one job on the
+        /// engine of its namespace. Binds that namespace so every graph call resolves it (the
+        /// request-thread addressing AsyncLocal does not flow here). Never returns an HTTP
+        /// outcome - success finishes the document, failure marks it failed with cleanup.</summary>
+        public async Task ProcessJobAsync(IngestionJob job, CancellationToken cancellationToken)
+        {
+            using (NoSQL.GraphDB.App.Namespaces.AddressedFallen8.PushNamespace(job.Namespace))
+            {
+                // The namespace may have been dropped, or a reload may have reassigned ids, since
+                // the job was enqueued. Verify the stub is still a processing Document; else skip.
+                try
                 {
-                    throw new IngestionFailedException(StatusCodes.Status413PayloadTooLarge, "Too many chunks",
-                        String.Format("The document yields {0} chunks; the per-document cap is {1}.",
-                            chunks.Count, _options.MaxChunksPerDocument));
+                    if (!_fallen8.TryGetVertex(out var stub, job.DocumentId) ||
+                        !String.Equals(stub.Label, DocumentGraphSchema.DocumentLabel, StringComparison.Ordinal) ||
+                        !(stub.TryGetProperty<String>(out var status, DocumentGraphSchema.StatusProperty) &&
+                          status == DocumentGraphSchema.StatusProcessing))
+                    {
+                        _logger.LogInformation("Skipping ingestion job for document {DocumentId}: no processing stub (namespace dropped or reloaded)",
+                            job.DocumentId);
+                        return;
+                    }
+                }
+                catch (NoSQL.GraphDB.App.Namespaces.UnknownNamespaceException)
+                {
+                    _logger.LogInformation("Skipping ingestion job for document {DocumentId}: namespace '{Namespace}' is gone",
+                        job.DocumentId, job.Namespace ?? "default");
+                    return;
                 }
 
-                if (chunksBefore + chunks.Count > _options.MaxChunksPerNamespace)
+                var request = job.Request;
+                var chunksBefore = CountChunks();
+                var writtenChunkIds = new List<Int32>();
+                IIndex fulltextIndex = null;
+
+                try
                 {
-                    throw new IngestionFailedException(StatusCodes.Status507InsufficientStorage, "Chunk ceiling reached",
-                        String.Format("{0} existing plus {1} new chunks would cross the ceiling of {2}.",
-                            chunksBefore, chunks.Count, _options.MaxChunksPerNamespace));
-                }
+                    var (chunks, pageCount, chunkerConfig) = await ParseAndChunk(request, cancellationToken);
 
-                Single[][] vectors = null;
-                if (request.Embed)
+                    if (chunks.Count > _options.MaxChunksPerDocument)
+                    {
+                        throw new IngestionFailedException(StatusCodes.Status413PayloadTooLarge, "Too many chunks",
+                            String.Format("The document yields {0} chunks; the per-document cap is {1}.",
+                                chunks.Count, _options.MaxChunksPerDocument));
+                    }
+
+                    if (chunksBefore + chunks.Count > _options.MaxChunksPerNamespace)
+                    {
+                        throw new IngestionFailedException(StatusCodes.Status507InsufficientStorage, "Chunk ceiling reached",
+                            String.Format("{0} existing plus {1} new chunks would cross the ceiling of {2}.",
+                                chunksBefore, chunks.Count, _options.MaxChunksPerNamespace));
+                    }
+
+                    Single[][] vectors = null;
+                    if (request.Embed)
+                    {
+                        EnsureVectorIndex();
+                        vectors = await EmbedChunks(chunks, cancellationToken);
+                    }
+
+                    fulltextIndex = EnsureFulltextIndex();
+                    var mentions = ResolveLinks(chunks, job.LinkIndexIds, job.LinkCap, job.DocumentId);
+
+                    await WriteChunks(job.DocumentId, request, chunks, vectors, fulltextIndex, mentions, writtenChunkIds);
+                    await FinishDocument(job.DocumentId, request, chunks.Count, pageCount, chunkerConfig);
+
+                    _logger.LogInformation("Ingested document {DocumentId} ({ChunkCount} chunks, {Links} links)",
+                        job.DocumentId, writtenChunkIds.Count, mentions.Count);
+
+                    if (request.ReplaceDocumentId != null)
+                    {
+                        await DeleteAsync(request.ReplaceDocumentId.Value, true);
+                    }
+                }
+                catch (Exception ex) when (ex is IngestionFailedException || ex is DoclingUnavailableException
+                    || ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)
                 {
-                    EnsureVectorIndex();
-                    vectors = await EmbedChunks(chunks, cancellationToken);
+                    await CleanupAndFail(job.DocumentId, writtenChunkIds, fulltextIndex, ex.Message);
+                    _logger.LogWarning("Ingestion of document {DocumentId} failed: {Reason}", job.DocumentId, ex.Message);
                 }
+            }
+        }
 
-                fulltextIndex = EnsureFulltextIndex();
-                var mentions = ResolveLinks(chunks, linkIndices, linkCap, documentId);
-
-                await WriteChunks(documentId, request, chunks, vectors, fulltextIndex, mentions, writtenChunkIds);
-                await FinishDocument(documentId, request, chunks.Count, pageCount, chunkerConfig);
-
-                _logger.LogInformation("Ingested document {DocumentId} ({ChunkCount} chunks, {Links} links)",
-                    documentId, writtenChunkIds.Count, mentions.Count);
-
-                if (request.ReplaceDocumentId != null)
+        /// <summary>Startup sweep (FR-5): a Document left <c>processing</c> by a worker that died
+        /// across a restart is flipped to <c>failed:interrupted</c> in every namespace, so the
+        /// list never shows a permanent zombie.</summary>
+        public void SweepInterruptedDocuments()
+        {
+            foreach (var ns in _namespaces.Snapshot())
+            {
+                using (NoSQL.GraphDB.App.Namespaces.AddressedFallen8.PushNamespace(ns.Name))
                 {
-                    await DeleteAsync(request.ReplaceDocumentId.Value, true);
+                    foreach (var document in _fallen8.GetAllVertices(DocumentGraphSchema.DocumentLabel))
+                    {
+                        if (document.TryGetProperty<String>(out var status, DocumentGraphSchema.StatusProperty) &&
+                            status == DocumentGraphSchema.StatusProcessing)
+                        {
+                            // Best-effort; a sweep failure must not stop the worker from starting.
+                            try
+                            {
+                                FailDocument(document.Id, "interrupted").GetAwaiter().GetResult();
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Failed to sweep interrupted document {DocumentId}", document.Id);
+                            }
+                        }
+                    }
                 }
-
-                return new IngestionOutcome { Summary = BuildSummary(documentId, mentions.Count) };
-            }
-            catch (IngestionFailedException failure)
-            {
-                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, failure.Message);
-                return IngestionOutcome.Fail(failure.Status, failure.Title, failure.Message, documentId);
-            }
-            catch (DoclingUnavailableException unavailable)
-            {
-                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, unavailable.Message);
-                return IngestionOutcome.Fail(StatusCodes.Status503ServiceUnavailable,
-                    "Document conversion unavailable", unavailable.Message, documentId);
-            }
-            catch (EmbeddingProviderUnavailableException unavailable)
-            {
-                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, unavailable.Message);
-                return IngestionOutcome.Fail(StatusCodes.Status503ServiceUnavailable,
-                    "Embedding provider unavailable", unavailable.Message, documentId);
-            }
-            catch (EmbeddingProviderOutputException invalid)
-            {
-                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, invalid.Message);
-                return IngestionOutcome.Fail(StatusCodes.Status502BadGateway,
-                    "Embedding backend produced invalid output", invalid.Message, documentId);
             }
         }
 
@@ -483,9 +559,8 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         #region structural linking (FR-13)
 
-        private IngestionOutcome ValidateLinkRequest(IngestionRequest request, out List<IIndex> linkIndices, out Int32 linkCap)
+        private IngestionOutcome ValidateLinkRequest(IngestionRequest request, out Int32 linkCap)
         {
-            linkIndices = null;
             linkCap = 0;
 
             if (request.LinkIndexIds == null || request.LinkIndexIds.Count == 0)
@@ -501,25 +576,20 @@ namespace NoSQL.GraphDB.App.Ingestion
                         _options.MaxLinksPerChunk));
             }
 
-            linkIndices = new List<IIndex>(request.LinkIndexIds.Count);
             foreach (var indexId in request.LinkIndexIds)
             {
                 if (!_fallen8.IndexFactory.TryGetIndex(out var index, indexId))
                 {
-                    linkIndices = null;
                     return IngestionOutcome.Fail(StatusCodes.Status400BadRequest, "Unknown link index",
                         String.Format("No index named '{0}'.", indexId));
                 }
 
                 if (index is IVectorIndex || index is IFulltextIndex)
                 {
-                    linkIndices = null;
                     return IngestionOutcome.Fail(StatusCodes.Status400BadRequest, "Link index not equality-capable",
                         String.Format("Index '{0}' is a {1} index; linking needs exact-equality lookups (dictionary family).",
                             indexId, index is IVectorIndex ? "vector" : "fulltext"));
                 }
-
-                linkIndices.Add(index);
             }
 
             linkCap = request.LinkMaxPerChunk ?? _options.MaxLinksPerChunk;
@@ -528,12 +598,29 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         /// <summary>Exact ordinal identifier-to-index-key matching, deterministic (token order,
         /// then index order, then ascending element id), capped per chunk, live vertices only.
-        /// Chunk vertices of THIS ingest cannot be targets: they are created after this runs.</summary>
+        /// Re-resolves the allowlisted index IDs against the current (worker-bound) engine, so a
+        /// dropped index since enqueue is simply skipped. Chunk vertices of THIS ingest cannot be
+        /// targets: they are created after this runs.</summary>
         private List<KeyValuePair<Int32, Int32>> ResolveLinks(List<DocumentChunk> chunks,
-            List<IIndex> linkIndices, Int32 linkCap, Int32 documentId)
+            List<String> linkIndexIds, Int32 linkCap, Int32 documentId)
         {
             var mentions = new List<KeyValuePair<Int32, Int32>>();
-            if (linkIndices == null)
+            if (linkIndexIds == null || linkIndexIds.Count == 0)
+            {
+                return mentions;
+            }
+
+            var linkIndices = new List<IIndex>(linkIndexIds.Count);
+            foreach (var indexId in linkIndexIds)
+            {
+                if (_fallen8.IndexFactory.TryGetIndex(out var index, indexId) &&
+                    !(index is IVectorIndex) && !(index is IFulltextIndex))
+                {
+                    linkIndices.Add(index);
+                }
+            }
+
+            if (linkIndices.Count == 0)
             {
                 return mentions;
             }
