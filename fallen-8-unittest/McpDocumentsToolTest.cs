@@ -113,6 +113,18 @@ namespace NoSQL.GraphDB.Tests
         {
             using var api = new IngestionFactory();
             var bridge = McpTestSupport.Bridge(api.Server.CreateHandler());
+
+            // First ingest a REAL document WITH the write tier, so the gate test below deletes
+            // an id that would otherwise succeed - not a missing id that 404s regardless (the
+            // vacuity the council flagged).
+            var writeCatalog = McpTestSupport.Catalog(new McpToolsOptions { EnableWrite = true },
+                new IMcpTool[] { new DocumentsTool(bridge) });
+            var ingested = await writeCatalog.CallAsync("f8_documents", Args(
+                ("op", Str("ingest_text")), ("name", Str("gated.md")), ("text", Str("# H\n\nbody"))),
+                CancellationToken.None);
+            Assert.IsFalse(ingested.IsError);
+            var documentId = ingested.StructuredContent!.Value.GetProperty("documentId").GetInt32();
+
             var tools = new McpToolsOptions();  // write off
             var tool = new DocumentsTool(bridge);
             var catalog = McpTestSupport.Catalog(tools, new IMcpTool[] { tool });
@@ -126,10 +138,26 @@ namespace NoSQL.GraphDB.Tests
             var ingest = await catalog.CallAsync("f8_documents", Args(
                 ("op", Str("ingest_text")), ("name", Str("n")), ("text", Str("t"))), CancellationToken.None);
             Assert.IsTrue(ingest.IsError, "ingest_text without the write tier is rejected");
+            AssertMentionsWriteCapability(ingest);
 
+            // Delete the REAL id: rejected by the gate, and the document must survive (proving
+            // the gate blocked a delete that would otherwise have succeeded).
             var delete = await catalog.CallAsync("f8_documents", Args(
-                ("op", Str("delete")), ("documentId", Num(1))), CancellationToken.None);
+                ("op", Str("delete")), ("documentId", Num(documentId))), CancellationToken.None);
             Assert.IsTrue(delete.IsError, "delete without the write tier is rejected");
+            AssertMentionsWriteCapability(delete);
+
+            var stillThere = await writeCatalog.CallAsync("f8_documents", Args(
+                ("op", Str("get")), ("documentId", Num(documentId))), CancellationToken.None);
+            Assert.IsFalse(stillThere.IsError, "the gated delete must not have removed the document");
+        }
+
+        private static void AssertMentionsWriteCapability(ModelContextProtocol.Protocol.CallToolResult result)
+        {
+            var text = String.Join(" ",
+                result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));
+            StringAssert.Contains(text, "write capability",
+                "the rejection must be the tier gate (403), not an incidental error");
         }
 
         [TestMethod]

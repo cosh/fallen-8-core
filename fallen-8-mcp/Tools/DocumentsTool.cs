@@ -83,6 +83,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     .Str("namespace", "The namespace. Defaults to 'default'.")
                     .Int("documentId", "The document vertex id (get/delete).")
                     .Str("query", "The search query (search). Feeds both the semantic and the exact-token side.")
+                    .NumArray("queryVector", "Optional client-side dense query vector (search); an alternative to embedding the query text.")
                     .Str("mode", "Search mode (search). Default fused.", choices: new[] { "fused", "dense", "lexical" })
                     .Int("k", "Results to return (search). Default 10, max 100.")
                     .Int("window", "Sibling chunks each side of a hit (search). Default 0, max 5.")
@@ -151,11 +152,25 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 case "search":
                 {
                     var query = ToolArgs.GetString(arguments, "query");
-                    if (String.IsNullOrWhiteSpace(query))
+                    var queryVector = ToolArgs.GetSingleArray(arguments, "queryVector");
+                    if (String.IsNullOrWhiteSpace(query) && (queryVector == null || queryVector.Length == 0))
                     {
-                        return ToolResults.Error(400, "Invalid arguments", "search requires 'query'.");
+                        return ToolResults.Error(400, "Invalid arguments", "search requires 'query' (or 'queryVector' for the dense side).");
                     }
-                    var body = new JsonObject { ["queryText"] = query };
+                    var body = new JsonObject();
+                    if (!String.IsNullOrWhiteSpace(query))
+                    {
+                        body["queryText"] = query;
+                    }
+                    if (queryVector != null && queryVector.Length > 0)
+                    {
+                        var vectorNode = new JsonArray();
+                        foreach (var component in queryVector)
+                        {
+                            vectorNode.Add(component);
+                        }
+                        body["queryVector"] = vectorNode;
+                    }
                     var mode = ToolArgs.GetString(arguments, "mode");
                     if (mode != null)
                     {

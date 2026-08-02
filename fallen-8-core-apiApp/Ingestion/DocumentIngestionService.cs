@@ -214,6 +214,13 @@ namespace NoSQL.GraphDB.App.Ingestion
             // ---- the stub: from here on, every failure leaves exactly one failed Document.
             var documentId = await CreateDocumentStub(request, contentHash);
 
+            // Every chunk this ingest commits is tracked here so ANY later failure - including
+            // in FinishDocument, which runs after the chunk writes - removes the whole subtree,
+            // keeping the FR-2 invariant (one failed Document vertex, zero chunks). The fulltext
+            // index is captured for the same cleanup (its mirror is not transactional).
+            var writtenChunkIds = new List<Int32>();
+            IIndex fulltextIndex = null;
+
             try
             {
                 var (chunks, pageCount, chunkerConfig) = await ParseAndChunk(request, cancellationToken);
@@ -239,14 +246,14 @@ namespace NoSQL.GraphDB.App.Ingestion
                     vectors = await EmbedChunks(chunks, cancellationToken);
                 }
 
-                var fulltextIndex = EnsureFulltextIndex();
+                fulltextIndex = EnsureFulltextIndex();
                 var mentions = ResolveLinks(chunks, linkIndices, linkCap, documentId);
 
-                var chunkIds = await WriteChunks(documentId, request, chunks, vectors, fulltextIndex, mentions);
+                await WriteChunks(documentId, request, chunks, vectors, fulltextIndex, mentions, writtenChunkIds);
                 await FinishDocument(documentId, request, chunks.Count, pageCount, chunkerConfig);
 
                 _logger.LogInformation("Ingested document {DocumentId} ({ChunkCount} chunks, {Links} links)",
-                    documentId, chunkIds.Count, mentions.Count);
+                    documentId, writtenChunkIds.Count, mentions.Count);
 
                 if (request.ReplaceDocumentId != null)
                 {
@@ -257,24 +264,24 @@ namespace NoSQL.GraphDB.App.Ingestion
             }
             catch (IngestionFailedException failure)
             {
-                await FailDocument(documentId, failure.Message);
+                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, failure.Message);
                 return IngestionOutcome.Fail(failure.Status, failure.Title, failure.Message, documentId);
             }
             catch (DoclingUnavailableException unavailable)
             {
-                await FailDocument(documentId, unavailable.Message);
+                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, unavailable.Message);
                 return IngestionOutcome.Fail(StatusCodes.Status503ServiceUnavailable,
                     "Document conversion unavailable", unavailable.Message, documentId);
             }
             catch (EmbeddingProviderUnavailableException unavailable)
             {
-                await FailDocument(documentId, unavailable.Message);
+                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, unavailable.Message);
                 return IngestionOutcome.Fail(StatusCodes.Status503ServiceUnavailable,
                     "Embedding provider unavailable", unavailable.Message, documentId);
             }
             catch (EmbeddingProviderOutputException invalid)
             {
-                await FailDocument(documentId, invalid.Message);
+                await CleanupAndFail(documentId, writtenChunkIds, fulltextIndex, invalid.Message);
                 return IngestionOutcome.Fail(StatusCodes.Status502BadGateway,
                     "Embedding backend produced invalid output", invalid.Message, documentId);
             }
@@ -352,21 +359,7 @@ namespace NoSQL.GraphDB.App.Ingestion
 
             if (_fallen8.IndexFactory.TryGetIndex(out var existing, _options.VectorIndexId))
             {
-                if (!(existing is IVectorIndex vectorIndex))
-                {
-                    throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
-                        String.Format("Index '{0}' exists but is not a vector index.", _options.VectorIndexId));
-                }
-
-                if (!String.Equals(vectorIndex.EmbeddingName, _options.EmbeddingName, StringComparison.Ordinal))
-                {
-                    throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
-                        String.Format("Index '{0}' is bound to embedding '{1}', not '{2}'.",
-                            _options.VectorIndexId, vectorIndex.EmbeddingName ?? "(unbound)", _options.EmbeddingName));
-                }
-
-                // Dimension and model identity against the provider are covered by the
-                // BoundIndexContract pre-check (one home).
+                ValidateVectorIndexShape(existing);
                 return;
             }
 
@@ -378,14 +371,44 @@ namespace NoSQL.GraphDB.App.Ingestion
                 { "model", _provider.Identity.Stamp }
             };
 
-            if (!_fallen8.IndexFactory.TryCreateIndex(out _, _options.VectorIndexId, "VectorIndex", parameters))
+            if (_fallen8.IndexFactory.TryCreateIndex(out _, _options.VectorIndexId, "VectorIndex", parameters))
             {
-                throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Index creation failed",
-                    String.Format("The bound vector index '{0}' could not be created.", _options.VectorIndexId));
+                _logger.LogInformation("Ensured bound vector index '{IndexId}' ({Dimension} dims)",
+                    _options.VectorIndexId, _provider.Identity.Dimension);
+                return;
             }
 
-            _logger.LogInformation("Ensured bound vector index '{IndexId}' ({Dimension} dims)",
-                _options.VectorIndexId, _provider.Identity.Dimension);
+            // TryCreateIndex returns false when the name already exists - which is exactly what a
+            // concurrent first-ingest into the same namespace does (both miss TryGetIndex, both
+            // create, the loser sees "already exists"). Re-check: an existing index of the right
+            // shape IS success, not a 500. Only a genuinely absent index is a real failure.
+            if (_fallen8.IndexFactory.TryGetIndex(out var raced, _options.VectorIndexId))
+            {
+                ValidateVectorIndexShape(raced);
+                return;
+            }
+
+            throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Index creation failed",
+                String.Format("The bound vector index '{0}' could not be created.", _options.VectorIndexId));
+        }
+
+        private void ValidateVectorIndexShape(IIndex index)
+        {
+            if (!(index is IVectorIndex vectorIndex))
+            {
+                throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
+                    String.Format("Index '{0}' exists but is not a vector index.", _options.VectorIndexId));
+            }
+
+            if (!String.Equals(vectorIndex.EmbeddingName, _options.EmbeddingName, StringComparison.Ordinal))
+            {
+                throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
+                    String.Format("Index '{0}' is bound to embedding '{1}', not '{2}'.",
+                        _options.VectorIndexId, vectorIndex.EmbeddingName ?? "(unbound)", _options.EmbeddingName));
+            }
+
+            // Dimension and model identity against the provider are covered by the
+            // BoundIndexContract pre-check (one home).
         }
 
         /// <summary>Returns the fulltext index chunk text is mirrored into, or null when the
@@ -399,23 +422,34 @@ namespace NoSQL.GraphDB.App.Ingestion
 
             if (_fallen8.IndexFactory.TryGetIndex(out var existing, _options.FulltextIndexId))
             {
-                if (!(existing is IFulltextIndex))
-                {
-                    throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
-                        String.Format("Index '{0}' exists but is not a fulltext index.", _options.FulltextIndexId));
-                }
-
-                return existing;
+                return ValidateFulltextIndexShape(existing);
             }
 
-            if (!_fallen8.IndexFactory.TryCreateIndex(out var created, _options.FulltextIndexId, "RegExIndex"))
+            if (_fallen8.IndexFactory.TryCreateIndex(out var created, _options.FulltextIndexId, "RegExIndex"))
             {
-                throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Index creation failed",
-                    String.Format("The fulltext index '{0}' could not be created.", _options.FulltextIndexId));
+                _logger.LogInformation("Ensured fulltext index '{IndexId}'", _options.FulltextIndexId);
+                return created;
             }
 
-            _logger.LogInformation("Ensured fulltext index '{IndexId}'", _options.FulltextIndexId);
-            return created;
+            // Lost the create race (see EnsureVectorIndex): an existing fulltext index is success.
+            if (_fallen8.IndexFactory.TryGetIndex(out var raced, _options.FulltextIndexId))
+            {
+                return ValidateFulltextIndexShape(raced);
+            }
+
+            throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Index creation failed",
+                String.Format("The fulltext index '{0}' could not be created.", _options.FulltextIndexId));
+        }
+
+        private IIndex ValidateFulltextIndexShape(IIndex index)
+        {
+            if (!(index is IFulltextIndex))
+            {
+                throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
+                    String.Format("Index '{0}' exists but is not a fulltext index.", _options.FulltextIndexId));
+            }
+
+            return index;
         }
 
         #endregion
@@ -589,9 +623,13 @@ namespace NoSQL.GraphDB.App.Ingestion
             return tx.VertexCreated.Id;
         }
 
-        private async Task<List<Int32>> WriteChunks(Int32 documentId, IngestionRequest request,
+        /// <summary>Writes the chunk vertices, their edges, embeddings and fulltext mirror.
+        /// Created chunk ids are appended to <paramref name="chunkIdSink"/> as soon as they
+        /// commit, so the caller's single catch owns cleanup for a failure at ANY later step
+        /// (edges, embeddings, fulltext, or FinishDocument) - there is no cleanup here.</summary>
+        private async Task WriteChunks(Int32 documentId, IngestionRequest request,
             List<DocumentChunk> chunks, Single[][] vectors, IIndex fulltextIndex,
-            List<KeyValuePair<Int32, Int32>> mentions)
+            List<KeyValuePair<Int32, Int32>> mentions, List<Int32> chunkIdSink)
         {
             var now = DateHelper.GetNowStamp();
 
@@ -630,57 +668,65 @@ namespace NoSQL.GraphDB.App.Ingestion
 
             await Enqueue(createChunks, "chunk creation");
             var chunkIds = createChunks.GetCreatedVertices().Select(vertex => vertex.Id).ToList();
+            // Publish the ids to the caller's cleanup sink BEFORE the dependent writes, so a
+            // failure in any of them (or in FinishDocument afterwards) removes these chunks.
+            chunkIdSink.AddRange(chunkIds);
 
-            try
+            var createEdges = new CreateEdgesTransaction();
+            for (var i = 0; i < chunkIds.Count; i++)
             {
-                var createEdges = new CreateEdgesTransaction();
+                createEdges.AddEdge(documentId, DocumentGraphSchema.ContainsEdge, chunkIds[i], now);
+                if (i + 1 < chunkIds.Count)
+                {
+                    createEdges.AddEdge(chunkIds[i], DocumentGraphSchema.NextEdge, chunkIds[i + 1], now);
+                }
+            }
+
+            foreach (var mention in mentions)
+            {
+                createEdges.AddEdge(chunkIds[mention.Key], DocumentGraphSchema.MentionsEdge, mention.Value, now);
+            }
+
+            await Enqueue(createEdges, "edge creation");
+
+            if (vectors != null)
+            {
+                var setEmbeddings = new SetEmbeddingsTransaction();
                 for (var i = 0; i < chunkIds.Count; i++)
                 {
-                    createEdges.AddEdge(documentId, DocumentGraphSchema.ContainsEdge, chunkIds[i], now);
-                    if (i + 1 < chunkIds.Count)
-                    {
-                        createEdges.AddEdge(chunkIds[i], DocumentGraphSchema.NextEdge, chunkIds[i + 1], now);
-                    }
+                    setEmbeddings.SetEmbedding(chunkIds[i], _options.EmbeddingName, vectors[i], _provider.Identity.Stamp);
                 }
 
-                foreach (var mention in mentions)
-                {
-                    createEdges.AddEdge(chunkIds[mention.Key], DocumentGraphSchema.MentionsEdge, mention.Value, now);
-                }
-
-                await Enqueue(createEdges, "edge creation");
-
-                if (vectors != null)
-                {
-                    var setEmbeddings = new SetEmbeddingsTransaction();
-                    for (var i = 0; i < chunkIds.Count; i++)
-                    {
-                        setEmbeddings.SetEmbedding(chunkIds[i], _options.EmbeddingName, vectors[i], _provider.Identity.Stamp);
-                    }
-
-                    await Enqueue(setEmbeddings, "embedding write");
-                }
-
-                if (fulltextIndex != null)
-                {
-                    for (var i = 0; i < chunkIds.Count; i++)
-                    {
-                        if (_fallen8.TryGetGraphElement(out var element, chunkIds[i]))
-                        {
-                            // The same request-thread population path the index REST surface
-                            // uses (PUT /index/{id}); commit happened above.
-                            fulltextIndex.AddOrUpdate(chunks[i].Text, element);
-                        }
-                    }
-                }
-
-                return chunkIds;
+                await Enqueue(setEmbeddings, "embedding write");
             }
-            catch
+
+            if (fulltextIndex != null)
             {
-                await RemoveChunkSubtree(chunkIds, fulltextIndex);
-                throw;
+                for (var i = 0; i < chunkIds.Count; i++)
+                {
+                    if (_fallen8.TryGetGraphElement(out var element, chunkIds[i]))
+                    {
+                        // The same request-thread population path the index REST surface uses
+                        // (PUT /index/{id}); commit happened above. AddOrUpdate skips a removed
+                        // element under its own write lock (RegExIndex guard), closing the
+                        // add-after-remove race for a concurrent DELETE.
+                        fulltextIndex.AddOrUpdate(chunks[i].Text, element);
+                    }
+                }
             }
+        }
+
+        /// <summary>Removes any chunks this ingest committed, then marks the Document failed -
+        /// the single cleanup path for every post-stub failure (FR-2 invariant).</summary>
+        private async Task CleanupAndFail(Int32 documentId, List<Int32> writtenChunkIds,
+            IIndex fulltextIndex, String reason)
+        {
+            if (writtenChunkIds.Count > 0)
+            {
+                await RemoveChunkSubtree(writtenChunkIds, fulltextIndex);
+            }
+
+            await FailDocument(documentId, reason);
         }
 
         private async Task FinishDocument(Int32 documentId, IngestionRequest request, Int32 chunkCount,
@@ -757,6 +803,13 @@ namespace NoSQL.GraphDB.App.Ingestion
         /// <summary>Updates an EXISTING property: the engine's documented update path is
         /// remove-then-set (SetProperty is add-or-must-equal), each step a granular change-feed
         /// event - never a DelegateTransaction, whose commit forces feed subscribers to resync.</summary>
+        /// <summary>Changes an EXISTING property (the engine's SetProperty is add-or-must-equal,
+        /// so an update is remove-then-set). The removal's state is deliberately not asserted: an
+        /// absent property is a valid no-op, and a genuine write fault surfaces on the SetProperty
+        /// below (Enqueue checks TransactionState). ACCEPTED LIMITATION: these are two transactions,
+        /// so there is a brief window where the property reads as absent, and a crash between them
+        /// leaves it unset - tolerable because ingestion is already a multi-transaction operation
+        /// with no cross-transaction atomicity, and status is only ever read advisorily.</summary>
         private async Task UpdateProperty(Int32 elementId, String propertyId, Object value)
         {
             var removal = _fallen8.EnqueueTransaction(new RemovePropertyTransaction
@@ -764,7 +817,6 @@ namespace NoSQL.GraphDB.App.Ingestion
                 GraphElementId = elementId,
                 PropertyId = propertyId
             });
-            // An absent property is fine (nothing to remove) - the add below is the write that counts.
             await removal.Completion;
 
             await SetProperty(elementId, propertyId, value);

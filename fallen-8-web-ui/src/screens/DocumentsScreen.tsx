@@ -475,11 +475,28 @@ export function DocumentsScreen() {
                       <td className="table-cell">
                         {hit.text.length > 240 ? `${hit.text.slice(0, 240)}…` : hit.text}
                       </td>
+                      <td className="table-cell text-right">
+                        {/* Per-hit inspect: send THIS chunk vertex to the canvas, where the
+                            standard affordances (inspect, expand neighbors, use as a path seed)
+                            apply. A chunk is an ordinary vertex, so nothing special is needed. */}
+                        <button
+                          className="btn"
+                          disabled={sendHitsToCanvas.isPending}
+                          onClick={() => sendHitsToCanvas.mutate([hit])}
+                          data-testid={`inspect-hit-${hit.chunkId}`}
+                        >
+                          Inspect
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            <p className="text-fg-faint px-1 text-[11px]">
+              A hit is an ordinary chunk vertex. Send it (or all hits) to the canvas to inspect
+              it, expand its neighbours, or start a path or subgraph from it.
+            </p>
           </div>
         )}
       </section>

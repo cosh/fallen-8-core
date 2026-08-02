@@ -202,6 +202,26 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Convert_CallerCancellation_PropagatesNotMislabelledAsSidecarFault()
+        {
+            // A caller-cancelled token (client disconnect / shutdown) must surface as a
+            // cancellation, NOT a DoclingUnavailableException that would become a 503 + failed
+            // Document. The handler would answer OK, but the pre-cancelled token trips first.
+            var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            });
+            using var client = Client(handler);
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            // TaskCanceledException derives from OperationCanceledException; the point is that it
+            // is a cancellation, NOT a DoclingUnavailableException.
+            await Assert.ThrowsExceptionAsync<TaskCanceledException>(
+                () => client.ConvertAsync(new Byte[] { 1 }, "a.pdf", cts.Token));
+        }
+
+        [TestMethod]
         public async Task Health_IsCached_WithinTtl()
         {
             var calls = 0;

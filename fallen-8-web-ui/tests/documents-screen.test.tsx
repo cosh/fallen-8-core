@@ -290,6 +290,29 @@ describe("fused search", () => {
     expect(await screen.findByText(/sent to the canvas/)).toBeInTheDocument();
   });
 
+  it("offers a per-hit inspect that sends that single chunk to the canvas", async () => {
+    searchDocumentsMock.mockResolvedValue({
+      modeUsed: "fused",
+      hits: [
+        { chunkId: 51, documentId: 7, score: 0.02, order: 0, text: "chunk fifty-one" },
+        { chunkId: 52, documentId: 7, score: 0.01, order: 1, text: "chunk fifty-two" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId("search-query")).toBeInTheDocument());
+    await user.type(screen.getByTestId("search-query"), "anything");
+    await user.click(screen.getByTestId("search-run"));
+
+    await waitFor(() => expect(screen.getByTestId("inspect-hit-51")).toBeInTheDocument());
+    await user.click(screen.getByTestId("inspect-hit-51"));
+
+    // Only the clicked hit is fetched (a per-hit affordance, not the bulk send).
+    await waitFor(() => expect(getVertexMock).toHaveBeenCalledWith(expect.anything(), 51));
+    expect(getVertexMock).not.toHaveBeenCalledWith(expect.anything(), 52);
+  });
+
   it("labels an honest degrade when fused ran lexical-only", async () => {
     searchDocumentsMock.mockResolvedValue({ modeUsed: "lexical", hits: [] });
     const user = userEvent.setup();

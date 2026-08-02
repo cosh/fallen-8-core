@@ -97,6 +97,12 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             }
 
             var configured = converter != null && converter.Configured;
+            // Probe the sidecar ONLY when the capability is on. The compose file sets the docling
+            // endpoint unconditionally, so `configured` can be true while `Enabled` is false
+            // (F8_INGESTION=false); the invariant "off => no sidecar is contacted" must hold, and
+            // /status is [AllowAnonymous] and the container healthcheck target, so it must make no
+            // outbound call when ingestion is off.
+            var probe = options.Enabled && configured && await converter.IsReachableAsync(cancellationToken);
             return new IngestionStatsREST
             {
                 Enabled = options.Enabled,
@@ -105,7 +111,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                 Docling = new DoclingStatsREST
                 {
                     Configured = configured,
-                    Reachable = configured && await converter.IsReachableAsync(cancellationToken)
+                    Reachable = probe
                 },
                 Limits = new IngestionLimitsREST
                 {

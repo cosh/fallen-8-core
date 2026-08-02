@@ -136,7 +136,9 @@ services:
   # "ingestion" profile and turns the capability off in one move. No container healthcheck:
   # F8 probes GET /health itself (cached; surfaced on /status as docling.reachable).
   docling:
-    image: quay.io/docling-project/docling-serve-cpu:latest
+    # Pinned (not :latest) so the DoclingDocument schema the chunker's fixtures pin against
+    # cannot drift under the environment without a deliberate bump. Override with F8_DOCLING_IMAGE.
+    image: ${F8_DOCLING_IMAGE:-quay.io/docling-project/docling-serve-cpu:v1.29.0}
     restart: unless-stopped
     profiles: ["ingestion"]
     ports:

@@ -8,6 +8,23 @@ any other vertex.
 
 ## Changelog
 
+- **2026-08-02 (council merge review)** Implemented, then reviewed by a three-lens council
+  before merge; fixes applied on the branch and pinned with tests. Correctness: RegExIndex
+  now refuses a removed element (engine guard mirroring VectorIndex - the one deliberate,
+  anticipated engine change; closes the fulltext add-after-remove tombstone leak); the
+  index-ensure path re-checks after a failed create so concurrent first-ingests no longer
+  500; failed-ingest cleanup now covers a FinishDocument failure too (chunk-id sink hoisted
+  to one catch). Regressions: `/status` and `/statistics` probe the docling sidecar only
+  when the capability is on (the "off => no sidecar contacted" invariant); the docling
+  image is pinned off `:latest`; the singleton docling HttpClient uses a bounded
+  PooledConnectionLifetime; a caller-cancelled conversion/probe is no longer mislabelled as
+  a sidecar fault. Scope: a per-hit inspect affordance on the Documents search (FR-9); a
+  change-feed lifecycle integration test (FR-2); the MCP `search` op takes `queryVector`;
+  the MCP delete-gate test is non-vacuous; this close-out (below). Accepted, documented
+  limitations: the duplicate-hash 409 and the namespace chunk ceiling are checked
+  per-request and can be raced under concurrency (bounded overshoot; both are soft guards,
+  see Revisit triggers); `UpdateProperty` is two transactions with a transient
+  status-absent window (no engine ReplaceProperty transaction exists).
 - **2026-08-02** Revised after an external design review. Adopted: fused (dense +
   lexical) retrieval as the default read path (FR-11), chunking from structured
   DoclingDocument JSON with markdown fallback (FR-6), per-chunk/per-document provenance
@@ -90,9 +107,11 @@ over `mentions` edges into the domain graph.
 - **Memory envelope, stated and enforced.** Estimate per chunk with fused retrieval on:
   UTF-16 chunk text up to 4,000 chars ~ 8 kB, dense vector 4 kB on the element plus
   4 kB in the bound index slab, roughly another text copy in the fulltext index, plus
-  bookkeeping: ~25-30 kB resident. 10k chunks ~ 300 MB; 100k chunks ~ 3 GB. This
-  estimate is replaced by a measured figure when implementation lands (plan phase 8).
-  The ceiling (FR-14) makes the wall an error, not an OOM.
+  bookkeeping: ~25-30 kB resident. 10k chunks ~ 300 MB; 100k chunks ~ 3 GB. The council
+  re-derived this arithmetic and found it honest and conservative (worst-case max-size
+  chunk; the double vector storage is disclosed). A precise MEASURED figure is left as a
+  follow-up (no `MemoryFootprintTest` was added); the estimate stands, clearly labelled,
+  and the ceiling (FR-14) makes the wall an error, not an OOM.
 
 ## Functional requirements
 
@@ -168,9 +187,13 @@ over `mentions` edges into the domain graph.
   `Document` triggers refetch), detail view with chunk previews, delete with confirm.
   A memory budget element: namespace chunk count against the ceiling with the estimated
   resident cost. Degraded modes stated: provider off (ingest offered `embed:false`
-  only, labelled), docling off (binary formats greyed with reason). Search UI for FR-11
-  with the existing hit affordances (inspect, send to canvas, use as path seed);
-  stale-model badge per FR-16. Screenshots and docs page per the standing UI rule.
+  only, labelled), docling off (binary formats greyed with reason). Search UI for FR-11.
+  **Hit affordances go through the canvas bridge** (council-narrowed 2026-08-02): each hit
+  is an ordinary chunk vertex, so a per-hit "Inspect" and a bulk "Send hits to canvas"
+  both place chunk vertices on the canvas, where inspect, expand-neighbours and
+  use-as-path/subgraph-seed already live. There are no separate per-hit buttons that jump
+  to the Browser/Path screens; the canvas is the one home for those actions. Stale-model
+  badge per FR-16. Screenshots and docs page per the standing UI rule.
 - **FR-10 MCP surface.** `f8_documents` tool, op-level tier gating (the `f8_plugins`
   precedent): `list` / `get` / `search` read tier, `ingest_text` / `delete` write tier.
   Binary upload over MCP: conscious deferral, reason recorded (base64 through tool
@@ -258,30 +281,33 @@ over `mentions` edges into the domain graph.
 - **Cutting XLSX.** Rejected in favour of table-aware chunking from structured output;
   spreadsheets are a common home for identifier-heavy content. Caps bound the
   explosion.
-- **Hand-authored sample linking.** Superseded: the shipped sample ingests its dossier
-  texts through the real endpoints with linking enabled, demoing the actual feature.
+- **Hand-authored sample linking.** Superseded twice: the gallery sample is deferred (see
+  Impact/Samples), and the docs page carries the worked example instead.
 - **Storing sparse weights per chunk.** Moot under Path B; the lexical side lives in
   the fulltext index, whose memory cost is stated in the envelope instead.
 
-## Unverified (resolve during implementation, do not assume)
+## Unverified (RESOLVED during implementation; kept for the record)
 
-- **Converter version capture.** docling-serve's convert response carries
-  `md_content`/`json_content`/`status`/`timings` but no version field (checked against
-  its usage docs). `converterVersion` is best-effort (probe or configured); absent
-  otherwise.
-- **Fulltext liveness.** Whether the fulltext index filters removed elements at query
-  time is unverified (the vector index does; the bucket family may not). FR-11 filters
-  hits to live elements regardless; if the engine layer needs the fix, it is a small
-  engine change, called out in the PR.
-- **Fulltext population path.** The transactional path for adding chunk text to the
-  fulltext index at ingest (writer-thread discipline) mirrors whatever the existing
-  index-add REST surface uses; exact mechanism confirmed in phase 2.
-- **`page_range` on non-PDF formats.** Supported per docling-serve docs; behaviour for
-  office formats unverified. The page cap is enforced post-parse from the document's
-  page count either way; `page_range` is only an optimization to bound parse cost.
-- **DoclingDocument schema surface.** The chunker models a minimal subset (texts,
-  sections, tables, provenance). Pin the subset with fixture documents; treat schema
-  drift across docling versions as a test-caught event, not a runtime surprise.
+- **Converter version capture.** RESOLVED: docling-serve's convert response carries no
+  version field, so `converterVersion` is never written (only the "absent" branch of FR-4
+  was built). Honest and documented; a probe/config knob is a follow-up if a version
+  source appears.
+- **Fulltext liveness.** RESOLVED. The engine now guards it directly: `RegExIndex.AddOrUpdate`
+  refuses a removed element (the one deliberate engine change, mirroring `VectorIndex`),
+  closing the add-after-remove tombstone leak the council found. FR-11 additionally filters
+  hits to live elements on both sides (defense in depth). Pinned by
+  `IngestionCouncilFixesTest.RegExIndex_RefusesARemovedElement_ButKeepsLiveOnes`.
+- **Fulltext population path.** RESOLVED and confirmed true: chunk text is added on the
+  request thread via `IIndex.AddOrUpdate` after commit - exactly the path `PUT /index/{id}`
+  uses. No new mechanism.
+- **`page_range` on non-PDF formats.** RESOLVED by not using it: no `page_range` is sent;
+  the page cap is enforced post-parse from the converted document's `pages` map, which is
+  format-agnostic.
+- **DoclingDocument schema surface.** RESOLVED: the chunker models a minimal subset
+  (texts/sections/tables/provenance/body-reading-order) pinned by literal fixture JSONs in
+  `IngestionChunkerTest`; the compose docling image is pinned off `:latest` so the schema
+  cannot drift under the environment without a deliberate bump, and the gated live smoke
+  (`F8_TEST_DOCLING_ENDPOINT`) catches real drift.
 
 ## Impact on existing features
 
@@ -361,5 +387,19 @@ over `mentions` edges into the domain graph.
 - Corpora pressing the ceiling: namespace partitioning and curation remain the answer;
   revisit only if that stops being acceptable.
 - Demand for whole-document search: document-level summary embeddings.
+- **Concurrent-ingest soft guards bite (council):** the duplicate-hash 409 (FR-15) and the
+  namespace chunk ceiling (FR-14) are checked per request, so simultaneous ingests into
+  one namespace can double a duplicate or overshoot the ceiling by roughly
+  (concurrency x per-doc chunks). Both are soft guards (best-effort dedup; anti-OOM, not a
+  hard quota), so bounded overshoot is accepted. If exactness is needed, serialize the
+  ingest critical section with a per-namespace async lock (which would also subsume the
+  index-ensure race, already fixed by re-check). Only then.
+- **Gallery sample:** deferred (see Impact/Samples). Build it when the sample loader gains
+  a document-ingest step for another reason, or on explicit request.
+- **FinishDocument-failure cleanup has no injected test:** the post-write cleanup path
+  (chunk-id sink + single catch) is covered by construction and the pre-write
+  failure-injection tests; there is no HTTP seam to fault FinishDocument specifically
+  (its property writes only fail on a transient engine fault). Add a seam + test if that
+  path ever proves reachable in practice.
 - A no-Python deployment requirement materializes: the deferred pure-.NET conversion
   backend.

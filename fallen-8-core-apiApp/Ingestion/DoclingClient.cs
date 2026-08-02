@@ -61,7 +61,15 @@ namespace NoSQL.GraphDB.App.Ingestion
                 var endpoint = docling.Endpoint.EndsWith("/", StringComparison.Ordinal)
                     ? docling.Endpoint
                     : docling.Endpoint + "/";
-                _client = handler == null ? new HttpClient() : new HttpClient(handler);
+                // This client is a singleton, so a raw HttpClient would pin its DNS resolution for
+                // the process lifetime - if the docling container restarts with a new IP, every
+                // later conversion fails until F8 restarts. A SocketsHttpHandler with a bounded
+                // PooledConnectionLifetime recycles connections (and re-resolves DNS) periodically.
+                // A test-supplied handler is used verbatim.
+                _client = new HttpClient(handler ?? new SocketsHttpHandler
+                {
+                    PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+                }, disposeHandler: true);
                 _client.BaseAddress = new Uri(endpoint);
                 _client.Timeout = TimeSpan.FromSeconds(Math.Max(1, docling.TimeoutSeconds));
             }
@@ -92,10 +100,17 @@ namespace NoSQL.GraphDB.App.Ingestion
                 {
                     response = await _client.PostAsync("v1/convert/file", content, cancellationToken);
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // The CALLER cancelled (client disconnect / shutdown). That is not a sidecar
+                    // fault - propagate it so the pipeline does not mislabel it as a 503 with a
+                    // failed Document.
+                    throw;
+                }
                 catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
                 {
-                    // TaskCanceledException covers the HttpClient timeout; a caller-cancelled token
-                    // surfaces the same way and is equally a "no conversion happened".
+                    // A genuine no-answer: connection refused, or the HttpClient timeout elapsed
+                    // (TaskCanceledException with the caller's token NOT cancelled).
                     throw new DoclingUnavailableException(
                         String.Format("The docling sidecar did not answer: {0}", ex.Message), ex);
                 }
@@ -161,8 +176,16 @@ namespace NoSQL.GraphDB.App.Ingestion
                     }
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The CALLER cancelled (e.g. the /status request was aborted) - do NOT cache this
+                // as unhealthy, or one aborted request would report docling down to everyone for
+                // the full TTL. Leave the cache untouched and surface the cancellation.
+                throw;
+            }
             catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
             {
+                // The probe's own timeout elapsed, or the sidecar is unreachable: genuinely down.
                 _logger.LogDebug("Docling health probe failed: {Reason}", ex.Message);
                 healthy = false;
             }
