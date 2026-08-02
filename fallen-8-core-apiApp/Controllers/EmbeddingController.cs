@@ -116,35 +116,12 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>The FR-8 consistency checks against every vector index bound to
-        /// <paramref name="embeddingName" />: provider dimension must equal the index's, and a
-        /// declared index model identity must match the provider's stamp. Hard errors (409).</summary>
+        /// <paramref name="embeddingName" /> - one home: <see cref="BoundIndexContract"/>.
+        /// Hard errors (409).</summary>
         private ActionResult CheckBoundIndexContract(String embeddingName)
         {
-            foreach (var namedIndex in _fallen8.IndexFactory.GetNamedIndicesSnapshot())
-            {
-                if (!(namedIndex.Value is IVectorIndex vectorIndex) ||
-                    !String.Equals(vectorIndex.EmbeddingName, embeddingName, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                if (vectorIndex.Dimension != _provider.Identity.Dimension)
-                {
-                    return ProblemResults.Conflict(String.Format(
-                        "The provider produces dimension {0}, but index '{1}' bound to embedding '{2}' requires {3}.",
-                        _provider.Identity.Dimension, namedIndex.Key, embeddingName, vectorIndex.Dimension));
-                }
-
-                if (vectorIndex.Model != null &&
-                    !String.Equals(vectorIndex.Model, _provider.Identity.Stamp, StringComparison.Ordinal))
-                {
-                    return ProblemResults.Conflict(String.Format(
-                        "Index '{0}' declares model identity '{1}', but the active provider is '{2}'.",
-                        namedIndex.Key, vectorIndex.Model, _provider.Identity.Stamp));
-                }
-            }
-
-            return null;
+            var conflict = BoundIndexContract.FindConflict(_fallen8, embeddingName, _provider);
+            return conflict == null ? null : ProblemResults.Conflict(conflict);
         }
 
         #endregion

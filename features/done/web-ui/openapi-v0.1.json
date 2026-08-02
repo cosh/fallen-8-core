@@ -1001,6 +1001,696 @@
         }
       }
     },
+    "/document": {
+      "post": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Ingests a document file into the graph",
+        "description": "The pipeline is parse, chunk, embed, write: the Document vertex is created first\r\n(status `processing`, visible on the change feed), chunks are written only\r\nafter embedding succeeded, and any later failure removes them again - a failed\r\ningest leaves exactly one failed Document vertex and zero chunks.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts conversion/embedding when the request is cancelled",
+          "content": {
+            "multipart/form-data; ver=0.1": {
+              "schema": {
+                "type": "object",
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "file": {
+                        "$ref": "#/components/schemas/IFormFile"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "embed": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "sourceUri": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "replaceDocumentId": {
+                        "pattern": "^-?(?:0|[1-9]\\d*)$",
+                        "type": [
+                          "integer",
+                          "string"
+                        ],
+                        "format": "int32"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "propertiesJson": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "linkJson": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The document was ingested; the summary reports chunk and link counts",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentSummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Unsupported format, reserved tag key, invalid link allowlist, empty conversion, or no chunks",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled), or embed=true while the embedding provider is off",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The replace target does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "Duplicate content hash, or an index shape/model conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "413": {
+            "description": "Above Fallen8:Ingestion:MaxUploadBytes, MaxPages, or MaxChunksPerDocument",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The docling sidecar or the embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "507": {
+            "description": "The namespace chunk ceiling is reached (Fallen8:Ingestion:MaxChunksPerNamespace)",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Lists the namespace's documents",
+        "description": "Summaries plus the chunk budget (FR-14) and the active embedding model,\r\n    so stale documents (FR-16) are visible in one call.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The documents, chunk usage and ceiling",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentListREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/document/search": {
+      "post": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Fused chunk search: dense kNN plus lexical fulltext, reciprocal rank fusion",
+        "description": "The default mode fuses both sides with RRF (k=60, candidate depth max(50, 4k));\r\nwhen one side is unavailable (provider off, index absent) the answer degrades and\r\n`modeUsed` says so. Hits are live Chunk vertices - use them directly as\r\n/path or /subgraph seeds. Scores: RRF when fused, raw kNN when dense, match count\r\nwhen lexical.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the query embedding when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentSearchSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentSearchSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hits (flat, or grouped per document)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentSearchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid k/window/mode, no usable query, a dimension mismatch, or the requested side is unavailable",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The vector index's dimension or declared model identity conflicts with the active provider",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/document/text": {
+      "post": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Ingests raw text or markdown into the graph",
+        "description": "The sidecar-free path (FR-3): markdown chunks along its headings, plain\r\n    text as one bounded section. Same lifecycle and failure semantics as the file route.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts embedding when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestTextSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestTextSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The document was ingested",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentSummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Missing name/text, an unknown format, a reserved tag key, or an invalid link allowlist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled, or embed=true while the embedding provider is off",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The replace target does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "Duplicate content hash, or an index shape/model conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "413": {
+            "description": "The text exceeds Fallen8:Ingestion:MaxUploadBytes, or the chunk cap",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "507": {
+            "description": "The namespace chunk ceiling is reached",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/document/{documentId}": {
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Gets one document with its chunks",
+        "description": "Chunks carry previews and provenance; the full text stays one home, the\r\n    chunk vertex's `text` property (graph element routes).",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "description": "The document vertex id",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document and its chunks in document order",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetailREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The id is not a Document vertex",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No vertex with this id",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Deletes a document, its chunks and all their edges",
+        "description": "One transactional removal (FR-7): edges (including `mentions` and\r\n    user-drawn ones onto chunks) cascade with the vertices; the fulltext mirror is\r\n    cleaned alongside.",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "description": "The document vertex id",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "Wait for the removal to commit",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The removal was enqueued (and committed when waitForCompletion)",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The id is not a Document vertex",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No vertex with this id",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/edge": {
       "put": {
         "tags": [
@@ -4409,6 +5099,744 @@
             "description": "The change feed is disabled (Fallen8:ChangeFeed:Enabled=false) or the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached",
             "content": {
               "text/event-stream": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/document": {
+      "post": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Ingests a document file into the graph",
+        "description": "The pipeline is parse, chunk, embed, write: the Document vertex is created first\r\n(status `processing`, visible on the change feed), chunks are written only\r\nafter embedding succeeded, and any later failure removes them again - a failed\r\ningest leaves exactly one failed Document vertex and zero chunks.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts conversion/embedding when the request is cancelled",
+          "content": {
+            "multipart/form-data; ver=0.1": {
+              "schema": {
+                "type": "object",
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "file": {
+                        "$ref": "#/components/schemas/IFormFile"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "embed": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "sourceUri": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "replaceDocumentId": {
+                        "pattern": "^-?(?:0|[1-9]\\d*)$",
+                        "type": [
+                          "integer",
+                          "string"
+                        ],
+                        "format": "int32"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "propertiesJson": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "linkJson": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The document was ingested; the summary reports chunk and link counts",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentSummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Unsupported format, reserved tag key, invalid link allowlist, empty conversion, or no chunks",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled), or embed=true while the embedding provider is off",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The replace target does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "Duplicate content hash, or an index shape/model conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "413": {
+            "description": "Above Fallen8:Ingestion:MaxUploadBytes, MaxPages, or MaxChunksPerDocument",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The docling sidecar or the embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "507": {
+            "description": "The namespace chunk ceiling is reached (Fallen8:Ingestion:MaxChunksPerNamespace)",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Lists the namespace's documents",
+        "description": "Summaries plus the chunk budget (FR-14) and the active embedding model,\r\n    so stale documents (FR-16) are visible in one call.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The documents, chunk usage and ceiling",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentListREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/document/search": {
+      "post": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Fused chunk search: dense kNN plus lexical fulltext, reciprocal rank fusion",
+        "description": "The default mode fuses both sides with RRF (k=60, candidate depth max(50, 4k));\r\nwhen one side is unavailable (provider off, index absent) the answer degrades and\r\n`modeUsed` says so. Hits are live Chunk vertices - use them directly as\r\n/path or /subgraph seeds. Scores: RRF when fused, raw kNN when dense, match count\r\nwhen lexical.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the query embedding when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentSearchSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentSearchSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The hits (flat, or grouped per document)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentSearchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Invalid k/window/mode, no usable query, a dimension mismatch, or the requested side is unavailable",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The vector index's dimension or declared model identity conflicts with the active provider",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/document/text": {
+      "post": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Ingests raw text or markdown into the graph",
+        "description": "The sidecar-free path (FR-3): markdown chunks along its headings, plain\r\n    text as one bounded section. Same lifecycle and failure semantics as the file route.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts embedding when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestTextSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestTextSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The document was ingested",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentSummaryREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Missing name/text, an unknown format, a reserved tag key, or an invalid link allowlist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled, or embed=true while the embedding provider is off",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "The replace target does not exist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "Duplicate content hash, or an index shape/model conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "413": {
+            "description": "The text exceeds Fallen8:Ingestion:MaxUploadBytes, or the chunk cap",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "502": {
+            "description": "The embedding backend produced invalid output",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The embedding backend is unavailable",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "507": {
+            "description": "The namespace chunk ceiling is reached",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/document/{documentId}": {
+      "get": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Gets one document with its chunks",
+        "description": "Chunks carry previews and provenance; the full text stays one home, the\r\n    chunk vertex's `text` property (graph element routes).",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "description": "The document vertex id",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document and its chunks in document order",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetailREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The id is not a Document vertex",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No vertex with this id",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Document"
+        ],
+        "summary": "Deletes a document, its chunks and all their edges",
+        "description": "One transactional removal (FR-7): edges (including `mentions` and\r\n    user-drawn ones onto chunks) cascade with the vertices; the fulltext mirror is\r\n    cleaned alongside.",
+        "parameters": [
+          {
+            "name": "documentId",
+            "in": "path",
+            "description": "The document vertex id",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "Wait for the removal to commit",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The removal was enqueued (and committed when waitForCompletion)",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The id is not a Document vertex",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Ingestion is disabled (Fallen8:Ingestion:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No vertex with this id",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
             }
           }
         }
@@ -14379,6 +15807,190 @@
         },
         "description": "Generation stats forwarded from the backend."
       },
+      "ChunkHitREST": {
+        "type": "object",
+        "properties": {
+          "chunkId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "documentId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "order": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "headingPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pageFrom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageTo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "identifiers": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "window": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChunkWindowEntryREST"
+            },
+            "description": "Sibling chunks in document order, the hit itself excluded (window &gt; 0)."
+          }
+        },
+        "description": "One retrieved chunk. The score is mode-dependent: RRF when fused, the raw\r\n    kNN score when dense, the fulltext match count when lexical."
+      },
+      "ChunkSummaryREST": {
+        "type": "object",
+        "properties": {
+          "chunkId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "order": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "example": "text"
+          },
+          "headingPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pageFrom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageTo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "identifiers": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "textPreview": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One chunk on GET /document/{id} - a PREVIEW; the full text is the chunk\r\n    vertex's `text` property, readable via the graph element routes."
+      },
+      "ChunkWindowEntryREST": {
+        "type": "object",
+        "properties": {
+          "chunkId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "order": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "description": "One sibling chunk of a hit's window (FR-12)."
+      },
       "ConfigREST": {
         "type": "object",
         "properties": {
@@ -14542,6 +16154,320 @@
       },
       "Direction": {
         "type": "integer"
+      },
+      "DoclingStatsREST": {
+        "type": "object",
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "A cached, short-TTL health probe - reading status stays cheap."
+          }
+        },
+        "description": "The sidecar's config/health state (spec FR-1)."
+      },
+      "DocumentDetailREST": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/DocumentSummaryREST"
+          },
+          "chunks": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChunkSummaryREST"
+            }
+          }
+        },
+        "description": "GET /document/{id}: the summary plus its chunks in document order."
+      },
+      "DocumentGroupREST": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/DocumentSummaryREST"
+          },
+          "bestScore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "chunks": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChunkHitREST"
+            }
+          }
+        },
+        "description": "Hits of one document (groupByDocument=true)."
+      },
+      "DocumentListREST": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DocumentSummaryREST"
+            }
+          },
+          "namespaceChunkCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Live chunks in this namespace.",
+            "format": "int32"
+          },
+          "chunkCeiling": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Fallen8:Ingestion:MaxChunksPerNamespace.",
+            "format": "int32"
+          },
+          "currentEmbeddingModel": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The active provider's model identity (null while the provider is off) -\r\n    the reference for bool DocumentSummaryREST.EmbeddingModelStale."
+          }
+        },
+        "description": "GET /document: the namespace's documents plus the chunk budget (FR-14)."
+      },
+      "DocumentSearchResultREST": {
+        "type": "object",
+        "properties": {
+          "modeUsed": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "example": "fused"
+          },
+          "hits": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChunkHitREST"
+            },
+            "description": "Flat hits, best first (absent when grouped)."
+          },
+          "documents": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DocumentGroupREST"
+            },
+            "description": "Per-document groups (groupByDocument=true only)."
+          }
+        },
+        "description": "The fused search answer. `modeUsed` states what actually ran: a fused\r\n    request degrades honestly when one side is unavailable."
+      },
+      "DocumentSearchSpecification": {
+        "type": "object",
+        "properties": {
+          "queryText": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The query. Feeds the lexical side always, and the dense side when the\r\n    embedding provider is on and no queryVector is supplied.",
+            "example": "the server that terminates tls for the shop"
+          },
+          "queryVector": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            },
+            "description": "Optional client-side dense query vector (bring-your-own-vector)."
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "`fused` (default), `dense` or `lexical`.",
+            "example": "fused"
+          },
+          "k": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "Results to return (default 10, max 100).",
+            "format": "int32",
+            "example": 10
+          },
+          "window": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "Sibling chunks each side of a hit over `next` edges (default 0, max 5).",
+            "format": "int32",
+            "example": 1
+          },
+          "groupByDocument": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "Group hits per document: documents by best hit, chunks by document\r\n    position, duplicates collapsed (FR-11)."
+          }
+        },
+        "description": "POST /document/search (spec unstructured-ingestion FR-11): fused chunk\r\n    retrieval over the bound vector index and the fulltext index."
+      },
+      "DocumentSummaryREST": {
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sourceFormat": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "example": "pdf"
+          },
+          "sourceUri": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "`processing`, `indexed` or `failed`.",
+            "example": "indexed"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The failure reason (failed documents only)."
+          },
+          "chunkCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "contentHash": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "SHA-256 of the ingested bytes - the duplicate/re-ingestion currency."
+          },
+          "converter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "`docling-serve` or `none`."
+          },
+          "chunkerConfig": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "embeddingModel": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The model identity the chunks were embedded with (absent when unembedded)."
+          },
+          "embeddingDimension": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "embedded": {
+            "type": "boolean"
+          },
+          "embeddingModelStale": {
+            "type": "boolean",
+            "description": "True when the recorded embedding model differs from the active provider\r\n    (FR-16) - queries embed with the new model, these chunks carry the old one."
+          },
+          "linksCreated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "Mentions edges created by this ingest (set on the ingest response only).",
+            "format": "int32"
+          }
+        },
+        "description": "One document as reported by the ingest/list/get surfaces (FR-2/FR-7)."
       },
       "Edge": {
         "required": [
@@ -15456,9 +17382,17 @@
           "embedding": {
             "description": "The embedding provider state (feature embedding-provider). Reading this\r\n    NEVER triggers the lazy model load.",
             "$ref": "#/components/schemas/EmbeddingProviderStatsREST"
+          },
+          "ingestion": {
+            "description": "The unstructured-ingestion state (feature unstructured-ingestion): the\r\n    same block as /status, so either discovery surface answers capability questions.",
+            "$ref": "#/components/schemas/IngestionStatsREST"
           }
         },
         "description": "The graph-shape snapshot behind GET /statistics (feature observability). An ADVISORY,\r\nlock-free snapshot - not transactionally consistent - computed on demand under an\r\nelement budget: exact when V+E fits the budget, uniformly strided (and flagged) above it."
+      },
+      "IFormFile": {
+        "type": "string",
+        "format": "binary"
       },
       "IndexAddToSpecification": {
         "required": [
@@ -15664,6 +17598,203 @@
           }
         },
         "description": "One registered index."
+      },
+      "IngestionLimitsREST": {
+        "type": "object",
+        "properties": {
+          "maxUploadBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "maxPages": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxChunksPerDocument": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxChunksPerNamespace": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxLinksPerChunk": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "description": "The enforced ingestion bounds (spec FR-1/FR-14)."
+      },
+      "IngestionStatsREST": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "textFormats": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Formats that ingest without the sidecar."
+          },
+          "binaryFormats": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Formats that need the docling sidecar."
+          },
+          "docling": {
+            "$ref": "#/components/schemas/DoclingStatsREST"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/IngestionLimitsREST"
+          },
+          "embeddingName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The element-embedding name chunk vectors are written under."
+          },
+          "vectorIndexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The ensured bound vector index id (null when EnsureVectorIndex is off)."
+          },
+          "fulltextIndexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The ensured fulltext index id (null when EnsureFulltextIndex is off -\r\n    fused search then degrades to dense-only)."
+          }
+        },
+        "description": "The unstructured-ingestion capability state on the discovery surfaces (spec FR-1,\r\n/status and /statistics): the flag, the formats each path accepts, the sidecar\r\nprobe (cached short-TTL, never a conversion), the enforced limits and the ensured\r\nindex ids. F8 Studio gates its upload UI on this block."
+      },
+      "IngestTextSpecification": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The document name.",
+            "example": "edge-server-notes"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The content."
+          },
+          "format": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "`markdown` (default, heading-aware chunking) or `plain`.",
+            "example": "markdown"
+          },
+          "embed": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "Embed the chunks (default true). Requires the embedding provider; pass\r\n    false to ingest text-only."
+          },
+          "properties": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "User tag properties applied to the document and every chunk. Keys of the\r\n    document graph model are reserved (400)."
+          },
+          "sourceUri": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional source pointer stored on the document vertex.",
+            "example": "https://wiki.example/edge-servers"
+          },
+          "replaceDocumentId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "Replace this document (FR-15): the new content is ingested fully first,\r\n    the old document and its chunks are removed on success.",
+            "format": "int32"
+          },
+          "link": {
+            "description": "Opt-in structural linking (FR-13).",
+            "$ref": "#/components/schemas/LinkSpecificationREST"
+          }
+        },
+        "description": "Raw-text ingestion (spec unstructured-ingestion FR-3) - works without the\r\n    docling sidecar."
+      },
+      "LinkSpecificationREST": {
+        "type": "object",
+        "properties": {
+          "indexIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The index ids to match extracted identifiers against (dictionary family;\r\n    vector and fulltext indices are rejected)."
+          },
+          "maxLinksPerChunk": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "description": "Optional per-request cap; never above Fallen8:Ingestion:MaxLinksPerChunk.",
+            "format": "int32",
+            "example": 8
+          }
+        },
+        "description": "Opt-in structural linking (spec unstructured-ingestion FR-13): exact-match\r\n    identifier lookups against an explicit allowlist of equality-capable indices."
       },
       "LiteralSpecification": {
         "required": [
@@ -17337,6 +19468,10 @@
           "chat": {
             "description": "The chat gateway state (feature instance-config) — a config read like\r\nEmbeddingProviderStatsREST StatusREST.Embedding, so it rides the cheap probe for capability discovery\r\n(e.g. the MCP overview's chatEnabled). Null when the host wired no provider. The\r\nGPU field stays null here; GET /config carries the probed value.",
             "$ref": "#/components/schemas/ChatProviderStatsREST"
+          },
+          "ingestion": {
+            "description": "The unstructured-ingestion state (feature unstructured-ingestion) — a config read\r\nplus a cached sidecar probe, so it rides the cheap discovery surface too. Null\r\nonly when the host wired no ingestion options.",
+            "$ref": "#/components/schemas/IngestionStatsREST"
           }
         },
         "description": "Represents the current status of the Fallen-8 database",
@@ -18255,6 +20390,9 @@
     },
     {
       "name": "Delegates"
+    },
+    {
+      "name": "Document"
     },
     {
       "name": "Embedding"

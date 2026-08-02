@@ -119,6 +119,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private readonly Fallen8EmbeddingOptions _embeddingOptions;
 
+        /// <summary>The ingestion pieces surfaced on /status (feature unstructured-ingestion);
+        /// null under direct unit construction.</summary>
+        private readonly Ingestion.IDoclingConverter _doclingConverter;
+        private readonly Fallen8IngestionOptions _ingestionOptions;
+
         #endregion
 
         /// <summary>The namespace collection (feature graph-namespaces); null under direct unit
@@ -129,12 +134,15 @@ namespace NoSQL.GraphDB.App.Controllers
             Services.SaveGameRegistry saveGames, Embedding.Fallen8EmbeddingProvider embeddingProvider = null,
             Fallen8Namespaces namespaces = null, IOptions<Fallen8DurabilityOptions> durability = null,
             Chat.Fallen8ChatProvider chatProvider = null, IOptions<Fallen8ObservabilityOptions> observability = null,
-            IOptions<Fallen8EmbeddingOptions> embeddingOptions = null)
+            IOptions<Fallen8EmbeddingOptions> embeddingOptions = null,
+            Ingestion.IDoclingConverter doclingConverter = null, IOptions<Fallen8IngestionOptions> ingestionOptions = null)
         {
             _embeddingProvider = embeddingProvider;
             _chatProvider = chatProvider;
             _observability = observability?.Value ?? new Fallen8ObservabilityOptions();
             _embeddingOptions = embeddingOptions?.Value;
+            _doclingConverter = doclingConverter;
+            _ingestionOptions = ingestionOptions?.Value;
 
             _namespaces = namespaces;
 
@@ -176,7 +184,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [AllowAnonymous]
         [Produces("application/json")]
         [ProducesResponseType(typeof(StatusREST), StatusCodes.Status200OK)]
-        public StatusREST Status()
+        public async Task<StatusREST> Status()
         {
             // WorkingSet64 (physical RAM in use), NOT VirtualMemorySize64: modern .NET reserves a
             // huge virtual address space (GC regions), so VirtualMemorySize64 reported hundreds of
@@ -253,6 +261,8 @@ namespace NoSQL.GraphDB.App.Controllers
                 Authenticated = HttpContext?.User?.Identity?.IsAuthenticated == true,
                 Embedding = EmbeddingProviderStatsREST.From(_embeddingProvider),
                 Chat = ChatProviderStatsREST.From(_chatProvider),
+                Ingestion = await IngestionStatsREST.From(_ingestionOptions, _doclingConverter,
+                    HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None),
             };
         }
 

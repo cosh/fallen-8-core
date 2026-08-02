@@ -148,6 +148,20 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(DegreeStatsREST))]
     [JsonSerializable(typeof(IndexStatsREST))]
     [JsonSerializable(typeof(MemoryStatsREST))]
+    [JsonSerializable(typeof(IngestionStatsREST))]
+    [JsonSerializable(typeof(DoclingStatsREST))]
+    [JsonSerializable(typeof(IngestionLimitsREST))]
+    [JsonSerializable(typeof(IngestTextSpecification))]
+    [JsonSerializable(typeof(LinkSpecificationREST))]
+    [JsonSerializable(typeof(DocumentSummaryREST))]
+    [JsonSerializable(typeof(DocumentListREST))]
+    [JsonSerializable(typeof(DocumentDetailREST))]
+    [JsonSerializable(typeof(ChunkSummaryREST))]
+    [JsonSerializable(typeof(DocumentSearchSpecification))]
+    [JsonSerializable(typeof(DocumentSearchResultREST))]
+    [JsonSerializable(typeof(ChunkHitREST))]
+    [JsonSerializable(typeof(ChunkWindowEntryREST))]
+    [JsonSerializable(typeof(DocumentGroupREST))]
     public sealed partial class AppJsonContext : JsonSerializerContext
     {
     }
