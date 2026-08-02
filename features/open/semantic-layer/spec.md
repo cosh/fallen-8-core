@@ -175,7 +175,11 @@ auto-created on first ingest (the operator wants to choose), and upload is a pla
   reference `Entity`/`mentions` exactly as any user label) - checked against RETRAIN-LOG's own
   criteria, no entry, per the prior increment's precedent.
 - **Docs/diagrams:** the `nlp` sidecar joins both architecture diagrams; the docs page is
-  reworked into the semantic-layer story; README key-feature line updated.
+  reworked into the semantic-layer story; README key-feature line updated. **The end-to-end
+  pipeline is documented explicitly** with its own flow/sequence diagram: upload -> (docling
+  async convert, binary only) -> chunk + identifier extraction -> embed -> NLP enrich (entities
+  + key terms) -> write Document/Chunk/Entity vertices + contains/next/mentions edges, with the
+  async status transitions shown riding the change feed. Not just screenshots.
 - **Compose/env:** a fourth sidecar; document the footprint honestly.
 
 ## Test expectations

@@ -81,8 +81,11 @@ degraded NLP; tsc clean; full vitest green; screenshots recaptured.
 ## Phase 9 - compose + docs + diagrams + gates (FR-10)
 
 `nlp` sidecar in compose behind the `ingestion` profile (default on; `F8_NLP=false` opts out).
-Rework the docs page into the semantic-layer story; both architecture diagrams gain the `nlp`
-sidecar; README key-feature line; OpenAPI snapshot regenerated; RETRAIN-LOG decision recorded.
+Rework the docs page into the semantic-layer story WITH an explicit end-to-end pipeline
+flow/sequence diagram (upload -> docling async convert -> chunk/identifiers -> embed -> NLP
+enrich -> Document/Chunk/Entity vertices + mentions edges, status riding the change feed);
+both architecture diagrams gain the `nlp` sidecar; README key-feature line; OpenAPI snapshot
+regenerated; RETRAIN-LOG decision recorded.
 
 Acceptance: `npm run env:up` cold start healthy with all sidecars; docs build link-checked;
 OpenAPI + MCP gates green; full `dotnet test` + web-ui suites green.

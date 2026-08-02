@@ -46,6 +46,13 @@ namespace NoSQL.GraphDB.App.Ingestion
         private readonly HttpClient _client;
         private readonly ILogger<DoclingClient> _logger;
 
+        // Conversion knobs + async budget (feature semantic-layer).
+        private readonly Boolean _doOcr;
+        private readonly String _tableMode;
+        private readonly String _ocrEngine;
+        private readonly TimeSpan _overallTimeout;
+        private readonly TimeSpan _pollInterval;
+
         /// <summary>Monotonic-clock cache for the health probe (0 ticks = never probed).</summary>
         private Int64 _healthProbedAtTicks;
         private volatile Boolean _healthy;
@@ -56,6 +63,11 @@ namespace NoSQL.GraphDB.App.Ingestion
             _logger = logger;
 
             var docling = options.Value.Docling ?? new Fallen8IngestionOptions.DoclingOptions();
+            _doOcr = docling.DoOcr;
+            _tableMode = String.IsNullOrWhiteSpace(docling.TableMode) ? "fast" : docling.TableMode;
+            _ocrEngine = docling.OcrEngine ?? String.Empty;
+            _overallTimeout = TimeSpan.FromSeconds(Math.Max(1, docling.TimeoutSeconds));
+            _pollInterval = TimeSpan.FromSeconds(Math.Max(1, docling.PollIntervalSeconds));
             if (!String.IsNullOrWhiteSpace(docling.Endpoint))
             {
                 var endpoint = docling.Endpoint.EndsWith("/", StringComparison.Ordinal)
@@ -71,14 +83,22 @@ namespace NoSQL.GraphDB.App.Ingestion
                     PooledConnectionLifetime = TimeSpan.FromMinutes(2)
                 }, disposeHandler: true);
                 _client.BaseAddress = new Uri(endpoint);
-                _client.Timeout = TimeSpan.FromSeconds(Math.Max(1, docling.TimeoutSeconds));
+                // Per-request cap (submit/poll/result are each quick); the OVERALL budget is the
+                // poll-loop deadline below, so a minutes-long conversion is bounded there, not here.
+                _client.Timeout = TimeSpan.FromSeconds(Math.Min(120, Math.Max(30, docling.TimeoutSeconds)));
             }
         }
 
         public Boolean Configured => _client != null;
 
-        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
-            Justification = "Deserializes the pinned DoclingModels DTO subset with default options; trimming is disabled for this application.")]
+        /// <summary>
+        ///   Converts one document via docling-serve's ASYNC task API: submit
+        ///   (<c>/v1/convert/file/async</c>), poll (<c>/v1/status/poll/{id}</c>) until the task
+        ///   finishes or the overall budget elapses, then fetch (<c>/v1/result/{id}</c>). Called
+        ///   off-thread by the ingestion worker, so a minutes-long scanned-PDF conversion holds
+        ///   no HTTP request open. Throws <see cref="DoclingUnavailableException"/> on any
+        ///   non-success / timeout; propagates a caller cancellation unchanged.
+        /// </summary>
         public async Task<DoclingConversionResult> ConvertAsync(Byte[] fileBytes, String fileName,
             CancellationToken cancellationToken)
         {
@@ -87,65 +107,126 @@ namespace NoSQL.GraphDB.App.Ingestion
                 throw new DoclingUnavailableException("No docling endpoint is configured (Fallen8:Ingestion:Docling:Endpoint).");
             }
 
+            var taskId = await SubmitAsync(fileBytes, fileName, cancellationToken);
+            await PollUntilDoneAsync(taskId, fileName, cancellationToken);
+            return await FetchResultAsync(taskId, fileName, cancellationToken);
+        }
+
+        private async Task<String> SubmitAsync(Byte[] fileBytes, String fileName, CancellationToken cancellationToken)
+        {
             using (var content = new MultipartFormDataContent())
             {
-                var filePart = new ByteArrayContent(fileBytes);
-                content.Add(filePart, "files", fileName);
+                content.Add(new ByteArrayContent(fileBytes), "files", fileName);
                 // Structured output primary, markdown fallback - one conversion, both formats.
                 content.Add(new StringContent("json"), "to_formats");
                 content.Add(new StringContent("md"), "to_formats");
+                // Conversion knobs (feature semantic-layer): OCR off by default is the big win.
+                content.Add(new StringContent(_doOcr ? "true" : "false"), "do_ocr");
+                content.Add(new StringContent(_tableMode), "table_mode");
+                if (!String.IsNullOrWhiteSpace(_ocrEngine))
+                {
+                    content.Add(new StringContent(_ocrEngine), "ocr_engine");
+                }
 
-                HttpResponseMessage response;
+                var status = await SendForJsonAsync<DoclingTaskStatus>(
+                    () => _client.PostAsync("v1/convert/file/async", content, cancellationToken),
+                    fileName, cancellationToken);
+                if (String.IsNullOrEmpty(status?.TaskId))
+                {
+                    throw new DoclingUnavailableException(
+                        String.Format("The docling sidecar accepted '{0}' but returned no task id.", fileName));
+                }
+
+                return status.TaskId;
+            }
+        }
+
+        private async Task PollUntilDoneAsync(String taskId, String fileName, CancellationToken cancellationToken)
+        {
+            var deadline = DateTime.UtcNow + _overallTimeout;
+            while (true)
+            {
+                var status = await SendForJsonAsync<DoclingTaskStatus>(
+                    () => _client.GetAsync($"v1/status/poll/{taskId}", cancellationToken), fileName, cancellationToken);
+                var state = status?.TaskStatus?.ToLowerInvariant();
+                if (state == "success")
+                {
+                    return;
+                }
+
+                if (state == "failure" || state == "error")
+                {
+                    throw new DoclingUnavailableException(
+                        String.Format("The docling conversion of '{0}' failed ({1}).", fileName, status.TaskStatus));
+                }
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    throw new DoclingUnavailableException(String.Format(
+                        "The docling conversion of '{0}' did not finish within {1}s.", fileName, (Int32)_overallTimeout.TotalSeconds));
+                }
+
+                await Task.Delay(_pollInterval, cancellationToken);
+            }
+        }
+
+        private async Task<DoclingConversionResult> FetchResultAsync(String taskId, String fileName,
+            CancellationToken cancellationToken)
+        {
+            var parsed = await SendForJsonAsync<DoclingConvertResponse>(
+                () => _client.GetAsync($"v1/result/{taskId}", cancellationToken), fileName, cancellationToken);
+            var document = parsed?.Document?.JsonContent;
+            var pages = document?.Pages;
+            return new DoclingConversionResult
+            {
+                Markdown = parsed?.Document?.MdContent,
+                Document = document,
+                PageCount = pages != null && pages.Count > 0 ? pages.Count : (Int32?)null
+            };
+        }
+
+        /// <summary>Runs one request and deserializes its JSON body, mapping every fault to the
+        /// same policy: a caller cancellation propagates; anything else (non-2xx, no answer,
+        /// non-JSON) is a <see cref="DoclingUnavailableException"/>.</summary>
+        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+            Justification = "Deserializes the pinned DoclingModels DTO subset with default options; trimming is disabled for this application.")]
+        private async Task<T> SendForJsonAsync<T>(Func<Task<HttpResponseMessage>> send, String fileName,
+            CancellationToken cancellationToken)
+        {
+            HttpResponseMessage response;
+            try
+            {
+                response = await send();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
+            {
+                throw new DoclingUnavailableException(
+                    String.Format("The docling sidecar did not answer for '{0}': {1}", fileName, ex.Message), ex);
+            }
+
+            using (response)
+            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new DoclingUnavailableException(String.Format(
+                        "The docling sidecar answered {0} for '{1}'.", (Int32)response.StatusCode, fileName));
+                }
+
                 try
                 {
-                    response = await _client.PostAsync("v1/convert/file", content, cancellationToken);
+                    using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken))
+                    {
+                        return await JsonSerializer.DeserializeAsync<T>(stream, cancellationToken: cancellationToken);
+                    }
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                catch (JsonException ex)
                 {
-                    // The CALLER cancelled (client disconnect / shutdown). That is not a sidecar
-                    // fault - propagate it so the pipeline does not mislabel it as a 503 with a
-                    // failed Document.
-                    throw;
-                }
-                catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
-                {
-                    // A genuine no-answer: connection refused, or the HttpClient timeout elapsed
-                    // (TaskCanceledException with the caller's token NOT cancelled).
                     throw new DoclingUnavailableException(
-                        String.Format("The docling sidecar did not answer: {0}", ex.Message), ex);
-                }
-
-                using (response)
-                {
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        throw new DoclingUnavailableException(String.Format(
-                            "The docling sidecar answered {0} for '{1}'.", (Int32)response.StatusCode, fileName));
-                    }
-
-                    DoclingConvertResponse parsed;
-                    try
-                    {
-                        using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken))
-                        {
-                            parsed = await JsonSerializer.DeserializeAsync<DoclingConvertResponse>(stream,
-                                cancellationToken: cancellationToken);
-                        }
-                    }
-                    catch (JsonException ex)
-                    {
-                        throw new DoclingUnavailableException(
-                            String.Format("The docling sidecar answered non-JSON for '{0}': {1}", fileName, ex.Message), ex);
-                    }
-
-                    var document = parsed?.Document?.JsonContent;
-                    var pages = document?.Pages;
-                    return new DoclingConversionResult
-                    {
-                        Markdown = parsed?.Document?.MdContent,
-                        Document = document,
-                        PageCount = pages != null && pages.Count > 0 ? pages.Count : (Int32?)null
-                    };
+                        String.Format("The docling sidecar answered non-JSON for '{0}': {1}", fileName, ex.Message), ex);
                 }
             }
         }

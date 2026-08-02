@@ -100,8 +100,27 @@ namespace NoSQL.GraphDB.App.Configuration
             /// still ingest, binary formats answer 503).</summary>
             public String Endpoint { get; set; } = String.Empty;
 
-            /// <summary>Per-conversion request timeout.</summary>
-            public Int32 TimeoutSeconds { get; set; } = 120;
+            /// <summary>OVERALL budget for an async conversion (submit + poll loop + result).
+            /// Async ingestion runs off-thread, so this can be generous for a large scanned PDF
+            /// without holding any request open.</summary>
+            public Int32 TimeoutSeconds { get; set; } = 600;
+
+            /// <summary>Seconds between task-status polls.</summary>
+            public Int32 PollIntervalSeconds { get; set; } = 2;
+
+            /// <summary>Run OCR. Default FALSE: born-digital PDFs need none, and OCR is the
+            /// dominant cost on large scanned documents (the reason the Gutachten was slow).
+            /// Turn on for scanned corpora, accepting the latency.</summary>
+            public Boolean DoOcr
+            {
+                get; set;
+            }
+
+            /// <summary>Table structure detection: <c>fast</c> (default) or <c>accurate</c>.</summary>
+            public String TableMode { get; set; } = "fast";
+
+            /// <summary>Optional OCR engine name (docling default when empty).</summary>
+            public String OcrEngine { get; set; } = String.Empty;
         }
     }
 }
