@@ -229,6 +229,11 @@ export interface StreamChangesOptions {
   onClose?: (reason: StreamCloseReason) => void;
   /** A reconnect is scheduled (attempt counter and the backoff delay about to be waited). */
   onRetry?: (attempt: number, delayMs: number) => void;
+  /**
+   * Every SSE `id:` as it arrives (`epoch:seq`) - the caller's catch-up position for a
+   * FUTURE subscription (the loop already carries it across its own reconnects).
+   */
+  onFrameId?: (id: string) => void;
   /** First reconnect delay; doubles per attempt (default 1000). */
   initialBackoffMs?: number;
   /** Backoff ceiling (default 30000). */
@@ -308,7 +313,10 @@ export async function streamChanges(
         attempt = 0;
 
         const parser = new SseParser((frame) => {
-          if (frame.id) lastId = frame.id; // the reconnect catch-up position
+          if (frame.id) {
+            lastId = frame.id; // the reconnect catch-up position
+            options.onFrameId?.(frame.id);
+          }
           if (!frame.data) return;
           const event = parseChangeEvent(frame.data);
           if (!event) return;

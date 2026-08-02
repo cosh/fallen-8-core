@@ -1,6 +1,8 @@
 # Studio event feed - spec
 
-> **Status:** spec only; implementation is a follow-up (feature workflow step 1).
+> **Status:** Implemented and merged (branch `feature/studio-event-feed`, council-approved
+> 2026-08-02; see [plan.md](./plan.md) for the phase record and council outcome, and
+> "As-built deltas" below for the recorded deviations).
 > **Parent feature:** [change-feed](../../done/change-feed/) (done). This is a pure Studio
 > feature: **no engine, REST, OpenAPI, or MCP change of any kind.**
 
@@ -30,6 +32,23 @@ Recorded from the design conversation (2026-08-01); rationale inline in the sect
    Escape), docked to the right edge instead of centered.
 4. **Catch-up via `since`.** Per-namespace session buffers; on resubscribe the stream
    resumes from the last seen event id, replaying missed events from the server ring.
+
+## As-built deltas
+
+Recorded at land time (2026-08-02); each is additive to the contract below.
+
+- **Rename migrates the feed.** §7 specifies clearing on recreate; a namespace RENAME
+  additionally moves the buffer and catch-up position to the new name - the graph and its
+  feed epoch/sequence are unchanged, so continuity is preserved rather than dropped.
+- **Per-reason resync lines.** The §4 gap-marker table shares one line for
+  `trim`/`tabulaRasa`/`load`; the panel renders three distinct lines (compacted vs
+  replaced vs save game loaded). Same honesty, more precision.
+- **Match-nothing is expressible in the UI, not over REST.** Unchecking every kind (or
+  both element types) matches nothing; the REST grammar has wildcards but no
+  match-nothing, so copy-as-REST disables with an explanation, and the footer states how
+  many buffered events the filter hides.
+- **Clipboard fallback.** Copy-as-REST fails visibly ("copy failed") when
+  `navigator.clipboard` is unavailable (plain-HTTP deployments) instead of throwing.
 
 ## Behaviour
 

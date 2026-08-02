@@ -2,7 +2,9 @@
 
 A live stream of committed graph mutations over **Server-Sent Events**, with declarative
 server-side filtering and a bounded in-memory catch-up buffer. Companion docs:
-[spec.md](./spec.md) (contract) and [plan.md](./plan.md) (phases).
+[spec.md](./spec.md) (contract) and [plan.md](./plan.md) (phases). In F8 Studio the feed
+surfaces as the Events panel (feature
+[studio-event-feed](../studio-event-feed/spec.md)).
 
 ## The client recipe
 

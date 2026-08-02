@@ -230,6 +230,17 @@ export const FIELD_HELP = {
   saveGameDeleteFiles:
     "Also delete the checkpoint's files on the server's disk, not just its registry entry. The data is then unrecoverable.",
 
+  // ---- events panel (feature studio-event-feed) ----
+  feedKinds:
+    "Event kinds to show and count. Dimensions combine like the REST filter grammar: AND across dimensions, OR within one. Resync events are exempt and always shown, because they mean continuity was lost.",
+  feedElements: "Restrict to vertex or edge events: the elements dimension of the REST filter grammar.",
+  feedLabels:
+    "Exact, case-sensitive labels to match (Enter or comma adds one). An element without a label never matches a labels filter, the same rule the server applies.",
+  feedKeys:
+    "Exact property keys to match (Enter or comma adds one). Only property events carry a key, so any keys filter hides creates and removes: the same caveat as the REST grammar.",
+  feedCopyRest:
+    "Copy the configured filter as the equivalent GET /changefeed query, ready for curl or a service. Credentials never go into the URL.",
+
   // ---- connect ----
   instanceName: "Display name for this connection, shown in the instance switcher.",
   instanceUrl:

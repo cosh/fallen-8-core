@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -36,6 +36,9 @@ import { describeEndpoint, type InstanceConfig } from "../instances/types";
 import { ApiError } from "../api/client";
 import { getStatus, isAuthorized, listNamespaces } from "../api/endpoints";
 import { useLiveChangeFeed, type LiveFeedStatus } from "../state/liveFeed";
+import { getInstanceStore } from "../state/instanceStore";
+import { EventFeedBell } from "../components/EventFeedBell";
+import { EventFeedPanel } from "../components/EventFeedPanel";
 import { NamespaceSwitcher } from "../components/NamespaceSwitcher";
 import { FirstRunOverlay } from "../firstrun/FirstRunOverlay";
 import { useFirstRun } from "../firstrun/firstRunStore";
@@ -157,6 +160,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const feedInstance = active ? { ...active, id: `${active.id}/${ns}`, namespace: ns } : null;
   const liveStatus = useLiveChangeFeed(feedInstance);
   const connection = useConnectionState(active);
+  // The Events panel (feature studio-event-feed): opened from the bell, closed by the
+  // Radix overlay behaviors; an InspectLink hands off to the Browser via the one-shot
+  // prefill and closes the panel.
+  const [feedOpen, setFeedOpen] = useState(false);
+  const inspectFromFeed = (id: number) => {
+    if (!feedInstance) return;
+    // Writes to the namespace-BOUND store; a pre-namespace server's Browser reads the
+    // UNBOUND one, but there the /ns/... stream dies fatal, so the panel never has rows.
+    getInstanceStore(feedInstance.id).getState().setInspectPrefill(id);
+    setFeedOpen(false);
+    void navigate({ to: "/q/$ns/browser", params: { ns } });
+  };
 
   // The namespace inventory feeds the switcher (name + counts + quota) AND the capability
   // probe: a 404 marks the server pre-namespace, and every screen then degrades to the
@@ -354,6 +369,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                 docs
               </a>
               <LiveChip status={liveStatus} />
+              {feedInstance && (
+                <EventFeedBell
+                  key={feedInstance.id}
+                  scopeId={feedInstance.id}
+                  status={liveStatus}
+                  onOpen={() => setFeedOpen(true)}
+                />
+              )}
               <HealthChip state={connection} />
             </div>
           </div>
@@ -394,6 +417,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Rendered once; portals to <body>. Opened by the rail's Replay intro, closed on
           Escape/overlay-click/Close (Radix focus trap + restore). */}
       <FirstRunOverlay />
+
+      {/* The Events slide-over, keyed by scope so a namespace/instance switch remounts it
+          onto that scope's buffer (same isolation the screens get from the keyed subtree). */}
+      {feedInstance && (
+        <EventFeedPanel
+          key={feedInstance.id}
+          instance={feedInstance}
+          status={liveStatus}
+          open={feedOpen}
+          onClose={() => setFeedOpen(false)}
+          onInspect={inspectFromFeed}
+        />
+      )}
     </div>
   );
 }
