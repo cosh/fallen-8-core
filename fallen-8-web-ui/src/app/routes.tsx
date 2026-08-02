@@ -46,6 +46,7 @@ import { AnalyticsScreen } from "../screens/AnalyticsScreen";
 import { PluginsScreen } from "../screens/PluginsScreen";
 import { CanvasScreen } from "../screens/CanvasScreen";
 import { BenchmarkScreen } from "../screens/BenchmarkScreen";
+import { DocumentsScreen } from "../screens/DocumentsScreen";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -109,6 +110,15 @@ const browserRoute = createRoute({
   getParentRoute: () => namespaceRoute,
   path: "browser",
   component: BrowserScreen,
+});
+
+// NOTE: "documents" (plural) - the singular path is the real POST /document API route (same
+// reason "indexes"/"subgraphs" are plural). Namespace-scoped: ingestion writes into the
+// active graph (feature unstructured-ingestion).
+const documentsRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "documents",
+  component: DocumentsScreen,
 });
 
 const queryRoute = createRoute({
@@ -199,6 +209,7 @@ const routeTree = rootRoute.addChildren([
     dashboardRoute,
     samplesRoute,
     browserRoute,
+    documentsRoute,
     queryRoute,
     indexesRoute,
     pathRoute,

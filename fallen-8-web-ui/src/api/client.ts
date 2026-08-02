@@ -194,3 +194,31 @@ export async function apiRequest<T>(
   if (text === "" || text === "null") return null;
   return JSON.parse(text) as T;
 }
+
+/**
+ * Multipart POST (feature unstructured-ingestion: the document upload). Same URL scoping,
+ * auth and error mapping as {@link apiRequest}; the browser sets the multipart boundary
+ * itself, so no Content-Type is written here.
+ */
+export async function apiForm<T>(
+  instance: InstanceConfig,
+  path: string,
+  form: FormData,
+  options: Pick<RequestOptions, "signal" | "scope"> = {},
+): Promise<T | null> {
+  const effectivePath = options.scope === "fallen8" ? path : scopedPath(instance, path);
+  const url = buildUrl(instance.baseUrl, effectivePath);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { ...authHeaders(instance) },
+    body: form,
+    signal: options.signal,
+  });
+
+  await throwIfNotOk(response, url);
+
+  if (response.status === 204) return null;
+  const text = await response.text();
+  if (text === "" || text === "null") return null;
+  return JSON.parse(text) as T;
+}

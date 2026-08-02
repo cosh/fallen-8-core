@@ -51,6 +51,7 @@ const NAV = [
   { leaf: "samples", label: "Samples", icon: "◈", scoped: true },
   { leaf: "/save-games", label: "Save games", icon: "⭯", scoped: false },
   { leaf: "browser", label: "Browser", icon: "☰", scoped: true },
+  { leaf: "documents", label: "Documents", icon: "▤", scoped: true },
   { leaf: "query", label: "Query", icon: "∴", scoped: true },
   { leaf: "indexes", label: "Indexes", icon: "⌗", scoped: true },
   { leaf: "path", label: "Path", icon: "↝", scoped: true },

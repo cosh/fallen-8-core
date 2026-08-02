@@ -141,6 +141,109 @@ export interface StatusREST {
   // Chat gateway capability state (feature instance-config). Optional so instances
   // predating the field still parse; the GPU field is only set on GET /config.
   chat?: ChatProviderStatsREST | null;
+  // Unstructured-ingestion capability state (feature unstructured-ingestion). Optional so
+  // instances predating the field still parse; the Documents screen gates on it.
+  ingestion?: IngestionStats | null;
+}
+
+// ---- unstructured ingestion (feature unstructured-ingestion) ----
+
+export interface IngestionStats {
+  enabled: boolean;
+  textFormats: string[];
+  binaryFormats: string[];
+  docling: { configured: boolean; reachable: boolean };
+  limits: {
+    maxUploadBytes: number;
+    maxPages: number;
+    maxChunksPerDocument: number;
+    maxChunksPerNamespace: number;
+    maxLinksPerChunk: number;
+  };
+  embeddingName: string;
+  vectorIndexId?: string | null;
+  fulltextIndexId?: string | null;
+}
+
+export interface DocumentSummary {
+  documentId: number;
+  name: string;
+  sourceFormat: string;
+  sourceUri?: string;
+  status: "processing" | "indexed" | "failed";
+  error?: string;
+  chunkCount: number;
+  pageCount?: number;
+  contentHash: string;
+  converter: string;
+  chunkerConfig?: string;
+  embeddingModel?: string;
+  embeddingDimension?: number;
+  embedded: boolean;
+  embeddingModelStale: boolean;
+  linksCreated?: number;
+}
+
+export interface DocumentList {
+  documents: DocumentSummary[];
+  namespaceChunkCount: number;
+  chunkCeiling: number;
+  currentEmbeddingModel?: string;
+}
+
+export interface ChunkSummary {
+  chunkId: number;
+  order: number;
+  kind: string;
+  headingPath?: string;
+  pageFrom?: number;
+  pageTo?: number;
+  identifiers?: string[];
+  textPreview: string;
+}
+
+export interface DocumentDetail {
+  summary: DocumentSummary;
+  chunks: ChunkSummary[];
+}
+
+export interface IngestTextSpecification {
+  name: string;
+  text: string;
+  format?: "markdown" | "plain";
+  embed?: boolean;
+  properties?: Record<string, string>;
+  sourceUri?: string;
+  replaceDocumentId?: number;
+  link?: { indexIds: string[]; maxLinksPerChunk?: number };
+}
+
+export interface DocumentSearchSpecification {
+  queryText?: string;
+  queryVector?: number[];
+  mode?: "fused" | "dense" | "lexical";
+  k?: number;
+  window?: number;
+  groupByDocument?: boolean;
+}
+
+export interface ChunkHit {
+  chunkId: number;
+  documentId?: number;
+  score: number;
+  order: number;
+  text: string;
+  headingPath?: string;
+  pageFrom?: number;
+  pageTo?: number;
+  identifiers?: string[];
+  window?: { chunkId: number; order: number; text: string }[];
+}
+
+export interface DocumentSearchResult {
+  modeUsed: "fused" | "dense" | "lexical";
+  hits?: ChunkHit[];
+  documents?: { document?: DocumentSummary; bestScore: number; chunks: ChunkHit[] }[];
 }
 
 export interface PropertyREST {
