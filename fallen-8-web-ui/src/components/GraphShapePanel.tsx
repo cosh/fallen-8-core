@@ -40,9 +40,12 @@ import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 function CardinalityColumn({
   title,
   stats,
+  emptyName,
 }: {
   title: string;
   stats: CardinalityStatsREST | undefined;
+  /** Shown for the unnamed bucket: the server tallies label-less elements under "". */
+  emptyName: string;
 }) {
   const top = stats?.top ?? [];
   return (
@@ -57,11 +60,15 @@ function CardinalityColumn({
         {top.length === 0 && <li className="text-fg-faint">none</li>}
         {top.map((entry) => (
           <li
-            key={entry.name ?? "—"}
+            key={entry.name || emptyName}
             className="text-fg-dim flex justify-between gap-2"
           >
-            {/* min-w-0 flex-1 is what makes the truncate actually bite in a flex row. */}
-            <Truncated text={entry.name ?? "—"} className="min-w-0 flex-1" />
+            {entry.name ? (
+              /* min-w-0 flex-1 is what makes the truncate actually bite in a flex row. */
+              <Truncated text={entry.name} className="min-w-0 flex-1" />
+            ) : (
+              <span className="text-fg-faint min-w-0 flex-1 italic">{emptyName}</span>
+            )}
             <span className="text-fg-faint shrink-0">{entry.count.toLocaleString()}</span>
           </li>
         ))}
@@ -170,9 +177,21 @@ export function GraphShapePanel() {
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <CardinalityColumn title="vertex labels" stats={data.vertexLabels} />
-            <CardinalityColumn title="edge labels" stats={data.edgeLabels} />
-            <CardinalityColumn title="property keys" stats={data.propertyKeys} />
+            <CardinalityColumn
+              title="vertex labels"
+              stats={data.vertexLabels}
+              emptyName="<no label>"
+            />
+            <CardinalityColumn
+              title="edge labels"
+              stats={data.edgeLabels}
+              emptyName="<no label>"
+            />
+            <CardinalityColumn
+              title="property keys"
+              stats={data.propertyKeys}
+              emptyName="<no key>"
+            />
           </div>
 
           <DegreeTable shape={data} />
