@@ -67,7 +67,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             // deliberately ignored - "weakly" connected.
             for (var i = 0; i < n; i++)
             {
-                if ((i & (GraphAnalyticsDefinition.BudgetCheckInterval - 1)) == 0 && budget.IsExhausted)
+                if (budget.IsExhaustedAt(i))
                 {
                     // Single pass: a partially unioned forest is meaningless.
                     return false;

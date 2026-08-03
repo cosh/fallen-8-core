@@ -85,14 +85,41 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             }
         }
 
-        /// <summary>Counts in-scope edges in one adjacency direction - the shared degree
-        /// primitive (DEGREE scores, PageRank divisors). Parallel edges count multiply and a
-        /// self-loop counts once per direction, exactly as the inline walkers did.</summary>
-        internal static Int64 CountInScope(EdgeAdjacency adjacency, Boolean neighborIsTarget,
+        /// <summary>
+        ///   Walks the adjacency selected by <paramref name="direction"/>: the out-adjacency
+        ///   unless <see cref="Direction.IncomingEdge"/>, the in-adjacency unless
+        ///   <see cref="Direction.OutgoingEdge"/> - so <see cref="Direction.UndirectedEdge"/>
+        ///   walks both. THE single home for the direction dispatch the direction-aware
+        ///   algorithms share (PageRank's divisor and push passes, DegreeCentrality,
+        ///   LabelPropagation), so those passes cannot resolve different neighbour sets by drift.
+        ///   TriangleCounting and WCC deliberately ignore direction and call
+        ///   <see cref="Visit{TVisitor}"/> directly. Generic over a struct visitor passed by
+        ///   <c>ref</c>, so the JIT specializes and inlines exactly as the inline dispatch did -
+        ///   no delegate, no allocation.
+        /// </summary>
+        internal static void VisitByDirection<TVisitor>(VertexModel vertex, Direction direction,
+            String edgePropertyId, Dictionary<Int32, Int32> scope, ref TVisitor visitor)
+            where TVisitor : struct, IInScopeNeighborVisitor
+        {
+            if (direction != Direction.IncomingEdge)
+            {
+                Visit(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope, ref visitor);
+            }
+            if (direction != Direction.OutgoingEdge)
+            {
+                Visit(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope, ref visitor);
+            }
+        }
+
+        /// <summary>Counts in-scope edges under the chosen direction - the shared degree
+        /// primitive (DEGREE scores, PageRank divisors) over <see cref="VisitByDirection{TVisitor}"/>.
+        /// Parallel edges count multiply and a self-loop counts once per walked direction, exactly
+        /// as the inline walkers did.</summary>
+        internal static Int64 CountByDirection(VertexModel vertex, Direction direction,
             String edgePropertyId, Dictionary<Int32, Int32> scope)
         {
             var visitor = new CountingVisitor();
-            Visit(adjacency, neighborIsTarget, edgePropertyId, scope, ref visitor);
+            VisitByDirection(vertex, direction, edgePropertyId, scope, ref visitor);
             return visitor.Count;
         }
 

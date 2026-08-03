@@ -62,24 +62,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
 
             for (var i = 0; i < n; i++)
             {
-                if ((i & (GraphAnalyticsDefinition.BudgetCheckInterval - 1)) == 0 && budget.IsExhausted)
+                if (budget.IsExhaustedAt(i))
                 {
                     // Single pass: a partial degree map is meaningless.
                     return false;
                 }
 
                 var vertex = workspace.Vertices[i];
-                var degree = 0L;
-
-                if (direction != Direction.IncomingEdge)
-                {
-                    degree += AnalyticsAdjacency.CountInScope(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope);
-                }
-
-                if (direction != Direction.OutgoingEdge)
-                {
-                    degree += AnalyticsAdjacency.CountInScope(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope);
-                }
+                var degree = AnalyticsAdjacency.CountByDirection(vertex, direction, edgePropertyId, scope);
 
                 var score = (Double)degree;
                 scores[vertex.Id] = score;
