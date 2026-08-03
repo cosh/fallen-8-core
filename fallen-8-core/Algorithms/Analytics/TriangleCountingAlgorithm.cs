@@ -62,7 +62,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             var neighborSet = new HashSet<Int32>();
             for (var i = 0; i < n; i++)
             {
-                if ((i & (GraphAnalyticsDefinition.BudgetCheckInterval - 1)) == 0 && budget.IsExhausted)
+                if (budget.IsExhaustedAt(i))
                 {
                     return false;
                 }
@@ -108,7 +108,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
                     {
                         // The intersection is the hot loop at a hub - keep the budget
                         // cooperative here too, not only per outer vertex.
-                        if ((++operations & (GraphAnalyticsDefinition.BudgetCheckInterval - 1)) == 0 && budget.IsExhausted)
+                        if (budget.IsExhaustedAt(++operations))
                         {
                             return false;
                         }

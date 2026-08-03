@@ -94,22 +94,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             var degree = new Int32[n];
             for (var i = 0; i < n; i++)
             {
-                if ((i & (GraphAnalyticsDefinition.BudgetCheckInterval - 1)) == 0 && budget.IsExhausted)
+                if (budget.IsExhaustedAt(i))
                 {
                     return false;
                 }
 
                 var vertex = workspace.Vertices[i];
-                var d = 0L;
-                if (direction != Direction.IncomingEdge)
-                {
-                    d += AnalyticsAdjacency.CountInScope(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope);
-                }
-                if (direction != Direction.OutgoingEdge)
-                {
-                    d += AnalyticsAdjacency.CountInScope(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope);
-                }
-                degree[i] = (Int32)d;
+                degree[i] = (Int32)AnalyticsAdjacency.CountByDirection(vertex, direction, edgePropertyId, scope);
             }
 
             var rank = new Double[n];
@@ -132,7 +123,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
 
                 for (var i = 0; i < n; i++)
                 {
-                    if ((i & (GraphAnalyticsDefinition.BudgetCheckInterval - 1)) == 0 && budget.IsExhausted)
+                    if (budget.IsExhaustedAt(i))
                     {
                         aborted = true;
                         break;
@@ -147,15 +138,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
                     var share = rank[i] / degree[i];
                     var vertex = workspace.Vertices[i];
                     var distributor = new DistributeVisitor { Next = next, Share = share };
-
-                    if (direction != Direction.IncomingEdge)
-                    {
-                        AnalyticsAdjacency.Visit(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope, ref distributor);
-                    }
-                    if (direction != Direction.OutgoingEdge)
-                    {
-                        AnalyticsAdjacency.Visit(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope, ref distributor);
-                    }
+                    AnalyticsAdjacency.VisitByDirection(vertex, direction, edgePropertyId, scope, ref distributor);
                 }
 
                 if (aborted)

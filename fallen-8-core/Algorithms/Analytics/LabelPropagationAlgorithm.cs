@@ -82,7 +82,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
 
                 for (var i = 0; i < n; i++)
                 {
-                    if ((i & (GraphAnalyticsDefinition.BudgetCheckInterval - 1)) == 0 && budget.IsExhausted)
+                    if (budget.IsExhaustedAt(i))
                     {
                         aborted = true;
                         break;
@@ -91,15 +91,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
                     counts.Clear();
                     var vertex = workspace.Vertices[i];
                     var tally = new TallyVisitor { PreviousLabels = previous, Counts = counts };
-
-                    if (direction != Direction.IncomingEdge)
-                    {
-                        AnalyticsAdjacency.Visit(vertex.GetRawOutEdges(), neighborIsTarget: true, edgePropertyId, scope, ref tally);
-                    }
-                    if (direction != Direction.OutgoingEdge)
-                    {
-                        AnalyticsAdjacency.Visit(vertex.GetRawInEdges(), neighborIsTarget: false, edgePropertyId, scope, ref tally);
-                    }
+                    AnalyticsAdjacency.VisitByDirection(vertex, direction, edgePropertyId, scope, ref tally);
 
                     if (counts.Count == 0)
                     {

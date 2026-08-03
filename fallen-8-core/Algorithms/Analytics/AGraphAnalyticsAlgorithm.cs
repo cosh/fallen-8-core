@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using NoSQL.GraphDB.Core.Model;
 
@@ -155,7 +156,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             var denseIndexById = new Dictionary<Int32, Int32>(vertices.Count);
             for (var i = 0; i < vertices.Count; i++)
             {
-                if ((i & (GraphAnalyticsDefinition.BudgetCheckInterval - 1)) == 0 && budget.IsExhausted)
+                if (budget.IsExhaustedAt(i))
                 {
                     return false;
                 }
@@ -194,6 +195,20 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             public Boolean IsExhausted =>
                 _cancellationToken.IsCancellationRequested ||
                 (_budget > TimeSpan.Zero && _stopwatch.Elapsed >= _budget);
+
+            /// <summary>
+            ///   Whether the run must stop now, sampled at a cooperative checkpoint: true only when
+            ///   <paramref name="counter"/> lands on a
+            ///   <see cref="GraphAnalyticsDefinition.BudgetCheckInterval"/> boundary AND
+            ///   <see cref="IsExhausted"/>. THE single home for the per-loop budget-sampling idiom
+            ///   <c>(counter &amp; (BudgetCheckInterval - 1)) == 0 &amp;&amp; IsExhausted</c>. Relies on
+            ///   <see cref="GraphAnalyticsDefinition.BudgetCheckInterval"/> being a power of two -
+            ///   the mask <c>interval - 1</c> is a modulo only for a power-of-two interval. Inlined,
+            ///   so the converted sites keep the zero-overhead inline check they had.
+            /// </summary>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public Boolean IsExhaustedAt(Int32 counter) =>
+                (counter & (GraphAnalyticsDefinition.BudgetCheckInterval - 1)) == 0 && IsExhausted;
         }
 
         #endregion
