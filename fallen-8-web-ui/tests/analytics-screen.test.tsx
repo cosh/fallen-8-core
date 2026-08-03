@@ -443,6 +443,31 @@ describe("graph shape panel", () => {
     expect(getStatisticsMock).toHaveBeenCalledTimes(2);
   });
 
+  it("names the unlabeled bucket instead of rendering a blank row", async () => {
+    const user = userEvent.setup();
+    // The server tallies label-less elements under "" (StatisticsController.Tally); the
+    // wire type also allows null. Both must render as a visible placeholder.
+    getStatisticsMock.mockResolvedValue({
+      ...SHAPE,
+      vertexLabels: {
+        top: [
+          { name: "", count: 600 },
+          { name: "person", count: 300 },
+        ],
+        distinctTotal: 2,
+      },
+      edgeLabels: { top: [{ name: null, count: 500 }], distinctTotal: 1 },
+      propertyKeys: { top: [{ name: "", count: 400 }], distinctTotal: 1 },
+    });
+    renderScreen();
+
+    await user.click(screen.getByTestId("shape-compute"));
+    const result = await screen.findByTestId("shape-result");
+    expect(within(result).getAllByText("<no label>")).toHaveLength(2);
+    expect(within(result).getByText("<no key>")).toBeInTheDocument();
+    expect(within(result).getByText("person")).toBeInTheDocument();
+  });
+
   it("states an empty index inventory instead of an empty table", async () => {
     const user = userEvent.setup();
     getStatisticsMock.mockResolvedValue({ ...SHAPE, indices: [] });
