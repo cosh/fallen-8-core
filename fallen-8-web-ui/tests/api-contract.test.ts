@@ -32,10 +32,9 @@ import type { InstanceConfig } from "../src/instances/types";
  * Route/serialization correctness against the OpenAPI snapshot (spec §10 "UI unit"):
  * every request the client emits must match a path template + method in
  * features/done/web-ui/openapi-v0.1.json (routes are root-level - never /api/v0.1/), and
- * mutations must carry waitForCompletion=true (FR-21).
- *
- * /delegates/validate is added by this feature and not part of the captured snapshot,
- * so it is asserted separately against the G-2 contract.
+ * mutations must carry waitForCompletion=true (FR-21). The completeness sweep (CA-22)
+ * reflects over the endpoints module, so every route-bearing export is exercised against
+ * the snapshot; /delegates/validate additionally pins its G-2 body shape below.
  */
 
 const instance: InstanceConfig = {
