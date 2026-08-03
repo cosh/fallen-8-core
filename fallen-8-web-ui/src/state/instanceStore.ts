@@ -356,6 +356,37 @@ export const DEFAULT_ANALYTICS_DRAFT: AnalyticsDraft = {
   writeBackKey: "",
 };
 
+/**
+ * The Canvas right-panel tool strip's inputs (feature canvas-find-connect), persisted per
+ * instance so leaving the canvas and returning restores the active tab and each tool's form.
+ * The Find result list, Connect found paths, and Connect picked-vertex ids are ephemeral session
+ * state (re-run on demand), exactly like every other result in the studio - only the inputs here
+ * persist.
+ */
+export interface CanvasToolsDraft {
+  /** Which right-panel tab is active: styling, element search, or path connecting. */
+  tab: "style" | "find" | "connect";
+  /** Find: the all-property contains term (fed to POST /scan/graph/properties). */
+  findTerm: string;
+  /** Find: optional exact-match label restrictor; empty searches every label. */
+  findLabel: string;
+  /** Find: restrict matches to vertices, edges, or both. */
+  findResultType: "Vertices" | "Edges" | "Both";
+  /** Connect: max hops per pairwise path search (maps to the path spec's maxDepth). */
+  connectMaxDepth: number;
+  /** Connect: use every canvas vertex, or only a picked subset, as the pair endpoints. */
+  connectScope: "all" | "pick";
+}
+
+export const DEFAULT_CANVAS_TOOLS_DRAFT: CanvasToolsDraft = {
+  tab: "style",
+  findTerm: "",
+  findLabel: "",
+  findResultType: "Both",
+  connectMaxDepth: 3,
+  connectScope: "all",
+};
+
 /** One-shot navigation intent: "open Query with this index preselected" (cleared on consume). */
 export interface ScanPrefill {
   indexId: string;
@@ -378,6 +409,7 @@ export interface WorkspaceState {
   subgraphDraft: SubgraphDraft;
   browserDraft: BrowserDraft;
   analyticsDraft: AnalyticsDraft;
+  canvasToolsDraft: CanvasToolsDraft;
   scanPrefill: ScanPrefill | null;
 
   mergeIntoCanvas: (vertices: VertexREST[], edges: EdgeREST[]) => void;
@@ -398,6 +430,7 @@ export interface WorkspaceState {
   resetBrowserDraft: () => void;
   setAnalyticsDraft: (patch: Partial<AnalyticsDraft>) => void;
   resetAnalyticsDraft: () => void;
+  setCanvasToolsDraft: (patch: Partial<CanvasToolsDraft>) => void;
   setScanPrefill: (prefill: ScanPrefill | null) => void;
   setFeedFilter: (patch: Partial<FeedFilterDraft>) => void;
   setInspectPrefill: (id: number | null) => void;
@@ -418,6 +451,7 @@ function createWorkspaceStore(instanceId: string) {
         subgraphDraft: { ...DEFAULT_SUBGRAPH_DRAFT },
         browserDraft: { ...DEFAULT_BROWSER_DRAFT },
         analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT },
+        canvasToolsDraft: { ...DEFAULT_CANVAS_TOOLS_DRAFT },
         scanPrefill: null,
         feedFilter: { ...DEFAULT_FEED_FILTER },
         inspectPrefill: null,
@@ -504,6 +538,9 @@ function createWorkspaceStore(instanceId: string) {
 
         resetAnalyticsDraft: () => set({ analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT } }),
 
+        setCanvasToolsDraft: (patch) =>
+          set((s) => ({ canvasToolsDraft: { ...s.canvasToolsDraft, ...patch } })),
+
         setScanPrefill: (scanPrefill) => set({ scanPrefill }),
 
         setFeedFilter: (patch) =>
@@ -548,6 +585,7 @@ function createWorkspaceStore(instanceId: string) {
                   },
             browserDraft: { ...DEFAULT_BROWSER_DRAFT, ...(p.browserDraft ?? {}) },
             analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT, ...(p.analyticsDraft ?? {}) },
+            canvasToolsDraft: { ...DEFAULT_CANVAS_TOOLS_DRAFT, ...(p.canvasToolsDraft ?? {}) },
             styleConfig: { ...DEFAULT_STYLE_CONFIG, ...(p.styleConfig ?? {}) },
             feedFilter: { ...DEFAULT_FEED_FILTER, ...(p.feedFilter ?? {}) },
             // One-shots never rehydrate (see partialize); this also drops values

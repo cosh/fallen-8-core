@@ -157,6 +157,10 @@ export const FIELD_HELP = {
   pathMaxResults: "Maximum number of paths returned (for Dijkstra: the K cheapest).",
   pathMaxWeight: "Upper bound on a path's total cost; paths weighing more are discarded.",
 
+  // ---- canvas: connect tab (feature canvas-find-connect) ----
+  connectScope:
+    "Which canvas vertices are the start/end points: every vertex on the canvas, or only a subset you pick below. A shortest path (BLS) is searched for each unordered pair.",
+
   // ---- subgraph ----
   subgraphName:
     "Unique name the subgraph is registered under; used to fetch, recalculate, and delete it later.",

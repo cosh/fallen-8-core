@@ -34,6 +34,7 @@ import {
   hasAnyPathFragment,
   pathBlockFromDraft,
 } from "../lib/storedQueries";
+import { synthesizeEdges } from "../lib/connectPaths";
 import {
   buildSemanticSpec,
   semanticOwnsVertexCost,
@@ -130,16 +131,9 @@ export function PathScreen() {
           [...vertexIds].map((id) => getGraphElement(instance, id).catch(() => null)),
         )
       ).filter((v): v is VertexREST => v !== null);
-      const edges = path.pathElements.map((el) => ({
-        id: el.edgeId,
-        creationDate: "",
-        modificationDate: "",
-        sourceVertex: el.sourceVertexId,
-        targetVertex: el.targetVertexId,
-        edgePropertyId: el.edgePropertyId ?? null,
-        label: null,
-      }));
-      mergeIntoCanvas(vertices, edges);
+      // One home for path-element -> canvas-edge synthesis (feature canvas-find-connect); the
+      // Connect tab merges the same shape.
+      mergeIntoCanvas(vertices, synthesizeEdges(path));
       setPathOverlay(path);
       navigate({ to: "/canvas" });
     },

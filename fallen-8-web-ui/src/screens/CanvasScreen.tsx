@@ -28,6 +28,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { GraphCanvas, type ElementRef } from "../canvas/GraphCanvas";
 import { StylePanel } from "../canvas/StylePanel";
+import { FindPanel } from "../canvas/FindPanel";
+import { ConnectPanel } from "../canvas/ConnectPanel";
 import { buildLegend, knownPropertyKeys } from "../canvas/styleEngine";
 import { GRADIENT_HIGH, GRADIENT_LOW } from "../canvas/styling";
 import { getEdge, getGraph, getGraphElement, getStatus } from "../api/endpoints";
@@ -60,6 +62,8 @@ export function CanvasScreen() {
   const setPathOverlay = store((s) => s.setPathOverlay);
   const wholeGraphTruncation = store((s) => s.wholeGraphTruncation);
   const setWholeGraphTruncation = store((s) => s.setWholeGraphTruncation);
+  const activeTab = store((s) => s.canvasToolsDraft.tab);
+  const setCanvasToolsDraft = store((s) => s.setCanvasToolsDraft);
 
   const [selected, setSelected] = useState<ElementRef | null>(null);
 
@@ -226,13 +230,38 @@ export function CanvasScreen() {
 
       <aside className="w-80 shrink-0 space-y-3 overflow-auto">
         <div className="panel">
-          <div className="panel-title">style</div>
-          <StylePanel
-            config={styleConfig}
-            onChange={setStyleConfig}
-            nodePropertyKeys={nodePropertyKeys}
-            edgePropertyKeys={edgePropertyKeys}
-          />
+          {/* Tool strip (feature canvas-find-connect): Style is the default; Find searches the
+              graph and Connect links canvas vertices via path search. The Detail panel below is
+              selection-driven and independent of the active tab. */}
+          <div className="border-line flex border-b" role="tablist">
+            {(["style", "find", "connect"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === t}
+                data-testid={`canvas-tab-${t}`}
+                className={`px-3 py-1.5 text-[11px] font-semibold tracking-wide uppercase ${
+                  activeTab === t
+                    ? "text-accent border-accent border-b-2"
+                    : "text-fg-dim hover:text-fg"
+                }`}
+                onClick={() => setCanvasToolsDraft({ tab: t })}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          {activeTab === "style" && (
+            <StylePanel
+              config={styleConfig}
+              onChange={setStyleConfig}
+              nodePropertyKeys={nodePropertyKeys}
+              edgePropertyKeys={edgePropertyKeys}
+            />
+          )}
+          {activeTab === "find" && <FindPanel onSelect={setSelected} />}
+          {activeTab === "connect" && <ConnectPanel />}
         </div>
         <div className="panel">
           <div className="panel-title">detail</div>
