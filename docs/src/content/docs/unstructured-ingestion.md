@@ -213,7 +213,8 @@ A hit is a live Chunk vertex. Three ways to keep going:
 
 Opt-in per ingest request, ingestion can connect chunks to existing **domain** vertices by
 exact identifier match: every extracted token is looked up in an allowlist of your
-equality-capable indices, and each hit gets a `mentions` edge from the chunk. No fuzzy
+equality-capable indices (dictionary, range, single-value or fulltext; a vector or spatial
+index is rejected up front), and each hit gets a `mentions` edge from the chunk. No fuzzy
 matching, no model in the loop, a hard per-chunk cap, deterministic order. (This is the same
 edge type the entity network uses; a chunk's `mentions` edges reach both the entities NLP found
 and the domain vertices you linked.)

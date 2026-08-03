@@ -33,8 +33,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// identifier lookups against an explicit allowlist of equality-capable indices.</summary>
     public sealed class LinkSpecificationREST
     {
-        /// <summary>The index ids to match extracted identifiers against (dictionary family;
-        /// vector and fulltext indices are rejected).</summary>
+        /// <summary>The index ids to match extracted identifiers against. Each must be
+        /// equality-capable (dictionary, range, single-value or fulltext); a vector or spatial
+        /// index is rejected with 400.</summary>
         public List<String> IndexIds
         {
             get; set;

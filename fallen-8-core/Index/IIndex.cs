@@ -52,6 +52,20 @@ namespace NoSQL.GraphDB.Core.Index
         Boolean CanPersist { get; }
 
         /// <summary>
+        ///   Whether this index answers an exact point-equality lookup by an arbitrary key: an
+        ///   element stored with <see cref="AddOrUpdate" /> under a key is retrievable by that same
+        ///   key via <see cref="TryGetValue" />. This is the "equality" capability, and it is the
+        ///   SINGLE home for the question "can this index be used where a caller needs to find
+        ///   elements by an exact key" (entity dedup, structural link resolution, the <c>/status</c>
+        ///   capability inventory). The dictionary/range/single-value/fulltext indices return
+        ///   <c>true</c>; the vector index (approximate nearest-neighbour, no arbitrary-key lookup)
+        ///   and the spatial index (geometry keys, which a non-geometry key can never match) return
+        ///   <c>false</c>. A new index type declares its own answer here rather than being classified
+        ///   by a type-switch elsewhere, so no caller can misclassify it.
+        /// </summary>
+        Boolean SupportsPointEqualityLookup { get; }
+
+        /// <summary>
         ///   Count of the keys.
         /// </summary>
         /// <returns> The key count. </returns>

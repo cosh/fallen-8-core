@@ -35,7 +35,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Helper;
+using NoSQL.GraphDB.Core.Index;
+using NoSQL.GraphDB.Core.Index.Fulltext;
+using NoSQL.GraphDB.Core.Index.Range;
 using NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree;
+using NoSQL.GraphDB.Core.Index.Vector;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -179,6 +183,29 @@ namespace NoSQL.GraphDB.Tests
             // SpatialIndex cannot be created over REST (pinned below), so the derivation is
             // pinned directly: geometry keys cannot travel as the wire literal -> no equality.
             CollectionAssert.AreEqual(new[] { "spatial" }, IndexCapabilities.Describe(new RTree()));
+        }
+
+        [TestMethod]
+        public void SupportsPointEqualityLookup_IsDeclaredPerIndexFamily()
+        {
+            // CA-1: IIndex.SupportsPointEqualityLookup is the single engine-owned home for "can this
+            // index be looked up by an exact key". Dictionary/range/single-value/fulltext YES; vector
+            // (kNN) and spatial (geometry keys) NO. IndexCapabilities.Describe and the semantic
+            // layer's entity/link gates both derive from it, so the /status 'equality' tag and those
+            // gates can never disagree again (the CA-1 drift that let a spatial index be accepted as
+            // a link index and silently yield zero results).
+            Assert.IsTrue(new DictionaryIndex().SupportsPointEqualityLookup);
+            Assert.IsTrue(new RangeIndex().SupportsPointEqualityLookup);
+            Assert.IsTrue(new SingleValueIndex().SupportsPointEqualityLookup);
+            Assert.IsTrue(new RegExIndex().SupportsPointEqualityLookup);
+            Assert.IsFalse(new VectorIndex().SupportsPointEqualityLookup);
+            Assert.IsFalse(new RTree().SupportsPointEqualityLookup);
+
+            // The /status 'equality' capability tracks the property exactly.
+            Assert.IsTrue(IndexCapabilities.Describe(new DictionaryIndex()).Contains(IndexCapabilities.Equality));
+            Assert.IsTrue(IndexCapabilities.Describe(new RegExIndex()).Contains(IndexCapabilities.Equality));
+            Assert.IsFalse(IndexCapabilities.Describe(new VectorIndex()).Contains(IndexCapabilities.Equality));
+            Assert.IsFalse(IndexCapabilities.Describe(new RTree()).Contains(IndexCapabilities.Equality));
         }
 
         [TestMethod]

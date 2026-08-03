@@ -430,7 +430,7 @@ namespace NoSQL.GraphDB.App.Ingestion
         {
             if (!_options.EnsureEntityIndex ||
                 !_fallen8.IndexFactory.TryGetIndex(out var index, _options.EntityIndexId) ||
-                index is IVectorIndex || index is IFulltextIndex)
+                !index.SupportsPointEqualityLookup)
             {
                 return;
             }
@@ -598,6 +598,32 @@ namespace NoSQL.GraphDB.App.Ingestion
                 : String.Format("index '{0}' is absent", role.IndexId);
         }
 
+        // The single shape decision per role (CA-12): each *ShapeConflict returns null when the
+        // existing index is the right shape for the role, else the bare conflict phrase. The read
+        // view (the *Role builders below) surfaces it as role.Detail; the enforce view (the
+        // Validate*IndexShape methods) wraps it as the 409 body. One home means the "report state"
+        // and "refuse a wrong-shape bind" views can never disagree.
+
+        private String VectorShapeConflict(IIndex index)
+        {
+            if (!(index is IVectorIndex vectorIndex))
+            {
+                return "exists but is not a vector index";
+            }
+            if (!String.Equals(vectorIndex.EmbeddingName, _options.EmbeddingName, StringComparison.Ordinal))
+            {
+                return String.Format("is bound to embedding '{0}', not '{1}'",
+                    vectorIndex.EmbeddingName ?? "(unbound)", _options.EmbeddingName);
+            }
+            return null;
+        }
+
+        private String FulltextShapeConflict(IIndex index)
+            => index is IFulltextIndex ? null : "exists but is not a fulltext index";
+
+        private String EntityShapeConflict(IIndex index)
+            => index.SupportsPointEqualityLookup ? null : "exists but is not equality-capable";
+
         private Controllers.Model.DocumentBindingRoleREST VectorRole(Boolean needed)
         {
             var role = new Controllers.Model.DocumentBindingRoleREST
@@ -610,19 +636,15 @@ namespace NoSQL.GraphDB.App.Ingestion
             if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.VectorIndexId))
             {
                 role.Exists = true;
-                if (!(index is IVectorIndex vectorIndex))
-                {
-                    role.Detail = "exists but is not a vector index";
-                }
-                else if (!String.Equals(vectorIndex.EmbeddingName, _options.EmbeddingName, StringComparison.Ordinal))
-                {
-                    role.Detail = String.Format("is bound to embedding '{0}', not '{1}'",
-                        vectorIndex.EmbeddingName ?? "(unbound)", _options.EmbeddingName);
-                }
-                else
+                var conflict = VectorShapeConflict(index);
+                if (conflict == null)
                 {
                     role.Ready = true;
                     role.Detail = String.Format("bound to embedding '{0}'", _options.EmbeddingName);
+                }
+                else
+                {
+                    role.Detail = conflict;
                 }
             }
 
@@ -641,13 +663,14 @@ namespace NoSQL.GraphDB.App.Ingestion
             if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.FulltextIndexId))
             {
                 role.Exists = true;
-                if (index is IFulltextIndex)
+                var conflict = FulltextShapeConflict(index);
+                if (conflict == null)
                 {
                     role.Ready = true;
                 }
                 else
                 {
-                    role.Detail = "exists but is not a fulltext index";
+                    role.Detail = conflict;
                 }
             }
 
@@ -666,13 +689,14 @@ namespace NoSQL.GraphDB.App.Ingestion
             if (_fallen8.IndexFactory.TryGetIndex(out var index, _options.EntityIndexId))
             {
                 role.Exists = true;
-                if (index is IVectorIndex || index is IFulltextIndex)
+                var conflict = EntityShapeConflict(index);
+                if (conflict == null)
                 {
-                    role.Detail = "exists but is not a dictionary index";
+                    role.Ready = true;
                 }
                 else
                 {
-                    role.Ready = true;
+                    role.Detail = conflict;
                 }
             }
 
@@ -716,17 +740,11 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         private void ValidateVectorIndexShape(IIndex index)
         {
-            if (!(index is IVectorIndex vectorIndex))
+            var conflict = VectorShapeConflict(index);
+            if (conflict != null)
             {
                 throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
-                    String.Format("Index '{0}' exists but is not a vector index.", _options.VectorIndexId));
-            }
-
-            if (!String.Equals(vectorIndex.EmbeddingName, _options.EmbeddingName, StringComparison.Ordinal))
-            {
-                throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
-                    String.Format("Index '{0}' is bound to embedding '{1}', not '{2}'.",
-                        _options.VectorIndexId, vectorIndex.EmbeddingName ?? "(unbound)", _options.EmbeddingName));
+                    String.Format("Index '{0}' {1}.", _options.VectorIndexId, conflict));
             }
 
             // Dimension and model identity against the provider are covered by the
@@ -779,10 +797,11 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         private IIndex ValidateFulltextIndexShape(IIndex index)
         {
-            if (!(index is IFulltextIndex))
+            var conflict = FulltextShapeConflict(index);
+            if (conflict != null)
             {
                 throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
-                    String.Format("Index '{0}' exists but is not a fulltext index.", _options.FulltextIndexId));
+                    String.Format("Index '{0}' {1}.", _options.FulltextIndexId, conflict));
             }
 
             return index;
@@ -834,10 +853,11 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         private IIndex ValidateEntityIndexShape(IIndex index)
         {
-            if (index is IVectorIndex || index is IFulltextIndex)
+            var conflict = EntityShapeConflict(index);
+            if (conflict != null)
             {
                 throw new IngestionFailedException(StatusCodes.Status409Conflict, "Index shape conflict",
-                    String.Format("Index '{0}' exists but is not a dictionary index.", _options.EntityIndexId));
+                    String.Format("Index '{0}' {1}.", _options.EntityIndexId, conflict));
             }
 
             return index;
@@ -899,11 +919,11 @@ namespace NoSQL.GraphDB.App.Ingestion
                         String.Format("No index named '{0}'.", indexId));
                 }
 
-                if (index is IVectorIndex || index is IFulltextIndex)
+                if (!index.SupportsPointEqualityLookup)
                 {
                     return IngestionOutcome.Fail(StatusCodes.Status400BadRequest, "Link index not equality-capable",
-                        String.Format("Index '{0}' is a {1} index; linking needs exact-equality lookups (dictionary family).",
-                            indexId, index is IVectorIndex ? "vector" : "fulltext"));
+                        String.Format("Index '{0}' does not support exact-equality lookups; linking needs an equality-capable index (dictionary, range, single-value or fulltext).",
+                            indexId));
                 }
             }
 
@@ -929,7 +949,7 @@ namespace NoSQL.GraphDB.App.Ingestion
             foreach (var indexId in linkIndexIds)
             {
                 if (_fallen8.IndexFactory.TryGetIndex(out var index, indexId) &&
-                    !(index is IVectorIndex) && !(index is IFulltextIndex))
+                    index.SupportsPointEqualityLookup)
                 {
                     linkIndices.Add(index);
                 }

@@ -540,6 +540,9 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
 
         #region IFallen8Serializable Members
 
+        // AddOrUpdate/TryGetValue are exact string-key lookups; the regex is only the scan path.
+        public Boolean SupportsPointEqualityLookup => true;
+
         public Boolean CanPersist => true;
 
         public void Save(SerializationWriter writer)

@@ -77,15 +77,17 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        ///   The query families this index answers (feature index-workspace), derived from the
-        ///   interfaces the index implements so third-party plugins report honestly:
-        ///   <c>IVectorIndex</c> → <c>vector</c>; <c>ISpatialIndex</c> → <c>spatial</c>;
-        ///   <c>IFulltextIndex</c> → <c>equality</c> + <c>fulltext</c>; <c>IRangeIndex</c> →
-        ///   <c>equality</c> + <c>range</c>; any other index → <c>equality</c>. Vector and
-        ///   spatial indexes do NOT report <c>equality</c> because their keys (float[],
-        ///   geometry) cannot travel as the scan endpoints' typed literal. Like
-        ///   <see cref="EmbeddingName"/>, only the live <c>/status</c> inventory populates it;
-        ///   save-game KPIs leave it <c>null</c>.
+        ///   The query families this index answers (feature index-workspace). <c>equality</c>
+        ///   comes straight from the index's own <c>IIndex.SupportsPointEqualityLookup</c>
+        ///   declaration (the engine-owned single home for "can this index be looked up by an
+        ///   exact key" - the semantic layer's entity/link gates read the same flag, so this
+        ///   inventory and those gates can never disagree); the remaining tags come from the
+        ///   family interface the index implements: <c>IVectorIndex</c> → <c>vector</c>;
+        ///   <c>ISpatialIndex</c> → <c>spatial</c>; <c>IFulltextIndex</c> → <c>fulltext</c>;
+        ///   <c>IRangeIndex</c> → <c>range</c>. The built-in vector and spatial indexes declare
+        ///   NO <c>equality</c> because their keys (float[], geometry) cannot travel as the scan
+        ///   endpoints' typed literal. Like <see cref="EmbeddingName"/>, only the live
+        ///   <c>/status</c> inventory populates it; save-game KPIs leave it <c>null</c>.
         /// </summary>
         /// <example>["equality","range"]</example>
         [JsonPropertyName("capabilities")]

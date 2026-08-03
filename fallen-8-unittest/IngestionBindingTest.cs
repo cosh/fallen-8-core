@@ -151,5 +151,29 @@ namespace NoSQL.GraphDB.Tests
             using var ensure = await client.PostAsync("/document/binding/ensure", null);
             Assert.AreEqual(HttpStatusCode.Conflict, ensure.StatusCode, "ensure will not clobber a wrong-shape index");
         }
+
+        [TestMethod]
+        public async Task VectorShapeConflict_ReadAndEnforceViews_Agree()
+        {
+            // CA-12: the read view (GET /document/binding role detail) and the enforce view (the
+            // ensure 409 body) derive from ONE shape decision (VectorShapeConflict), so a
+            // wrong-shape vector index is reported and refused with the same reason - they cannot
+            // drift into "reports ready, but bind rejects".
+            using var factory = new IngestionFactory();
+            using var client = factory.CreateClient();
+            var engine = IngestionTestHelper.EngineOf(factory);
+
+            // An operator created an index with the vector role's id but the WRONG shape.
+            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out _, "documents", "DictionaryIndex"));
+
+            var state = await GetBinding(client);
+            Assert.IsTrue(state.RoleExists("vector"));
+            Assert.IsFalse(state.RoleReady("vector"), "a wrong-shape index is not ready");
+            StringAssert.Contains(state.RoleDetail("vector"), "not a vector index");
+
+            using var ensure = await client.PostAsync("/document/binding/ensure", null);
+            Assert.AreEqual(HttpStatusCode.Conflict, ensure.StatusCode, "ensure refuses a wrong-shape index");
+            StringAssert.Contains(await ensure.Content.ReadAsStringAsync(), "not a vector index");
+        }
     }
 }

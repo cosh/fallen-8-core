@@ -1875,6 +1875,9 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         /// <summary>The R-Tree checkpoint payload layout version, inside the C4 file envelope.</summary>
         private const byte RTreePayloadVersion = 1;
 
+        // Keyed by geometry; a non-geometry identifier key can never match, so no equality lookup.
+        public Boolean SupportsPointEqualityLookup => false;
+
         public Boolean CanPersist => true;
 
         public void Save(SerializationWriter writer)

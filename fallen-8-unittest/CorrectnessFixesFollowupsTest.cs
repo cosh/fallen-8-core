@@ -765,6 +765,7 @@ namespace NoSQL.GraphDB.Tests
             // its Save throws - exactly the "genuine, unexpected serialization failure" path that must
             // be caught, logged at Error level and skipped without aborting the checkpoint.
             public bool CanPersist => true;
+            public bool SupportsPointEqualityLookup => false; // inert test stub; never an equality index
 
             public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) { }
 
@@ -861,6 +862,7 @@ namespace NoSQL.GraphDB.Tests
         // Persistable: it serializes fine and reaches the manifest + its sidecar; the failure is on
         // the LOAD side, exercising the per-index catch in PersistencyFactory.LoadIndices.
         public bool CanPersist => true;
+        public bool SupportsPointEqualityLookup => false; // inert test stub; never an equality index
 
         public void Initialize(IFallen8 fallen8, IDictionary<string, object> parameter) { }
 
