@@ -71,18 +71,18 @@ namespace NoSQL.GraphDB.App.Controllers
 
         #region helpers
 
-        /// <summary>Maps provider faults: unavailable backend → 503, contract-violating
-        /// output → 502 - both problem+json, matching the repo's explicit-problem style.</summary>
+        /// <summary>Builds the problem+json for a provider fault: delegates the (status, title)
+        /// decision to <see cref="EmbeddingProviderProblem.Map"/> (the single home) and carries the
+        /// exception message as the problem detail.</summary>
         private static ObjectResult ProviderProblem(Exception ex)
         {
-            return ex is EmbeddingProviderUnavailableException
-                ? ProblemResults.Create(StatusCodes.Status503ServiceUnavailable, "Embedding provider unavailable", ex.Message)
-                : ProblemResults.Create(StatusCodes.Status502BadGateway, "Embedding backend produced invalid output", ex.Message);
+            var (status, title) = EmbeddingProviderProblem.Map(ex);
+            return ProblemResults.Create(status, title, ex.Message);
         }
 
         /// <summary>Runs the provider embed call, mapping its two fault types to a problem result via
-        /// <see cref="ProviderProblem"/> (the single home for that mapping). Returns the vectors with a
-        /// null error on success, or null vectors and the problem result on a provider fault.</summary>
+        /// <see cref="ProviderProblem"/>. Returns the vectors with a null error on success, or null
+        /// vectors and the problem result on a provider fault.</summary>
         private async Task<(Single[][] vectors, ActionResult error)> TryEmbedAsync(
             IReadOnlyList<String> texts, CancellationToken cancellationToken)
         {
@@ -201,7 +201,7 @@ namespace NoSQL.GraphDB.App.Controllers
             await info.Completion;
             if (info.TransactionState == TransactionState.RolledBack)
             {
-                return ProblemResults.Create(StatusCodes.Status500InternalServerError,
+                return ProblemResults.Create(ProblemResults.StatusForFailureReason(info.FailureReason),
                     "Embedding write rolled back", info.FailureReason.ToString());
             }
 
@@ -297,7 +297,7 @@ namespace NoSQL.GraphDB.App.Controllers
             await info.Completion;
             if (info.TransactionState == TransactionState.RolledBack)
             {
-                return ProblemResults.Create(StatusCodes.Status500InternalServerError,
+                return ProblemResults.Create(ProblemResults.StatusForFailureReason(info.FailureReason),
                     "Embedding batch rolled back", info.FailureReason.ToString());
             }
 
@@ -360,20 +360,11 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             // FR-8: the identity contract - dimension always, the model identity when the
-            // index declares one. Hard errors, never coercion.
-            if (vectorIndex.Dimension != _provider.Identity.Dimension)
+            // index declares one. Hard errors, never coercion. One home: BoundIndexContract.
+            var contractConflict = BoundIndexContract.FindConflictForIndex(vectorIndex, definition.IndexId, _provider);
+            if (contractConflict != null)
             {
-                return ProblemResults.Conflict(String.Format(
-                    "The provider produces dimension {0}, but index '{1}' requires {2}.",
-                    _provider.Identity.Dimension, definition.IndexId, vectorIndex.Dimension));
-            }
-
-            if (vectorIndex.Model != null &&
-                !String.Equals(vectorIndex.Model, _provider.Identity.Stamp, StringComparison.Ordinal))
-            {
-                return ProblemResults.Conflict(String.Format(
-                    "Index '{0}' declares model identity '{1}', but the active provider is '{2}'.",
-                    definition.IndexId, vectorIndex.Model, _provider.Identity.Stamp));
+                return ProblemResults.Conflict(contractConflict);
             }
 
             if (!NoSQL.GraphDB.App.Helper.VectorSearchConstraintBuilder.TryBuild(

@@ -34,6 +34,7 @@ using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Embedding;
+using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Vector;
@@ -233,21 +234,16 @@ namespace NoSQL.GraphDB.App.Ingestion
             }
             else if (hasText && _embeddingOptions.Enabled)
             {
-                // The existing provider consistency contract (embedding-provider FR-8):
-                // dimension always, the model identity when the index declares one.
-                if (vectorIndex.Dimension != _provider.Identity.Dimension)
+                // The existing provider consistency contract (embedding-provider FR-8),
+                // one home: BoundIndexContract. The problem+json title stays per-kind via a
+                // cheap dimension re-check so observable behavior is identical.
+                var contractConflict = BoundIndexContract.FindConflictForIndex(vectorIndex, _options.VectorIndexId, _provider);
+                if (contractConflict != null)
                 {
-                    return (null, null, SearchOutcome.Fail(StatusCodes.Status409Conflict, "Dimension conflict",
-                        String.Format("The provider produces dimension {0}, but index '{1}' requires {2}.",
-                            _provider.Identity.Dimension, _options.VectorIndexId, vectorIndex.Dimension)));
-                }
-
-                if (vectorIndex.Model != null &&
-                    !String.Equals(vectorIndex.Model, _provider.Identity.Stamp, StringComparison.Ordinal))
-                {
-                    return (null, null, SearchOutcome.Fail(StatusCodes.Status409Conflict, "Model identity conflict",
-                        String.Format("Index '{0}' declares model identity '{1}', but the active provider is '{2}'.",
-                            _options.VectorIndexId, vectorIndex.Model, _provider.Identity.Stamp)));
+                    var title = vectorIndex.Dimension != _provider.Identity.Dimension
+                        ? "Dimension conflict"
+                        : "Model identity conflict";
+                    return (null, null, SearchOutcome.Fail(StatusCodes.Status409Conflict, title, contractConflict));
                 }
 
                 try
@@ -256,15 +252,10 @@ namespace NoSQL.GraphDB.App.Ingestion
                         new[] { _provider.ApplyQueryPrefix(spec.QueryText) }, cancellationToken);
                     query = vectors[0];
                 }
-                catch (EmbeddingProviderUnavailableException ex)
+                catch (Exception ex) when (ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)
                 {
-                    return (null, null, SearchOutcome.Fail(StatusCodes.Status503ServiceUnavailable,
-                        "Embedding provider unavailable", ex.Message));
-                }
-                catch (EmbeddingProviderOutputException ex)
-                {
-                    return (null, null, SearchOutcome.Fail(StatusCodes.Status502BadGateway,
-                        "Embedding backend produced invalid output", ex.Message));
+                    var (status, title) = EmbeddingProviderProblem.Map(ex);
+                    return (null, null, SearchOutcome.Fail(status, title, ex.Message));
                 }
             }
             else

@@ -27,6 +27,7 @@ using System;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
+using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.App.Helper
 {
@@ -83,6 +84,29 @@ namespace NoSQL.GraphDB.App.Helper
         /// 400/404/409/500); the title is derived from the status.</summary>
         internal static ObjectResult StatusCode(Int32 status, String detail) =>
             Create(status, TitleFor(status), detail);
+
+        /// <summary>The HTTP status a rolled-back transaction's <see cref="TransactionFailureReason"/>
+        /// maps to: <c>InvalidInput</c> → 400, <c>NotFound</c> → 404, <c>QuotaExceeded</c>/<c>Conflict</c>
+        /// → 409, and everything else (<c>None</c>, <c>InternalError</c>) → 500. The SINGLE home for
+        /// that mapping: every controller that waits on a write and reports its rollback selects the
+        /// status here and keeps its own tailored detail/title, so the same engine failure can never
+        /// surface as a different status across endpoints. (BulkController keeps a documented
+        /// per-row NotFound → 400 override for batch import semantics.)</summary>
+        internal static Int32 StatusForFailureReason(TransactionFailureReason reason)
+        {
+            switch (reason)
+            {
+                case TransactionFailureReason.InvalidInput:
+                    return StatusCodes.Status400BadRequest;
+                case TransactionFailureReason.NotFound:
+                    return StatusCodes.Status404NotFound;
+                case TransactionFailureReason.QuotaExceeded:
+                case TransactionFailureReason.Conflict:
+                    return StatusCodes.Status409Conflict;
+                default:
+                    return StatusCodes.Status500InternalServerError;
+            }
+        }
 
         /// <summary>The short, stable problem <c>title</c> for a status: its HTTP reason phrase
         /// (e.g. 400 → "Bad Request"), falling back to a generic label for unknown codes.</summary>

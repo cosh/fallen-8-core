@@ -247,25 +247,25 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private IActionResult RolledBackResult(TransactionFailureReason reason)
         {
+            String detail;
             switch (reason)
             {
                 case TransactionFailureReason.InvalidInput:
-                    return ProblemResults.StatusCode(StatusCodes.Status400BadRequest,
-                        "The transaction was rolled back: the request was invalid.");
-
+                    detail = "The transaction was rolled back: the request was invalid.";
+                    break;
                 case TransactionFailureReason.NotFound:
-                    return ProblemResults.StatusCode(StatusCodes.Status404NotFound,
-                        "The transaction was rolled back: a referenced graph element does not exist.");
-
+                    detail = "The transaction was rolled back: a referenced graph element does not exist.";
+                    break;
                 case TransactionFailureReason.QuotaExceeded:
                 case TransactionFailureReason.Conflict:
-                    return ProblemResults.StatusCode(StatusCodes.Status409Conflict,
-                        "The transaction was rolled back: the request conflicts with the current state or a resource quota.");
-
+                    detail = "The transaction was rolled back: the request conflicts with the current state or a resource quota.";
+                    break;
                 default:
-                    return ProblemResults.InternalServerError(
-                        "The transaction was rolled back; the operation did not complete.");
+                    detail = "The transaction was rolled back; the operation did not complete.";
+                    break;
             }
+
+            return ProblemResults.StatusCode(ProblemResults.StatusForFailureReason(reason), detail);
         }
 
         /// <summary>

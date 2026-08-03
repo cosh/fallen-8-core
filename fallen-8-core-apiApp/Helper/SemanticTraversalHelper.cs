@@ -108,13 +108,10 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 specification.QueryVector = vectors[0];
                 return null;
             }
-            catch (EmbeddingProviderUnavailableException ex)
+            catch (Exception ex) when (ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)
             {
-                return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable, "Embedding provider unavailable", ex.Message);
-            }
-            catch (EmbeddingProviderOutputException ex)
-            {
-                return ProblemResults.Create(StatusCodes.Status502BadGateway, "Embedding backend produced invalid output", ex.Message);
+                var (status, title) = EmbeddingProviderProblem.Map(ex);
+                return ProblemResults.Create(status, title, ex.Message);
             }
         }
 

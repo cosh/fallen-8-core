@@ -1443,8 +1443,11 @@ namespace NoSQL.GraphDB.App.Ingestion
             await info.Completion;
             if (info.TransactionState != TransactionState.Finished)
             {
-                throw new IngestionFailedException(StatusCodes.Status500InternalServerError, "Graph write failed",
-                    String.Format("The {0} did not commit ({1}).", what, info.FailureReason));
+                // Surface the rollback reason as its mapped status (404/409/400) instead of a
+                // blanket 500 on the synchronous stub-creation path; a non-rolled-back non-Finished
+                // state carries reason None, which maps to 500.
+                throw new IngestionFailedException(ProblemResults.StatusForFailureReason(info.FailureReason),
+                    "Graph write failed", String.Format("The {0} did not commit ({1}).", what, info.FailureReason));
             }
         }
 
