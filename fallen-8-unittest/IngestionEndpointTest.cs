@@ -41,6 +41,9 @@ using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Ingestion;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Index.Fulltext;
+using NoSQL.GraphDB.Core.Index.Spatial;
+using NoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry;
+using NoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -823,6 +826,59 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(HttpStatusCode.BadRequest, overCap.StatusCode);
 
             Assert.AreEqual(0, engine.GetAllVertices("Document").Count, "link validation is pre-stub");
+        }
+
+        [TestMethod]
+        public async Task Linking_RejectsANonEqualityCapableIndex_With400()
+        {
+            // CA-1: a spatial index is not equality-capable (its keys are geometries; an identifier
+            // token can never TryGetValue against it), so naming it in a link allowlist must be a
+            // pre-stub 400 - not silently accepted and then yield zero links. Vector is rejected
+            // already; spatial is the family that slipped through the former "is vector || is
+            // fulltext" test, so it is the honest reproducing case.
+            using var factory = new IngestionFactory();
+            using var client = factory.CreateClient();
+            var engine = IngestionTestHelper.EngineOf(factory);
+
+            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out _, "geo-idx", "SpatialIndex",
+                new Dictionary<String, Object>
+                {
+                    { "IMetric", new EuclidianMetric() },
+                    { "MinCount", 2 },
+                    { "MaxCount", 5 },
+                    { "Space", new List<IDimension> { new RealDimension(), new RealDimension() } }
+                }));
+
+            using var response = await client.PostAsync("/document/text", IngestionTestHelper.Json(
+                "{ \"name\": \"n\", \"text\": \"anything\", \"link\": { \"indexIds\": [\"geo-idx\"] } }"));
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode,
+                "a spatial (non-equality-capable) link index must be a pre-stub 400");
+            StringAssert.Contains(await response.Content.ReadAsStringAsync(), "equality");
+            Assert.AreEqual(0, engine.GetAllVertices("Document").Count, "rejection is pre-stub");
+        }
+
+        [TestMethod]
+        public async Task Linking_AcceptsAFulltextIndex_AsEqualityCapable()
+        {
+            // CA-1: a fulltext RegExIndex does exact-key AddOrUpdate/TryGetValue (the regex lives
+            // only in the scan path), so it IS equality-capable and valid as a link index - matching
+            // what /status reports via IndexCapabilities. The former predicate wrongly rejected it.
+            using var factory = new IngestionFactory();
+            using var client = factory.CreateClient();
+            var engine = IngestionTestHelper.EngineOf(factory);
+
+            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out _, "ft-idx", "RegExIndex"));
+            var target = IndexedVertex(engine, "ft-idx", "EDGE_TLS_01");
+
+            await IngestionTestHelper.IngestText(client, "n",
+                "# Servers\n\nThe EDGE_TLS_01 box terminates tls.",
+                "\"link\": { \"indexIds\": [\"ft-idx\"] }");
+
+            var chunk = engine.GetAllVertices("Chunk")[0];
+            Assert.IsTrue(chunk.TryGetOutEdge(out var mentions, "mentions"));
+            Assert.AreEqual(1, mentions.Count);
+            Assert.AreEqual(target, mentions[0].TargetVertex.Id);
         }
 
         #endregion

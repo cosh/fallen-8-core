@@ -239,6 +239,9 @@ namespace NoSQL.GraphDB.Core.Index
 
         #region IFallen8Serializable
 
+        // One element per exact key: exact key lookup is the point.
+        public Boolean SupportsPointEqualityLookup => true;
+
         public Boolean CanPersist => true;
 
         public void Save(SerializationWriter writer)

@@ -240,6 +240,9 @@ namespace NoSQL.GraphDB.Core.Index.Vector
 
         #region IIndex implementation
 
+        // Approximate nearest-neighbour over embeddings, not arbitrary-key equality lookup.
+        public Boolean SupportsPointEqualityLookup => false;
+
         public Boolean CanPersist => true;
 
         public Int32 CountOfKeys()

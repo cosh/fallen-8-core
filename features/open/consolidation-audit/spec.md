@@ -75,10 +75,17 @@ Explicit non-goals (audit verdicts, not deferrals):
 Everything not listed here is behavior-identical; if implementation discovers otherwise,
 stop and surface it.
 
-1. **CA-1 (slice 1):** a spatial (or otherwise non-equality-capable) index named in a
-   document-link allowlist is rejected with 400 at validation time instead of silently
-   producing zero links; `GET /document/binding` role reporting, the 428 ingest gate, and
-   enforcement agree with `/status` capability reporting for the same index.
+1. **CA-1 (slice 1):** two directions, both from aligning the semantic layer's link/entity
+   gates to the canonical `IndexCapabilities` rule (now the engine-owned
+   `IIndex.SupportsPointEqualityLookup`). (a) A spatial index named in a document-link
+   allowlist (or bound as the entity dedup index) is rejected with 400/409 at validation
+   time instead of silently producing zero links / silently failing dedup - the reported
+   bug. (b) A fulltext index is now *accepted* as an equality-capable link/entity index
+   (it was wrongly rejected before); its `AddOrUpdate`/`TryGetValue` are exact string-key
+   operations, so this is functionally sound and matches what `/status` reports. Read view
+   (`GET /document/binding`), the 428 gate, and enforcement now agree with `/status` for
+   every index. The `/status` capability inventory output is unchanged (its lists were
+   already correct; the engine property just becomes their source of truth).
 2. **CA-2 (slice 2):** `EmbeddingController`'s post-precheck rollback and
    `DocumentIngestionService.Enqueue` route through the shared reason-to-status mapper, so
    a TOCTOU rollback surfaces the advertised 404/409 instead of a blanket 500.

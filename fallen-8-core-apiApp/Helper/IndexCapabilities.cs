@@ -34,9 +34,11 @@ using NoSQL.GraphDB.Core.Index.Vector;
 namespace NoSQL.GraphDB.App.Helper
 {
     /// <summary>
-    ///   Derives the query families an index answers for the <c>/status</c> inventory.
-    ///   The contract (which interface maps to which capability, and why vector/spatial
-    ///   omit <c>equality</c>) is documented on
+    ///   Derives the query families an index answers for the <c>/status</c> inventory. The
+    ///   <c>equality</c> capability is read straight from <see cref="IIndex.SupportsPointEqualityLookup"/>
+    ///   (the single engine-owned home for "can this index be looked up by an exact key", so vector
+    ///   and spatial omit it); the remaining tags are the index's own family interface. The contract
+    ///   is documented on
     ///   <see cref="NoSQL.GraphDB.App.Controllers.Model.IndexDescriptionREST.Capabilities"/>.
     /// </summary>
     public static class IndexCapabilities
@@ -54,17 +56,11 @@ namespace NoSQL.GraphDB.App.Helper
                 return new List<String>();
             }
 
-            if (index is IVectorIndex)
+            var capabilities = new List<String>();
+            if (index.SupportsPointEqualityLookup)
             {
-                return new List<String> { Vector };
+                capabilities.Add(Equality);
             }
-
-            if (index is ISpatialIndex)
-            {
-                return new List<String> { Spatial };
-            }
-
-            var capabilities = new List<String> { Equality };
             if (index is IRangeIndex)
             {
                 capabilities.Add(Range);
@@ -72,6 +68,14 @@ namespace NoSQL.GraphDB.App.Helper
             if (index is IFulltextIndex)
             {
                 capabilities.Add(Fulltext);
+            }
+            if (index is IVectorIndex)
+            {
+                capabilities.Add(Vector);
+            }
+            if (index is ISpatialIndex)
+            {
+                capabilities.Add(Spatial);
             }
 
             return capabilities;

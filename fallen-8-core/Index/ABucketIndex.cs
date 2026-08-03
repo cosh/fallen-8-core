@@ -342,6 +342,9 @@ namespace NoSQL.GraphDB.Core.Index
 
         #region IFallen8Serializable implementation
 
+        // Keyed by object equality (dictionary) / comparable (range): exact key lookup is the point.
+        public Boolean SupportsPointEqualityLookup => true;
+
         public Boolean CanPersist => true;
 
         public void Save(SerializationWriter writer)
