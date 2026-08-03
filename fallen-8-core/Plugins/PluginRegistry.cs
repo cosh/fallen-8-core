@@ -158,14 +158,34 @@ namespace NoSQL.GraphDB.Core.Plugins
         /// </summary>
         public IReadOnlyList<String> NamesForContract(PluginContract contract)
         {
+            var entries = EntriesForContract(contract);
+            var result = new List<String>(entries.Count);
+            foreach (var entry in entries)
+            {
+                result.Add(entry.Definition.Name);
+            }
+            return result;
+        }
+
+        /// <summary>
+        ///   The compiled entries of the given contract - the same lock-free snapshot filter as
+        ///   <see cref="NamesForContract"/>, but returning the entries themselves so a caller can
+        ///   read each plugin's <c>Description</c> as well as its <c>Name</c> (the
+        ///   <c>/analytics/algorithms</c> picker needs both). The one home for the
+        ///   "compiled entries of this contract" predicate that <see cref="NamesForContract"/>
+        ///   delegates to, so the name list and the description list can never select a different
+        ///   set (consolidation-audit CA-9).
+        /// </summary>
+        public IReadOnlyList<PluginEntry> EntriesForContract(PluginContract contract)
+        {
             var snap = Volatile.Read(ref _snapshot);
-            var result = new List<String>();
+            var result = new List<PluginEntry>();
             foreach (var kv in snap)
             {
                 var entry = kv.Value;
                 if (entry.CompileState == PluginCompileState.Compiled && entry.Definition.Contract == contract)
                 {
-                    result.Add(entry.Definition.Name);
+                    result.Add(entry);
                 }
             }
             return result;

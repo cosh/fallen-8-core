@@ -101,22 +101,6 @@ namespace NoSQL.GraphDB.App.Helper
             return refs.ToArray();
         }
 
-        /// <summary>
-        ///   Maps a contract to the CLR interface the authored type must implement. Returns null for an
-        ///   unrecognized contract (rejected as a compile error before Roslyn runs).
-        /// </summary>
-        private static Type ResolveContractType(PluginContract contract)
-        {
-            switch (contract)
-            {
-                case PluginContract.Path: return typeof(Core.Algorithms.Path.IShortestPathAlgorithm);
-                case PluginContract.SubGraph: return typeof(ISubGraphAlgorithm);
-                case PluginContract.Analytics: return typeof(IGraphAnalyticsAlgorithm);
-                case PluginContract.GraphFunction: return typeof(IGraphFunction);
-                default: return null;
-            }
-        }
-
         /// <inheritdoc/>
         public bool TryCompile(PluginDefinition definition, out Type artifact, out String error)
         {
@@ -197,7 +181,7 @@ namespace NoSQL.GraphDB.App.Helper
                 return false;
             }
 
-            var contractType = ResolveContractType(definition.Contract);
+            var contractType = PluginFactory.ContractInterface(definition.Contract);
             if (contractType == null)
             {
                 error = String.Format("Unknown plugin contract '{0}'.", definition.Contract);

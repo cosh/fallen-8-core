@@ -108,11 +108,12 @@ namespace NoSQL.GraphDB.App.Controllers
             var registry = _fallen8.Plugins;
             if (registry != null)
             {
-                foreach (var entry in registry.GetAll())
+                // The compiled analytics entries come from the shared filter (consolidation-audit
+                // CA-9), so this picker's set can never diverge from /status or /subgraph; a
+                // built-in of the same name already present wins (the ContainsKey guard).
+                foreach (var entry in registry.EntriesForContract(NoSQL.GraphDB.Core.Plugins.PluginContract.Analytics))
                 {
-                    if (entry.CompileState == NoSQL.GraphDB.Core.Plugins.PluginCompileState.Compiled &&
-                        entry.Definition.Contract == NoSQL.GraphDB.Core.Plugins.PluginContract.Analytics &&
-                        !result.ContainsKey(entry.Definition.Name))
+                    if (!result.ContainsKey(entry.Definition.Name))
                     {
                         result[entry.Definition.Name] = entry.Definition.Description ?? String.Empty;
                     }

@@ -141,8 +141,9 @@ namespace NoSQL.GraphDB.Core.SubGraph
             // subgraph plugins (feature plugin-registration §4.4), so a registered subgraph algorithm is
             // DISCOVERABLE (surfaced on GET /status), not merely invocable-by-name - matching how the
             // Path/Analytics discovery lists union the registry.
-            PluginFactory.TryGetAvailablePlugins<ISubGraphAlgorithm>(out var builtins);
-            IEnumerable<String> result = builtins ?? Enumerable.Empty<String>();
+            // Built-in names via the shared contract->interface home (consolidation-audit CA-13),
+            // unioned with the registry's runtime subgraph plugins.
+            IEnumerable<String> result = PluginFactory.AvailableBuiltInNames(PluginContract.SubGraph);
 
             var registry = _fallen8.Plugins;
             if (registry != null)
