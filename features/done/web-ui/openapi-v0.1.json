@@ -17089,16 +17089,6 @@
           "embeddingModelStale": {
             "type": "boolean",
             "description": "True when the recorded embedding model differs from the active provider\r\n    (FR-16) - queries embed with the new model, these chunks carry the old one."
-          },
-          "linksCreated": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "description": "Mentions edges created by this ingest (set on the ingest response only).",
-            "format": "int32"
           }
         },
         "description": "One document as reported by the ingest/list/get surfaces (FR-2/FR-7)."

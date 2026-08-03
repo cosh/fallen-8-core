@@ -222,7 +222,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 _logger.LogError("Could not find graph element {GraphElementId}.", definition.GraphElementId);
                 return false;
             }
-            _logger.LogError(String.Format("Could not find index {0}.", indexId));
+            _logger.LogError("Could not find index {IndexId}.", indexId);
             return false;
         }
 
@@ -255,7 +255,7 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 return idx.TryRemoveKey(ServiceHelper.CreateObject(property));
             }
-            _logger.LogError(String.Format("Could not find index {0}.", indexId));
+            _logger.LogError("Could not find index {IndexId}.", indexId);
             return false;
         }
 
@@ -286,10 +286,10 @@ namespace NoSQL.GraphDB.App.Controllers
                     return true;
                 }
 
-                _logger.LogError(String.Format("Could not find graph element {0}.", graphElementId));
+                _logger.LogError("Could not find graph element {GraphElementId}.", graphElementId);
                 return false;
             }
-            _logger.LogError(String.Format("Could not find index {0}.", indexId));
+            _logger.LogError("Could not find index {IndexId}.", indexId);
             return false;
         }
 

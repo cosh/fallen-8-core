@@ -2006,8 +2006,8 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
                         {
                             // The referenced element is not in the (already published) store: skip this
                             // entry rather than fail the whole index, mirroring the other indices' loaders.
-                            _logger.LogError(String.Format(
-                                "[RTree] Could not find the graph element \"{0}\" while deserializing the spatial index; the entry is skipped.", elementId));
+                            _logger.LogError(
+                                "[RTree] Could not find the graph element \"{ElementId}\" while deserializing the spatial index; the entry is skipped.", elementId);
                             continue;
                         }
 

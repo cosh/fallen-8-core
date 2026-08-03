@@ -606,7 +606,7 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                             }
                             else
                             {
-                                _logger?.LogError(String.Format("Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
+                                _logger?.LogError("Error while deserializing the index. Could not find the graph element \"{GraphElementId}\"", graphElementId);
                             }
                         }
                         _idx.Add(key, ImmutableList.CreateRange<AGraphElementModel>(value));

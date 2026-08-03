@@ -448,7 +448,6 @@ namespace NoSQL.GraphDB.Tests
                     }
                 }, "EdgeSpecification"),
                 (new PropertySpecification { PropertyId = "age", PropertyValue = "42", FullQualifiedTypeName = "System.Int32" }, "PropertySpecification"),
-                (new Property { PropertyId = "name", PropertyValue = "John Doe" }, "Property"),
                 (new StatusREST
                 {
                     UsedMemory = 1073741824L,
@@ -1120,8 +1119,7 @@ namespace NoSQL.GraphDB.Tests
                     EmbeddingModel = "bge-m3#1024#Cosine",
                     EmbeddingDimension = 1024,
                     Embedded = true,
-                    EmbeddingModelStale = false,
-                    LinksCreated = 2
+                    EmbeddingModelStale = false
                 }, "DocumentSummaryREST"),
                 (new DocumentListREST
                 {

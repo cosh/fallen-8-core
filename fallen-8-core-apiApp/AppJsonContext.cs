@@ -59,7 +59,6 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(VertexSpecification))]
     [JsonSerializable(typeof(EdgeSpecification))]
     [JsonSerializable(typeof(PropertySpecification))]
-    [JsonSerializable(typeof(Property))]
     [JsonSerializable(typeof(StatusREST))]
     [JsonSerializable(typeof(SampleStats))]
     [JsonSerializable(typeof(SubGraphSpecification))]

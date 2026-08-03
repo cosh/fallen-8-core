@@ -200,13 +200,6 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
-
-        /// <summary>Mentions edges created by this ingest (set on the ingest response only).</summary>
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public Int32? LinksCreated
-        {
-            get; set;
-        }
     }
 
     /// <summary>GET /document: the namespace's documents plus the chunk budget (FR-14).</summary>

@@ -139,9 +139,7 @@ export function KnowledgeScreen() {
     if (summary.status === "processing") {
       return `Queued “${summary.name}” - it is converting and indexing off-thread; the row flips to indexed when done.`;
     }
-    return `Ingested “${summary.name}”: ${summary.chunkCount} chunk${summary.chunkCount === 1 ? "" : "s"}${
-      summary.linksCreated ? `, ${summary.linksCreated} link(s)` : ""
-    }${summary.embedded ? "" : " (not embedded)"}.`;
+    return `Ingested “${summary.name}”: ${summary.chunkCount} chunk${summary.chunkCount === 1 ? "" : "s"}${summary.embedded ? "" : " (not embedded)"}.`;
   };
 
   const bind = useMutation({

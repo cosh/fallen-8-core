@@ -260,8 +260,7 @@ re-ingesting or via the bulk `/embedding/elements` endpoint with the chunk texts
 
 ## AI agents
 
-The [MCP server](/fallen-8-core/mcp-server/) bridges this surface as the `f8_documents` tool:
-`search`/`list`/`get`/`binding`/`entities` on the read tier, and `ingest_text`/`delete`/`bind`
-behind the write capability. An agent binds the layer, writes its findings into the graph as
-searchable, linkable documents, and reads back the entity network - the natural memory loop.
-Binary file upload stays REST-only by design (base64 through tool calls wastes tokens).
+The [MCP server](/fallen-8-core/mcp-server/) bridges this surface as the `f8_documents` tool,
+so an agent binds the layer, writes its findings into the graph as searchable, linkable
+documents, and reads back the entity network - the natural memory loop. Binary file upload
+stays REST-only by design (base64 through tool calls wastes tokens).

@@ -112,7 +112,7 @@ namespace NoSQL.GraphDB.Core.Index
                             }
                             else
                             {
-                                _logger.LogError(String.Format("The index with name \"{0}\" already exists.", indexName));
+                                _logger.LogError("The index with name \"{IndexName}\" already exists.", indexName);
                             }
                         }
                         finally
@@ -141,7 +141,7 @@ namespace NoSQL.GraphDB.Core.Index
                     // an invalid embeddingName/dimension/metric thrown by VectorIndex.Initialize)
                     // leaves a diagnostic trail, matching the log-then-return-false discipline of the
                     // sibling factories (feature vector-index: the failure is logged).
-                    _logger.LogError(ex, String.Format("The index with name \"{0}\" (type \"{1}\") could not be created.", indexName, indexTypeName));
+                    _logger.LogError(ex, "The index with name \"{IndexName}\" (type \"{IndexTypeName}\") could not be created.", indexName, indexTypeName);
                     index = null;
                     return false;
                 }
@@ -332,7 +332,7 @@ namespace NoSQL.GraphDB.Core.Index
                 throw new CollisionException();
             }
 
-            _logger.LogError(String.Format("Could not find index plugin with name \"{0}\".", indexPluginName));
+            _logger.LogError("Could not find index plugin with name \"{IndexPluginName}\".", indexPluginName);
         }
 
         #endregion
