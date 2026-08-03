@@ -528,23 +528,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private static bool CollidesWithBuiltIn(PluginContract contract, String name)
         {
-            IEnumerable<String> names = null;
-            switch (contract)
-            {
-                case PluginContract.Path:
-                    PluginFactory.TryGetAvailablePlugins<IShortestPathAlgorithm>(out names);
-                    break;
-                case PluginContract.SubGraph:
-                    PluginFactory.TryGetAvailablePlugins<ISubGraphAlgorithm>(out names);
-                    break;
-                case PluginContract.Analytics:
-                    PluginFactory.TryGetAvailablePlugins<IGraphAnalyticsAlgorithm>(out names);
-                    break;
-                default:
-                    return false;
-            }
-
-            return names != null && names.Contains(name, StringComparer.Ordinal);
+            // Built-in names come from the shared contract->interface home (consolidation-audit
+            // CA-13); GraphFunction resolves to an empty set (no built-in functions), preserving
+            // the previous "functions never collide" behaviour.
+            return PluginFactory.AvailableBuiltInNames(contract).Contains(name, StringComparer.Ordinal);
         }
 
         private IActionResult MapFailedRegistration(TransactionInformation txInfo, String name)

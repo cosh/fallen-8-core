@@ -206,11 +206,11 @@ namespace NoSQL.GraphDB.App.Controllers
             IEnumerable<String> availableIndices;
             PluginFactory.TryGetAvailablePlugins<IIndex>(out availableIndices);
 
-            IEnumerable<String> availablePathAlgos;
-            PluginFactory.TryGetAvailablePlugins<IShortestPathAlgorithm>(out availablePathAlgos);
-
-            IEnumerable<String> availableAnalyticsAlgos;
-            PluginFactory.TryGetAvailablePlugins<IGraphAnalyticsAlgorithm>(out availableAnalyticsAlgos);
+            // Built-in Path/Analytics names via the shared contract->interface home
+            // (consolidation-audit CA-13); unioned with the registry's runtime plugins below.
+            // Index and Service are not PluginContract members and stay generic.
+            IEnumerable<String> availablePathAlgos = PluginFactory.AvailableBuiltInNames(PluginContract.Path);
+            IEnumerable<String> availableAnalyticsAlgos = PluginFactory.AvailableBuiltInNames(PluginContract.Analytics);
 
             IEnumerable<String> availableServices;
             PluginFactory.TryGetAvailablePlugins<IService>(out availableServices);
@@ -223,9 +223,9 @@ namespace NoSQL.GraphDB.App.Controllers
             var pluginRegistry = _fallen8.Plugins;
             if (pluginRegistry != null)
             {
-                availablePathAlgos = (availablePathAlgos ?? Enumerable.Empty<String>())
+                availablePathAlgos = availablePathAlgos
                     .Concat(pluginRegistry.NamesForContract(PluginContract.Path)).Distinct().ToList();
-                availableAnalyticsAlgos = (availableAnalyticsAlgos ?? Enumerable.Empty<String>())
+                availableAnalyticsAlgos = availableAnalyticsAlgos
                     .Concat(pluginRegistry.NamesForContract(PluginContract.Analytics)).Distinct().ToList();
             }
 

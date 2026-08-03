@@ -284,21 +284,14 @@ namespace NoSQL.GraphDB.App.Controllers
             List<ChangeEventKind> kindList = null;
             foreach (var value in Flatten(kinds))
             {
-                switch (value)
+                // The wire-name vocabulary is single-homed on ChangeEventREST (consolidation-audit
+                // CA-11), so the accepted set here can never drift from what the stream emits.
+                // resync is accepted for symmetry even though it bypasses filters.
+                if (!ChangeEventREST.TryParseKind(value, out var kind))
                 {
-                    case "vertexCreated": (kindList ??= new List<ChangeEventKind>()).Add(ChangeEventKind.VertexCreated); break;
-                    case "vertexRemoved": (kindList ??= new List<ChangeEventKind>()).Add(ChangeEventKind.VertexRemoved); break;
-                    case "edgeCreated": (kindList ??= new List<ChangeEventKind>()).Add(ChangeEventKind.EdgeCreated); break;
-                    case "edgeRemoved": (kindList ??= new List<ChangeEventKind>()).Add(ChangeEventKind.EdgeRemoved); break;
-                    case "propertySet": (kindList ??= new List<ChangeEventKind>()).Add(ChangeEventKind.PropertySet); break;
-                    case "propertyRemoved": (kindList ??= new List<ChangeEventKind>()).Add(ChangeEventKind.PropertyRemoved); break;
-                    case "resync":
-                        // Accepted for symmetry; resync bypasses filters anyway.
-                        (kindList ??= new List<ChangeEventKind>()).Add(ChangeEventKind.Resync);
-                        break;
-                    default:
-                        return String.Format("'{0}' is not a valid event kind. Expected vertexCreated, vertexRemoved, edgeCreated, edgeRemoved, propertySet, propertyRemoved or resync.", value);
+                    return String.Format("'{0}' is not a valid event kind. Expected vertexCreated, vertexRemoved, edgeCreated, edgeRemoved, propertySet, propertyRemoved or resync.", value);
                 }
+                (kindList ??= new List<ChangeEventKind>()).Add(kind);
             }
 
             List<ChangeElementType> elementList = null;

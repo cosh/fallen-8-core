@@ -24,6 +24,8 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 using NoSQL.GraphDB.Core.ChangeFeed;
 
@@ -131,20 +133,39 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        /// <summary>The wire name of an event kind (camelCase, part of the public contract).</summary>
-        public static String KindName(ChangeEventKind kind)
-        {
-            switch (kind)
+        /// <summary>
+        ///   THE event-kind wire vocabulary (camelCase, part of the public contract): one
+        ///   bidirectional map that both the SSE serializer (<see cref="KindName"/>) and the
+        ///   <c>?kinds=</c> filter parser (<see cref="TryParseKind"/>) derive from, so a kind added
+        ///   or renamed can never emit an <c>event:</c> name a client cannot filter on
+        ///   (consolidation-audit CA-11). Ordinal (case-sensitive), matching the parser's original
+        ///   switch. <c>ChangeEventKindRoundTripTest</c> pins the round trip over every member.
+        /// </summary>
+        private static readonly IReadOnlyDictionary<ChangeEventKind, String> KindWireNames =
+            new Dictionary<ChangeEventKind, String>
             {
-                case ChangeEventKind.VertexCreated: return "vertexCreated";
-                case ChangeEventKind.VertexRemoved: return "vertexRemoved";
-                case ChangeEventKind.EdgeCreated: return "edgeCreated";
-                case ChangeEventKind.EdgeRemoved: return "edgeRemoved";
-                case ChangeEventKind.PropertySet: return "propertySet";
-                case ChangeEventKind.PropertyRemoved: return "propertyRemoved";
-                case ChangeEventKind.Resync: return "resync";
-                default: return kind.ToString();
-            }
+                { ChangeEventKind.VertexCreated, "vertexCreated" },
+                { ChangeEventKind.VertexRemoved, "vertexRemoved" },
+                { ChangeEventKind.EdgeCreated, "edgeCreated" },
+                { ChangeEventKind.EdgeRemoved, "edgeRemoved" },
+                { ChangeEventKind.PropertySet, "propertySet" },
+                { ChangeEventKind.PropertyRemoved, "propertyRemoved" },
+                { ChangeEventKind.Resync, "resync" }
+            };
+
+        private static readonly IReadOnlyDictionary<String, ChangeEventKind> WireNameKinds =
+            KindWireNames.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.Ordinal);
+
+        /// <summary>The wire name of an event kind (camelCase, part of the public contract).</summary>
+        public static String KindName(ChangeEventKind kind) =>
+            KindWireNames.TryGetValue(kind, out var name) ? name : kind.ToString();
+
+        /// <summary>The inverse of <see cref="KindName"/>: resolves a wire name to its kind
+        /// (ordinal/case-sensitive). False for an unknown or null name - the caller answers 400.</summary>
+        public static Boolean TryParseKind(String wireName, out ChangeEventKind kind)
+        {
+            kind = default;
+            return wireName != null && WireNameKinds.TryGetValue(wireName, out kind);
         }
 
         internal static ChangeEventREST FromEvent(ChangeEvent changeEvent)

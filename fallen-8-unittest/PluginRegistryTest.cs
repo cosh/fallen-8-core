@@ -174,6 +174,30 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void EntriesForContract_CarriesNameAndDescription_ForCompiledEntriesOnly()
+        {
+            // EntriesForContract is NamesForContract's description-carrying sibling (consolidation-
+            // audit CA-9): the SAME compiled+contract filter (NamesForContract delegates to it), but
+            // returns the entries so the /analytics/algorithms picker can read Description too.
+            Register(CompiledEntry("PathA"));
+            Register(CompiledEntry("PathB"));
+
+            var failed = new PluginEntry(Definition("PathFailed"), PluginCompileState.Failed, null, "boom");
+            _fallen8.EnqueueTransaction(new RegisterPluginTransaction { Entry = failed }).WaitUntilFinished();
+
+            var names = new List<string>();
+            foreach (var entry in _fallen8.Plugins.EntriesForContract(PluginContract.Path))
+            {
+                names.Add(entry.Definition.Name);
+                Assert.AreEqual("test", entry.Definition.Description,
+                    "EntriesForContract carries the Description that NamesForContract drops");
+            }
+
+            CollectionAssert.AreEquivalent(new[] { "PathA", "PathB" }, names);
+            Assert.AreEqual(0, _fallen8.Plugins.EntriesForContract(PluginContract.Analytics).Count);
+        }
+
+        [TestMethod]
         public void Remove_Then_Absent()
         {
             Register(CompiledEntry("gone"));

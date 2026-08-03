@@ -86,35 +86,22 @@ namespace NoSQL.GraphDB.App.Ingestion
 
     /// <summary>The HTTP client for fallen-8-nlp: <c>POST /enrich</c> plus a cached
     /// <c>GET /health</c> probe for /status (mirrors <see cref="DoclingClient"/>).</summary>
-    public sealed class NlpClient : INlpClient, IDisposable
+    public sealed class NlpClient : SidecarHttpClient, INlpClient
     {
-        private static readonly TimeSpan HealthCacheTtl = TimeSpan.FromSeconds(30);
-        private static readonly TimeSpan HealthProbeTimeout = TimeSpan.FromSeconds(5);
-
-        private readonly HttpClient _client;
-        private readonly ILogger<NlpClient> _logger;
-
-        private Int64 _healthProbedAtTicks;
-        private volatile Boolean _healthy;
-
+        // The base owns the HttpClient, endpoint normalization, the cached /health probe, Configured
+        // and Dispose (consolidation-audit CA-10); this client keeps only POST /enrich. The base
+        // takes an already-computed timeout: NLP floors its configured seconds at 1 (docling clamps
+        // differently), so the formula stays here.
         public NlpClient(IOptions<Fallen8NlpOptions> options, ILogger<NlpClient> logger,
             HttpMessageHandler handler = null)
+            : base(Resolve(options).Endpoint,
+                   TimeSpan.FromSeconds(Math.Max(1, Resolve(options).TimeoutSeconds)),
+                   logger, "NLP", handler)
         {
-            _logger = logger;
-            var nlp = options.Value ?? new Fallen8NlpOptions();
-            if (!String.IsNullOrWhiteSpace(nlp.Endpoint))
-            {
-                var endpoint = nlp.Endpoint.EndsWith("/", StringComparison.Ordinal) ? nlp.Endpoint : nlp.Endpoint + "/";
-                _client = new HttpClient(handler ?? new SocketsHttpHandler
-                {
-                    PooledConnectionLifetime = TimeSpan.FromMinutes(2)
-                }, disposeHandler: true);
-                _client.BaseAddress = new Uri(endpoint);
-                _client.Timeout = TimeSpan.FromSeconds(Math.Max(1, nlp.TimeoutSeconds));
-            }
         }
 
-        public Boolean Configured => _client != null;
+        private static Fallen8NlpOptions Resolve(IOptions<Fallen8NlpOptions> options)
+            => options.Value ?? new Fallen8NlpOptions();
 
         [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
             Justification = "Serializes/deserializes the small NLP wire DTOs with default options; trimming is disabled for this application.")]
@@ -138,7 +125,7 @@ namespace NoSQL.GraphDB.App.Ingestion
 
             try
             {
-                using (var response = await _client.PostAsJsonAsync("enrich", body, cancellationToken))
+                using (var response = await Http.PostAsJsonAsync("enrich", body, cancellationToken))
                 {
                     if (!response.IsSuccessStatusCode)
                     {
@@ -158,52 +145,6 @@ namespace NoSQL.GraphDB.App.Ingestion
             {
                 throw new NlpUnavailableException(String.Format("The NLP sidecar did not answer: {0}", ex.Message), ex);
             }
-        }
-
-        public async Task<Boolean> IsReachableAsync(CancellationToken cancellationToken)
-        {
-            if (!Configured)
-            {
-                return false;
-            }
-
-            var now = Environment.TickCount64;
-            var probedAt = Interlocked.Read(ref _healthProbedAtTicks);
-            if (probedAt != 0 && now - probedAt < (Int64)HealthCacheTtl.TotalMilliseconds)
-            {
-                return _healthy;
-            }
-
-            Boolean healthy;
-            try
-            {
-                using (var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-                {
-                    probeCts.CancelAfter(HealthProbeTimeout);
-                    using (var response = await _client.GetAsync("health", probeCts.Token))
-                    {
-                        healthy = response.IsSuccessStatusCode;
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
-            {
-                _logger.LogDebug("NLP health probe failed: {Reason}", ex.Message);
-                healthy = false;
-            }
-
-            _healthy = healthy;
-            Interlocked.Exchange(ref _healthProbedAtTicks, now);
-            return healthy;
-        }
-
-        public void Dispose()
-        {
-            _client?.Dispose();
         }
 
         #region serialization DTOs

@@ -31,6 +31,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using NoSQL.GraphDB.Core.Plugins;
 
 namespace NoSQL.GraphDB.Core.Plugin
 {
@@ -173,14 +174,26 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// </summary>
         private static IEnumerable<Type> FilterTypes<T>(IEnumerable<Type> candidates, Boolean checkForIPlugin = true)
         {
+            return FilterTypes(typeof(T), candidates, checkForIPlugin);
+        }
+
+        /// <summary>
+        ///   The non-generic core of <see cref="FilterTypes{T}" />: filters candidates to those
+        ///   implementing <paramref name="contractType" /> (and <see cref="IPlugin" /> unless
+        ///   <paramref name="checkForIPlugin" /> is false), preserving discovery order. Used by
+        ///   <see cref="AvailableBuiltInNames" />, which knows the contract interface only as a
+        ///   runtime <see cref="Type" /> (from <see cref="ContractInterface" />).
+        /// </summary>
+        private static IEnumerable<Type> FilterTypes(Type contractType, IEnumerable<Type> candidates, Boolean checkForIPlugin = true)
+        {
             foreach (var candidate in candidates)
             {
-                if (checkForIPlugin && !IsInterfaceOf<IPlugin>(candidate))
+                if (checkForIPlugin && !IsInterfaceOf(typeof(IPlugin), candidate))
                 {
                     continue;
                 }
 
-                if (!IsInterfaceOf<T>(candidate))
+                if (!IsInterfaceOf(contractType, candidate))
                 {
                     continue;
                 }
@@ -341,7 +354,15 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <typeparam name='T'> The interface type. </typeparam>
         private static Boolean IsInterfaceOf<T>(Type type)
         {
-            var interestingInterface = typeof(T).FullName;
+            return IsInterfaceOf(typeof(T), type);
+        }
+
+        /// <summary>The non-generic core of <see cref="IsInterfaceOf{T}" />: whether
+        /// <paramref name="type" /> implements <paramref name="interfaceType" /> (matched by full
+        /// name, tolerating a component whose <c>FullName</c> throws).</summary>
+        private static Boolean IsInterfaceOf(Type interfaceType, Type type)
+        {
+            var interestingInterface = interfaceType.FullName;
 
             return type.GetInterfaces().Any(i =>
             {
@@ -357,6 +378,55 @@ namespace NoSQL.GraphDB.Core.Plugin
 
                 return fullNameOfInterface != null && fullNameOfInterface.Equals(interestingInterface);
             });
+        }
+
+        /// <summary>
+        ///   THE contract-to-CLR-interface map (consolidation-audit CA-13): the single home that
+        ///   resolves a <see cref="PluginContract" /> to the engine interface a plugin of that
+        ///   contract implements, or <c>null</c> for an unknown contract. Every site that needs the
+        ///   built-in set for a contract - the plugin compiler's contract check, the
+        ///   register-time built-in-name collision guard, the <c>/status</c> discovery union, and
+        ///   the subgraph plugin list - resolves through here (directly for the Type, or via
+        ///   <see cref="AvailableBuiltInNames" /> for the names), so adding a contract updates one
+        ///   switch instead of four.
+        /// </summary>
+        public static Type ContractInterface(PluginContract contract)
+        {
+            switch (contract)
+            {
+                case PluginContract.Path:
+                    return typeof(NoSQL.GraphDB.Core.Algorithms.Path.IShortestPathAlgorithm);
+                case PluginContract.SubGraph:
+                    return typeof(NoSQL.GraphDB.Core.Algorithms.SubGraph.ISubGraphAlgorithm);
+                case PluginContract.Analytics:
+                    return typeof(NoSQL.GraphDB.Core.Algorithms.Analytics.IGraphAnalyticsAlgorithm);
+                case PluginContract.GraphFunction:
+                    return typeof(IGraphFunction);
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        ///   The built-in plugin names for a contract, discovered by reflection exactly as
+        ///   <see cref="TryGetAvailablePlugins{T}" /> does but resolving the interface at runtime
+        ///   through <see cref="ContractInterface" /> (consolidation-audit CA-13). Same candidate
+        ///   list and filter as the generic path, so the set and order are identical. An unknown
+        ///   contract (or one with no built-in implementation, e.g. GraphFunction) yields empty.
+        /// </summary>
+        public static IEnumerable<String> AvailableBuiltInNames(PluginContract contract)
+        {
+            var contractType = ContractInterface(contract);
+            if (contractType == null)
+            {
+                return Enumerable.Empty<String>();
+            }
+
+            return (from candidate in FilterTypes(contractType, GetCandidateTypes())
+                    select Activate<IPlugin>(candidate)
+                    into instance
+                    where instance != null
+                    select instance.PluginName);
         }
 
         /// <summary>

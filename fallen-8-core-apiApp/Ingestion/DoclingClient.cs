@@ -38,58 +38,38 @@ namespace NoSQL.GraphDB.App.Ingestion
     ///   <c>json</c> AND <c>md</c> (structured chunking primary, markdown fallback), plus a
     ///   cached <c>GET /health</c> probe for the /status block.
     /// </summary>
-    public sealed class DoclingClient : IDoclingConverter, IDisposable
+    public sealed class DoclingClient : SidecarHttpClient, IDoclingConverter
     {
-        private static readonly TimeSpan HealthCacheTtl = TimeSpan.FromSeconds(30);
-        private static readonly TimeSpan HealthProbeTimeout = TimeSpan.FromSeconds(5);
-
-        private readonly HttpClient _client;
-        private readonly ILogger<DoclingClient> _logger;
-
-        // Conversion knobs + async budget (feature semantic-layer).
+        // Conversion knobs + async budget (feature semantic-layer). The base owns the HttpClient,
+        // endpoint normalization, the cached /health probe, Configured and Dispose
+        // (consolidation-audit CA-10); this client keeps the convert protocol.
         private readonly Boolean _doOcr;
         private readonly String _tableMode;
         private readonly String _ocrEngine;
         private readonly TimeSpan _overallTimeout;
         private readonly TimeSpan _pollInterval;
 
-        /// <summary>Monotonic-clock cache for the health probe (0 ticks = never probed).</summary>
-        private Int64 _healthProbedAtTicks;
-        private volatile Boolean _healthy;
-
+        // The per-request cap the base uses (submit/poll/result are each quick); the OVERALL budget
+        // is the poll-loop deadline in PollUntilDoneAsync, not the HttpClient timeout, so it is
+        // clamped to [30,120]s - distinct from NLP's floor-at-1, which is why the base takes an
+        // already-computed timeout rather than the raw seconds.
         public DoclingClient(Microsoft.Extensions.Options.IOptions<Fallen8IngestionOptions> options,
             ILogger<DoclingClient> logger, HttpMessageHandler handler = null)
+            : base(Resolve(options).Endpoint,
+                   TimeSpan.FromSeconds(Math.Min(120, Math.Max(30, Resolve(options).TimeoutSeconds))),
+                   logger, "Docling", handler)
         {
-            _logger = logger;
-
-            var docling = options.Value.Docling ?? new Fallen8IngestionOptions.DoclingOptions();
+            var docling = Resolve(options);
             _doOcr = docling.DoOcr;
             _tableMode = String.IsNullOrWhiteSpace(docling.TableMode) ? "fast" : docling.TableMode;
             _ocrEngine = docling.OcrEngine ?? String.Empty;
             _overallTimeout = TimeSpan.FromSeconds(Math.Max(1, docling.TimeoutSeconds));
             _pollInterval = TimeSpan.FromSeconds(Math.Max(1, docling.PollIntervalSeconds));
-            if (!String.IsNullOrWhiteSpace(docling.Endpoint))
-            {
-                var endpoint = docling.Endpoint.EndsWith("/", StringComparison.Ordinal)
-                    ? docling.Endpoint
-                    : docling.Endpoint + "/";
-                // This client is a singleton, so a raw HttpClient would pin its DNS resolution for
-                // the process lifetime - if the docling container restarts with a new IP, every
-                // later conversion fails until F8 restarts. A SocketsHttpHandler with a bounded
-                // PooledConnectionLifetime recycles connections (and re-resolves DNS) periodically.
-                // A test-supplied handler is used verbatim.
-                _client = new HttpClient(handler ?? new SocketsHttpHandler
-                {
-                    PooledConnectionLifetime = TimeSpan.FromMinutes(2)
-                }, disposeHandler: true);
-                _client.BaseAddress = new Uri(endpoint);
-                // Per-request cap (submit/poll/result are each quick); the OVERALL budget is the
-                // poll-loop deadline below, so a minutes-long conversion is bounded there, not here.
-                _client.Timeout = TimeSpan.FromSeconds(Math.Min(120, Math.Max(30, docling.TimeoutSeconds)));
-            }
         }
 
-        public Boolean Configured => _client != null;
+        private static Fallen8IngestionOptions.DoclingOptions Resolve(
+            Microsoft.Extensions.Options.IOptions<Fallen8IngestionOptions> options)
+            => options.Value.Docling ?? new Fallen8IngestionOptions.DoclingOptions();
 
         /// <summary>
         ///   Converts one document via docling-serve's ASYNC task API: submit
@@ -129,7 +109,7 @@ namespace NoSQL.GraphDB.App.Ingestion
                 }
 
                 var status = await SendForJsonAsync<DoclingTaskStatus>(
-                    () => _client.PostAsync("v1/convert/file/async", content, cancellationToken),
+                    () => Http.PostAsync("v1/convert/file/async", content, cancellationToken),
                     fileName, cancellationToken);
                 if (String.IsNullOrEmpty(status?.TaskId))
                 {
@@ -147,7 +127,7 @@ namespace NoSQL.GraphDB.App.Ingestion
             while (true)
             {
                 var status = await SendForJsonAsync<DoclingTaskStatus>(
-                    () => _client.GetAsync($"v1/status/poll/{taskId}", cancellationToken), fileName, cancellationToken);
+                    () => Http.GetAsync($"v1/status/poll/{taskId}", cancellationToken), fileName, cancellationToken);
                 var state = status?.TaskStatus?.ToLowerInvariant();
                 if (state == "success")
                 {
@@ -174,7 +154,7 @@ namespace NoSQL.GraphDB.App.Ingestion
             CancellationToken cancellationToken)
         {
             var parsed = await SendForJsonAsync<DoclingConvertResponse>(
-                () => _client.GetAsync($"v1/result/{taskId}", cancellationToken), fileName, cancellationToken);
+                () => Http.GetAsync($"v1/result/{taskId}", cancellationToken), fileName, cancellationToken);
             var document = parsed?.Document?.JsonContent;
             var pages = document?.Pages;
             return new DoclingConversionResult
@@ -231,54 +211,5 @@ namespace NoSQL.GraphDB.App.Ingestion
             }
         }
 
-        public async Task<Boolean> IsReachableAsync(CancellationToken cancellationToken)
-        {
-            if (!Configured)
-            {
-                return false;
-            }
-
-            var now = Environment.TickCount64;
-            var probedAt = Interlocked.Read(ref _healthProbedAtTicks);
-            if (probedAt != 0 && now - probedAt < (Int64)HealthCacheTtl.TotalMilliseconds)
-            {
-                return _healthy;
-            }
-
-            Boolean healthy;
-            try
-            {
-                using (var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-                {
-                    probeCts.CancelAfter(HealthProbeTimeout);
-                    using (var response = await _client.GetAsync("health", probeCts.Token))
-                    {
-                        healthy = response.IsSuccessStatusCode;
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                // The CALLER cancelled (e.g. the /status request was aborted) - do NOT cache this
-                // as unhealthy, or one aborted request would report docling down to everyone for
-                // the full TTL. Leave the cache untouched and surface the cancellation.
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
-            {
-                // The probe's own timeout elapsed, or the sidecar is unreachable: genuinely down.
-                _logger.LogDebug("Docling health probe failed: {Reason}", ex.Message);
-                healthy = false;
-            }
-
-            _healthy = healthy;
-            Interlocked.Exchange(ref _healthProbedAtTicks, now);
-            return healthy;
-        }
-
-        public void Dispose()
-        {
-            _client?.Dispose();
-        }
     }
 }
