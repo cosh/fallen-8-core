@@ -197,8 +197,7 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                     continue;
                 }
 
-                if (vector.Length != Dimension || HasNonFiniteComponent(vector) ||
-                    (Metric == VectorDistanceMetric.Cosine && IsZeroNorm(vector)))
+                if (Classify(vector, Dimension, Metric) != VectorRankability.Ok)
                 {
                     skipped++;
                     continue;
@@ -275,8 +274,10 @@ namespace NoSQL.GraphDB.Core.Index.Vector
             }
 
             // The family's silent-skip contract for the generic engine API; the typed REST
-            // endpoint validates first and answers 400, so over REST this is never silent.
-            if (!(key is float[] vector) || vector.Length != Dimension)
+            // endpoint validates first and answers 400, so over REST this is never silent. The
+            // key-type cast stays here (Classify takes a span); the rankability reasons come from
+            // the shared Classify so this can never drift from the projection (CA-5).
+            if (!(key is float[] vector))
             {
                 _logger?.LogWarning(
                     "VectorIndex.AddOrUpdate for element {ElementId} skipped: the key must be a float[{Dimension}].",
@@ -284,20 +285,23 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                 return;
             }
 
-            if (HasNonFiniteComponent(vector))
+            switch (Classify(vector, Dimension, Metric))
             {
-                _logger?.LogWarning(
-                    "VectorIndex.AddOrUpdate for element {ElementId} skipped: the vector contains NaN or Infinity.",
-                    graphElement.Id);
-                return;
-            }
-
-            if (Metric == VectorDistanceMetric.Cosine && IsZeroNorm(vector))
-            {
-                _logger?.LogWarning(
-                    "VectorIndex.AddOrUpdate for element {ElementId} skipped: a zero-norm vector cannot rank under Cosine.",
-                    graphElement.Id);
-                return;
+                case VectorRankability.WrongDimension:
+                    _logger?.LogWarning(
+                        "VectorIndex.AddOrUpdate for element {ElementId} skipped: the key must be a float[{Dimension}].",
+                        graphElement.Id, Dimension);
+                    return;
+                case VectorRankability.NonFinite:
+                    _logger?.LogWarning(
+                        "VectorIndex.AddOrUpdate for element {ElementId} skipped: the vector contains NaN or Infinity.",
+                        graphElement.Id);
+                    return;
+                case VectorRankability.ZeroNormUnderCosine:
+                    _logger?.LogWarning(
+                        "VectorIndex.AddOrUpdate for element {ElementId} skipped: a zero-norm vector cannot rank under Cosine.",
+                        graphElement.Id);
+                    return;
             }
 
             if (WriteResource())
@@ -1047,6 +1051,35 @@ namespace NoSQL.GraphDB.Core.Index.Vector
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        ///   Classifies whether a vector can rank in a projection of the given
+        ///   <paramref name="dimension"/> and <paramref name="metric"/>: THE single home for the
+        ///   rankability predicate (dimension match, all-finite, and - under Cosine only - non-zero
+        ///   norm) shared by the live writer projection, the projection rebuild, the generic
+        ///   <see cref="AddOrUpdate"/> and the REST validate path. The live projection promises it
+        ///   equals a load-rebuild from element state; that holds only if every site classifies
+        ///   identically, so they route through here rather than re-composing the predicate.
+        ///   Checks in the fixed order dimension -&gt; finite -&gt; zero-norm, so the reason is the
+        ///   FIRST failing condition (the order every call site relied on for its message). O(d)
+        ///   over the span, no allocation or dispatch.
+        /// </summary>
+        public static VectorRankability Classify(ReadOnlySpan<Single> vector, Int32 dimension, VectorDistanceMetric metric)
+        {
+            if (vector.Length != dimension)
+            {
+                return VectorRankability.WrongDimension;
+            }
+            if (HasNonFiniteComponent(vector))
+            {
+                return VectorRankability.NonFinite;
+            }
+            if (metric == VectorDistanceMetric.Cosine && IsZeroNorm(vector))
+            {
+                return VectorRankability.ZeroNormUnderCosine;
+            }
+            return VectorRankability.Ok;
         }
 
         #endregion

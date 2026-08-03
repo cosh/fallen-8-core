@@ -65,11 +65,12 @@ namespace NoSQL.GraphDB.Core
 
                 try
                 {
+                    // Projectable == rankable in THIS index; the shared Classify keeps this live
+                    // projection identical to a load-rebuild (CA-5). The null guard stays here: a
+                    // span cannot be null, and a null vector purges (below) rather than "cannot rank".
                     var projectable = vectorOrNull != null &&
-                        vectorOrNull.Length == vectorIndex.Dimension &&
-                        !Index.Vector.VectorIndex.HasNonFiniteComponent(vectorOrNull) &&
-                        !(vectorIndex.Metric == Index.Vector.VectorDistanceMetric.Cosine &&
-                          Index.Vector.VectorIndex.IsZeroNorm(vectorOrNull));
+                        Index.Vector.VectorIndex.Classify(vectorOrNull, vectorIndex.Dimension, vectorIndex.Metric)
+                            == Index.Vector.VectorRankability.Ok;
 
                     if (projectable)
                     {
