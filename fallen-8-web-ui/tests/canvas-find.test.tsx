@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { InstanceConfig } from "../src/instances/types";
@@ -55,10 +55,17 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
 });
 
 vi.mock("../src/canvas/GraphCanvas", () => ({
-  GraphCanvas: () => <div data-testid="mock-canvas" />,
+  // Surface the hover spotlight prop so the Find -> canvas wiring is assertable without WebGL.
+  GraphCanvas: ({ highlight }: { highlight?: { kind: string; id: number } | null }) => (
+    <div
+      data-testid="mock-canvas"
+      data-highlight={highlight ? `${highlight.kind}:${highlight.id}` : "none"}
+    />
+  ),
 }));
 
 import { CanvasScreen } from "../src/screens/CanvasScreen";
+import { FindPanel } from "../src/canvas/FindPanel";
 import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/instanceStore";
 import { SAME_ORIGIN_INSTANCE } from "../src/instances/registry";
 
@@ -310,5 +317,104 @@ describe("find search", () => {
 
     renderScreen();
     expect(screen.getByTestId("find-term")).toHaveValue("acme");
+  });
+});
+
+describe("hover spotlight", () => {
+  async function searchAndRun(user: ReturnType<typeof userEvent.setup>, term = "acme") {
+    renderScreen();
+    await openFind(user);
+    await user.type(screen.getByTestId("find-term"), term);
+    await user.click(screen.getByTestId("find-run"));
+  }
+
+  it("spotlights the hovered result's node on the canvas and clears on leave", async () => {
+    const user = userEvent.setup();
+    scanPropertiesMock.mockResolvedValue([12]);
+    await searchAndRun(user);
+    await waitFor(() => expect(screen.getByTestId("find-row-12")).toBeInTheDocument());
+
+    expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "none");
+    await user.hover(screen.getByTestId("find-row-12"));
+    expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "node:12");
+    await user.unhover(screen.getByTestId("find-row-12"));
+    expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "none");
+  });
+
+  it("passes an edge row's ref through (the canvas decides node-only spotlighting)", async () => {
+    const user = userEvent.setup();
+    scanPropertiesMock.mockResolvedValue([50]);
+    getGraphElementMock.mockImplementation((_i, id) =>
+      Promise.resolve(id === 50 ? edge(50, 1, 2) : vertex(id)),
+    );
+    await searchAndRun(user, "x");
+    await waitFor(() => expect(screen.getByTestId("find-row-50")).toBeInTheDocument());
+
+    await user.hover(screen.getByTestId("find-row-50"));
+    expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "edge:50");
+  });
+
+  it("clears the spotlight when the Find tab is left", async () => {
+    const user = userEvent.setup();
+    scanPropertiesMock.mockResolvedValue([12]);
+    await searchAndRun(user);
+    await waitFor(() => expect(screen.getByTestId("find-row-12")).toBeInTheDocument());
+    await user.hover(screen.getByTestId("find-row-12"));
+    expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "node:12");
+
+    // Leaving Find unmounts the panel, which must clear any lingering spotlight.
+    await user.click(screen.getByTestId("canvas-tab-style"));
+    expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "none");
+  });
+
+  it("clears a stale spotlight when a new search runs under a stationary cursor", async () => {
+    const user = userEvent.setup();
+    scanPropertiesMock.mockResolvedValue([12]);
+    await searchAndRun(user);
+    await waitFor(() => expect(screen.getByTestId("find-row-12")).toBeInTheDocument());
+    await user.hover(screen.getByTestId("find-row-12"));
+    expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "node:12");
+
+    // Submit WITHOUT moving the pointer off the row (fireEvent, not a click): no mouseleave fires,
+    // so only the search's own onHover(null) can clear the spotlight the replaced row summoned.
+    scanPropertiesMock.mockResolvedValue([99]);
+    fireEvent.submit(screen.getByTestId("find-term").closest("form")!);
+    await waitFor(() =>
+      expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "none"),
+    );
+  });
+
+  it("spotlights on keyboard focus of the id button and clears on blur", async () => {
+    const user = userEvent.setup();
+    scanPropertiesMock.mockResolvedValue([12]);
+    await searchAndRun(user);
+    await waitFor(() => expect(screen.getByTestId("find-row-12")).toBeInTheDocument());
+
+    const idButton = screen.getByRole("button", { name: "#12" });
+    fireEvent.focus(idButton);
+    expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "node:12");
+    fireEvent.blur(idButton);
+    expect(screen.getByTestId("mock-canvas")).toHaveAttribute("data-highlight", "none");
+  });
+
+  it("clears the spotlight on unmount even with no mouseleave (FindPanel in isolation)", async () => {
+    const user = userEvent.setup();
+    const onHover = vi.fn();
+    scanPropertiesMock.mockResolvedValue([12]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <FindPanel onSelect={() => {}} onHover={onHover} />
+      </QueryClientProvider>,
+    );
+    await user.type(screen.getByTestId("find-term"), "acme");
+    await user.click(screen.getByTestId("find-run"));
+    await waitFor(() => expect(screen.getByTestId("find-row-12")).toBeInTheDocument());
+    await user.hover(screen.getByTestId("find-row-12"));
+    expect(onHover).toHaveBeenLastCalledWith({ kind: "node", id: 12 });
+
+    onHover.mockClear();
+    view.unmount();
+    expect(onHover).toHaveBeenCalledWith(null);
   });
 });

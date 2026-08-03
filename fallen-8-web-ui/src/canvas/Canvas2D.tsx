@@ -41,6 +41,7 @@ import type { StyleConfig } from "./styleConfig";
 import type { ResolvedStyles } from "./styleEngine";
 import { imageUrlFor } from "./imageAssets";
 import { DEGRADE_THRESHOLD } from "./styling";
+import { eclipseRadius } from "./eclipse";
 import type { ElementRef } from "./GraphCanvas";
 
 /**
@@ -63,17 +64,20 @@ export function Canvas2D({
   edges,
   styles,
   config,
+  highlightId,
   onSelect,
 }: {
   nodes: Record<number, CanvasNode>;
   edges: Record<number, CanvasEdge>;
   styles: ResolvedStyles;
   config: StyleConfig;
+  highlightId?: number | null;
   onSelect: (ref: ElementRef | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const fa2Ref = useRef<FA2Layout | null>(null);
+  const eclipseRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph>(new Graph({ multi: true, type: "directed" }));
 
   // Click handlers live for the Sigma instance's lifetime; they must read the CURRENT
@@ -263,12 +267,48 @@ export function Canvas2D({
     return () => window.clearTimeout(stopTimer);
   }, [config.layout2d, nodes, edges]);
 
+  // Hover spotlight (feature canvas-find-connect): while a Find result row is hovered, track its
+  // node's live viewport position every frame and park the "eclipse" corona over it. With no
+  // highlight (or the node absent from this canvas) the loop never runs and the element stays
+  // hidden, so there is zero cost off-hover.
+  useEffect(() => {
+    const el = eclipseRef.current;
+    if (highlightId == null || !el) {
+      if (el) el.style.display = "none";
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      const sigma = sigmaRef.current;
+      const dd = sigma?.getNodeDisplayData(String(highlightId));
+      if (!sigma || !dd) {
+        el.style.display = "none";
+      } else {
+        const { x, y } = sigma.framedGraphToViewport({ x: dd.x, y: dd.y });
+        const r = eclipseRadius(sigma.scaleSize(dd.size));
+        el.style.display = "block";
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        el.style.setProperty("--eclipse-r", `${r}px`);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      el.style.display = "none";
+    };
+  }, [highlightId]);
+
   return (
-    <div
-      ref={containerRef}
-      data-testid="graph-canvas"
-      className="bg-ink h-full w-full"
-      aria-label="graph canvas"
-    />
+    <div className="relative h-full w-full">
+      <div
+        ref={containerRef}
+        data-testid="graph-canvas"
+        className="bg-ink h-full w-full"
+        aria-label="graph canvas"
+      />
+      <div ref={eclipseRef} className="eclipse-highlight" style={{ display: "none" }} aria-hidden />
+    </div>
   );
 }

@@ -488,3 +488,85 @@ body {
 .f8fr-stage.reduced .f8fr-ripple {
   display: none;
 }
+
+/* ---- Canvas hover spotlight (feature canvas-find-connect): a "solar eclipse" corona drawn
+   over the node whose Find result row is hovered. ONE home for the visual; both renderers just
+   position an absolutely-placed `.eclipse-highlight` element inside their container and set
+   `--eclipse-r` to the node's on-screen radius in px (Canvas2D via Sigma display data, Canvas3D
+   via the perspective projection). Pointer-events are off so it never blocks canvas interaction.
+   The dark "moon" covers the node while a hot corona rings it, so the eclipse reads at any node
+   colour. Motion is opacity/rotation only (GPU-cheap) and pauses under reduced-motion. */
+.eclipse-highlight {
+  --r: var(--eclipse-r, 10px);
+  position: absolute;
+  width: calc(var(--r) * 5.2);
+  height: calc(var(--r) * 5.2);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 5;
+  /* the corona: a hot ring of light just outside the eclipsed node */
+  background: radial-gradient(
+    closest-side,
+    transparent 42%,
+    rgba(255, 190, 110, 0.65) 47%,
+    rgba(255, 150, 70, 0.28) 58%,
+    rgba(255, 140, 60, 0) 74%
+  );
+  filter: drop-shadow(0 0 6px rgba(255, 170, 90, 0.7));
+  animation: eclipse-pulse 1.7s ease-in-out infinite;
+  will-change: opacity;
+}
+/* the dark moon that covers the node so the corona reads as an eclipse at any node colour */
+.eclipse-highlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    rgba(6, 8, 12, 0.95) 0%,
+    rgba(6, 8, 12, 0.95) 38%,
+    rgba(6, 8, 12, 0) 44%
+  );
+}
+/* slow-turning corona rays */
+.eclipse-highlight::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg, rgba(255, 214, 150, 0.55) 8deg, transparent 22deg,
+    transparent 60deg, rgba(255, 214, 150, 0.55) 68deg, transparent 82deg,
+    transparent 120deg, rgba(255, 214, 150, 0.55) 128deg, transparent 142deg,
+    transparent 180deg, rgba(255, 214, 150, 0.55) 188deg, transparent 202deg,
+    transparent 240deg, rgba(255, 214, 150, 0.55) 248deg, transparent 262deg,
+    transparent 300deg, rgba(255, 214, 150, 0.55) 308deg, transparent 322deg
+  );
+  -webkit-mask: radial-gradient(closest-side, transparent 44%, #000 49%, #000 64%, transparent 74%);
+  mask: radial-gradient(closest-side, transparent 44%, #000 49%, #000 64%, transparent 74%);
+  opacity: 0.7;
+  animation: eclipse-spin 9s linear infinite;
+}
+@keyframes eclipse-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes eclipse-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eclipse-highlight,
+  .eclipse-highlight::after {
+    animation: none !important;
+  }
+}
