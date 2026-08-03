@@ -50,6 +50,7 @@ export function GraphCanvas({
   config,
   pathOverlay,
   emphasis,
+  highlight,
   onSelect,
 }: {
   nodes: Record<number, CanvasNode>;
@@ -57,8 +58,12 @@ export function GraphCanvas({
   config: StyleConfig;
   pathOverlay: PathREST | null;
   emphasis?: EmphasisSet | null;
+  /** Transient hover spotlight (feature canvas-find-connect): the "eclipse" corona is drawn over
+   *  this node while a Find result row is hovered. Only a node kind spotlights; edges are ignored. */
+  highlight?: ElementRef | null;
   onSelect: (ref: ElementRef | null) => void;
 }) {
+  const highlightId = highlight && highlight.kind === "node" ? highlight.id : null;
   const overlay: PathOverlaySets = useMemo(() => {
     if (pathOverlay) {
       const nodeIds = new Set<number>();
@@ -95,9 +100,25 @@ export function GraphCanvas({
           </div>
         }
       >
-        <Canvas3D nodes={nodes} edges={edges} styles={styles} config={config} onSelect={onSelect} />
+        <Canvas3D
+          nodes={nodes}
+          edges={edges}
+          styles={styles}
+          config={config}
+          highlightId={highlightId}
+          onSelect={onSelect}
+        />
       </Suspense>
     );
   }
-  return <Canvas2D nodes={nodes} edges={edges} styles={styles} config={config} onSelect={onSelect} />;
+  return (
+    <Canvas2D
+      nodes={nodes}
+      edges={edges}
+      styles={styles}
+      config={config}
+      highlightId={highlightId}
+      onSelect={onSelect}
+    />
+  );
 }

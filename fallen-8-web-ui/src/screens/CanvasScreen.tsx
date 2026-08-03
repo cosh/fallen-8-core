@@ -66,6 +66,8 @@ export function CanvasScreen() {
   const setCanvasToolsDraft = store((s) => s.setCanvasToolsDraft);
 
   const [selected, setSelected] = useState<ElementRef | null>(null);
+  // Transient Find-tab hover spotlight (feature canvas-find-connect): the "eclipse" corona.
+  const [hovered, setHovered] = useState<ElementRef | null>(null);
 
   const legend = useMemo(
     () => buildLegend(canvasNodes, styleConfig),
@@ -150,6 +152,7 @@ export function CanvasScreen() {
           edges={canvasEdges}
           config={styleConfig}
           pathOverlay={pathOverlay}
+          highlight={hovered}
           onSelect={setSelected}
         />
         <div className="absolute top-2 left-2 space-y-1">
@@ -260,7 +263,7 @@ export function CanvasScreen() {
               edgePropertyKeys={edgePropertyKeys}
             />
           )}
-          {activeTab === "find" && <FindPanel onSelect={setSelected} />}
+          {activeTab === "find" && <FindPanel onSelect={setSelected} onHover={setHovered} />}
           {activeTab === "connect" && <ConnectPanel />}
         </div>
         <div className="panel">

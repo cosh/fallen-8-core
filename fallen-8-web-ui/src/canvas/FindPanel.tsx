@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { shapeSuggestions, useGraphShape } from "../state/graphShape";
@@ -48,7 +48,14 @@ const RESULT_TYPES = ["Vertices", "Edges", "Both"] as const;
  * click selects the element into the Detail panel for the full property view. Inputs persist in
  * the per-instance canvasToolsDraft; results are ephemeral (re-run on demand).
  */
-export function FindPanel({ onSelect }: { onSelect: (ref: ElementRef) => void }) {
+export function FindPanel({
+  onSelect,
+  onHover,
+}: {
+  onSelect: (ref: ElementRef) => void;
+  /** Spotlight the hovered result's node on the canvas (feature canvas-find-connect). */
+  onHover?: (ref: ElementRef | null) => void;
+}) {
   const { instance, store } = useInstanceStore();
   const draft = store((s) => s.canvasToolsDraft);
   const setDraft = store((s) => s.setCanvasToolsDraft);
@@ -67,6 +74,9 @@ export function FindPanel({ onSelect }: { onSelect: (ref: ElementRef) => void })
 
   const search = useMutation({
     mutationFn: async () => {
+      // Clear any active spotlight: the hovered row is about to be replaced, and if the cursor is
+      // stationary over it the browser fires no mouseleave, so the corona would otherwise linger.
+      onHover?.(null);
       setElements([]);
       setIdCount(null);
       setCapped(false);
@@ -103,6 +113,10 @@ export function FindPanel({ onSelect }: { onSelect: (ref: ElementRef) => void })
       elements.filter((e): e is VertexREST => !isEdge(e)),
       elements.filter(isEdge),
     );
+
+  // Clear the canvas spotlight when the Find tab unmounts (tab switch / leaving the screen), so a
+  // hovered eclipse never lingers after the row that summoned it is gone.
+  useEffect(() => () => onHover?.(null), [onHover]);
 
   const { shown, total } = capList(elements);
   const termBlank = !findTerm.trim();
@@ -201,11 +215,14 @@ export function FindPanel({ onSelect }: { onSelect: (ref: ElementRef) => void })
             <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
               {shown.map((el) => {
                 const here = onCanvas(el);
+                const ref: ElementRef = { kind: isEdge(el) ? "edge" : "node", id: el.id };
                 return (
                   <div
                     key={el.id}
                     data-testid={`find-row-${el.id}`}
                     className="hover:bg-panel-2 flex items-center gap-1.5 px-1 py-0.5"
+                    onMouseEnter={() => onHover?.(ref)}
+                    onMouseLeave={() => onHover?.(null)}
                   >
                     <span className="text-fg-faint w-3 shrink-0" title={isEdge(el) ? "edge" : "vertex"}>
                       {isEdge(el) ? "e" : "v"}
@@ -214,7 +231,9 @@ export function FindPanel({ onSelect }: { onSelect: (ref: ElementRef) => void })
                       type="button"
                       className="text-accent-2 shrink-0 cursor-pointer hover:underline"
                       title="Show details below"
-                      onClick={() => onSelect({ kind: isEdge(el) ? "edge" : "node", id: el.id })}
+                      onClick={() => onSelect(ref)}
+                      onFocus={() => onHover?.(ref)}
+                      onBlur={() => onHover?.(null)}
                     >
                       #{el.id}
                     </button>

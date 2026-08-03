@@ -30,6 +30,7 @@ import { edgeDisplayName, type CanvasEdge, type CanvasNode } from "../state/inst
 import type { StyleConfig } from "./styleConfig";
 import type { ResolvedStyles } from "./styleEngine";
 import { imageUrlFor } from "./imageAssets";
+import { eclipseRadius, perspectiveScreenRadius, worldRadiusForVal } from "./eclipse";
 import type { ElementRef } from "./GraphCanvas";
 
 /**
@@ -46,6 +47,10 @@ interface FgNode {
   val: number;
   image: string | null;
   spriteScale: number;
+  // Positions the force engine assigns at runtime (absent until the simulation places the node).
+  x?: number;
+  y?: number;
+  z?: number;
 }
 
 interface FgLink {
@@ -90,17 +95,20 @@ export function Canvas3D({
   edges,
   styles,
   config,
+  highlightId,
   onSelect,
 }: {
   nodes: Record<number, CanvasNode>;
   edges: Record<number, CanvasEdge>;
   styles: ResolvedStyles;
   config: StyleConfig;
+  highlightId?: number | null;
   onSelect: (ref: ElementRef | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraph3DInstance<FgNode, FgLink> | null>(null);
   const nodesByIdRef = useRef(new Map<number, FgNode>());
+  const eclipseRef = useRef<HTMLDivElement>(null);
 
   // Same as Canvas2D: mount-once click handlers must read the CURRENT onSelect.
   const onSelectRef = useRef(onSelect);
@@ -209,12 +217,66 @@ export function Canvas3D({
     fg.linkDirectionalArrowLength(config.edgeArrows ? 3.5 : 0).linkDirectionalArrowRelPos(1);
   }, [config.layout3d, config.showNodeLabels, config.showEdgeLabels, config.edgeArrows]);
 
+  // Hover spotlight (feature canvas-find-connect): mirror Canvas2D. While a Find row is hovered,
+  // project the node to screen space each frame (perspective-correct radius) and park the
+  // "eclipse" corona over it; hidden with no highlight or before the engine has placed the node.
+  useEffect(() => {
+    const el = eclipseRef.current;
+    const container = containerRef.current;
+    if (highlightId == null || !el || !container) {
+      if (el) el.style.display = "none";
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      const fg = fgRef.current;
+      const node = nodesByIdRef.current.get(highlightId);
+      if (!fg || !node || node.x == null || node.y == null || node.z == null) {
+        el.style.display = "none";
+      } else {
+        const camera = fg.camera() as THREE.PerspectiveCamera;
+        const nodePos = new THREE.Vector3(node.x, node.y, node.z);
+        const toNode = nodePos.clone().sub(camera.position);
+        const forward = camera.getWorldDirection(new THREE.Vector3());
+        // A node behind the camera plane still projects onto the viewport (mirrored) via
+        // graph2ScreenCoords' perspective divide, so cull it explicitly instead of parking the
+        // corona over empty space.
+        if (toNode.dot(forward) <= 0) {
+          el.style.display = "none";
+        } else {
+          const screen = fg.graph2ScreenCoords(node.x, node.y, node.z);
+          const r = eclipseRadius(
+            perspectiveScreenRadius(
+              toNode.length(),
+              worldRadiusForVal(node.val),
+              camera.fov ?? 50,
+              container.clientHeight,
+            ),
+          );
+          el.style.display = "block";
+          el.style.left = `${screen.x}px`;
+          el.style.top = `${screen.y}px`;
+          el.style.setProperty("--eclipse-r", `${r}px`);
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      el.style.display = "none";
+    };
+  }, [highlightId]);
+
   return (
-    <div
-      ref={containerRef}
-      data-testid="graph-canvas"
-      className="bg-ink h-full w-full overflow-hidden"
-      aria-label="graph canvas"
-    />
+    <div className="relative h-full w-full overflow-hidden">
+      <div
+        ref={containerRef}
+        data-testid="graph-canvas"
+        className="bg-ink h-full w-full"
+        aria-label="graph canvas"
+      />
+      <div ref={eclipseRef} className="eclipse-highlight" style={{ display: "none" }} aria-hidden />
+    </div>
   );
 }
