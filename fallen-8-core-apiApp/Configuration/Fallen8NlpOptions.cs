@@ -62,9 +62,5 @@ namespace NoSQL.GraphDB.App.Configuration
 
         /// <summary>Max key terms stored per chunk.</summary>
         public Int32 MaxKeyTermsPerChunk { get; set; } = 32;
-
-        /// <summary>Optional ISO-639-1 language hint sent with every request (empty: the sidecar
-        /// detects per document).</summary>
-        public String LanguageHint { get; set; } = String.Empty;
     }
 }

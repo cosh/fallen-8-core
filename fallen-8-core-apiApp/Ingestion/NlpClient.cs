@@ -77,9 +77,9 @@ namespace NoSQL.GraphDB.App.Ingestion
 
         /// <summary>Enriches a batch. Throws <see cref="NlpUnavailableException"/> when the
         /// sidecar is unconfigured/unreachable; the caller decides that entities are simply
-        /// empty (never fails the ingest).</summary>
+        /// empty (never fails the ingest). The sidecar is English-only (feature nlp-gpu-tier).</summary>
         Task<IReadOnlyList<NlpEnrichedItem>> EnrichAsync(IReadOnlyList<(String Id, String Text)> items,
-            String languageHint, CancellationToken cancellationToken);
+            CancellationToken cancellationToken);
 
         Task<Boolean> IsReachableAsync(CancellationToken cancellationToken);
     }
@@ -106,7 +106,7 @@ namespace NoSQL.GraphDB.App.Ingestion
         [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
             Justification = "Serializes/deserializes the small NLP wire DTOs with default options; trimming is disabled for this application.")]
         public async Task<IReadOnlyList<NlpEnrichedItem>> EnrichAsync(
-            IReadOnlyList<(String Id, String Text)> items, String languageHint, CancellationToken cancellationToken)
+            IReadOnlyList<(String Id, String Text)> items, CancellationToken cancellationToken)
         {
             if (!Configured)
             {
@@ -115,8 +115,7 @@ namespace NoSQL.GraphDB.App.Ingestion
 
             var body = new JsonObject_EnrichRequest
             {
-                Items = new List<JsonObject_EnrichItem>(items.Count),
-                LanguageHint = String.IsNullOrWhiteSpace(languageHint) ? null : languageHint
+                Items = new List<JsonObject_EnrichItem>(items.Count)
             };
             foreach (var item in items)
             {
@@ -152,7 +151,6 @@ namespace NoSQL.GraphDB.App.Ingestion
         private sealed class JsonObject_EnrichRequest
         {
             [JsonPropertyName("items")] public List<JsonObject_EnrichItem> Items { get; set; }
-            [JsonPropertyName("languageHint")] public String LanguageHint { get; set; }
         }
 
         private sealed class JsonObject_EnrichItem

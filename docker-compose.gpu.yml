@@ -1,7 +1,9 @@
-# GPU override: hands the host's NVIDIA GPU(s) to the Ollama container so NL-assist
-# inference runs accelerated. It is a separate file because a device reservation
-# hard-fails container creation on hosts without an NVIDIA GPU + container toolkit -
-# `npm run env:up` detects the GPU (scripts/env-up.js) and applies this file automatically.
+# GPU override: hands the host's NVIDIA GPU(s) to the containers that can use one. Ollama runs
+# NL-assist inference accelerated; the NLP sidecar (feature nlp-gpu-tier) swaps to the
+# en_core_web_trf transformer model and runs it on the GPU (on a CPU-only host it stays on
+# en_core_web_lg). It is a separate file because a device reservation hard-fails container
+# creation on hosts without an NVIDIA GPU + container toolkit - `npm run env:up` detects the GPU
+# (scripts/env-up.js) and applies this file automatically.
 #
 # GPU control: set F8_GPU to override automatic detection:
 #   F8_GPU=0 npm run env:up          # disable GPU (force CPU-only, even if GPU exists)
@@ -11,10 +13,32 @@
 # To apply this file by hand:
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 #
-# AMD GPUs are not covered: Ollama needs the ollama/ollama:rocm image for ROCm.
+# AMD GPUs are not covered: Ollama needs the ollama/ollama:rocm image for ROCm, and the NLP
+# transformer tier assumes CUDA (cupy-cuda12x).
 
 services:
   ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # NLP sidecar on the GPU (feature nlp-gpu-tier): rebuild the image on the transformer tier
+  # (en_core_web_trf, whose wheel pulls spacy-curated-transformers + torch, plus the spacy[cuda12x]
+  # cupy extra) and run it on the reserved device. The build
+  # args bake the trf model into the image; the runtime env makes enrich.py load that model and
+  # call spacy.prefer_gpu(). Kept in lockstep: F8_NLP_MODEL is set for BOTH build and run.
+  nlp:
+    build:
+      args:
+        F8_NLP_MODEL: en_core_web_trf
+        F8_NLP_GPU: "1"
+    environment:
+      - F8_NLP_MODEL=en_core_web_trf
+      - F8_NLP_PREFER_GPU=1
     deploy:
       resources:
         reservations:

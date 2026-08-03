@@ -1036,7 +1036,7 @@ namespace NoSQL.GraphDB.App.Ingestion
                     items.Add((chunkIds[i].ToString(), Truncate(chunks[i].Text, _nlpOptions.MaxCharsPerChunk)));
                 }
 
-                var enriched = await _nlp.EnrichAsync(items, _nlpOptions.LanguageHint, cancellationToken);
+                var enriched = await _nlp.EnrichAsync(items, cancellationToken);
                 var byChunkId = enriched.ToDictionary(item => item.Id, item => item);
 
                 var entityIndex = ResolveEntityIndex();

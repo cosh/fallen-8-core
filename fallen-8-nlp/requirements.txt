@@ -1,9 +1,10 @@
-# fallen-8-nlp runtime dependencies (feature semantic-layer). All permissive licences
-# (spaCy MIT, FastAPI MIT, uvicorn BSD, langdetect Apache-2.0). The two spaCy models
-# (de_core_news_sm, en_core_web_sm, both MIT) are installed via `python -m spacy download`
-# in the Dockerfile, not pinned here as packages.
+# fallen-8-nlp runtime dependencies (feature nlp-gpu-tier). All permissive licences (spaCy MIT,
+# FastAPI MIT, uvicorn BSD). The English spaCy model is installed via `python -m spacy download`
+# in the Dockerfile (baked at build), not pinned here as a package: en_core_web_lg (MIT) on CPU,
+# or en_core_web_trf (MIT) on the GPU build. The trf model wheel pulls its backend
+# (spacy-curated-transformers) + torch; the GPU Dockerfile adds the spacy[cuda12x] extra (cupy).
+# None of torch/cupy/curated-transformers ever land in the CPU image.
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 spacy==3.8.2
-langdetect==1.0.9
 pydantic==2.10.4

@@ -89,7 +89,7 @@ namespace NoSQL.GraphDB.Tests
         public Boolean Configured => ConfiguredFlag;
 
         public Task<IReadOnlyList<NlpEnrichedItem>> EnrichAsync(
-            IReadOnlyList<(String Id, String Text)> items, String languageHint, CancellationToken cancellationToken)
+            IReadOnlyList<(String Id, String Text)> items, CancellationToken cancellationToken)
         {
             if (ThrowUnavailable)
             {
@@ -103,7 +103,7 @@ namespace NoSQL.GraphDB.Tests
                 result.Add(new NlpEnrichedItem
                 {
                     Id = item.Id,
-                    Language = languageHint ?? "en",
+                    Language = "en",
                     Entities = entities,
                     KeyTerms = keyTerms
                 });

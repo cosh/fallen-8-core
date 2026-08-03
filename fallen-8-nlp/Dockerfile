@@ -1,31 +1,39 @@
-# MIT License. fallen-8-nlp - the semantic-layer NLP enrichment sidecar (feature
-# semantic-layer). Copyright (c) 2011-2026 Henning Rauch.
+# MIT License. fallen-8-nlp - the semantic-layer NLP enrichment sidecar (feature nlp-gpu-tier).
+# Copyright (c) 2011-2026 Henning Rauch.
 #
-# A small FastAPI + spaCy service. The two MIT models (de_core_news_sm, en_core_web_sm) are
-# downloaded at BUILD time so the running container makes no network call and starts offline.
+# A small FastAPI + spaCy service, English-only and GPU-tiered. The model is downloaded at BUILD
+# time so the running container makes no network call and starts offline:
+#   - CPU (default):   en_core_web_lg (MIT).
+#   - GPU (F8_NLP_GPU=1): en_core_web_trf (MIT) - its wheel pulls its own backend
+#     (spacy-curated-transformers) + torch - plus the spacy[cuda12x] extra (cupy) so
+#     spacy.prefer_gpu() can move the transformer onto the reserved device at runtime.
+# The compose GPU overlay (docker-compose.gpu.yml, applied automatically by `npm run env:up` when
+# an NVIDIA GPU is detected) sets both build args below plus F8_NLP_PREFER_GPU and the device.
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# The spaCy model per language is a build ARG so md/lg can be baked in for accuracy without a
-# code change (defaults to the small models). The runtime reads the SAME names from env
-# (F8_NLP_MODEL_DE/EN), so build and run stay in lockstep. A larger model just needs its name
-# here and the matching env at run time.
-ARG F8_NLP_MODEL_DE=de_core_news_sm
-ARG F8_NLP_MODEL_EN=en_core_web_sm
-ENV F8_NLP_MODEL_DE=${F8_NLP_MODEL_DE}
-ENV F8_NLP_MODEL_EN=${F8_NLP_MODEL_EN}
+# The spaCy model is a build ARG (kept in lockstep with the runtime F8_NLP_MODEL env). A larger
+# model just needs its name here and the matching env at run time. F8_NLP_GPU=1 switches the
+# build to the transformer tier.
+ARG F8_NLP_MODEL=en_core_web_lg
+ARG F8_NLP_GPU=0
+ENV F8_NLP_MODEL=${F8_NLP_MODEL}
 
-# System deps kept minimal; spaCy sm/md models are pure-Python wheels (no build toolchain).
+# System deps kept minimal; the CPU (lg) model is a pure-Python wheel. On the GPU build, add the
+# CUDA extra (cupy) so spacy.prefer_gpu() can flip thinc onto the device; the en_core_web_trf
+# model wheel itself pulls its backend (spacy-curated-transformers) + torch when downloaded, so
+# cupy + torch land ONLY on the GPU image. NOTE: trf uses spacy-curated-transformers, NOT the
+# classic spacy-transformers - do not install that one (wrong backend, torch/transformers conflict).
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && python -m spacy download ${F8_NLP_MODEL_DE} \
-    && python -m spacy download ${F8_NLP_MODEL_EN}
+    && if [ "$F8_NLP_GPU" = "1" ]; then pip install --no-cache-dir "spacy[cuda12x]==3.8.2"; fi \
+    && python -m spacy download ${F8_NLP_MODEL}
 
 COPY app ./app
 
 EXPOSE 8100
 
-# Single worker: the models are loaded per-process and lazy; scale with replicas, not workers,
-# so each process warms its own model cache once.
+# Single worker: the model is loaded per-process and lazy; scale with replicas, not workers, so
+# each process warms its own model cache once.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100"]

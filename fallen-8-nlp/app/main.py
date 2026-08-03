@@ -40,4 +40,4 @@ def enrich(request: EnrichRequest) -> EnrichResponse:
                 f"per-item limit of {_MAX_CHARS_PER_ITEM}.",
             )
 
-    return EnrichResponse(items=enrich_items(request.items, request.language_hint))
+    return EnrichResponse(items=enrich_items(request.items))

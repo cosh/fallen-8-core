@@ -1,8 +1,10 @@
 # MIT License
 #
-# enrich.py - the spaCy enrichment pipeline (feature semantic-layer): per-language NER +
-# noun-chunk key terms over already-extracted chunk text. No layout work (docling owns that);
-# no graph knowledge (the caller turns entities into vertices).
+# enrich.py - the spaCy enrichment pipeline (feature nlp-gpu-tier): English NER + noun-chunk
+# key terms over already-extracted chunk text. One English model, two tiers: en_core_web_lg on
+# CPU (default), the en_core_web_trf transformer on an NVIDIA GPU (the compose GPU overlay bakes
+# the trf model, reserves the device, and sets F8_NLP_PREFER_GPU). No layout work (docling owns
+# that); no graph knowledge (the caller turns entities into vertices).
 # Copyright (c) 2011-2026 Henning Rauch. See the repository LICENSE.
 
 from __future__ import annotations
@@ -12,19 +14,23 @@ import threading
 
 from .models import EnrichedItem, EnrichItem, Entity
 
-# The two shipped languages and their MIT spaCy models. The model per language is
-# CONFIGURABLE (F8_NLP_MODEL_DE / F8_NLP_MODEL_EN) so an operator can trade the small model
-# for md/lg accuracy - important for demanding domains - without a code change.
-# Whatever is configured must be installed in the image (the Dockerfile downloads these same
-# names via build args). Adding a language is one more env var + row here.
-_MODEL_BY_LANGUAGE = {
-    "de": os.environ.get("F8_NLP_MODEL_DE", "de_core_news_sm"),
-    "en": os.environ.get("F8_NLP_MODEL_EN", "en_core_web_sm"),
-}
-_DEFAULT_LANGUAGE = os.environ.get("F8_NLP_DEFAULT_LANGUAGE", "en")
+# The single English model. CONFIGURABLE (F8_NLP_MODEL) so an operator can trade accuracy for
+# size without a code change; whatever is named must be installed in the image (the Dockerfile
+# bakes this same name via a build ARG, so build and run stay in lockstep). The GPU compose
+# overlay flips this to en_core_web_trf (transformer) and reserves the device.
+_MODEL = os.environ.get("F8_NLP_MODEL", "en_core_web_lg")
 
-# Lazy, cached model load: spaCy model load is seconds, so load once per language on first use.
-_loaded: dict = {}
+# Use the GPU only when the overlay asked for it (F8_NLP_PREFER_GPU=1). spacy.prefer_gpu() is
+# best-effort: it activates the GPU for the transformer pipeline when one is reachable and
+# silently stays on CPU otherwise. A CPU host never sets this and never attempts a GPU.
+_PREFER_GPU = os.environ.get("F8_NLP_PREFER_GPU", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+# English-only: echoed back so each item's record is explicit about what was processed.
+_LANGUAGE = "en"
+
+# Lazy, cached model load: spaCy model load is seconds (longer for the transformer), so load
+# once on first use, guarded for concurrent requests.
+_loaded = None
 _load_lock = threading.Lock()
 
 # Key-term hygiene: drop pronoun/determiner-only chunks and trivial fragments, cap length.
@@ -32,39 +38,19 @@ _MIN_KEY_TERM_CHARS = 3
 _MAX_KEY_TERM_WORDS = 6
 
 
-def _load(language: str):
-    model_name = _MODEL_BY_LANGUAGE[language]
-    cached = _loaded.get(language)
-    if cached is not None:
-        return cached
+def _load():
+    global _loaded
+    if _loaded is not None:
+        return _loaded
     with _load_lock:
-        cached = _loaded.get(language)
-        if cached is None:
+        if _loaded is None:
             import spacy
 
-            cached = spacy.load(model_name)
-            _loaded[language] = cached
-        return cached
-
-
-def resolve_language(text: str, hint: str | None) -> str:
-    """Hint wins when it is a supported language; else detect; else the default. Detection is
-    best-effort - a failure or an unsupported result falls back to the default, never errors."""
-    if hint:
-        normalized = hint.strip().lower()[:2]
-        if normalized in _MODEL_BY_LANGUAGE:
-            return normalized
-    if text and text.strip():
-        try:
-            from langdetect import DetectorFactory, detect
-
-            DetectorFactory.seed = 0  # deterministic detection
-            detected = detect(text)
-            if detected in _MODEL_BY_LANGUAGE:
-                return detected
-        except Exception:
-            pass
-    return _DEFAULT_LANGUAGE if _DEFAULT_LANGUAGE in _MODEL_BY_LANGUAGE else "en"
+            if _PREFER_GPU:
+                # Must run before load so the transformer's weights land on the device.
+                spacy.prefer_gpu()
+            _loaded = spacy.load(_MODEL)
+        return _loaded
 
 
 def _key_terms(doc) -> list[str]:
@@ -87,31 +73,22 @@ def _key_terms(doc) -> list[str]:
     return terms
 
 
-def enrich_items(items: list[EnrichItem], hint: str | None) -> list[EnrichedItem]:
-    """Groups items by resolved language and runs each group through nlp.pipe. Order is
-    preserved by carrying the original index alongside each doc."""
-    # (index, item, language)
-    routed = [(i, item, resolve_language(item.text, hint)) for i, item in enumerate(items)]
-    results: list[EnrichedItem | None] = [None] * len(items)
-
-    by_language: dict[str, list[tuple[int, EnrichItem]]] = {}
-    for index, item, language in routed:
-        by_language.setdefault(language, []).append((index, item))
-
-    for language, group in by_language.items():
-        nlp = _load(language)
-        texts = [item.text or "" for _, item in group]
-        for (index, item), doc in zip(group, nlp.pipe(texts)):
-            entities = [
-                Entity(text=ent.text, label=ent.label_, start=ent.start_char, end=ent.end_char)
-                for ent in doc.ents
-            ]
-            results[index] = EnrichedItem(
+def enrich_items(items: list[EnrichItem]) -> list[EnrichedItem]:
+    """Runs every item through nlp.pipe (one English model) and preserves input order."""
+    nlp = _load()
+    texts = [item.text or "" for item in items]
+    results: list[EnrichedItem] = []
+    for item, doc in zip(items, nlp.pipe(texts)):
+        entities = [
+            Entity(text=ent.text, label=ent.label_, start=ent.start_char, end=ent.end_char)
+            for ent in doc.ents
+        ]
+        results.append(
+            EnrichedItem(
                 id=item.id,
-                language=language,
+                language=_LANGUAGE,
                 entities=entities,
                 key_terms=_key_terms(doc),
             )
-
-    # No item can be left unrouted (every language falls back to a loadable model).
-    return [r for r in results if r is not None]
+        )
+    return results

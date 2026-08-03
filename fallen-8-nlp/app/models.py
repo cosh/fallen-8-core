@@ -17,17 +17,14 @@ class EnrichItem(BaseModel):
 
 
 class EnrichRequest(BaseModel):
+    # English-only: there is no language hint. An unknown field from an older client is ignored.
     items: list[EnrichItem] = Field(default_factory=list)
-    # Optional ISO-639-1 hint ("de"/"en"). When absent, language is detected per item.
-    language_hint: str | None = Field(default=None, alias="languageHint")
-
-    model_config = {"populate_by_name": True}
 
 
 class Entity(BaseModel):
     text: str
-    # The raw spaCy label (German: PER/LOC/ORG/MISC; English: PERSON/ORG/GPE/...). The caller
-    # maps/normalizes; the service does not editorialize.
+    # The raw spaCy English label (PERSON/ORG/GPE/LOC/DATE/...). The caller maps/normalizes; the
+    # service does not editorialize.
     label: str
     start: int
     end: int
@@ -35,6 +32,7 @@ class Entity(BaseModel):
 
 class EnrichedItem(BaseModel):
     id: str
+    # Always "en" (English-only sidecar); kept so each item's record states what was processed.
     language: str
     entities: list[Entity] = Field(default_factory=list)
     key_terms: list[str] = Field(default_factory=list, serialization_alias="keyTerms")

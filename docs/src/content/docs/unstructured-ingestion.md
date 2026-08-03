@@ -149,16 +149,22 @@ wrong-shape index rather than clobbering it.
 ## The entity network
 
 With the `nlp` sidecar on, ingestion enriches chunks into a deduplicated **Entity** graph. The
-sidecar is a small, offline FastAPI + [spaCy](https://spacy.io) service (MIT) that returns
-named entities (`doc.ents`) and key terms (noun chunks) per chunk; German and English are
-detected per chunk and routed to the matching model. The model is configurable
-(`F8_NLP_MODEL_DE` / `F8_NLP_MODEL_EN`, default the small models; bake `md`/`lg` in for more
-accuracy).
+sidecar is a small, offline FastAPI + [spaCy](https://spacy.io) service (MIT), **English-only**,
+that returns named entities (`doc.ents`) and key terms (noun chunks) per chunk. It runs in one of
+two tiers, chosen automatically by the same NVIDIA-GPU detection that accelerates NL assist:
+
+- **No GPU (default):** the CPU-friendly `en_core_web_lg` model.
+- **NVIDIA GPU:** the `en_core_web_trf` transformer (roberta) model on the device, for
+  best-in-class English accuracy. `npm run env:up` applies this automatically; `F8_GPU=0/1`
+  forces the tier either way.
+
+The output is identical in both tiers; only accuracy differs. Override the model with the
+`F8_NLP_MODEL` build ARG (kept in lockstep with the runtime env of the same name).
 
 - **Entity vertices** (label `Entity`) are **deduplicated per namespace** on `(type,
   normalized text)`, so the same organisation mentioned across ten chunks and three documents
-  is one vertex. It carries `text` (the first surface form seen), `type` (the NLP label, e.g.
-  `PER`/`ORG`/`LOC`) and `normalized`.
+  is one vertex. It carries `text` (the first surface form seen), `type` (the spaCy label, e.g.
+  `PERSON`/`ORG`/`GPE`) and `normalized`.
 - **`mentions` edges** run chunk -> entity, capped per chunk (`Nlp:MaxEntitiesPerChunk`).
 - **Key terms** land on the chunk as a newline-joined `keyTerms` property.
 

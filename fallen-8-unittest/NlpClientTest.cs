@@ -80,20 +80,21 @@ namespace NoSQL.GraphDB.Tests
         public async Task Enrich_ParsesEntitiesAndTerms_AndSendsItems()
         {
             var handler = new FakeHandler(_ => Json(@"{ ""items"": [
-                { ""id"": ""c1"", ""language"": ""de"", ""entities"": [
-                    { ""text"": ""Muster GmbH"", ""label"": ""ORG"", ""start"": 4, ""end"": 15 } ],
+                { ""id"": ""c1"", ""language"": ""en"", ""entities"": [
+                    { ""text"": ""Acme Corporation"", ""label"": ""ORG"", ""start"": 0, ""end"": 16 } ],
                   ""keyTerms"": [ ""checkout service"" ] } ] }"));
             using var client = Client(handler);
 
-            var result = await client.EnrichAsync(new[] { ("c1", "Die Muster GmbH ...") }, "de", CancellationToken.None);
+            var result = await client.EnrichAsync(new[] { ("c1", "Acme Corporation ships ...") }, CancellationToken.None);
 
             Assert.AreEqual(1, result.Count);
-            Assert.AreEqual("de", result[0].Language);
-            Assert.AreEqual("Muster GmbH", result[0].Entities[0].Text);
+            Assert.AreEqual("en", result[0].Language);
+            Assert.AreEqual("Acme Corporation", result[0].Entities[0].Text);
             Assert.AreEqual("ORG", result[0].Entities[0].Label);
             CollectionAssert.AreEqual(new[] { "checkout service" }, result[0].KeyTerms);
             StringAssert.Contains(handler.LastBody, "\"id\":\"c1\"");
-            StringAssert.Contains(handler.LastBody, "\"languageHint\":\"de\"");
+            // English-only: no languageHint is sent (feature nlp-gpu-tier).
+            Assert.IsFalse(handler.LastBody.Contains("languageHint"), "the request must not carry a languageHint");
         }
 
         [TestMethod]
@@ -101,7 +102,7 @@ namespace NoSQL.GraphDB.Tests
         {
             using var client = Client(new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
             await Assert.ThrowsExceptionAsync<NlpUnavailableException>(
-                () => client.EnrichAsync(new[] { ("c1", "x") }, null, CancellationToken.None));
+                () => client.EnrichAsync(new[] { ("c1", "x") }, CancellationToken.None));
         }
 
         [TestMethod]
@@ -109,7 +110,7 @@ namespace NoSQL.GraphDB.Tests
         {
             using var client = Client(new FakeHandler(_ => throw new HttpRequestException("refused")));
             await Assert.ThrowsExceptionAsync<NlpUnavailableException>(
-                () => client.EnrichAsync(new[] { ("c1", "x") }, null, CancellationToken.None));
+                () => client.EnrichAsync(new[] { ("c1", "x") }, CancellationToken.None));
         }
 
         [TestMethod]
@@ -119,7 +120,7 @@ namespace NoSQL.GraphDB.Tests
             using var cts = new CancellationTokenSource();
             cts.Cancel();
             await Assert.ThrowsExceptionAsync<TaskCanceledException>(
-                () => client.EnrichAsync(new[] { ("c1", "x") }, null, cts.Token));
+                () => client.EnrichAsync(new[] { ("c1", "x") }, cts.Token));
         }
 
         [TestMethod]
@@ -130,7 +131,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(client.Configured);
             Assert.IsFalse(await client.IsReachableAsync(CancellationToken.None));
             await Assert.ThrowsExceptionAsync<NlpUnavailableException>(
-                () => client.EnrichAsync(new[] { ("c1", "x") }, null, CancellationToken.None));
+                () => client.EnrichAsync(new[] { ("c1", "x") }, CancellationToken.None));
         }
 
         [TestMethod]

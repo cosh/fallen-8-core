@@ -25,8 +25,9 @@
 
 // Starts the F8 environment (docker compose up). Two jobs:
 //  1. GPU: add docker-compose.gpu.yml when the host has an NVIDIA GPU so Ollama runs
-//     accelerated (why a separate file: see its header). Detection is "nvidia-smi works";
-//     F8_GPU=1 / F8_GPU=0 forces it either way.
+//     accelerated AND the NLP sidecar swaps to its transformer model on the device (why a
+//     separate file: see its header). Detection is "nvidia-smi works"; F8_GPU=1 / F8_GPU=0
+//     forces it either way.
 //  2. Nothing else. The Ollama container pulls the models itself on first start (see
 //     scripts/ollama-init.sh) - this script does NOT gate startup on a host Ollama or a
 //     pre-populated volume. To pre-seed the volume for an offline/faster first start, run
@@ -50,8 +51,10 @@ function main() {
   const gpu = hostHasNvidiaGpu();
   console.log(
     gpu
-      ? 'NVIDIA GPU detected - applying docker-compose.gpu.yml (Ollama uses the GPU).'
-      : 'No NVIDIA GPU detected - starting CPU-only (F8_GPU=1 forces the GPU override).'
+      ? 'NVIDIA GPU detected - applying docker-compose.gpu.yml (Ollama on the GPU; the NLP sidecar\n' +
+        'uses the en_core_web_trf transformer on the GPU).'
+      : 'No NVIDIA GPU detected - starting CPU-only, the NLP sidecar on en_core_web_lg\n' +
+        '(F8_GPU=1 forces the GPU override).'
   );
   console.log(
     'On first start the Ollama container pulls phi4-mini + phi4-f8-mini (a few GB); the F8\n' +
@@ -86,7 +89,7 @@ function main() {
   if (nlp) profiles.push('--profile', 'nlp');
   console.log(
     nlp
-      ? 'NLP enrichment is ON - the spaCy sidecar (entities + key terms) comes up.'
+      ? 'NLP enrichment is ON - the spaCy sidecar (English entities + key terms) comes up.'
       : ingestion
         ? 'F8_NLP=false - no NLP sidecar; ingestion still writes Document/Chunk vertices (no entity graph).'
         : 'NLP enrichment is off (ingestion is off).'
