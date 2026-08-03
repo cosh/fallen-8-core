@@ -143,16 +143,30 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void EveryAllowListedType_RoundTrips_ValueAndClrTypeExactly()
         {
-            foreach (var (key, value) in AllTypedValues)
-            {
-                Assert.IsTrue(JsonlGraphFormat.TryFormatValue(value, out var typeName, out var formatted),
-                    key + " must be formattable");
-                Assert.AreEqual(value.GetType().FullName, typeName);
+            // The cases are DERIVED from AllowedLiteralTypes (the type-set home), not a hand list:
+            // a representative sample per allowed type, keyed by its CLR full name (CA-21). The
+            // equivalence check below is the drift guard - adding a type to AllowedLiteralTypes
+            // without a sample here (or vice versa) fails loudly instead of silently skipping it.
+            var sampleByTypeName = AllTypedValues.ToDictionary(t => t.Value.GetType().FullName, t => t.Value);
 
-                var parseError = JsonlGraphFormat.TryParseValue(typeName, formatted, out var roundTripped);
-                Assert.IsNull(parseError, key + ": " + parseError);
-                Assert.AreEqual(value.GetType(), roundTripped.GetType(), key + " must preserve the CLR type");
-                Assert.AreEqual(value, roundTripped, key + " must preserve the value exactly");
+            CollectionAssert.AreEquivalent(
+                AllowedLiteralTypes.AllowedNames.ToList(),
+                sampleByTypeName.Keys.ToList(),
+                "Every AllowedLiteralTypes type needs exactly one representative sample here (and vice versa).");
+
+            foreach (var typeName in AllowedLiteralTypes.AllowedNames)
+            {
+                var value = sampleByTypeName[typeName];
+                Assert.AreEqual(typeName, value.GetType().FullName, typeName + ": the sample must be of that exact type");
+
+                Assert.IsTrue(JsonlGraphFormat.TryFormatValue(value, out var formattedTypeName, out var formatted),
+                    typeName + " must be formattable");
+                Assert.AreEqual(typeName, formattedTypeName);
+
+                var parseError = JsonlGraphFormat.TryParseValue(formattedTypeName, formatted, out var roundTripped);
+                Assert.IsNull(parseError, typeName + ": " + parseError);
+                Assert.AreEqual(value.GetType(), roundTripped.GetType(), typeName + " must preserve the CLR type");
+                Assert.AreEqual(value, roundTripped, typeName + " must preserve the value exactly");
             }
 
             // The decimal's scale (trailing zeros) survives - value equality alone would hide it.

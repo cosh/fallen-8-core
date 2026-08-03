@@ -64,7 +64,9 @@ beforeEach(() => {
         method: init?.method ?? "GET",
         path: parsed.pathname,
         query: parsed.searchParams,
-        body: init?.body ? JSON.parse(init.body as string) : undefined,
+        // Only JSON bodies are parsed; FormData (ingestFile) and Blob (importBulk) pass through
+        // as undefined instead of throwing in JSON.parse.
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
       });
       return new Response("null", { status: 200 });
     }),
@@ -100,150 +102,200 @@ function assertInContract(call: Recorded) {
   ).toBeDefined();
 }
 
-describe("API client route correctness vs openapi-v0.1.json", () => {
-  it("hits only contract routes at root level", async () => {
-    await endpoints.getStatus(instance);
-    await endpoints.getGraph(instance, 100);
-    await endpoints.getVertex(instance, 1);
-    await endpoints.getEdge(instance, 2);
-    await endpoints.getGraphElement(instance, 3);
-    await endpoints.getOutEdgeProperties(instance, 1);
-    await endpoints.getInEdgeProperties(instance, 1);
-    await endpoints.getOutEdges(instance, 1, "knows");
-    await endpoints.getInEdges(instance, 1, "knows");
-    await endpoints.getInDegree(instance, 1);
-    await endpoints.getOutDegree(instance, 1);
-    await endpoints.getEdgePropertyDegree(instance, 1, "out", "knows");
-    await endpoints.getEdgeSource(instance, 2);
-    await endpoints.getEdgeTarget(instance, 2);
-    await endpoints.scanProperty(instance, "age", {
+// Every route-bearing endpoint export must be exercised against the contract below, so a new
+// endpoint cannot ship without a route/method check (CA-22). Exports that issue no request, or
+// whose routes are pinned through another export, are excluded WITH a reason.
+const EXCLUDED_FROM_CONTRACT_SWEEP = new Map<string, string>([
+  ["isAuthorized", "pure predicate over StatusREST; issues no request"],
+  ["listSubGraphSummaries", "composite helper; its routes are pinned via listSubGraphNames + getSubGraph"],
+]);
+
+// One representative call per route-bearing endpoint. Arguments only need to be well-formed
+// enough to reach fetch; the assertion is route + method against the OpenAPI snapshot.
+const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
+  getStatus: () => endpoints.getStatus(instance),
+  getConfig: () => endpoints.getConfig(instance),
+  postChat: () => endpoints.postChat(instance, { messages: [{ role: "user", content: "hi" }] }),
+  getStatistics: () => endpoints.getStatistics(instance),
+  saveGraph: () => endpoints.saveGraph(instance),
+  saveAllNamespaces: () => endpoints.saveAllNamespaces(instance),
+  tabulaRasaAll: () => endpoints.tabulaRasaAll(instance),
+  listNamespaces: () => endpoints.listNamespaces(instance),
+  createNamespace: () => endpoints.createNamespace(instance, "analytics"),
+  renameNamespace: () => endpoints.renameNamespace(instance, "analytics", "analytics-2"),
+  dropNamespace: () => endpoints.dropNamespace(instance, "analytics"),
+  listSaveGames: () => endpoints.listSaveGames(instance),
+  getSaveGame: () => endpoints.getSaveGame(instance, "sg-1"),
+  loadSaveGame: () => endpoints.loadSaveGame(instance, "sg-1"),
+  deleteSaveGame: () => endpoints.deleteSaveGame(instance, "sg-1", true),
+  loadGraph: () => endpoints.loadGraph(instance, "p"),
+  trimGraph: () => endpoints.trimGraph(instance),
+  tabulaRasa: () => endpoints.tabulaRasa(instance),
+  generateGraph: () => endpoints.generateGraph(instance),
+  runBenchmark: () => endpoints.runBenchmark(instance),
+  exportBulk: () => endpoints.exportBulk(instance, { vertexLabel: "person" }),
+  importBulk: () => endpoints.importBulk(instance, new Blob(['{"type":"meta"}\n'])),
+  getGraph: () => endpoints.getGraph(instance, 100),
+  getVertex: () => endpoints.getVertex(instance, 1),
+  getEdge: () => endpoints.getEdge(instance, 2),
+  getGraphElement: () => endpoints.getGraphElement(instance, 3),
+  getOutEdgeProperties: () => endpoints.getOutEdgeProperties(instance, 1),
+  getInEdgeProperties: () => endpoints.getInEdgeProperties(instance, 1),
+  getOutEdges: () => endpoints.getOutEdges(instance, 1, "knows"),
+  getInEdges: () => endpoints.getInEdges(instance, 1, "knows"),
+  getInDegree: () => endpoints.getInDegree(instance, 1),
+  getOutDegree: () => endpoints.getOutDegree(instance, 1),
+  getEdgePropertyDegree: () => endpoints.getEdgePropertyDegree(instance, 1, "out", "knows"),
+  getEdgeSource: () => endpoints.getEdgeSource(instance, 2),
+  getEdgeTarget: () => endpoints.getEdgeTarget(instance, 2),
+  scanProperty: () =>
+    endpoints.scanProperty(instance, "age", {
       operator: 0,
       literal: { value: "30", fullQualifiedTypeName: "System.Int32" },
       resultType: "Both",
-    });
-    await endpoints.scanIndex(instance, {
+    }),
+  scanIndex: () =>
+    endpoints.scanIndex(instance, {
       indexId: "i",
       operator: 0,
       literal: { value: "x", fullQualifiedTypeName: "System.String" },
       resultType: "Both",
-    });
-    await endpoints.scanIndexRange(instance, {
+    }),
+  scanIndexRange: () =>
+    endpoints.scanIndexRange(instance, {
       indexId: "i",
       leftLimit: { value: "0", fullQualifiedTypeName: "System.Int32" },
       rightLimit: { value: "9", fullQualifiedTypeName: "System.Int32" },
       includeLeft: true,
       includeRight: true,
       resultType: "Both",
-    });
-    await endpoints.scanFulltext(instance, { indexId: "i", requestString: "q" });
-    await endpoints.scanSpatial(instance, { indexId: "i", graphElementId: 1, distance: 2 });
-    await endpoints.createIndex(instance, { uniqueId: "i", pluginType: "DictionaryIndex" });
-    await endpoints.addToIndex(instance, "i", {
-      graphElementId: 1,
-      key: { propertyValue: "k", fullQualifiedTypeName: "System.String" },
-    });
-    await endpoints.removeIndexKey(instance, "i", {
-      propertyValue: "v",
-      fullQualifiedTypeName: "System.String",
-    });
-    await endpoints.removeFromIndex(instance, "i", 1);
-    await endpoints.deleteIndex(instance, "i");
-    await endpoints.findPaths(instance, 1, 2, {
-      pathAlgorithmName: "BLS",
-      maxDepth: 7,
-      maxResults: 1,
-      maxPathWeight: 1,
-    });
-    await endpoints.listSubGraphNames(instance);
-    await endpoints.getSubGraph(instance, "s");
-    await endpoints.getSubGraphContents(instance, "s");
-    await endpoints.createSubGraph(instance, { name: "s" });
-    await endpoints.recalculateSubGraph(instance, "s");
-    await endpoints.deleteSubGraph(instance, "s");
-    await endpoints.createVertex(instance, { creationDate: 0 });
-    await endpoints.createEdge(instance, {
-      creationDate: 0,
-      sourceVertex: 1,
-      targetVertex: 2,
-      edgePropertyId: "knows",
-    });
-    await endpoints.setProperty(instance, 1, "age", {
-      propertyId: "age",
-      propertyValue: "30",
-      fullQualifiedTypeName: "System.Int32",
-    });
-    await endpoints.removeProperty(instance, 1, "age");
-    await endpoints.removeGraphElement(instance, 1);
-    await endpoints.saveGraph(instance);
-    await endpoints.listSaveGames(instance);
-    await endpoints.getSaveGame(instance, "sg-1");
-    await endpoints.loadSaveGame(instance, "sg-1");
-    await endpoints.deleteSaveGame(instance, "sg-1", true);
-    await endpoints.loadGraph(instance, "p");
-    await endpoints.trimGraph(instance);
-    await endpoints.tabulaRasa(instance);
-    await endpoints.generateGraph(instance);
-    await endpoints.runBenchmark(instance);
-    await endpoints.getStatistics(instance);
-    await endpoints.listStoredQueries(instance);
-    await endpoints.getStoredQuery(instance, "q");
-    await endpoints.registerStoredQuery(instance, {
-      name: "q",
-      kind: "Path",
-      path: { filter: { vertexFilter: "return (v) => true;" } },
-    });
-    await endpoints.deleteStoredQuery(instance, "q");
-    await endpoints.findPaths(instance, 1, 2, {
-      pathAlgorithmName: "BLS",
-      maxDepth: 7,
-      maxResults: 1,
-      maxPathWeight: 1,
-      storedQuery: "q",
-    });
-    await endpoints.createSubGraph(instance, { name: "s", storedQuery: "q" });
-    await endpoints.scanVector(instance, {
+    }),
+  scanFulltext: () => endpoints.scanFulltext(instance, { indexId: "i", requestString: "q" }),
+  scanSpatial: () => endpoints.scanSpatial(instance, { indexId: "i", graphElementId: 1, distance: 2 }),
+  scanVector: () =>
+    endpoints.scanVector(instance, {
       indexId: "emb",
       query: [0.1, 0.2],
       k: 10,
       kind: "vertex",
       label: "person",
-    });
-    await endpoints.addVectorToIndex(instance, "emb", {
+    }),
+  addVectorToIndex: () =>
+    endpoints.addVectorToIndex(instance, "emb", { graphElementId: 1, propertyId: "embedding" }),
+  putElementEmbedding: () => endpoints.putElementEmbedding(instance, 1, "default", { vector: [0.1, 0.2] }),
+  deleteElementEmbedding: () => endpoints.deleteElementEmbedding(instance, 1, "default"),
+  embedElement: () => endpoints.embedElement(instance, { graphElementId: 1, text: "a red bicycle" }),
+  embeddingSearch: () => endpoints.embeddingSearch(instance, { indexId: "emb", text: "red bicycles", k: 10 }),
+  createIndex: () => endpoints.createIndex(instance, { uniqueId: "i", pluginType: "DictionaryIndex" }),
+  addToIndex: () =>
+    endpoints.addToIndex(instance, "i", {
       graphElementId: 1,
-      propertyId: "embedding",
-    });
-    await endpoints.putElementEmbedding(instance, 1, "default", { vector: [0.1, 0.2] });
-    await endpoints.deleteElementEmbedding(instance, 1, "default");
-    await endpoints.embedElement(instance, { graphElementId: 1, text: "a red bicycle" });
-    await endpoints.embeddingSearch(instance, { indexId: "emb", text: "red bicycles", k: 10 });
-    await endpoints.listAnalyticsAlgorithms(instance);
-    await endpoints.runAnalytics(instance, "PAGERANK", {
+      key: { propertyValue: "k", fullQualifiedTypeName: "System.String" },
+    }),
+  removeIndexKey: () =>
+    endpoints.removeIndexKey(instance, "i", { propertyValue: "v", fullQualifiedTypeName: "System.String" }),
+  removeFromIndex: () => endpoints.removeFromIndex(instance, "i", 1),
+  deleteIndex: () => endpoints.deleteIndex(instance, "i"),
+  findPaths: () =>
+    endpoints.findPaths(instance, 1, 2, {
+      pathAlgorithmName: "BLS",
+      maxDepth: 7,
+      maxResults: 1,
+      maxPathWeight: 1,
+    }),
+  listSubGraphNames: () => endpoints.listSubGraphNames(instance),
+  getSubGraph: () => endpoints.getSubGraph(instance, "s"),
+  getSubGraphContents: () => endpoints.getSubGraphContents(instance, "s"),
+  createSubGraph: () => endpoints.createSubGraph(instance, { name: "s" }),
+  recalculateSubGraph: () => endpoints.recalculateSubGraph(instance, "s"),
+  deleteSubGraph: () => endpoints.deleteSubGraph(instance, "s"),
+  listAnalyticsAlgorithms: () => endpoints.listAnalyticsAlgorithms(instance),
+  runAnalytics: () =>
+    endpoints.runAnalytics(instance, "PAGERANK", {
       vertexLabel: "person",
       maxResults: 100,
       writeBack: true,
       writeBackPropertyKey: "analytics.pagerank",
-    });
-    await endpoints.getPartitionMembers(instance, "WCC", 0, { maxResults: 100, offset: 0 });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string, init?: RequestInit) => {
-        const parsed = new URL(url);
-        recorded.push({
-          method: init?.method ?? "GET",
-          path: parsed.pathname,
-          query: parsed.searchParams,
-          body: undefined,
-        });
-        return new Response("", { status: 200 });
-      }),
-    );
-    await endpoints.exportBulk(instance, { vertexLabel: "person" });
-    await endpoints.importBulk(instance, new Blob(['{"type":"meta"}\n']));
+    }),
+  getPartitionMembers: () =>
+    endpoints.getPartitionMembers(instance, "WCC", 0, { maxResults: 100, offset: 0 }),
+  listStoredQueries: () => endpoints.listStoredQueries(instance),
+  getStoredQuery: () => endpoints.getStoredQuery(instance, "q"),
+  registerStoredQuery: () =>
+    endpoints.registerStoredQuery(instance, {
+      name: "q",
+      kind: "Path",
+      path: { filter: { vertexFilter: "return (v) => true;" } },
+    }),
+  deleteStoredQuery: () => endpoints.deleteStoredQuery(instance, "q"),
+  listPlugins: () => endpoints.listPlugins(instance),
+  getPlugin: () => endpoints.getPlugin(instance, "MyFunc"),
+  registerAlgorithmPlugin: () =>
+    endpoints.registerAlgorithmPlugin(instance, { name: "MyDijkstra", contract: "Path", sourceCode: "class X {}" }),
+  registerFunctionPlugin: () =>
+    endpoints.registerFunctionPlugin(instance, { name: "MyFunc", sourceCode: "class X {}" }),
+  deletePlugin: () => endpoints.deletePlugin(instance, "MyFunc"),
+  invokeGraphFunction: () => endpoints.invokeGraphFunction(instance, "MyFunc", { label: "person" }),
+  validatePlugin: () =>
+    endpoints.validatePlugin(instance, "algorithm", { name: "MyDijkstra", contract: "Path", sourceCode: "class X {}" }),
+  createVertex: () => endpoints.createVertex(instance, { creationDate: 0 }),
+  createEdge: () =>
+    endpoints.createEdge(instance, { creationDate: 0, sourceVertex: 1, targetVertex: 2, edgePropertyId: "knows" }),
+  setProperty: () =>
+    endpoints.setProperty(instance, 1, "age", {
+      propertyId: "age",
+      propertyValue: "30",
+      fullQualifiedTypeName: "System.Int32",
+    }),
+  removeProperty: () => endpoints.removeProperty(instance, 1, "age"),
+  removeGraphElement: () => endpoints.removeGraphElement(instance, 1),
+  validateDelegate: () => endpoints.validateDelegate(instance, "VertexFilter", "return (v) => true;"),
+  listDocuments: () => endpoints.listDocuments(instance),
+  getDocument: () => endpoints.getDocument(instance, 1),
+  deleteDocument: () => endpoints.deleteDocument(instance, 1),
+  ingestText: () => endpoints.ingestText(instance, { name: "doc", text: "hello world" }),
+  ingestFile: () => endpoints.ingestFile(instance, new File(["body"], "a.txt", { type: "text/plain" })),
+  searchDocuments: () => endpoints.searchDocuments(instance, { queryText: "graphs" }),
+  getDocumentBinding: () => endpoints.getDocumentBinding(instance),
+  ensureDocumentBinding: () => endpoints.ensureDocumentBinding(instance),
+  listEntities: () => endpoints.listEntities(instance),
+};
 
-    expect(recorded.length).toBeGreaterThan(30);
-    for (const call of recorded) {
-      expect(call.path, "routes must be root-level").not.toMatch(/^\/api\//);
-      assertInContract(call);
+describe("API client route correctness vs openapi-v0.1.json", () => {
+  it("exercises every route-bearing endpoint against the contract (CA-22 completeness)", async () => {
+    const exported = Object.keys(endpoints).filter(
+      (name) => typeof (endpoints as Record<string, unknown>)[name] === "function",
+    );
+    const routeBearing = exported.filter((name) => !EXCLUDED_FROM_CONTRACT_SWEEP.has(name));
+
+    // A new endpoint export must be registered here (or excluded with a reason); otherwise it
+    // would ship with no route/method check - the gap this test closes.
+    const unregistered = routeBearing.filter((name) => !(name in ENDPOINT_CALLS)).sort();
+    expect(
+      unregistered,
+      "register a contract call for each new endpoint (or exclude it with a reason)",
+    ).toEqual([]);
+
+    // Neither the exclusions nor the registry may name a function that no longer exists.
+    const staleExclusions = [...EXCLUDED_FROM_CONTRACT_SWEEP.keys()]
+      .filter((name) => !exported.includes(name))
+      .sort();
+    expect(staleExclusions, "drop exclusions for endpoints that no longer exist").toEqual([]);
+    const staleRegistered = Object.keys(ENDPOINT_CALLS)
+      .filter((name) => !exported.includes(name))
+      .sort();
+    expect(staleRegistered, "drop registry entries for endpoints that no longer exist").toEqual([]);
+
+    // Each registered endpoint issues at least one request, and every request is a root-level
+    // route + method that exists in the OpenAPI snapshot.
+    for (const [name, call] of Object.entries(ENDPOINT_CALLS)) {
+      recorded = [];
+      await call();
+      expect(recorded.length, `${name} issued no request`).toBeGreaterThan(0);
+      for (const request of recorded) {
+        expect(request.path, "routes must be root-level").not.toMatch(/^\/api\//);
+        assertInContract(request);
+      }
     }
   });
 
