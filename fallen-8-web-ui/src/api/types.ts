@@ -495,6 +495,17 @@ export interface ScanSpecification {
   resultType: "Vertices" | "Edges" | "Both";
 }
 
+/**
+ * The all-property discovery scan (feature all-property-search): a case-insensitive substring
+ * over EVERY property value, with no operator or typed literal - just a term. The plural
+ * companion of the singular named-key property scan.
+ */
+export interface PropertySearchSpecification {
+  searchTerm: string;
+  label?: string;
+  resultType: "Vertices" | "Edges" | "Both";
+}
+
 export interface IndexScanSpecification extends ScanSpecification {
   indexId: string;
 }

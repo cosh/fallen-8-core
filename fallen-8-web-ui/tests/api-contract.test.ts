@@ -153,6 +153,8 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
       literal: { value: "30", fullQualifiedTypeName: "System.Int32" },
       resultType: "Both",
     }),
+  scanProperties: () =>
+    endpoints.scanProperties(instance, { searchTerm: "acme", resultType: "Both" }),
   scanIndex: () =>
     endpoints.scanIndex(instance, {
       indexId: "i",

@@ -202,6 +202,49 @@ Invoke-RestMethod http://localhost:8080/scan/graph/property/name -Method Post -C
 </TabItem>
 </Tabs>
 
+### Across every property (discovery search)
+
+When you do not yet know which key holds a value, `POST /scan/graph/properties` (plural) walks
+**every** element and returns the ids of those where **any** property value contains a search
+term. It is the companion to the singular scan above: singular compares one named key with a
+typed operator; plural does a case-insensitive substring match across all values. Each value is
+rendered to its invariant text form first, so numbers, booleans and dates are searchable too
+(searching `42` finds the integer `42`). It is a linear O(n) scan with no index and no score;
+reserved embedding entries are never matched. Request body:
+
+| Field | Value |
+| --- | --- |
+| `searchTerm` | The substring to look for across every property value (case-insensitive). Required and non-blank. |
+| `label` | Optional exact-match label restrictor on the hits; omit to scan every label. |
+| `resultType` | `"Vertices"`, `"Edges"`, or `"Both"` (defaults to `"Both"`). |
+
+The response is a `200` with a JSON array of matching ids (empty when nothing matches); a missing
+or blank `searchTerm` is a `400`.
+
+<Tabs syncKey="shell">
+<TabItem label="Bash">
+
+```bash
+curl -X POST http://localhost:8080/scan/graph/properties \
+  -H 'Content-Type: application/json' \
+  -d '{ "searchTerm": "Trent", "resultType": "Vertices" }'
+# => [4]
+```
+
+</TabItem>
+<TabItem label="PowerShell">
+
+```powershell
+$body = @'
+{ "searchTerm": "Trent", "resultType": "Vertices" }
+'@
+Invoke-RestMethod http://localhost:8080/scan/graph/properties -Method Post -ContentType 'application/json' -Body $body
+# => 4
+```
+
+</TabItem>
+</Tabs>
+
 ## Using the engine as a library
 
 Embedded in-process, the same model is reached without REST. Build a transaction, enqueue it, and
@@ -227,7 +270,8 @@ f8.GraphScan(out var hits, "name", "Trent", BinaryOperator.Equals);
 ```
 
 Reads (`TryGetVertex`, `TryGetEdge`, `TryGetGraphElement`, `GetAllVertices`, `GetAllEdges`,
-`GetAllGraphElements`, `GraphScan`) live on `IFallen8Read`; `EnqueueTransaction` on
+`GetAllGraphElements`, `GraphScan`, `GraphScanAllProperties`) live on `IFallen8Read`;
+`EnqueueTransaction` on
 `IFallen8Write`. It returns a `TransactionInformation` whose `Completion` task and
 `WaitUntilFinished()` await the outcome and whose `TransactionState` / `FailureReason` report a
 rollback.

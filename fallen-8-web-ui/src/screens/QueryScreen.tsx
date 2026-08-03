@@ -33,6 +33,7 @@ import {
   scanFulltext,
   scanIndex,
   scanIndexRange,
+  scanProperties,
   scanProperty,
   scanSpatial,
   scanVector,
@@ -93,7 +94,10 @@ export function QueryScreen() {
   const resetQueryDraft = store((s) => s.resetQueryDraft);
   const {
     mode,
+    propertyScope,
     propertyId,
+    searchTerm,
+    searchLabel,
     indexId,
     form,
     operator,
@@ -182,7 +186,15 @@ export function QueryScreen() {
       setProgress(null);
 
       let ids: number[] = [];
-      if (mode === "property") {
+      if (mode === "property" && propertyScope === "any") {
+        // All-property discovery: a case-insensitive contains across every property value.
+        ids =
+          (await scanProperties(instance, {
+            searchTerm,
+            label: searchLabel || undefined,
+            resultType,
+          })) ?? [];
+      } else if (mode === "property") {
         ids =
           (await scanProperty(instance, propertyId, {
             operator: BINARY_OPERATORS[operator],
@@ -250,10 +262,13 @@ export function QueryScreen() {
       }
 
       setIdCount(ids.length);
-      addResultSet(
-        `${mode === "property" ? "property scan" : `${form} · ${indexId}`} (${ids.length} ids)`,
-        ids,
-      );
+      const resultLabel =
+        mode !== "property"
+          ? `${form} · ${indexId}`
+          : propertyScope === "any"
+            ? `all-property "${searchTerm}"`
+            : "property scan";
+      addResultSet(`${resultLabel} (${ids.length} ids)`, ids);
       const hydrated = await hydrateElements(instance, ids, { onProgress: setProgress });
       setCapped(hydrated.capped);
       return hydrated.elements;
@@ -262,8 +277,13 @@ export function QueryScreen() {
     onSettled: () => setProgress(null),
   });
 
-  const needsLiteral = mode === "property" || form === "equality";
-  const showResultType = needsLiteral || (mode === "index" && form === "range");
+  // The named-key property scan and the index equality form take an operator + typed literal;
+  // the all-property scope takes a plain search term instead (feature all-property-search).
+  const allProperty = mode === "property" && propertyScope === "any";
+  const needsLiteral =
+    (mode === "property" && propertyScope === "key") || (mode === "index" && form === "equality");
+  const showResultType =
+    needsLiteral || allProperty || (mode === "index" && form === "range");
   const parsedVector =
     mode === "index" && form === "vector" ? parseVector(vectorText) : null;
   const vectorNotReady =
@@ -313,6 +333,28 @@ export function QueryScreen() {
             </Field>
 
             {mode === "property" && (
+              <Field helpKey="propertyScope" label="scope" htmlFor="property-scope">
+                <div className="border-line flex overflow-hidden rounded border">
+                  {(["key", "any"] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      data-testid={`property-scope-${scope}`}
+                      className={`px-2 py-1 text-[11px] ${
+                        propertyScope === scope
+                          ? "bg-panel-2 text-accent"
+                          : "text-fg-dim hover:text-fg"
+                      }`}
+                      onClick={() => setQueryDraft({ propertyScope: scope })}
+                    >
+                      {scope === "key" ? "specific key" : "any property"}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
+
+            {mode === "property" && propertyScope === "key" && (
               <Field helpKey="propertyId" label="property id" htmlFor="scan-property">
                 <input
                   id="scan-property"
@@ -324,6 +366,36 @@ export function QueryScreen() {
                   placeholder="age"
                 />
               </Field>
+            )}
+
+            {allProperty && (
+              <>
+                <Field helpKey="searchTerm" label="search term" htmlFor="scan-search-term">
+                  <input
+                    id="scan-search-term"
+                    data-testid="scan-search-term"
+                    className="input w-56"
+                    value={searchTerm}
+                    onChange={(e) => setQueryDraft({ searchTerm: e.target.value })}
+                    placeholder="acme"
+                  />
+                </Field>
+                <Field
+                  helpKey="searchLabel"
+                  label="label (optional)"
+                  htmlFor="scan-search-label"
+                >
+                  <input
+                    id="scan-search-label"
+                    data-testid="scan-search-label"
+                    className="input w-32"
+                    list="shape-labels"
+                    value={searchLabel}
+                    onChange={(e) => setQueryDraft({ searchLabel: e.target.value })}
+                    placeholder="any label"
+                  />
+                </Field>
+              </>
             )}
 
             {mode === "index" && (
@@ -659,6 +731,8 @@ export function QueryScreen() {
               disabled={
                 scan.isPending ||
                 (mode === "index" && !indexId) ||
+                // A blank all-property term must not round-trip (it is a 400 server-side).
+                (allProperty && !searchTerm.trim()) ||
                 // A blank element id would coerce to Number("") === 0 and silently query
                 // the neighborhood of element 0.
                 (mode === "index" && form === "spatial" && !spatialElementId.trim()) ||
@@ -714,7 +788,7 @@ export function QueryScreen() {
                 )
               }
             >
-              Send to canvas
+              Send all to canvas
             </button>
           </div>
           {fulltextResult && (
@@ -731,6 +805,9 @@ export function QueryScreen() {
           )}
           <ElementTable
             elements={elements}
+            onAddToCanvas={(el) =>
+              isEdge(el) ? mergeIntoCanvas([], [el]) : mergeIntoCanvas([el], [])
+            }
             scores={
               vectorResult
                 ? new Map(

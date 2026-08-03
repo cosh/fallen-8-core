@@ -71,6 +71,7 @@ import type {
   PathREST,
   PathSpecification,
   PluginSpecification,
+  PropertySearchSpecification,
   PropertySpecification,
   RangeIndexScanSpecification,
   ScanSpecification,
@@ -315,6 +316,10 @@ export const scanProperty = (i: InstanceConfig, propertyId: string, spec: ScanSp
     method: "POST",
     body: spec,
   });
+
+// All-property discovery scan: a case-insensitive contains across every property value.
+export const scanProperties = (i: InstanceConfig, spec: PropertySearchSpecification) =>
+  apiRequest<number[]>(i, "/scan/graph/properties", { method: "POST", body: spec });
 
 export const scanIndex = (i: InstanceConfig, spec: IndexScanSpecification) =>
   apiRequest<number[]>(i, "/scan/index/all", { method: "POST", body: spec });

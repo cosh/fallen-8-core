@@ -33,6 +33,7 @@ import type {
   FulltextIndexScanSpecification,
   FulltextSearchResultREST,
   IndexScanSpecification,
+  PropertySearchSpecification,
   RangeIndexScanSpecification,
   ScanSpecification,
   SearchDistanceSpecification,
@@ -53,6 +54,8 @@ const getStatusMock =
   vi.fn<(i: InstanceConfig, signal?: AbortSignal) => Promise<StatusREST | null>>();
 const scanPropertyMock =
   vi.fn<(i: InstanceConfig, propertyId: string, spec: ScanSpecification) => Promise<number[] | null>>();
+const scanPropertiesMock =
+  vi.fn<(i: InstanceConfig, spec: PropertySearchSpecification) => Promise<number[] | null>>();
 const scanIndexMock =
   vi.fn<(i: InstanceConfig, spec: IndexScanSpecification) => Promise<number[] | null>>();
 const scanIndexRangeMock =
@@ -71,6 +74,8 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
     getStatus: (i: InstanceConfig, signal?: AbortSignal) => getStatusMock(i, signal),
     scanProperty: (i: InstanceConfig, propertyId: string, spec: ScanSpecification) =>
       scanPropertyMock(i, propertyId, spec),
+    scanProperties: (i: InstanceConfig, spec: PropertySearchSpecification) =>
+      scanPropertiesMock(i, spec),
     scanIndex: (i: InstanceConfig, spec: IndexScanSpecification) => scanIndexMock(i, spec),
     scanIndexRange: (i: InstanceConfig, spec: RangeIndexScanSpecification) =>
       scanIndexRangeMock(i, spec),
@@ -151,6 +156,7 @@ beforeEach(() => {
   localStorage.clear();
   getStatusMock.mockReset().mockResolvedValue(STATUS);
   scanPropertyMock.mockReset().mockResolvedValue([]);
+  scanPropertiesMock.mockReset().mockResolvedValue([]);
   scanIndexMock.mockReset().mockResolvedValue([]);
   scanIndexRangeMock.mockReset().mockResolvedValue([]);
   scanFulltextMock.mockReset().mockResolvedValue({ maximumScore: 0, elements: [] });
@@ -187,6 +193,26 @@ describe("property scan", () => {
     // Hydrated rows: a vertex renders its label, an edge its endpoints.
     expect(screen.getByText("alice")).toBeInTheDocument();
     expect(screen.getByText("1 → 3")).toBeInTheDocument();
+  });
+
+  it("offers send-all and a per-row add-to-canvas on the results", async () => {
+    const user = userEvent.setup();
+    scanPropertyMock.mockResolvedValue([1, 2]);
+    getGraphElementMock.mockImplementation(async (_i, id) =>
+      id === 1 ? vertex(1, "alice") : edge(2, 1, 3),
+    );
+    renderScreen();
+
+    await user.type(screen.getByTestId("scan-property"), "age");
+    await user.type(screen.getByTestId("scan-literal-value"), "1");
+    await user.click(screen.getByTestId("scan-run"));
+
+    await waitFor(() => expect(screen.getByText(/results . 2 ids/)).toBeInTheDocument());
+    // The bulk button is relabeled to make the all-vs-one distinction explicit.
+    expect(screen.getByTestId("send-to-canvas")).toHaveTextContent("Send all to canvas");
+    // Each hydrated row carries its own single-element canvas action.
+    expect(screen.getByTestId("row-to-canvas-1")).toBeInTheDocument();
+    expect(screen.getByTestId("row-to-canvas-2")).toBeInTheDocument();
   });
 
   it("carries a non-default result type into the payload", async () => {
@@ -234,6 +260,91 @@ describe("property scan", () => {
     await waitFor(() => expect(screen.getByText(/results — 0 ids/)).toBeInTheDocument());
     expect(screen.getByText("No elements.")).toBeInTheDocument();
     expect(getGraphElementMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("all-property search", () => {
+  it("swaps the named-key controls for a search term and sends scanProperties", async () => {
+    const user = userEvent.setup();
+    scanPropertiesMock.mockResolvedValue([1, 2]);
+    getGraphElementMock.mockImplementation(async (_i, id) =>
+      id === 1 ? vertex(1, "alice") : edge(2, 1, 3),
+    );
+    renderScreen();
+
+    // The default property scope shows the named-key input; switch to "any property".
+    expect(screen.getByTestId("scan-property")).toBeInTheDocument();
+    await user.click(screen.getByTestId("property-scope-any"));
+
+    // The named-key + operator/literal controls are gone; a plain search term takes over.
+    expect(screen.queryByTestId("scan-property")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("operator")).not.toBeInTheDocument();
+    const term = screen.getByTestId("scan-search-term");
+
+    await user.type(term, "acme");
+    await user.type(screen.getByTestId("scan-search-label"), "company");
+    await user.selectOptions(screen.getByLabelText("result type"), "Both");
+    await user.click(screen.getByTestId("scan-run"));
+
+    await waitFor(() => expect(scanPropertiesMock).toHaveBeenCalledTimes(1));
+    expect(scanPropertiesMock.mock.calls[0][1]).toEqual({
+      searchTerm: "acme",
+      label: "company",
+      resultType: "Both",
+    });
+    // The named-key endpoint is never touched in this scope.
+    expect(scanPropertyMock).not.toHaveBeenCalled();
+
+    // Match the rendered "results <sep> N ids" without embedding a literal em-dash in new source:
+    // the regex "." matches whatever separator glyph the panel renders.
+    await waitFor(() => expect(screen.getByText(/results . 2 ids/)).toBeInTheDocument());
+    expect(screen.getByText("alice")).toBeInTheDocument();
+    expect(screen.getByText("1 → 3")).toBeInTheDocument();
+  });
+
+  it("omits the label when left blank", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(screen.getByTestId("property-scope-any"));
+    await user.type(screen.getByTestId("scan-search-term"), "acme");
+    await user.click(screen.getByTestId("scan-run"));
+
+    await waitFor(() => expect(scanPropertiesMock).toHaveBeenCalledTimes(1));
+    expect(scanPropertiesMock.mock.calls[0][1]).toEqual({
+      searchTerm: "acme",
+      label: undefined,
+      resultType: "Both",
+    });
+  });
+
+  it("blocks the run while the search term is blank", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(screen.getByTestId("property-scope-any"));
+    expect(screen.getByTestId("scan-run")).toBeDisabled();
+
+    await user.type(screen.getByTestId("scan-search-term"), "x");
+    expect(screen.getByTestId("scan-run")).toBeEnabled();
+  });
+
+  it("persists the scope and term across remount, and Clear resets to the named-key scope", async () => {
+    const user = userEvent.setup();
+
+    const first = renderScreen();
+    await user.click(screen.getByTestId("property-scope-any"));
+    await user.type(screen.getByTestId("scan-search-term"), "acme");
+    first.unmount();
+
+    // The persisted draft rehydrates the scope and term exactly.
+    renderScreen();
+    expect(await screen.findByTestId("scan-search-term")).toHaveValue("acme");
+
+    // Clear returns to the named-key scope (its input is back, the search term is gone).
+    await user.click(screen.getByTestId("query-clear"));
+    expect(screen.getByTestId("scan-property")).toBeInTheDocument();
+    expect(screen.queryByTestId("scan-search-term")).not.toBeInTheDocument();
   });
 });
 

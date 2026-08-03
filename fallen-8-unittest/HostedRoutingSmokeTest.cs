@@ -323,6 +323,69 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region /scan/graph/properties
+
+        [TestMethod]
+        public async Task AllPropertyScan_MatchesAcrossValuesAndErrorShapes()
+        {
+            using var factory = new RoutingFactory();
+            using var client = factory.CreateClient();
+
+            await CreateVertexViaApi(client, "Trent", 30);
+            await CreateVertexViaApi(client, "Mallory", 40);
+            var ids = await VerticesByName(client);
+
+            // Substring over a string value (name), case-insensitive.
+            var byName = await PostScanIds(client, "/scan/graph/properties",
+                "{\"searchTerm\":\"TREN\",\"resultType\":\"Vertices\"}");
+            CollectionAssert.AreEquivalent(new List<int> { ids["Trent"] }, byName,
+                "a substring of the name value matches, case-insensitively");
+
+            // The int age value is searchable by its text form (all values stringified).
+            var byAge = await PostScanIds(client, "/scan/graph/properties",
+                "{\"searchTerm\":\"40\",\"resultType\":\"Vertices\"}");
+            CollectionAssert.AreEquivalent(new List<int> { ids["Mallory"] }, byAge,
+                "a numeric property value is searchable by its text form");
+
+            var none = await PostScanIds(client, "/scan/graph/properties",
+                "{\"searchTerm\":\"nobody-here\",\"resultType\":\"Vertices\"}");
+            Assert.AreEqual(0, none.Count, "a no-match scan answers 200 with an empty array");
+
+            using (var blank = await client.PostAsync("/scan/graph/properties",
+                Json("{\"searchTerm\":\"   \",\"resultType\":\"Vertices\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.BadRequest, blank.StatusCode, "a blank search term is a 400");
+            }
+
+            using (var missing = await client.PostAsync("/scan/graph/properties",
+                Json("{\"resultType\":\"Vertices\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.BadRequest, missing.StatusCode, "a missing search term is a 400");
+            }
+        }
+
+        [TestMethod]
+        public async Task AllPropertyScan_PluralRoute_DoesNotCollideWithSingularTemplate()
+        {
+            using var factory = new RoutingFactory();
+            using var client = factory.CreateClient();
+
+            await CreateVertexViaApi(client, "Trent", 30);
+
+            // Singular literal + {propertyId}: one named key with a typed operator (age > 25).
+            var singular = await PostScanIds(client, "/scan/graph/property/age",
+                "{\"operator\":1,\"literal\":{\"value\":\"25\",\"fullQualifiedTypeName\":\"System.Int32\"},\"resultType\":\"Vertices\"}");
+            Assert.AreEqual(1, singular.Count, "the singular route hits the named-key scan");
+
+            // Plural literal: contains over all values. "properties" is a distinct segment, never
+            // bound as {propertyId} = "properties" against the singular template.
+            var plural = await PostScanIds(client, "/scan/graph/properties",
+                "{\"searchTerm\":\"trent\",\"resultType\":\"Vertices\"}");
+            Assert.AreEqual(1, plural.Count, "the plural route hits the all-property scan");
+        }
+
+        #endregion
+
         #region /scan/index/all
 
         [TestMethod]

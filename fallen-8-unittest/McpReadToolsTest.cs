@@ -199,6 +199,43 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Search_PropertiesMode_ContainsAcrossAllValues_CaseInsensitive()
+        {
+            // "ALI" is a case-insensitive substring of Alice's name value.
+            var byName = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"properties\",\"query\":\"ALI\",\"kind\":\"vertex\"}"), CancellationToken.None));
+            var nameIds = byName.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetInt32()).ToHashSet();
+            Assert.IsTrue(nameIds.Contains(_ids["Alice"]), "a case-insensitive substring of a string value matches");
+            Assert.IsFalse(nameIds.Contains(_ids["Carol"]), "Carol matches nothing");
+
+            // The int age value is searchable by its text form (all values stringified).
+            var byAge = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"properties\",\"query\":\"40\",\"kind\":\"vertex\"}"), CancellationToken.None));
+            var ageIds = byAge.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetInt32()).ToHashSet();
+            Assert.IsTrue(ageIds.Contains(_ids["Bob"]), "a numeric property value is searchable by its text form");
+        }
+
+        [TestMethod]
+        public async Task Search_PropertiesMode_LabelRestrictor_PassesThrough()
+        {
+            var person = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"properties\",\"query\":\"ali\",\"label\":\"person\"}"), CancellationToken.None));
+            Assert.IsTrue(person.GetProperty("count").GetInt32() >= 1, "the person label passes Alice through");
+
+            var none = Structured(await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"properties\",\"query\":\"ali\",\"label\":\"no-such-label\"}"), CancellationToken.None));
+            Assert.AreEqual(0, none.GetProperty("count").GetInt32(), "an unmatched label filters every hit out");
+        }
+
+        [TestMethod]
+        public async Task Search_PropertiesMode_BlankQuery_IsError()
+        {
+            var result = await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"properties\",\"query\":\"   \"}"), CancellationToken.None);
+            Assert.IsTrue(result.IsError, "a blank properties-mode term is a 400 tool error");
+        }
+
+        [TestMethod]
         public async Task Search_IndexMode_LabelRestrictor_FiltersHits()
         {
             // Pins the REST fix too: /scan/index/all used to accept "label" and silently ignore it.

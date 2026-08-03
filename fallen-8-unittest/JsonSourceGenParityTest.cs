@@ -551,6 +551,12 @@ namespace NoSQL.GraphDB.Tests
                     Label = "person",
                     ResultType = ResultTypeSpecification.Both
                 }, "ScanSpecification"),
+                (new PropertySearchSpecification
+                {
+                    SearchTerm = "acme",
+                    Label = "company",
+                    ResultType = ResultTypeSpecification.Both
+                }, "PropertySearchSpecification"),
                 (new IndexScanSpecification
                 {
                     IndexId = "idx-name",

@@ -129,6 +129,20 @@ namespace NoSQL.GraphDB.Core
                           BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null);
 
         /// <summary>
+        ///   Scan for graph elements whose ANY property value contains the search term. Each
+        ///   non-reserved property value is rendered to its invariant-culture string form and
+        ///   tested with a case-insensitive <c>Contains</c>. A cold, un-indexed O(elements x
+        ///   properties) discovery scan (use an index for scale); reserved embedding entries are
+        ///   never matched. A blank search term matches nothing.
+        /// </summary>
+        /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
+        /// <param name='result'> The resulting graph elements. </param>
+        /// <param name='searchTerm'> The substring to look for across every property value. </param>
+        /// <param name="interestingLabel">The interesting label</param>
+        Boolean GraphScanAllProperties(out List<AGraphElementModel> result, String searchTerm,
+                                       String interestingLabel = null);
+
+        /// <summary>
         ///   Scan for graph elements by a specified index identifiert, a literal and a binary operation
         /// </summary>
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>

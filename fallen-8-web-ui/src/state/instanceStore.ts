@@ -211,7 +211,13 @@ export const DEFAULT_PATH_DRAFT: PathDraft = {
  */
 export interface QueryDraft {
   mode: "property" | "index";
+  /** Property-scan scope: one named "key" (typed operator) or "any" property (contains search). */
+  propertyScope: "key" | "any";
   propertyId: string;
+  /** All-property search term (propertyScope === "any"): a case-insensitive substring. */
+  searchTerm: string;
+  /** All-property search label restrictor (propertyScope === "any"); empty scans every label. */
+  searchLabel: string;
   indexId: string;
   form: IndexCapability;
   operator: BinaryOperatorName;
@@ -234,7 +240,10 @@ export interface QueryDraft {
 
 export const DEFAULT_QUERY_DRAFT: QueryDraft = {
   mode: "property",
+  propertyScope: "key",
   propertyId: "",
+  searchTerm: "",
+  searchLabel: "",
   indexId: "",
   form: "equality",
   operator: "Equals",

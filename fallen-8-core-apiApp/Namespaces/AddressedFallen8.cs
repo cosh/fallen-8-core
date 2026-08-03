@@ -147,6 +147,10 @@ namespace NoSQL.GraphDB.App.Namespaces
                                  BinaryOperator binOp = BinaryOperator.Equals, String interestingLabel = null)
             => Engine.GraphScan(out result, propertyId, literal, binOp, interestingLabel);
 
+        public Boolean GraphScanAllProperties(out List<AGraphElementModel> result, String searchTerm,
+                                              String interestingLabel = null)
+            => Engine.GraphScanAllProperties(out result, searchTerm, interestingLabel);
+
         public Boolean IndexScan(out IReadOnlyList<AGraphElementModel> result, String indexId, IComparable literal,
                                  BinaryOperator binOp = BinaryOperator.Equals)
             => Engine.IndexScan(out result, indexId, literal, binOp);

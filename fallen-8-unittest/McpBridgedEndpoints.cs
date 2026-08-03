@@ -46,6 +46,7 @@ namespace NoSQL.GraphDB.Tests
             ("GET", "/graphelement/{graphElementIdentifier}"),
             ("POST", "/scan/index/all"),
             ("POST", "/scan/graph/property/{propertyId}"),
+            ("POST", "/scan/graph/properties"),
             ("POST", "/scan/index/fulltext"),
             ("POST", "/scan/index/vector"),
             ("POST", "/embedding/search"),

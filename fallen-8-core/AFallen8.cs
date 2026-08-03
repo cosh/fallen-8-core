@@ -167,6 +167,7 @@ namespace NoSQL.GraphDB.Core
         public abstract IReadOnlyList<EdgeModel> GetAllEdges(string interestingLabel = null);
         public abstract IReadOnlyList<AGraphElementModel> GetAllGraphElements(string interestingLabel = null);
         public abstract bool GraphScan(out List<AGraphElementModel> result, string propertyId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals, string interestingLabel = null);
+        public abstract bool GraphScanAllProperties(out List<AGraphElementModel> result, string searchTerm, string interestingLabel = null);
         public abstract bool IndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals);
         public abstract bool RangeIndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true);
         public abstract bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery);

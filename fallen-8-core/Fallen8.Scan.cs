@@ -161,6 +161,30 @@ namespace NoSQL.GraphDB.Core
             return result.Count > 0;
         }
 
+        public override bool GraphScanAllProperties(out List<AGraphElementModel> result, String searchTerm,
+            String interestingLabel = null)
+        {
+            // A blank term matches nothing (an empty scan, never a throw); the REST layer maps a
+            // blank term to a 400 before reaching here, but the engine stays total for library callers.
+            if (string.IsNullOrWhiteSpace(searchTerm))
+            {
+                result = new List<AGraphElementModel>();
+                return false;
+            }
+
+            // Reuse the parallel live-scan machinery (same null/removed skip, label filter and
+            // snapshot discipline as GraphScan): an element matches when ANY of its non-reserved
+            // property values, rendered to its invariant string form, contains the term
+            // case-insensitively. The contains behaviour lives ONLY here - the named-key GraphScan
+            // keeps its typed operator comparators.
+            result = FindElements(
+                aGraphElement => aGraphElement.AnyStringifiedPropertyValueMatches(
+                    value => value.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)),
+                interestingLabel);
+
+            return result.Count > 0;
+        }
+
         public override bool IndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
         {
             if (string.IsNullOrWhiteSpace(indexId))

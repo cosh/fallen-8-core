@@ -65,6 +65,7 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(SubGraphSummary))]
     [JsonSerializable(typeof(PatternSpecification))]
     [JsonSerializable(typeof(ScanSpecification))]
+    [JsonSerializable(typeof(PropertySearchSpecification))]
     [JsonSerializable(typeof(IndexScanSpecification))]
     [JsonSerializable(typeof(RangeIndexScanSpecification))]
     [JsonSerializable(typeof(FulltextIndexScanSpecification))]

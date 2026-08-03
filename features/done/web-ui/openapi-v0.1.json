@@ -9587,6 +9587,87 @@
         }
       }
     },
+    "/ns/{ns}/scan/graph/properties": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Scans every property of every element for a case-insensitive substring match (discovery search)",
+        "description": "The all-property companion to `POST /scan/graph/property/{propertyId}`: singular scans one\r\nnamed key with a typed operator; this plural route scans EVERY property value. Each value is\r\nrendered to its invariant-culture text form (so numbers, booleans and dates are searchable too)\r\nand tested with a case-insensitive Contains; an element matches when ANY of its values matches.\r\nIt is a cold, un-indexed O(elements x properties) scan - use an index for scale. Reserved\r\nembedding entries are never matched.\r\n\r\nSample request:\r\n\r\n    POST /scan/graph/properties\r\n    {\r\n       \"searchTerm\": \"acme\",\r\n       \"label\": \"company\",\r\n       \"resultType\": \"Both\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the scan to elements whose label matches exactly;\r\nomit it to scan every element type.",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Search specification with the term, optional label restrictor and result type",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySearchSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySearchSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the matching element IDs (empty when nothing matches)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The request body was missing or the search term was blank",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/ns/{ns}/scan/graph/property/{propertyId}": {
       "post": {
         "tags": [
@@ -13370,6 +13451,79 @@
           },
           "500": {
             "description": "A load transaction was rolled back, or a dropped namespace could not be recreated"
+          }
+        }
+      }
+    },
+    "/scan/graph/properties": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Scans every property of every element for a case-insensitive substring match (discovery search)",
+        "description": "The all-property companion to `POST /scan/graph/property/{propertyId}`: singular scans one\r\nnamed key with a typed operator; this plural route scans EVERY property value. Each value is\r\nrendered to its invariant-culture text form (so numbers, booleans and dates are searchable too)\r\nand tested with a case-insensitive Contains; an element matches when ANY of its values matches.\r\nIt is a cold, un-indexed O(elements x properties) scan - use an index for scale. Reserved\r\nembedding entries are never matched.\r\n\r\nSample request:\r\n\r\n    POST /scan/graph/properties\r\n    {\r\n       \"searchTerm\": \"acme\",\r\n       \"label\": \"company\",\r\n       \"resultType\": \"Both\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the scan to elements whose label matches exactly;\r\nomit it to scan every element type.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Search specification with the term, optional label restrictor and result type",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySearchSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertySearchSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the matching element IDs (empty when nothing matches)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32"
+                  }
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The request body was missing or the search term was blank",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
           }
         }
       }
@@ -19413,6 +19567,45 @@
               "string"
             ]
           }
+        }
+      },
+      "PropertySearchSpecification": {
+        "required": [
+          "searchTerm",
+          "resultType"
+        ],
+        "type": "object",
+        "properties": {
+          "searchTerm": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The substring to look for across every property value (case-insensitive). Required\r\nand non-blank.",
+            "example": "acme"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional restrictor: only elements with exactly this label match.",
+            "example": "company"
+          },
+          "resultType": {
+            "description": "Specifies which types of graph elements to include in the results. Defaults to\r\nResultTypeSpecification.Both (discovery wants everything); the explicit\r\ninitializer is load-bearing because the enum's zero value is\r\nResultTypeSpecification.Vertices, so an omitted field would otherwise\r\ndeserialize to Vertices.",
+            "default": "Both",
+            "examples": [
+              "Both"
+            ],
+            "$ref": "#/components/schemas/ResultTypeSpecification"
+          }
+        },
+        "description": "Specification for a cold, un-indexed discovery scan across EVERY property of every\r\nelement: an element matches when any of its property values, rendered to text, contains\r\nthe search term (case-insensitive). Unlike ScanSpecification there is no\r\noperator or typed literal - just a substring term.",
+        "example": {
+          "searchTerm": "acme",
+          "label": "company",
+          "resultType": "Both"
         }
       },
       "PropertySpecification": {

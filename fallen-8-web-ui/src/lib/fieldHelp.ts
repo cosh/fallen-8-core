@@ -68,6 +68,12 @@ export const FIELD_HELP = {
   // ---- query: scans ----
   scanKind:
     "Property scan walks all elements (no index needed); 'ask an index' picks a registered index and offers the query forms its type answers.",
+  propertyScope:
+    "Specific key: scan one named property with an operator and typed literal. Any property: a case-insensitive substring search across EVERY property value (numbers and dates included, compared as text) - a cold, un-indexed full-graph discovery scan.",
+  searchTerm:
+    "The substring to look for across every property value, case-insensitively. An element matches when any of its values contains it.",
+  searchLabel:
+    "Optional: restrict the search to elements with exactly this label. Leave empty to search every label.",
   scanOperator:
     "How each element's property value is compared against the literal, using the literal's type ordering.",
   fulltextQuery: "Search text for the fulltext index; results come back scored with highlights.",

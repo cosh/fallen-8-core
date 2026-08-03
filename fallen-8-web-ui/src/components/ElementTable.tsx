@@ -38,11 +38,19 @@ import { Truncated } from "./Truncated";
 export function ElementTable({
   elements,
   onInspect,
+  onAddToCanvas,
   scores,
   scoreHeader = "score",
 }: {
   elements: (VertexREST | EdgeREST)[];
   onInspect?: (id: number) => void;
+  /**
+   * Optional per-row "add just this element to the canvas" action (feature: per-row canvas add).
+   * When provided, a trailing action column renders one button per row; the caller maps the
+   * element to the canvas merge (a lone edge brings its endpoints in as placeholder nodes). Callers
+   * that do not pass it (Browser, Analytics) render no extra column - the addition is opt-in.
+   */
+  onAddToCanvas?: (element: VertexREST | EdgeREST) => void;
   scores?: Map<number, number>;
   scoreHeader?: string;
 }) {
@@ -62,6 +70,7 @@ export function ElementTable({
             <th className="table-cell">label</th>
             <th className="table-cell">endpoints</th>
             <th className="table-cell">properties</th>
+            {onAddToCanvas && <th className="table-cell" />}
           </tr>
         </thead>
         <tbody>
@@ -105,6 +114,20 @@ export function ElementTable({
                   max={DISPLAY_CAP.propertyValue}
                 />
               </td>
+              {onAddToCanvas && (
+                <td className="table-cell">
+                  <button
+                    type="button"
+                    data-testid={`row-to-canvas-${element.id}`}
+                    className="text-accent cursor-pointer text-[11px] whitespace-nowrap hover:underline"
+                    title="Add just this element to the canvas"
+                    aria-label={`Add element ${element.id} to the canvas`}
+                    onClick={() => onAddToCanvas(element)}
+                  >
+                    + canvas
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

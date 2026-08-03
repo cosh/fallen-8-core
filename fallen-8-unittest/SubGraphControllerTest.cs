@@ -479,6 +479,8 @@ namespace NoSQL.GraphDB.Tests
             public IReadOnlyList<AGraphElementModel> GetAllGraphElements(string interestingLabel = null) => _inner.GetAllGraphElements(interestingLabel);
             public bool GraphScan(out List<AGraphElementModel> result, string propertyId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals, string interestingLabel = null)
                 => _inner.GraphScan(out result, propertyId, literal, binOp, interestingLabel);
+            public bool GraphScanAllProperties(out List<AGraphElementModel> result, string searchTerm, string interestingLabel = null)
+                => _inner.GraphScanAllProperties(out result, searchTerm, interestingLabel);
             public bool IndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable literal, BinaryOperator binOp = BinaryOperator.Equals)
                 => _inner.IndexScan(out result, indexId, literal, binOp);
             public bool RangeIndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true)

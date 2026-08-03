@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
 
@@ -347,6 +348,44 @@ namespace NoSQL.GraphDB.Core.Model
         /// <returns> <c>true</c> if a matching value exists; otherwise, <c>false</c> . </returns>
         public Boolean AnyPropertyValueMatches(Func<String, Boolean> valuePredicate)
         {
+            // Only actual string-typed values reach the predicate (the static selector yields the
+            // string, or null for any other type - a clean skip). This is the pinned fragment
+            // primitive; its match semantics are unchanged.
+            return AnyPropertyValueMatchesCore(static value => value as String, valuePredicate);
+        }
+
+        /// <summary>
+        ///   Whether any property VALUE of this element, rendered to its INVARIANT-CULTURE string
+        ///   form, satisfies the predicate. Unlike <see cref="AnyPropertyValueMatches" /> (string
+        ///   values only) this also reaches numbers, booleans and dates: an <see cref="IConvertible" />
+        ///   value is formatted with <see cref="CultureInfo.InvariantCulture" /> (so a scan is
+        ///   culture-stable, matching the invariant ingest convention), while a non-convertible value
+        ///   (a raw <c>float[]</c> / <c>byte[]</c> blob) is skipped rather than rendered to a noisy
+        ///   type name. Reserved embedding entries are skipped exactly as in
+        ///   <see cref="AnyPropertyValueMatches" />, so an embedding's model stamp cannot false-positive.
+        ///   Engine-internal (the graph-wide all-property scan); the fragment surface stays string-only.
+        /// </summary>
+        /// <param name="valuePredicate"> Predicate over each stringified property value. </param>
+        /// <returns> <c>true</c> if a matching value exists; otherwise, <c>false</c> . </returns>
+        internal Boolean AnyStringifiedPropertyValueMatches(Func<String, Boolean> valuePredicate)
+        {
+            return AnyPropertyValueMatchesCore(
+                static value => value is IConvertible convertible
+                    ? convertible.ToString(CultureInfo.InvariantCulture)
+                    : null,
+                valuePredicate);
+        }
+
+        /// <summary>
+        ///   The shared non-reserved-property walk behind <see cref="AnyPropertyValueMatches" /> and
+        ///   <see cref="AnyStringifiedPropertyValueMatches" />: capture the store once (lock-free
+        ///   reader snapshot), skip reserved embedding keys, project each value to a string via
+        ///   <paramref name="valueSelector" /> (a <c>null</c> projection is a clean skip), and test it.
+        ///   Both callers pass a STATIC selector, so the compiler caches it and a capture-free value
+        ///   predicate evaluates allocation-free per element.
+        /// </summary>
+        private Boolean AnyPropertyValueMatchesCore(Func<Object, String> valueSelector, Func<String, Boolean> valuePredicate)
+        {
             var store = _properties;
             if (valuePredicate == null || store == null)
             {
@@ -355,7 +394,14 @@ namespace NoSQL.GraphDB.Core.Model
 
             for (int i = 0; i < store.Length; i++)
             {
-                if (store[i].Value is String value && !IsReservedPropertyId(store[i].Key) && valuePredicate(value))
+                var entry = store[i];
+                if (IsReservedPropertyId(entry.Key))
+                {
+                    continue;
+                }
+
+                var value = valueSelector(entry.Value);
+                if (value != null && valuePredicate(value))
                 {
                     return true;
                 }

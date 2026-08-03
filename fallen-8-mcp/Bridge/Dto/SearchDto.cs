@@ -64,6 +64,17 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
         public String? Label { get; set; }
     }
 
+    /// <summary>Request body for <c>POST /scan/graph/properties</c> (un-indexed contains scan over
+    /// EVERY property value - the plural companion of <see cref="PropertyScanRequest"/>).</summary>
+    public sealed class PropertySearchRequest
+    {
+        public String SearchTerm { get; set; } = String.Empty;
+
+        public String ResultType { get; set; } = "Both";
+
+        public String? Label { get; set; }
+    }
+
     /// <summary>Request body for <c>POST /scan/index/fulltext</c>.</summary>
     public sealed class FulltextScanRequest
     {

@@ -30,7 +30,7 @@ The filter block speaks the REST grammar verbatim: **kinds**, **elements**, **la
 | Samples | namespace | One-click demo-graph gallery with a capability tag filter |
 | Save games | Fallen-8 | Checkpoint registry (load / delete) + administration (save/load/erase, jsonl import/export) |
 | Browser | namespace | Look up an element, inspect properties/embeddings, adjacency, bulk view, mutations |
-| Query | namespace | Property scans and index queries (equality/range/fulltext/spatial/vector) + the stored-query library |
+| Query | namespace | Property scans (one named key, or a contains search across all properties) and index queries (equality/range/fulltext/spatial/vector) + the stored-query library |
 | Indexes | namespace | Create and manage indexes and their content |
 | Path | namespace | Route finding (BLS / Dijkstra) with filters, costs, semantic scoring |
 | Subgraph | namespace | Subgraph lifecycle + pattern builder |
@@ -85,7 +85,7 @@ Documents in, graph out ([unstructured-ingestion.md](/fallen-8-core/unstructured
 
 ![Query screen](../../assets/images/screen-query.png)
 
-Two modes. A **property scan** takes a property id, a comparison operator, a typed literal, and a result type (Vertices / Edges / Both). **Ask an index** picks from the live inventory and offers only the forms the index answers: equality/operator, range, fulltext, spatial, or vector (kNN). A vector query is entered as a pasted vector or as text embedded server-side by the provider, with `k`, an element-kind filter, and a label constraint. Results report the id count, a vector metric legend (higher/lower is better), fulltext highlights, and a scored table. Index semantics live in [indexes.md](/fallen-8-core/indexes/) and [vector-search.md](/fallen-8-core/vector-search/).
+Two modes. A **property scan** has two scopes, both taking a result type (Vertices / Edges / Both): **specific key** takes a property id, a comparison operator, and a typed literal; **any property** takes a single search term and an optional label restrictor, and returns the elements any of whose property values contains the term (case-insensitive, values compared as text so numbers and dates match too). It is a cold, un-indexed full-graph scan meant for discovery; index a property for repeated or large-graph lookups. **Ask an index** picks from the live inventory and offers only the forms the index answers: equality/operator, range, fulltext, spatial, or vector (kNN). A vector query is entered as a pasted vector or as text embedded server-side by the provider, with `k`, an element-kind filter, and a label constraint. Results report the id count, a vector metric legend (higher/lower is better), fulltext highlights, and a scored table; send the whole result set to the canvas, or add a single row's element with its per-row canvas action. Index semantics live in [indexes.md](/fallen-8-core/indexes/) and [vector-search.md](/fallen-8-core/vector-search/).
 
 Stored queries are not managed here: a stored query is unique to its scenario (`Path` or `SubGraph`), so it is registered and managed on the **Path** and **Subgraph** screens ([stored-queries.md](/fallen-8-core/stored-queries/)).
 

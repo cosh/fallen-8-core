@@ -571,5 +571,102 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(sourceId.Id, _controller.GetSourceVertexForEdge(edgeId).Value, "Edge source should match source vertex");
             Assert.AreEqual(targetId.Id, _controller.GetTargetVertexForEdge(edgeId).Value, "Edge target should match target vertex");
         }
+
+        #region all-property search (feature all-property-search)
+
+        private int SeedVertex(String label, Dictionary<String, Object> props)
+        {
+            var tx = new CreateVerticesTransaction();
+            tx.AddVertex(1u, label, props);
+            _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+            return tx.GetCreatedVertices()[0].Id;
+        }
+
+        [TestMethod]
+        public void GraphScanProperties_FiltersByResultType()
+        {
+            var alice = SeedVertex("person", new Dictionary<String, Object> { { "name", "Alice" } });
+            var bob = SeedVertex("person", new Dictionary<String, Object> { { "name", "Bob" } });
+            var edgeTx = new CreateEdgesTransaction();
+            edgeTx.AddEdge(alice, "knows", bob, 1u, "knows",
+                new Dictionary<String, Object> { { "note", "knows Alice" } });
+            _fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
+
+            // Both: the vertex (name) and the edge (note) match "alice".
+            var both = _controller.GraphScanProperties(new PropertySearchSpecification
+            {
+                SearchTerm = "alice",
+                ResultType = ResultTypeSpecification.Both,
+            }).Value;
+            Assert.AreEqual(2, both.Count(), "Both returns the matching vertex and edge.");
+
+            var vertices = _controller.GraphScanProperties(new PropertySearchSpecification
+            {
+                SearchTerm = "alice",
+                ResultType = ResultTypeSpecification.Vertices,
+            }).Value;
+            CollectionAssert.AreEquivalent(new List<int> { alice }, vertices.ToList(),
+                "Vertices keeps only the vertex hit.");
+
+            var edges = _controller.GraphScanProperties(new PropertySearchSpecification
+            {
+                SearchTerm = "alice",
+                ResultType = ResultTypeSpecification.Edges,
+            }).Value;
+            Assert.AreEqual(1, edges.Count(), "Edges keeps only the edge hit.");
+            Assert.AreNotEqual(alice, edges.Single(), "The edge id, not the vertex id.");
+        }
+
+        [TestMethod]
+        public void GraphScanProperties_OmittedResultType_DefaultsToBoth()
+        {
+            var v = SeedVertex("person", new Dictionary<String, Object> { { "name", "Alice" } });
+            var edgeTx = new CreateEdgesTransaction();
+            var other = SeedVertex("person", new Dictionary<String, Object> { { "name", "Bob" } });
+            edgeTx.AddEdge(v, "knows", other, 1u, "knows",
+                new Dictionary<String, Object> { { "note", "Alice again" } });
+            _fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
+
+            // No ResultType set: the model initializer must default it to Both (the enum's zero is
+            // Vertices, so a missing initializer would silently drop the edge).
+            var result = _controller.GraphScanProperties(new PropertySearchSpecification
+            {
+                SearchTerm = "alice",
+            }).Value;
+            Assert.AreEqual(2, result.Count(), "An omitted resultType defaults to Both, keeping the edge.");
+        }
+
+        [TestMethod]
+        public void GraphScanProperties_LabelNarrowsByExactLabel()
+        {
+            var company = SeedVertex("company", new Dictionary<String, Object> { { "name", "Acme" } });
+            SeedVertex("person", new Dictionary<String, Object> { { "name", "Acme fan" } });
+
+            var restricted = _controller.GraphScanProperties(new PropertySearchSpecification
+            {
+                SearchTerm = "acme",
+                Label = "company",
+                ResultType = ResultTypeSpecification.Both,
+            }).Value;
+            CollectionAssert.AreEquivalent(new List<int> { company }, restricted.ToList(),
+                "The label restrictor keeps only the company.");
+        }
+
+        [TestMethod]
+        public void GraphScanProperties_BlankOrMissingTerm_Returns400()
+        {
+            SeedVertex("company", new Dictionary<String, Object> { { "name", "Acme" } });
+
+            ProblemAssert.AssertProblem(
+                _controller.GraphScanProperties(null).Result, StatusCodes.Status400BadRequest);
+            ProblemAssert.AssertProblem(
+                _controller.GraphScanProperties(new PropertySearchSpecification { SearchTerm = "" }).Result,
+                StatusCodes.Status400BadRequest);
+            ProblemAssert.AssertProblem(
+                _controller.GraphScanProperties(new PropertySearchSpecification { SearchTerm = "   " }).Result,
+                StatusCodes.Status400BadRequest);
+        }
+
+        #endregion
     }
 }

@@ -94,6 +94,54 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
+        /// Scans every property of every element for a case-insensitive substring match (discovery search)
+        /// </summary>
+        /// <param name="definition">Search specification with the term, optional label restrictor and result type</param>
+        /// <returns>A collection of graph element IDs whose any property value contains the term</returns>
+        /// <remarks>
+        /// The all-property companion to <c>POST /scan/graph/property/{propertyId}</c>: singular scans one
+        /// named key with a typed operator; this plural route scans EVERY property value. Each value is
+        /// rendered to its invariant-culture text form (so numbers, booleans and dates are searchable too)
+        /// and tested with a case-insensitive Contains; an element matches when ANY of its values matches.
+        /// It is a cold, un-indexed O(elements x properties) scan - use an index for scale. Reserved
+        /// embedding entries are never matched.
+        ///
+        /// Sample request:
+        ///
+        ///     POST /scan/graph/properties
+        ///     {
+        ///        "searchTerm": "acme",
+        ///        "label": "company",
+        ///        "resultType": "Both"
+        ///     }
+        ///
+        /// The optional "label" field restricts the scan to elements whose label matches exactly;
+        /// omit it to scan every element type.
+        /// </remarks>
+        /// <response code="200">Returns the matching element IDs (empty when nothing matches)</response>
+        /// <response code="400">The request body was missing or the search term was blank</response>
+        [HttpPost("/scan/graph/properties")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(IEnumerable<int>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public ActionResult<IEnumerable<int>> GraphScanProperties([FromBody] PropertySearchSpecification definition)
+        {
+            // A blank term is a client error -> 400, not an empty 200 masquerading as "searched"
+            // (api-error-contract E3). The engine stays total (a blank term is an empty scan there).
+            if (definition == null || String.IsNullOrWhiteSpace(definition.SearchTerm))
+            {
+                return ProblemResults.BadRequest("A property search specification with a non-blank searchTerm is required.");
+            }
+
+            List<AGraphElementModel> graphElements;
+            // Label passes straight through to the engine (same exact-match CheckLabel as GraphScan).
+            return _fallen8.GraphScanAllProperties(out graphElements, definition.SearchTerm, definition.Label)
+                       ? new ActionResult<IEnumerable<int>>(CreateResult(graphElements, definition.ResultType))
+                       : new ActionResult<IEnumerable<int>>(Enumerable.Empty<Int32>());
+        }
+
+        /// <summary>
         /// Performs a scan operation on an index with a specific value and operator
         /// </summary>
         /// <param name="definition">Index scan specification with index ID, operator and value</param>
