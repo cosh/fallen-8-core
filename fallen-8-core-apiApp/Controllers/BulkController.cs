@@ -480,14 +480,12 @@ namespace NoSQL.GraphDB.App.Controllers
 
             internal static ImportError Batch(long lineNumber, TransactionFailureReason reason, String what)
             {
-                var status = reason switch
-                {
-                    TransactionFailureReason.InvalidInput => StatusCodes.Status400BadRequest,
-                    TransactionFailureReason.NotFound => StatusCodes.Status400BadRequest,
-                    TransactionFailureReason.QuotaExceeded => StatusCodes.Status409Conflict,
-                    TransactionFailureReason.Conflict => StatusCodes.Status409Conflict,
-                    _ => StatusCodes.Status500InternalServerError
-                };
+                // A per-row NotFound (an edge to an unknown vertex id) is a client-caused 400 in a
+                // batch import, not a 404, so it keeps its documented override; every other reason
+                // goes through the shared reason-to-status mapper.
+                var status = reason == TransactionFailureReason.NotFound
+                    ? StatusCodes.Status400BadRequest
+                    : ProblemResults.StatusForFailureReason(reason);
                 return new ImportError
                 {
                     Status = status,

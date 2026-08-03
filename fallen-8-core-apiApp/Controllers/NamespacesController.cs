@@ -90,7 +90,7 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             return _namespaces.TryGet(name, out var ns)
                 ? Ok(ToRest(ns))
-                : NotFoundProblem(name);
+                : NamespaceProblems.NotFound(name);
         }
 
         /// <summary>
@@ -248,13 +248,6 @@ namespace NoSQL.GraphDB.App.Controllers
             };
         }
 
-        private IActionResult NotFoundProblem(String name)
-        {
-            return ProblemResults.Create(StatusCodes.Status404NotFound, "Namespace not found",
-                "No namespace named \"" + name + "\" exists on this Fallen-8.",
-                p => p.Extensions["namespace"] = name);
-        }
-
         private IActionResult FailureProblem(String name, NamespaceFailure failure, String newName = null)
         {
             switch (failure)
@@ -278,7 +271,7 @@ namespace NoSQL.GraphDB.App.Controllers
                         "(un-prefixed) routes and cannot be renamed or dropped.");
                 case NamespaceFailure.NotFound:
                 default:
-                    return NotFoundProblem(name);
+                    return NamespaceProblems.NotFound(name);
             }
         }
 

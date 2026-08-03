@@ -50,20 +50,42 @@ namespace NoSQL.GraphDB.App.Helper
                     continue;
                 }
 
-                if (vectorIndex.Dimension != provider.Identity.Dimension)
+                var conflict = FindConflictForIndex(vectorIndex, namedIndex.Key, provider, embeddingName);
+                if (conflict != null)
                 {
-                    return String.Format(
-                        "The provider produces dimension {0}, but index '{1}' bound to embedding '{2}' requires {3}.",
-                        provider.Identity.Dimension, namedIndex.Key, embeddingName, vectorIndex.Dimension);
+                    return conflict;
                 }
+            }
 
-                if (vectorIndex.Model != null &&
-                    !String.Equals(vectorIndex.Model, provider.Identity.Stamp, StringComparison.Ordinal))
-                {
-                    return String.Format(
-                        "Index '{0}' declares model identity '{1}', but the active provider is '{2}'.",
-                        namedIndex.Key, vectorIndex.Model, provider.Identity.Stamp);
-                }
+            return null;
+        }
+
+        /// <summary>The single-index FR-8 check (dimension always; model identity when the index
+        /// declares one), returning the conflict message or null when consistent. The one home the
+        /// by-name <see cref="FindConflict"/> scan, the <c>/embedding/search</c> endpoint and the
+        /// fused document search all resolve through, so the contract cannot drift between the write
+        /// and query paths. <paramref name="embeddingName"/> is non-null only for the by-name scan,
+        /// which adds the "bound to embedding" clause to the dimension message.</summary>
+        internal static String FindConflictForIndex(IVectorIndex index, String indexId,
+            Fallen8EmbeddingProvider provider, String embeddingName = null)
+        {
+            if (index.Dimension != provider.Identity.Dimension)
+            {
+                return embeddingName == null
+                    ? String.Format(
+                        "The provider produces dimension {0}, but index '{1}' requires {2}.",
+                        provider.Identity.Dimension, indexId, index.Dimension)
+                    : String.Format(
+                        "The provider produces dimension {0}, but index '{1}' bound to embedding '{2}' requires {3}.",
+                        provider.Identity.Dimension, indexId, embeddingName, index.Dimension);
+            }
+
+            if (index.Model != null &&
+                !String.Equals(index.Model, provider.Identity.Stamp, StringComparison.Ordinal))
+            {
+                return String.Format(
+                    "Index '{0}' declares model identity '{1}', but the active provider is '{2}'.",
+                    indexId, index.Model, provider.Identity.Stamp);
             }
 
             return null;

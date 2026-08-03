@@ -24,9 +24,7 @@
 // SOFTWARE.
 
 using System;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Filters;
-using NoSQL.GraphDB.App.Helper;
 
 namespace NoSQL.GraphDB.App.Namespaces
 {
@@ -54,10 +52,7 @@ namespace NoSQL.GraphDB.App.Namespaces
         {
             if (context.Exception is UnknownNamespaceException unknown)
             {
-                context.Result = ProblemResults.Create(StatusCodes.Status404NotFound,
-                    "Namespace not found",
-                    "No namespace named \"" + unknown.NamespaceName + "\" exists on this Fallen-8.",
-                    p => p.Extensions["namespace"] = unknown.NamespaceName);
+                context.Result = NamespaceProblems.NotFound(unknown.NamespaceName);
                 context.ExceptionHandled = true;
             }
         }

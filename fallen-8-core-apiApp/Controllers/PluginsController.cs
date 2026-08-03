@@ -549,19 +549,22 @@ namespace NoSQL.GraphDB.App.Controllers
 
         private IActionResult MapFailedRegistration(TransactionInformation txInfo, String name)
         {
+            String detail;
             switch (txInfo.FailureReason)
             {
                 case TransactionFailureReason.InvalidInput:
-                    return ProblemResults.BadRequest(String.Format("The plugin '{0}' was structurally invalid.", name));
-
+                    detail = String.Format("The plugin '{0}' was structurally invalid.", name);
+                    break;
                 case TransactionFailureReason.Conflict:
-                    return ProblemResults.Conflict(String.Format("A plugin named '{0}' already exists.", name));
-
+                    detail = String.Format("A plugin named '{0}' already exists.", name);
+                    break;
                 case TransactionFailureReason.QuotaExceeded:
-                    return ProblemResults.Conflict(String.Format(
-                        "Registration of plugin '{0}' was rejected because the per-namespace quota was reached.", name));
-
+                    detail = String.Format(
+                        "Registration of plugin '{0}' was rejected because the per-namespace quota was reached.", name);
+                    break;
                 default:
+                    // NotFound is unreachable for a registration rollback; None/InternalError (and any
+                    // future unmapped reason) stay a 500 here rather than folding through the mapper.
                     if (txInfo.Error != null)
                     {
                         _logger?.LogError(txInfo.Error, "Registration of plugin '{0}' faulted and was rolled back.", name);
@@ -569,6 +572,8 @@ namespace NoSQL.GraphDB.App.Controllers
                     return ProblemResults.InternalServerError(
                         String.Format("Registration of plugin '{0}' failed due to an internal error.", name));
             }
+
+            return ProblemResults.StatusCode(ProblemResults.StatusForFailureReason(txInfo.FailureReason), detail);
         }
 
         #endregion

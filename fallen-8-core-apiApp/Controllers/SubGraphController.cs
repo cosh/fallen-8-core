@@ -468,31 +468,34 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         private IActionResult MapFailedSubGraphCreate(TransactionInformation txInfo, String name)
         {
+            String detail;
             switch (txInfo.FailureReason)
             {
                 case TransactionFailureReason.InvalidInput:
-                    return ProblemResults.BadRequest(String.Format(
-                        "No valid subgraph was produced for '{0}': the pattern or specification was structurally invalid.", name));
-
+                    detail = String.Format(
+                        "No valid subgraph was produced for '{0}': the pattern or specification was structurally invalid.", name);
+                    break;
                 case TransactionFailureReason.NotFound:
-                    return ProblemResults.NotFound(String.Format(
-                        "A source graph or subgraph required to create '{0}' does not exist.", name));
-
+                    detail = String.Format(
+                        "A source graph or subgraph required to create '{0}' does not exist.", name);
+                    break;
                 case TransactionFailureReason.QuotaExceeded:
-                    return ProblemResults.Conflict(String.Format(
-                        "Creation of subgraph '{0}' was rejected because a resource quota was exceeded.", name));
-
+                    detail = String.Format(
+                        "Creation of subgraph '{0}' was rejected because a resource quota was exceeded.", name);
+                    break;
                 case TransactionFailureReason.Conflict:
-                    return ProblemResults.Conflict(String.Format("A subgraph named '{0}' already exists.", name));
-
+                    detail = String.Format("A subgraph named '{0}' already exists.", name);
+                    break;
                 default:
                     if (txInfo.Error != null)
                     {
                         _logger?.LogError(txInfo.Error, "Creation of subgraph '{0}' faulted and was rolled back.", name);
                     }
-                    return ProblemResults.InternalServerError(
-                        String.Format("Creation of subgraph '{0}' failed due to an internal error.", name));
+                    detail = String.Format("Creation of subgraph '{0}' failed due to an internal error.", name);
+                    break;
             }
+
+            return ProblemResults.StatusCode(ProblemResults.StatusForFailureReason(txInfo.FailureReason), detail);
         }
     }
 }
