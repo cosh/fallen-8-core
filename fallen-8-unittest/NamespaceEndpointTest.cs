@@ -81,7 +81,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         private static async Task AssertProblem(HttpResponseMessage response, HttpStatusCode status,
-            string titleContains, string namespaceExtension = null)
+            string titleContains, string namespaceExtension = null, string detailEquals = null)
         {
             Assert.AreEqual(status, response.StatusCode);
             Assert.AreEqual("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -90,6 +90,10 @@ namespace NoSQL.GraphDB.Tests
             if (namespaceExtension != null)
             {
                 Assert.AreEqual(namespaceExtension, problem.GetProperty("namespace").GetString());
+            }
+            if (detailEquals != null)
+            {
+                Assert.AreEqual(detailEquals, problem.GetProperty("detail").GetString());
             }
         }
 
@@ -239,7 +243,10 @@ namespace NoSQL.GraphDB.Tests
             using var client = factory.CreateClient();
 
             using var read = await client.GetAsync("/ns/missing/vertex/count");
-            await AssertProblem(read, HttpStatusCode.NotFound, "Namespace not found", namespaceExtension: "missing");
+            // The detail wording is asserted exactly ONCE, here: all three emit sites build the
+            // body via NamespaceProblems.NotFound, so one end-to-end pin covers them all.
+            await AssertProblem(read, HttpStatusCode.NotFound, "Namespace not found", namespaceExtension: "missing",
+                detailEquals: "No namespace named \"missing\" exists on this Fallen-8.");
 
             // Mutations are refused BEFORE any action runs - nothing is created anywhere.
             using var write = await client.PutAsync("/ns/missing/vertex?waitForCompletion=true",
