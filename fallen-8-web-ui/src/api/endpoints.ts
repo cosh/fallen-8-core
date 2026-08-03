@@ -432,8 +432,13 @@ export const deleteIndex = (i: InstanceConfig, indexId: string) =>
 
 // ---- path (FR-12/13/14) ----
 
-export const findPaths = (i: InstanceConfig, from: number, to: number, spec: PathSpecification) =>
-  apiRequest<PathREST[]>(i, `/path/${from}/to/${to}`, { method: "POST", body: spec });
+export const findPaths = (
+  i: InstanceConfig,
+  from: number,
+  to: number,
+  spec: PathSpecification,
+  signal?: AbortSignal,
+) => apiRequest<PathREST[]>(i, `/path/${from}/to/${to}`, { method: "POST", body: spec, signal });
 
 // ---- subgraph (FR-15/16/17) ----
 
