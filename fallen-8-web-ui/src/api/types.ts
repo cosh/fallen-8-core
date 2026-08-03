@@ -181,7 +181,6 @@ export interface DocumentSummary {
   embeddingDimension?: number;
   embedded: boolean;
   embeddingModelStale: boolean;
-  linksCreated?: number;
 }
 
 export interface DocumentList {

@@ -741,9 +741,12 @@ namespace NoSQL.GraphDB.Core
             // COMMITTED (we are past the try/catch, so a rolled-back removal never reaches here), so drop
             // the element - and, for a vertex, its cascaded-removed incident edges - from every registered
             // index. This stops a removed element being pinned by an index bucket (its body becomes
-            // collectable) and complements the read-end FilterLive floor. RemoveValue is O(affected keys)
-            // via each index's reverse map, so the fan-out over indices is bounded; it runs here on the
-            // single writer, serialised against request-thread index writes by the index's own lock.
+            // collectable) and complements the read-end FilterLive floor. For the bucket indices
+            // (DictionaryIndex/RangeIndex) RemoveValue is O(affected keys) via their reverse map
+            // (index-lifecycle 3.4); SingleValueIndex and RegExIndex are the documented exceptions
+            // whose RemoveValue still scans all keys (their 3.4 reverse-map mirror was deferred). The
+            // fan-out over indices is bounded either way; it runs here on the single writer,
+            // serialised against request-thread index writes by the index's own lock.
             PurgeRemovedElementFromIndices(graphElement);
 
             return true;

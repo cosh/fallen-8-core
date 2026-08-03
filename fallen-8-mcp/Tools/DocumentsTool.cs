@@ -278,10 +278,9 @@ namespace NoSQL.GraphDB.Mcp.Tools
                         cancellationToken).ConfigureAwait(false);
                     var node = ToolResults.Pass(raw);
                     var chunkCount = node?["chunkCount"]?.GetValue<Int32>() ?? 0;
-                    var links = node?["linksCreated"]?.GetValue<Int32>() ?? 0;
                     var documentId = node?["documentId"]?.GetValue<Int32>();
                     return ToolResults.Ok(
-                        $"ingested '{name}' as document {documentId}: {chunkCount} chunk(s), {links} link(s).", node);
+                        $"ingested '{name}' as document {documentId}: {chunkCount} chunk(s).", node);
                 }
 
                 case "entities":

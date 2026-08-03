@@ -1415,16 +1415,15 @@ namespace NoSQL.GraphDB.App.Ingestion
             }, String.Format("property write '{0}'", propertyId));
         }
 
-        /// <summary>Updates an EXISTING property: the engine's documented update path is
-        /// remove-then-set (SetProperty is add-or-must-equal), each step a granular change-feed
-        /// event - never a DelegateTransaction, whose commit forces feed subscribers to resync.</summary>
         /// <summary>Changes an EXISTING property (the engine's SetProperty is add-or-must-equal,
-        /// so an update is remove-then-set). The removal's state is deliberately not asserted: an
-        /// absent property is a valid no-op, and a genuine write fault surfaces on the SetProperty
-        /// below (Enqueue checks TransactionState). ACCEPTED LIMITATION: these are two transactions,
-        /// so there is a brief window where the property reads as absent, and a crash between them
-        /// leaves it unset - tolerable because ingestion is already a multi-transaction operation
-        /// with no cross-transaction atomicity, and status is only ever read advisorily.</summary>
+        /// so an update is remove-then-set), each step a granular change-feed event - never a
+        /// DelegateTransaction, whose commit forces feed subscribers to resync. The removal's
+        /// state is deliberately not asserted: an absent property is a valid no-op, and a genuine
+        /// write fault surfaces on the SetProperty below (Enqueue checks TransactionState).
+        /// ACCEPTED LIMITATION: these are two transactions, so there is a brief window where the
+        /// property reads as absent, and a crash between them leaves it unset - tolerable because
+        /// ingestion is already a multi-transaction operation with no cross-transaction atomicity,
+        /// and status is only ever read advisorily.</summary>
         private async Task UpdateProperty(Int32 elementId, String propertyId, Object value)
         {
             var removal = _fallen8.EnqueueTransaction(new RemovePropertyTransaction
@@ -1645,14 +1644,6 @@ namespace NoSQL.GraphDB.App.Ingestion
             summary.Embedded = summary.EmbeddingModel != null;
             summary.EmbeddingModelStale = summary.EmbeddingModel != null && _embeddingOptions.Enabled &&
                 !String.Equals(summary.EmbeddingModel, _provider.Identity.Stamp, StringComparison.Ordinal);
-            return summary;
-        }
-
-        private Controllers.Model.DocumentSummaryREST BuildSummary(Int32 documentId, Int32 linksCreated)
-        {
-            _fallen8.TryGetVertex(out var vertex, documentId);
-            var summary = Summarize(vertex);
-            summary.LinksCreated = linksCreated;
             return summary;
         }
 

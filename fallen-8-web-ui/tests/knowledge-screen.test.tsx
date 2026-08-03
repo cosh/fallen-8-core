@@ -175,7 +175,7 @@ beforeEach(() => {
   localStorage.clear();
   getStatusMock.mockReset().mockResolvedValue(status({}));
   listDocumentsMock.mockReset().mockResolvedValue(documentList([DOC]));
-  ingestTextMock.mockReset().mockResolvedValue({ ...DOC, linksCreated: 0 });
+  ingestTextMock.mockReset().mockResolvedValue(DOC);
   ingestFileMock.mockReset().mockResolvedValue({ ...DOC, status: "processing", chunkCount: 0 });
   searchDocumentsMock.mockReset().mockResolvedValue({ modeUsed: "fused", hits: [] });
   deleteDocumentMock.mockReset().mockResolvedValue(undefined);

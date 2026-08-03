@@ -290,7 +290,7 @@ namespace NoSQL.GraphDB.Core.Index
                     }
                     else
                     {
-                        _logger?.LogError(String.Format("[SingleValueIndex] Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
+                        _logger?.LogError("[SingleValueIndex] Error while deserializing the index. Could not find the graph element \"{GraphElementId}\"", graphElementId);
                     }
                 }
 
