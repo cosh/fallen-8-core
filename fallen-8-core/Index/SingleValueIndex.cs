@@ -266,6 +266,11 @@ namespace NoSQL.GraphDB.Core.Index
 
         public void Load(SerializationReader reader, IFallen8 fallen8)
         {
+            // The real load path (IndexFactory.OpenIndex) activates the plugin WITHOUT calling
+            // Initialize, so the logger must be wired here or the not-found branch below would
+            // dereference a null logger (consolidation-audit CA-16; mirrors VectorIndex.Load).
+            _logger ??= fallen8?.LoggerFactory?.CreateLogger<SingleValueIndex>();
+
             if (WriteResource())
             {
                 reader.ReadInt32();//parameter
@@ -285,7 +290,7 @@ namespace NoSQL.GraphDB.Core.Index
                     }
                     else
                     {
-                        _logger.LogError(String.Format("[SingleValueIndex] Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
+                        _logger?.LogError(String.Format("[SingleValueIndex] Error while deserializing the index. Could not find the graph element \"{0}\"", graphElementId));
                     }
                 }
 
