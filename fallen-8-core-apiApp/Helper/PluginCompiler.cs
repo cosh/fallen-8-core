@@ -30,12 +30,12 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
-using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.Analytics;
+using NoSQL.GraphDB.Core.App.Helper;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Plugins;
@@ -217,7 +217,7 @@ namespace NoSQL.GraphDB.App.Helper
             EmitResult emit = compilation.Emit(ms);
             if (!emit.Success)
             {
-                error = FormatDiagnostics(emit.Diagnostics);
+                error = CodeGenerationHelper.FormatCompileErrors(emit.Diagnostics, "Failed to compile the plugin source:");
                 return false;
             }
 
@@ -332,18 +332,6 @@ namespace NoSQL.GraphDB.App.Helper
 
             type = candidate;
             return null;
-        }
-
-        private static String FormatDiagnostics(IEnumerable<Diagnostic> diagnostics)
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine("Failed to compile the plugin source:");
-            foreach (var d in diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
-            {
-                sb.AppendLine(String.Format("ID: {0}, Message: {1}, Location: {2}, Severity: {3}",
-                    d.Id, d.GetMessage(), d.Location.GetLineSpan(), d.Severity));
-            }
-            return sb.ToString();
         }
     }
 }

@@ -158,16 +158,11 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 }
                 else
                 {
-                    StringBuilder sb = new StringBuilder();
-
-                    foreach (Diagnostic codeIssue in compilationResult.Diagnostics)
-                    {
-                        string issue = $"ID: {codeIssue.Id}, Message: {codeIssue.GetMessage()}, Location: {codeIssue.Location.GetLineSpan()}, Severity: {codeIssue.Severity}";
-
-                        sb.AppendLine(issue);
-                    }
-
-                    resultMessage = sb.ToString();
+                    // Errors-only, with a header - the same rendering the subgraph and plugin
+                    // compiles already use (consolidation-audit CA-24, spec 4.4); a warning/info
+                    // diagnostic no longer leaks into the 400 body.
+                    resultMessage = FormatCompileErrors(compilationResult.Diagnostics,
+                        "Failed to compile the path filter/cost expression(s):");
                 }
             }
 
@@ -224,17 +219,16 @@ namespace NoSQL.GraphDB.Core.App.Helper
         /// <returns>The source code</returns>
         private static string CreateSource(PathSpecification definition)
         {
-            var @namespace = SyntaxFactory.NamespaceDeclaration(SyntaxFactory.ParseName(PathDelegateNamespace)).NormalizeWhitespace();
+            // The path compile environment (usings + wrapper namespace) is single-homed on
+            // FragmentCompileEnvironment so the /path generator, the /subgraph generator and the
+            // validator stay in lockstep (consolidation-audit CA-4).
+            var @namespace = SyntaxFactory.NamespaceDeclaration(
+                SyntaxFactory.ParseName(FragmentCompileEnvironment.Path.Namespace)).NormalizeWhitespace();
 
             @namespace = @namespace.AddUsings(
-                SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System")),
-                SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Linq")),
-                SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("NoSQL.GraphDB.Core.Model")),
-                // Fragments may score embeddings via the traversal context (feature
-                // element-embeddings): VectorMath/VectorDistanceMetric come from Index.Vector;
-                // TraversalContext resolves through the Algorithms namespace ancestry.
-                SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("NoSQL.GraphDB.Core.Index.Vector"))
-                );
+                FragmentCompileEnvironment.Path.Usings
+                    .Select(u => SyntaxFactory.UsingDirective(SyntaxFactory.ParseName(u)))
+                    .ToArray());
 
             var classDeclaration = SyntaxFactory.ClassDeclaration(PathDelegateClassName);
 
@@ -309,8 +303,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
                    SyntaxFactory.Token(SyntaxKind.PublicKeyword)
                    )
                .AddParameterListParameters(
-                   SyntaxFactory.Parameter(SyntaxFactory.Identifier("context"))
-                       .WithType(SyntaxFactory.ParseTypeName("TraversalContext")))
+                   SyntaxFactory.Parameter(SyntaxFactory.Identifier(FragmentCompileEnvironment.ContextParameterName))
+                       .WithType(SyntaxFactory.ParseTypeName(FragmentCompileEnvironment.ContextParameterType)))
                .WithBody(SyntaxFactory.Block(syntax));
         }
 
@@ -328,6 +322,103 @@ namespace NoSQL.GraphDB.Core.App.Helper
         ///   <see cref="DelegateValidationHelper"/> (feature web-ui, gap G-2).
         /// </summary>
         internal static MetadataReference[] GlobalReferences => _globalReferences;
+
+        #region Shared compile environment and diagnostics (consolidation-audit CA-4/CA-24)
+
+        /// <summary>
+        ///   The ambient compile environment a user filter/cost fragment is dropped into: the
+        ///   ordered set of injected usings and the wrapper namespace. Defined ONCE here for each of
+        ///   the two real environments so the <c>/path</c> generator (<see cref="CreateSource"/>),
+        ///   the <c>/subgraph</c> generator (<see cref="BuildProviderSource"/>) and the
+        ///   side-effect-free validator (<see cref="DelegateValidationHelper"/>) inject an identical
+        ///   environment. A namespace added for one is compiled by all three, so the validator can
+        ///   never report a fragment invalid that the real path/subgraph compile accepts (or the
+        ///   reverse); <c>CodegenEnvironmentParityTest</c> pins that agreement.
+        ///
+        ///   <para>The path environment deliberately omits an explicit
+        ///   <c>using NoSQL.GraphDB.Core.Algorithms;</c>: its wrapper namespace is nested under
+        ///   Algorithms, so <see cref="TraversalContext"/> (feature element-embeddings) and the
+        ///   <c>Delegates.*</c> return types resolve through ancestry. The subgraph environment,
+        ///   nested under <c>...Algorithms.SubGraph.Generated</c>, names Algorithms explicitly. Both
+        ///   therefore see the same symbols; the only difference is how Algorithms is brought into
+        ///   scope. <c>Index.Vector</c> is present in both so a fragment may score embeddings via the
+        ///   context (VectorMath / VectorDistanceMetric).</para>
+        /// </summary>
+        internal sealed class FragmentCompileEnvironment
+        {
+            /// <summary>The type of the single parameter every generated factory / validation method
+            /// takes, so a fragment can close over the per-request query vector (feature
+            /// element-embeddings); the materialized delegate closes over it.</summary>
+            internal const String ContextParameterType = "TraversalContext";
+
+            /// <summary>The name of that parameter; load-bearing in the fragment source (a fragment
+            /// refers to it as <c>context</c>).</summary>
+            internal const String ContextParameterName = "context";
+
+            /// <summary>The usings injected above the wrapper, in emission order.</summary>
+            internal String[] Usings
+            {
+                get;
+            }
+
+            /// <summary>The wrapper namespace the fragment's class is generated into.</summary>
+            internal String Namespace
+            {
+                get;
+            }
+
+            private FragmentCompileEnvironment(String @namespace, String[] usings)
+            {
+                Namespace = @namespace;
+                Usings = usings;
+            }
+
+            /// <summary>The <c>/path</c> filter/cost environment.</summary>
+            internal static readonly FragmentCompileEnvironment Path = new FragmentCompileEnvironment(
+                PathDelegateNamespace,
+                new[]
+                {
+                    "System",
+                    "System.Linq",
+                    "NoSQL.GraphDB.Core.Model",
+                    "NoSQL.GraphDB.Core.Index.Vector"
+                });
+
+            /// <summary>The <c>/subgraph</c> filter environment (names Algorithms explicitly).</summary>
+            internal static readonly FragmentCompileEnvironment SubGraph = new FragmentCompileEnvironment(
+                SubGraphProviderNamespace,
+                new[]
+                {
+                    "System",
+                    "System.Linq",
+                    "NoSQL.GraphDB.Core.Model",
+                    "NoSQL.GraphDB.Core.Algorithms",
+                    "NoSQL.GraphDB.Core.Index.Vector"
+                });
+        }
+
+        /// <summary>
+        ///   Renders a failed dynamic compile to the human-readable body the controllers surface as
+        ///   the problem <c>detail</c> (400 for an inline fragment, 409 for a stored query): the
+        ///   caller's <paramref name="header"/> line, then one line per ERROR diagnostic (warnings
+        ///   and info are dropped) in a stable "ID / Message / Location / Severity" form. The single
+        ///   home for that rendering, shared by the <c>/path</c> and <c>/subgraph</c> fragment
+        ///   compiles here and the plugin compile in
+        ///   <see cref="NoSQL.GraphDB.App.Helper.PluginCompiler"/>, so the three compile-failure
+        ///   bodies cannot drift.
+        /// </summary>
+        internal static String FormatCompileErrors(IEnumerable<Diagnostic> diagnostics, String header)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(header);
+            foreach (var diagnostic in diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
+            {
+                sb.AppendLine($"ID: {diagnostic.Id}, Message: {diagnostic.GetMessage()}, Location: {diagnostic.Location.GetLineSpan()}, Severity: {diagnostic.Severity}");
+            }
+            return sb.ToString();
+        }
+
+        #endregion
 
         [UnconditionalSuppressMessage("SingleFile", "IL3000:Avoid accessing Assembly file path when publishing as a single file", Justification = "This method handles the single-file case by checking for empty Location and uses AppContext.BaseDirectory as fallback")]
         private static IEnumerable<MetadataReference> BuildGlobalReferences()
@@ -768,15 +859,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
                 if (!compilationResult.Success)
                 {
-                    StringBuilder sb = new StringBuilder();
-                    sb.AppendLine("Failed to compile subgraph filter expression(s):");
-
-                    foreach (Diagnostic codeIssue in compilationResult.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
-                    {
-                        sb.AppendLine($"ID: {codeIssue.Id}, Message: {codeIssue.GetMessage()}, Location: {codeIssue.Location.GetLineSpan()}, Severity: {codeIssue.Severity}");
-                    }
-
-                    return sb.ToString();
+                    return FormatCompileErrors(compilationResult.Diagnostics,
+                        "Failed to compile subgraph filter expression(s):");
                 }
 
                 ms.Seek(0, SeekOrigin.Begin);
@@ -797,20 +881,24 @@ namespace NoSQL.GraphDB.Core.App.Helper
 
         private static String BuildProviderSource(List<GeneratedDelegateSlot> slots)
         {
+            // The subgraph compile environment (usings + wrapper namespace + context signature) is
+            // single-homed on FragmentCompileEnvironment, shared with the /path generator and the
+            // validator (consolidation-audit CA-4).
             var sb = new StringBuilder();
-            sb.AppendLine("using System;");
-            sb.AppendLine("using System.Linq;");
-            sb.AppendLine("using NoSQL.GraphDB.Core.Model;");
-            sb.AppendLine("using NoSQL.GraphDB.Core.Algorithms;");
-            sb.AppendLine("using NoSQL.GraphDB.Core.Index.Vector;");
-            sb.AppendLine("namespace " + SubGraphProviderNamespace);
+            foreach (var @using in FragmentCompileEnvironment.SubGraph.Usings)
+            {
+                sb.AppendLine("using " + @using + ";");
+            }
+            sb.AppendLine("namespace " + FragmentCompileEnvironment.SubGraph.Namespace);
             sb.AppendLine("{");
             sb.AppendLine("    public sealed class " + SubGraphProviderClassName);
             sb.AppendLine("    {");
 
             foreach (var slot in slots)
             {
-                sb.AppendLine("        public " + slot.ReturnType + " " + slot.MethodName + "(TraversalContext context)");
+                sb.AppendLine("        public " + slot.ReturnType + " " + slot.MethodName + "("
+                    + FragmentCompileEnvironment.ContextParameterType + " "
+                    + FragmentCompileEnvironment.ContextParameterName + ")");
                 sb.AppendLine("        {");
                 sb.AppendLine("            " + slot.Code);
                 sb.AppendLine("        }");
