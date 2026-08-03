@@ -239,3 +239,8 @@ auto-created on first ingest (the operator wants to choose), and upload is a pla
   vector tolerates and self-heals on re-bind, entity is additive); reconcile if the divergence
   confuses operators.
 - Per-search-hit entity chips in the Studio (deferred UI polish).
+
+> Addendum (2026-08-03): the link-index "equality-capable" rule this spec described was
+> corrected by consolidation-audit CA-1 - the engine-owned `IIndex.SupportsPointEqualityLookup`
+> is now the one source (fulltext accepted, vector/spatial rejected with 400). See
+> [features/done/consolidation-audit/](../consolidation-audit/).

@@ -21,6 +21,43 @@ never duplicated characters; hot-path consolidations are flagged and benchmark-g
 **Verdicts.** CONFIRMED = every site verified and a concrete bug-if-changed-in-one-place
 holds. PLAUSIBLE = real drift but the bug is speculative or a cited detail was off.
 
+## Disposition (2026-08-03, feature landed)
+
+The one record of what happened to each finding; slice numbers are plan.md's, each landed
+via its own `feature/<name>` branch and a Fable review gate. "fixed" = the duplication was
+single-homed (or the bug repaired); "guarded" = a test now forces the drift to fail loudly;
+"left" = deliberately not done, reason recorded.
+
+| Finding | Disposition |
+|---|---|
+| CA-1 | fixed (slice 1): `IIndex.SupportsPointEqualityLookup`; spatial link-index 400, fulltext accepted |
+| CA-2 | fixed (slice 2): `ProblemResults.StatusForFailureReason`; Embedding/Enqueue rollbacks surface mapped statuses |
+| CA-3 | fixed (slice 2): `BoundIndexContract.FindConflictForIndex` |
+| CA-4 | fixed (slice 3): `CodeGenerationHelper.FragmentCompileEnvironment` + parity test |
+| CA-5 | fixed (slice 6): `VectorIndex.Classify`; benchmark before/after showed no regression (bytes/call 0 both sides) |
+| CA-6 | fixed (slice 5): `AnalyticsAdjacency.VisitByDirection`/`CountByDirection`; benchmark no regression |
+| CA-7 | fixed (slice 2): `EmbeddingProviderProblem.Map` |
+| CA-8 | fixed (slice 2): `NamespaceProblems.NotFound` |
+| CA-9 | fixed (slice 7): `PluginRegistry.EntriesForContract` |
+| CA-10 | fixed (slice 7): `SidecarHttpClient` base (per-client timeout clamps stay local) |
+| CA-11 | fixed (slice 7): bidirectional kind map + `TryParseKind` + round-trip test |
+| CA-12 | fixed (slice 1): `VectorShapeConflict`/`FulltextShapeConflict`/`EntityShapeConflict` shared by read+enforce |
+| CA-13 | fixed (slice 7): `PluginFactory.ContractInterface` + `AvailableBuiltInNames` |
+| CA-14 | guarded (slice 4): `McpWriteDtoParityTest` (effective JSON names, REST vs MCP) |
+| CA-15 | fixed (slice 8): 11 logger calls to message templates (exception `String.Format`s stay) |
+| CA-16 | fixed (slice 4): `_logger ??=` in the three legacy `Load`s + OpenIndex-path regression test |
+| CA-17 | fixed (slice 8): `LinksCreated`/`BuildSummary` removed everywhere incl. Studio and the MCP tool's reader (a fifth site the plan had not enumerated); snapshot regenerated |
+| CA-18 | fixed (slice 8): mcp-server.md row corrected; unstructured-ingestion.md reduced to a pointer |
+| CA-19 | fixed (slice 8): one merged `<summary>`, change-feed rationale kept |
+| CA-20 | fixed (slice 8): `Property.cs` + registration deleted |
+| CA-21 | guarded (slice 4): round-trip derives from `AllowedLiteralTypes.AllowedNames` |
+| CA-22 | guarded (slice 4): reflection completeness sweep over every route-bearing endpoint export |
+| CA-23 | fixed (slice 5): `BudgetGuard.IsExhaustedAt` (TriangleCounting's bare per-vertex check stays) |
+| CA-24 | fixed (slice 3): `FormatCompileErrors(diagnostics, header)`; `/path` body errors-only (the planned `errorsOnly` flag dropped as a dead argument) |
+| CA-25 | left: per-site result branches legitimately differ; the fragile datum (route key) is already one constant |
+| CA-26 | left, own follow-up feature (`feature/nullable-everywhere`) |
+| CA-27 | left, own follow-up feature (`feature/webui-lint-gate`) |
+
 ## 1. Overall assessment
 
 This is a healthy, unusually disciplined codebase. The convention gates are real and are
