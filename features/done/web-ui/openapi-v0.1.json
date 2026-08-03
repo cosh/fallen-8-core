@@ -18107,7 +18107,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The query families this index answers (feature index-workspace), derived from the\r\ninterfaces the index implements so third-party plugins report honestly:\r\n`IVectorIndex` → `vector`; `ISpatialIndex` → `spatial`;\r\n`IFulltextIndex` → `equality` + `fulltext`; `IRangeIndex` →\r\n`equality` + `range`; any other index → `equality`. Vector and\r\nspatial indexes do NOT report `equality` because their keys (float[],\r\ngeometry) cannot travel as the scan endpoints' typed literal. Like\r\nstring IndexDescriptionREST.EmbeddingName, only the live `/status` inventory populates it;\r\nsave-game KPIs leave it `null`.",
+            "description": "The query families this index answers (feature index-workspace). `equality`\r\ncomes straight from the index's own `IIndex.SupportsPointEqualityLookup`\r\ndeclaration (the engine-owned single home for \"can this index be looked up by an\r\nexact key\" - the semantic layer's entity/link gates read the same flag, so this\r\ninventory and those gates can never disagree); the remaining tags come from the\r\nfamily interface the index implements: `IVectorIndex` → `vector`;\r\n`ISpatialIndex` → `spatial`; `IFulltextIndex` → `fulltext`;\r\n`IRangeIndex` → `range`. The built-in vector and spatial indexes declare\r\nNO `equality` because their keys (float[], geometry) cannot travel as the scan\r\nendpoints' typed literal. Like string IndexDescriptionREST.EmbeddingName, only the live\r\n`/status` inventory populates it; save-game KPIs leave it `null`.",
             "example": [
               "equality",
               "range"
@@ -18418,7 +18418,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The index ids to match extracted identifiers against (dictionary family;\r\n    vector and fulltext indices are rejected)."
+            "description": "The index ids to match extracted identifiers against. Each must be\r\n    equality-capable (dictionary, range, single-value or fulltext); a vector or spatial\r\n    index is rejected with 400."
           },
           "maxLinksPerChunk": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",

@@ -110,9 +110,11 @@ stop and surface it.
 - **MCP:** no new REST operations, so no new tools and no McpRestCoverageTest deferrals.
   `f8_documents` bind/ingest inherit CA-1's 400. CA-14 adds a parity test in
   fallen-8-unittest touching the MCP write DTOs (guard only, no shape change).
-- **Studio (`fallen-8-web-ui`):** no client changes required. `LinksCreated` is not
-  consumed by the client (verified: not in types.ts). CA-22 extends the contract test
-  only. Knowledge screen behavior for CA-1 unchanged except honest 400s.
+- **Studio (`fallen-8-web-ui`):** no client changes for CA-1 (the client does not gate
+  link-index candidates). CA-17 DOES touch the client, correcting the audit report's claim:
+  `linksCreated` is declared at types.ts:184 and rendered by KnowledgeScreen.tsx:143
+  (always null today, so the render is dead) - slice 8 removes both alongside the DTO
+  field (found at the slice 1 gate, 2026-08-03). CA-22 extends the contract test only.
 - **Tests:** existing pins that must keep passing unchanged: TransactionFailureReasonTest,
   VectorIndexTest/BoundVectorIndexTest, GraphAnalytics tests, NamespaceEndpointTest,
   ChangeFeed tests, EmbeddingProviderTest, DocumentSearchEndpointTest,
