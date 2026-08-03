@@ -58,7 +58,9 @@ The only behavior-changing correctness slice; lands first, alone.
    namespace (incl. `Index.Vector` and `context`) both validates and compiles through the
    real path and subgraph generators.
 2. CA-24: one `FormatDiagnostics(diags, header, errorsOnly)`; path site aligned to
-   errors-only (spec 4.4).
+   errors-only (spec 4.4). (Implemented as `FormatCompileErrors(diagnostics, header)`:
+   with all three sites errors-only per spec 4.4, the `errorsOnly` flag would have been a
+   dead argument, so it was dropped at the slice-3 gate.)
 
 ## Slice 4: `feature/contract-guards` (CA-14, CA-21, CA-22, CA-16) - guards + one small fix
 

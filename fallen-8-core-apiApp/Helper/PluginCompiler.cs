@@ -35,8 +35,8 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.Analytics;
-using NoSQL.GraphDB.Core.App.Helper;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
+using NoSQL.GraphDB.Core.App.Helper;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Plugins;
 
