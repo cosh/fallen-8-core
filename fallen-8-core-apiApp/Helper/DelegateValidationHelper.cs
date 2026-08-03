@@ -177,25 +177,32 @@ namespace NoSQL.GraphDB.Core.App.Helper
         /// </summary>
         private static String BuildValidationSource(String returnType, Boolean subGraph, String normalizedFragment, out Int32 preambleLines)
         {
+            // Inject the SAME compile environment the real generators use (consolidation-audit CA-4):
+            // one home for the using set, wrapper namespace and (TraversalContext context) signature.
+            // Deriving preambleLines from the using count keeps the fragment-coordinate mapping
+            // correct if a using is ever added to that shared set (FR-24).
+            var environment = subGraph
+                ? CodeGenerationHelper.FragmentCompileEnvironment.SubGraph
+                : CodeGenerationHelper.FragmentCompileEnvironment.Path;
+
             var sb = new StringBuilder();
-            sb.Append("using System;\n");
-            sb.Append("using System.Linq;\n");
-            sb.Append("using NoSQL.GraphDB.Core.Model;\n");
-            sb.Append("using NoSQL.GraphDB.Core.Index.Vector;\n");
-            if (subGraph)
+            foreach (var @using in environment.Usings)
             {
-                sb.Append("using NoSQL.GraphDB.Core.Algorithms;\n");
+                sb.Append("using ").Append(@using).Append(";\n");
             }
-            sb.Append(subGraph
-                ? "namespace NoSQL.GraphDB.Core.Algorithms.SubGraph.Generated\n"
-                : "namespace NoSQL.GraphDB.Core.Algorithms.Path\n");
+            sb.Append("namespace ").Append(environment.Namespace).Append('\n');
             sb.Append("{\n");
             sb.Append("public sealed class ").Append(ValidationClassName).Append('\n');
             sb.Append("{\n");
-            sb.Append("public ").Append(returnType).Append(" Validate(TraversalContext context)\n");
+            sb.Append("public ").Append(returnType).Append(' ')
+                .Append("Validate(").Append(CodeGenerationHelper.FragmentCompileEnvironment.ContextParameterType)
+                .Append(' ').Append(CodeGenerationHelper.FragmentCompileEnvironment.ContextParameterName)
+                .Append(")\n");
             sb.Append("{\n");
 
-            preambleLines = subGraph ? 11 : 10;
+            // usings + namespace + '{' + class + '{' + method + '{' = Usings.Length + 6 lines
+            // before the fragment (path = 10, subgraph = 11), so fragmentLine = generatedLine - this.
+            preambleLines = environment.Usings.Length + 6;
 
             sb.Append(normalizedFragment).Append('\n');
             sb.Append("}\n}\n}\n");
