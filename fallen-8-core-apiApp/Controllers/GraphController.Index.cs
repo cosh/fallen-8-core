@@ -133,20 +133,17 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             }
 
-            if (vector.Length != vectorIndex.Dimension)
+            // The rankability reasons come from the shared Classify (CA-5), each mapped to its
+            // distinct 400; validate-then-400 keeps a REST write from ever silently skipping.
+            switch (VectorIndex.Classify(vector, vectorIndex.Dimension, vectorIndex.Metric))
             {
-                return ProblemResults.BadRequest(String.Format("The vector has dimension {0}; index '{1}' requires {2}.",
-                    vector.Length, indexId, vectorIndex.Dimension));
-            }
-
-            if (VectorIndex.HasNonFiniteComponent(vector))
-            {
-                return ProblemResults.BadRequest("The vector contains NaN or Infinity components; only finite values can rank.");
-            }
-
-            if (vectorIndex.Metric == VectorDistanceMetric.Cosine && VectorIndex.IsZeroNorm(vector))
-            {
-                return ProblemResults.BadRequest("A zero-norm vector cannot rank under the Cosine metric.");
+                case VectorRankability.WrongDimension:
+                    return ProblemResults.BadRequest(String.Format("The vector has dimension {0}; index '{1}' requires {2}.",
+                        vector.Length, indexId, vectorIndex.Dimension));
+                case VectorRankability.NonFinite:
+                    return ProblemResults.BadRequest("The vector contains NaN or Infinity components; only finite values can rank.");
+                case VectorRankability.ZeroNormUnderCosine:
+                    return ProblemResults.BadRequest("A zero-norm vector cannot rank under the Cosine metric.");
             }
 
             vectorIndex.AddOrUpdate(vector, element);
