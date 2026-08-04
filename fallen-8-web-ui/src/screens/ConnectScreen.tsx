@@ -25,7 +25,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useRegistry } from "../instances/registry";
+import { SAME_ORIGIN_INSTANCE, useRegistry } from "../instances/registry";
 import type { InstanceConfig } from "../instances/types";
 import { describeEndpoint } from "../instances/types";
 import { getStatus, isAuthorized } from "../api/endpoints";
@@ -190,7 +190,7 @@ export function ConnectScreen() {
                     <button
                       type="button"
                       className="btn btn-danger"
-                      disabled={instances.length === 1}
+                      disabled={instance.id === SAME_ORIGIN_INSTANCE.id || instances.length === 1}
                       onClick={() => removeInstance(instance.id)}
                     >
                       Remove

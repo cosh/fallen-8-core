@@ -42,12 +42,17 @@ observable behavior that must stay identical for the standalone app.
 | 3 | Global, unscoped CSS (Tailwind preflight + `body` + generic `.btn/.panel/.input`) | `src/index.css` | Scope primitives + preflight under a `.f8-studio` root container / CSS layer; standalone wraps its root in the same scope | Pixel-identical standalone |
 | 4 | Hard-coded dark theme (fixed hex `@theme` tokens + forced `html.dark`) | `src/index.css`, `index.html` | Theme tokens become CSS custom properties defaulting to today's palette; host may override; enables a future light theme | Same dark palette by default |
 | 5 | Module singletons + fixed `localStorage` keys (`f8.instances`, `f8.workspace.<id>`, `f8.nl-assist`) with no host injection point | `src/instances/registry.ts`, `src/state/instanceStore.ts`, `src/delegate/nl/config.ts` | `StudioConfig` context supplying instance(s)/credentials and a storage-key namespace prefix; a host-supplied instance can seed the registry (optionally hidden/read-only) | Default prefix empty, `SAME_ORIGIN_INSTANCE` still seeded |
-| 6 | Same-origin default instance (`baseUrl:""`) assumes the DB origin serves the SPA | `src/instances/registry.ts:26` | Default instance comes from `StudioConfig` (host passes its own base URL + token); standalone default stays `SAME_ORIGIN_INSTANCE` | Same-origin default unchanged |
+| 6 | Same-origin default instance (`baseUrl:""`) assumes the DB origin serves the SPA | `src/instances/registry.ts:64-69` | Default instance comes from `StudioConfig` (host passes its own base URL + token); standalone default stays `SAME_ORIGIN_INSTANCE` | Same-origin default unchanged |
 | 7 | Browser-side LLM keys called directly from the browser | `src/delegate/nl/config.ts` | `StudioConfig.nlAssist`: `disabled` \| `direct` (today) \| host-supplied transport (proxy through the host backend) | Default `direct` — current behavior |
 
 A related small item folded in: the delegate-editor modal uses `Dialog.Portal` with no container
 (`src/delegate/DelegateEditor.tsx`), so it escapes to `document.body` — fine standalone, wrong inside a
 host region. It renders into the Studio root container instead.
+
+> **Shared seam (feature [standalone-ui](../standalone-ui/spec.md)):** coupling #6's "default instance
+> from an external source" is the same registry config-injection seam that standalone-ui introduces
+> (its producer is a runtime `config.js` setting `window.__F8_CONFIG__.apiUrl`). `StudioConfig.instances`
+> is a second producer into that one seam, not a parallel path. Reuse it rather than re-designing it.
 
 ## Contract: `StudioConfig`
 

@@ -60,11 +60,24 @@ function newId(): string {
   return `i-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * The data-plane endpoint injected by config.js (feature standalone-ui): a classic
+ * `<script src="/config.js">` sets `window.__F8_CONFIG__` before this module evaluates, so a
+ * standalone Studio build can be pointed at any REST origin at container start. Absent or empty
+ * means same-origin (the all-in-one default). Read through normalizeBaseUrl so a trailing slash in
+ * F8_API_URL cannot corrupt buildUrl concatenation, and as a function (not an inline const) so it
+ * stays unit-testable after the global is set.
+ */
+export function configuredApiUrl(): string {
+  const raw = typeof window !== "undefined" ? (window.__F8_CONFIG__?.apiUrl ?? "") : "";
+  return normalizeBaseUrl(raw);
+}
+
 /** The instance the app is served from - always available, never removable by accident. */
 export const SAME_ORIGIN_INSTANCE: InstanceConfig = {
   id: "local",
   name: "local",
-  baseUrl: "",
+  baseUrl: configuredApiUrl(),
   auth: { kind: "none" },
 };
 
@@ -102,8 +115,11 @@ export const useRegistry = create<RegistryState>()(
           ),
         })),
 
+      // The managed default (config.js-seeded, feature standalone-ui) is never removable: it is
+      // synthesized rather than persisted, and the connection gate assumes a default is present.
       removeInstance: (id) =>
         set((s) => {
+          if (id === SAME_ORIGIN_INSTANCE.id) return s;
           const instances = s.instances.filter((instance) => instance.id !== id);
           const activeId =
             s.activeId === id ? (instances[0]?.id ?? null) : s.activeId;
@@ -125,7 +141,37 @@ export const useRegistry = create<RegistryState>()(
             : { namespaceSupport: { ...s.namespaceSupport, [instanceId]: supported } },
         ),
     }),
-    { name: "f8.instances" },
+    {
+      name: "f8.instances",
+      // The managed default instance is config.js-seeded (feature standalone-ui) and is NEVER
+      // persisted: only personal (user-added) instances, the active id, and the per-instance
+      // active namespace are stored. namespaceSupport is deliberately dropped (a re-probeable /ns
+      // cache). See features/open/standalone-ui/.
+      partialize: (s) => ({
+        instances: s.instances.filter((i) => i.id !== SAME_ORIGIN_INSTANCE.id),
+        activeId: s.activeId,
+        activeNamespaces: s.activeNamespaces,
+      }),
+      // Re-inject the freshly synthesized managed default (baseUrl re-read from config.js via
+      // configuredApiUrl) ahead of the persisted personal instances on every load, so it is always
+      // present and re-synced. zustand's default shallow merge would otherwise let the persisted
+      // (personal-only) instances array drop it, leaving a persisted activeId==="local" resolving
+      // to null. This also transparently upgrades a legacy blob that persisted the whole state (its
+      // stale "local" record is filtered out), so no version bump / migrate is needed.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<RegistryState>;
+        const personal = (p.instances ?? []).filter((i) => i.id !== SAME_ORIGIN_INSTANCE.id);
+        const managed: InstanceConfig = { ...SAME_ORIGIN_INSTANCE, baseUrl: configuredApiUrl() };
+        return {
+          ...current,
+          ...p,
+          instances: [managed, ...personal],
+          activeId: p.activeId ?? current.activeId,
+          activeNamespaces: p.activeNamespaces ?? current.activeNamespaces,
+          namespaceSupport: current.namespaceSupport,
+        };
+      },
+    },
   ),
 );
 
