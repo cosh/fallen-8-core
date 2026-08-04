@@ -13,36 +13,34 @@ services:
   # change that. Everything else (Ollama/embedding/chat wiring, volume, network, restart policy)
   # is inherited from docker-compose.yml.
   fallen8:
+    # Override the BUILD to the UI-less apiApp Dockerfile: the base uses `build: .`, the all-in-one
+    # image that bakes the SPA into wwwroot. The apiApp image installs curl, so the base /status
+    # healthcheck applies unchanged here (and f8-mcp's service_healthy dependency stays satisfied).
     build:
       context: .
       dockerfile: fallen-8-core-apiApp/Dockerfile
-    # The UI-less apiApp image does not bundle curl (the all-in-one image installs it just for the
-    # base healthcheck), so that curl-based probe cannot run here. Disable it; the browser's own
-    # connection probe handles readiness and f8-studio only waits for the container to start.
-    healthcheck:
-      disable: true
     environment:
       # Allow the standalone UI's browser origin (CORS is deny-all by default). INDEXED form: a
       # bare Fallen8__Security__AllowedCorsOrigins=... does NOT bind the String[].
-      - Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-3000}
+      - Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-8081}
 
   # The Ollama server must also accept the standalone UI origin for browser-direct NL-assist
   # (OLLAMA_ORIGINS is read by the ollama server, NOT the apiApp). Keep the all-in-one origin too.
   ollama:
     environment:
-      - OLLAMA_ORIGINS=http://localhost:${F8_PORT:-8080},http://localhost:${F8_UI_PORT:-3000}
+      - OLLAMA_ORIGINS=http://localhost:${F8_PORT:-8080},http://localhost:${F8_UI_PORT:-8081}
 
   # The decoupled UI: nginx serving the built SPA, pointed at the data plane's PUBLISHED host port
-  # (the browser reaches localhost:F8_PORT, never the in-network name). F8_UI_PORT is overridable;
-  # its default (3000) overlaps the repo's Grafana default, which is why this overlay does not pull
-  # in docker-compose.observability.yml.
+  # (the browser reaches localhost:F8_PORT, never the in-network name). F8_UI_PORT (default 8081)
+  # is overridable; 8081 avoids the API (8080) and Grafana (3000), so this can run alongside the
+  # observability stack in the default env:up.
   f8-studio:
     build:
       context: .
       dockerfile: fallen-8-web-ui/Dockerfile
     restart: unless-stopped
     ports:
-      - "${F8_UI_PORT:-3000}:80"
+      - "${F8_UI_PORT:-8081}:80"
     environment:
       - F8_API_URL=http://localhost:${F8_PORT:-8080}
     depends_on:

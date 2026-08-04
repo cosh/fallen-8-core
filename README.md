@@ -78,10 +78,11 @@ An in-memory engine with a thin REST app around it. **AI agents** reach it throu
 [MCP server](https://cosh.github.io/fallen-8-core/mcp-server/); **F8 Studio** (the browser UI) and **your own services** call
 the [REST API](https://cosh.github.io/fallen-8-core/rest-api/) directly. Under the hood the engine (`fallen-8-core`) holds the
 graph in RAM, serializes every write through one writer thread, and runs the algorithms, while
-the app (`fallen-8-core-apiApp`) is the thin HTTP layer that also serves F8 Studio. Engine and
-app ship as one Docker unit alongside a model sidecar. F8 Studio can also be deployed
-[standalone](https://cosh.github.io/fallen-8-core/standalone-ui/) — its own nginx container, pointed at the REST API and
-kept in the CORS allow-list — so the UI and the data plane can run apart.
+the app (`fallen-8-core-apiApp`) is the thin HTTP layer that can serve F8 Studio itself. The
+all-in-one image (engine + API + UI) still ships and runs with a bare `docker compose up`, but the
+default `npm run env:up` now runs F8 Studio as its own
+[standalone](https://cosh.github.io/fallen-8-core/standalone-ui/) nginx container talking to the REST API cross-origin, so
+the UI and the data plane deploy apart, alongside a model sidecar.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','lineColor':'#666666'}}}%%
@@ -138,8 +139,9 @@ Linux, and Windows PowerShell):
 npm run env:up
 ```
 
-Then open **F8 Studio at http://localhost:8080** and load a sample graph from the Samples screen. The
-**MCP server is on http://localhost:8090** for AI-agent clients (read-only by default).
+Then open **F8 Studio at http://localhost:8081** (its own container) — the **REST API is at
+http://localhost:8080** — and load a sample graph from the Samples screen. The **MCP server is on
+http://localhost:8090** for AI-agent clients (read-only by default).
 
 Every other way to run it — a bare `dotnet run`, the configuration keys, the security
 switches, GPU acceleration, offline model pre-seeding — is in

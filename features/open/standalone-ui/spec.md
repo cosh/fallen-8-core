@@ -21,9 +21,10 @@ container's `wwwroot`. This decouples the UI deployment from the data-plane depl
 can run the data plane in one place and the Studio in another, pointing the Studio at the data plane's
 REST endpoint at container start.
 
-It is deliberately **additive**. The all-in-one container (`npm run env:up`, UI plus API on one
-origin at `:8080`) stays the turnkey default and behaves exactly as it does today. The standalone
-deployable is a new option, not a replacement.
+`npm run env:up` runs F8 Studio as its **own container** (the split topology) by default: a UI-less
+data plane at `:8080` and the F8 Studio UI at `:8081`. The all-in-one (UI baked into the API
+container, both on `:8080`) remains available via a bare `docker compose up`, so this is a topology
+choice, not a removal. The engine and the REST contract are untouched.
 
 ## Starting position (already decoupled: do not regress)
 
@@ -170,40 +171,37 @@ design; the reconciler is the `merge`):
 
 ### 5. Topologies
 
-- **`npm run env:up` unchanged:** all-in-one (UI plus API on `:8080`) plus the existing sidecars.
-  Verified mechanics in `scripts/env-up.js` (GPU detect; `--profile ingestion`/`nlp`; observability
-  file added unconditionally). This feature does not touch `env:up`.
-- **New `docker-compose.split.yml` as an OVERLAY, applied via
-  `docker compose -f docker-compose.yml -f docker-compose.split.yml`** (NOT `--profile split`, which
-  is additive and cannot stop the default `fallen8` service co-starting, and NOT `extends`, which
-  cannot selectively inherit env). The overlay reuses every base sidecar (ollama, embeddings, chat)
+- **`npm run env:up` runs the split topology by default.** `scripts/env-up.js` layers
+  `docker-compose.split.yml` (last, so its overrides win) onto the base + observability files, so the
+  default dev environment is the decoupled one: a UI-less data plane at `:8080` and the F8 Studio UI
+  container at `:8081`, plus the existing sidecars. `env:down`/`logs`/`status` include the same
+  overlay; the old `env:split:*` scripts are retired (redundant now that `env:up` IS the split).
+- **`docker-compose.split.yml` is an OVERLAY**, applied via
+  `docker compose -f docker-compose.yml -f docker-compose.split.yml` (NOT `--profile split`, which is
+  additive and cannot stop the default `fallen8` co-starting, and NOT `extends`, which cannot
+  selectively inherit env). It reuses every base sidecar (ollama, embeddings, chat, observability)
   with zero duplication and only overrides/adds what changes:
   - **`fallen8`:** override `build` to `{ context: ., dockerfile: fallen-8-core-apiApp/Dockerfile }`
-    (the already-UI-less apiApp image, so the data plane serves API only at `:8080`; overriding
-    `image:` alone would not change the inherited `build: .`). Add
-    `Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-3000}`.
+    (the UI-less apiApp image, so the data plane serves API only at `:8080`; overriding `image:` alone
+    would not change the inherited `build: .`). That image installs `curl`, so the base `/status`
+    healthcheck still runs and `f8-mcp`'s `service_healthy` dependency stays satisfiable. Add
+    `Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-8081}`.
   - **`ollama`:** override `OLLAMA_ORIGINS` to include the UI origin
-    (`http://localhost:${F8_PORT:-8080},http://localhost:${F8_UI_PORT:-3000}`) so browser-direct
-    NL-assist works from the split UI. (`OLLAMA_ORIGINS` is read by the ollama server, not the
-    apiApp.)
-  - **`f8-studio` (new):** the UI image, mapping `${F8_UI_PORT:-3000}:80`, env
-    `F8_API_URL=http://localhost:${F8_PORT:-8080}`, a healthcheck, and `depends_on` the `fallen8`
-    service being healthy.
-- **New `npm run env:split:up`** = `docker compose -f docker-compose.yml -f docker-compose.split.yml up -d --build --remove-orphans`,
-  plus sibling `env:split:down`/`env:split:logs`/`env:split:status`. It does NOT pull in
-  `docker-compose.observability.yml`, so Grafana's `:3000` does not collide with the UI; the base
-  `Fallen8__Observability__Otlp__Endpoint` then targets an absent collector, which is non-fatal (OTLP
-  export just retries), and may be overridden off in the overlay to quiet the logs.
-- **Raw `docker compose up`** (no `-f` overlay) stays all-in-one only, and CI's `docker compose config`
-  (which auto-loads only `docker-compose.yml`) is unaffected.
-- **Ports:** `F8_UI_PORT` defaults to `3000` and is overridable; because the overlay excludes
-  observability, there is no in-run Grafana clash, but the `:3000` overlap with the repo's Grafana
-  default is documented.
+    (`http://localhost:${F8_PORT:-8080},http://localhost:${F8_UI_PORT:-8081}`) so browser-direct
+    NL-assist works from the split UI. (`OLLAMA_ORIGINS` is read by the ollama server, not the apiApp.)
+  - **`f8-studio` (new):** the UI image, mapping `${F8_UI_PORT:-8081}:80`, env
+    `F8_API_URL=http://localhost:${F8_PORT:-8080}`, a healthcheck, and `depends_on: fallen8`.
+- **Raw `docker compose up`** (no overlay) is the **all-in-one** (UI baked into the API container,
+  both on `:8080`); CI's `docker compose config` (default file only) and the all-in-one build/smoke
+  are unaffected.
+- **Ports:** the data plane keeps `:8080` (`F8_PORT`); the UI is `F8_UI_PORT`, default `8081` (chosen
+  to avoid the API on `:8080` and Grafana on `:3000`, so it coexists with the observability stack in
+  the default `env:up`).
 
 ### 6. CORS and cross-origin correctness
 
 - **The data-plane service sets the allow-list** using the indexed array form the binder requires:
-  `Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-3000}`. A bare
+  `Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-8081}`. A bare
   `Fallen8__Security__AllowedCorsOrigins=...` does NOT bind a `String[]` and CORS silently stays
   deny-all (the root `Dockerfile:49` documents the indexed form). This reuses the existing
   api-security-boundary seam (`Program.cs:411-420`); `AllowAnyHeader()`/`AllowAnyMethod()` are already
@@ -266,10 +264,10 @@ plan.
 | studio-embeddable | Yes (shared) | Its coupling #6 reuses this feature's registry config-injection seam instead of a parallel path; a one-line pointer is added to its spec and its stale `registry.ts:26` citation is corrected to `:64-69`. |
 | Screenshots | Maybe one | `docs/src/assets/images/screen-connect.png` only if the Connect chrome visibly changes; the same-origin all-in-one keeps "same origin", so recapture is avoidable if only the managed-record Remove button is disabled. |
 | Docs site | Yes | New page `docs/src/content/docs/standalone-ui.mdx` + sidebar entry in `docs/astro.config.mjs` (F8 Studio group, `:84-87`); README Key-features line + architecture diagram/prose; `docs/src/content/docs/architecture.md` mermaid (single source) gains the split channel; `index.mdx` CardGrid parity; `running.mdx` topology + env-var table; `studio.md` Connect prose. Diagram style fixed (dark surfaces, brand red `#E2001A`; reuse existing `classDef`s). |
-| Debugging doc | Light | `docs/src/content/docs/debugging.md` "Ports at a glance" (`:122`) gains the split UI port and a one-line CORS note; launchSettings/`.vscode` unchanged (optional `env:split:up` task). |
+| Debugging doc | Light | `docs/src/content/docs/debugging.md` "Ports at a glance" now lists the UI (`:8081`) and REST API (`:8080`) as separate default services; launchSettings/`.vscode` unchanged. |
 | NL-assist finetune | No | This feature touches no delegate-fragment/prompt/`type-model` surface, so per `nl-assist-finetune/RETRAIN-LOG.md` (its rule keys on the fragment surface the model drafts against) it needs no entry. |
 | Samples / stored queries | Served-by only | nginx must serve `/samples` (content and manifest unchanged); stored queries follow `apiUrl` to the remote plane, no client persistence. |
-| Observability identity | No, but port | The UI emits no OTLP and needs no fleet identity; the only interaction is the `:3000` Grafana port overlap (handled via `F8_UI_PORT` + excluding observability from `env:split:up`). |
+| Observability identity | No | The UI emits no OTLP and needs no fleet identity; the UI's `:8081` default avoids Grafana's `:3000`, so both run in the default `env:up`. |
 | Tests | Yes | New unit tests (`configuredApiUrl()` reader; `partialize`/`merge` managed-vs-personal seed, resync, `activeNamespaces` survival, and legacy-blob upgrade; injected-`apiUrl` normalization; `isCrossOriginInstance`); a backend `CorsPreflightTest` (real-pipeline preflight). Cross-origin is covered by these plus the CI container smoke test rather than a browser two-origin harness (deferred, see plan). `setup.ts` needs NO change (jsdom always has `window`; the reader's `?.`/`??` handle an absent global). |
 
 **Single-home doc assignment (one-home-per-explanation):**

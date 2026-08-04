@@ -1,7 +1,7 @@
 # Plan: F8 Studio standalone deployable
 
-Phased so each step is independently shippable and keeps the all-in-one (and the existing web-ui
-tests) behaviorally identical. Phases 1 to 2 are front-end seams; 3 to 4 are the deployable and
+Phased so each step is independently shippable and keeps the all-in-one image (a bare
+`docker compose up`) and the existing web-ui tests behaviorally identical. Phases 1 to 2 are front-end seams; 3 to 4 are the deployable and
 topology; 5 to 6 are cross-origin hardening, tests, and docs. No engine or REST-contract change; the
 only backend touch is one CORS-policy line plus a preflight test (Phase 5).
 
@@ -68,29 +68,30 @@ current code.
   `F8_API_URL`; `/samples/*.jsonl` serve as files (not shadowed by the SPA fallback); a deep-link
   reload returns `index.html`.
 
-## Phase 4: Split topology (compose overlay + scripts)
+## Phase 4: Split topology as the default env:up (compose overlay + scripts)
 
-- Add `docker-compose.split.yml` as an OVERLAY over `docker-compose.yml` (applied via two `-f`
-  files), NOT a standalone file and NOT a `--profile`/`extends` approach:
+- Add `docker-compose.split.yml` as an OVERLAY over `docker-compose.yml` (two `-f` files), NOT a
+  standalone file and NOT a `--profile`/`extends` approach:
   - override `fallen8.build` to `{ context: ., dockerfile: fallen-8-core-apiApp/Dockerfile }` (UI-less
-    data plane) and add `Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-3000}`;
-  - override `ollama`'s `OLLAMA_ORIGINS` to include `http://localhost:${F8_UI_PORT:-3000}` (it is an
-    env of the `ollama` server, not the apiApp);
+    data plane) and add `Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-8081}`;
+  - override `ollama`'s `OLLAMA_ORIGINS` to include `http://localhost:${F8_UI_PORT:-8081}` (an env of
+    the `ollama` server, not the apiApp);
   - add `f8-studio` (the new UI image, `build.context: .`, `dockerfile: fallen-8-web-ui/Dockerfile`)
-    mapping `${F8_UI_PORT:-3000}:80`, `F8_API_URL=http://localhost:${F8_PORT:-8080}`, a healthcheck,
-    and `depends_on: fallen8 (healthy)`;
-  - optionally override `Fallen8__Observability__Otlp__Endpoint` off (the overlay excludes the
-    observability file, so the collector is absent; OTLP failure is otherwise non-fatal).
-- Add `npm run env:split:up` (`docker compose -f docker-compose.yml -f docker-compose.split.yml up -d --build --remove-orphans`)
-  and siblings `env:split:down`/`env:split:logs`/`env:split:status`. Do NOT touch `env:up`
-  (`package.json:11`). Optionally extend `scripts/env-info.js` with a split-aware endpoint print.
+    mapping `${F8_UI_PORT:-8081}:80`, `F8_API_URL=http://localhost:${F8_PORT:-8080}`, a healthcheck,
+    and `depends_on: fallen8`.
+- Give the apiApp image `curl` (`fallen-8-core-apiApp/Dockerfile` base stage) so the base `/status`
+  healthcheck runs in the UI-less data plane; otherwise `f8-mcp` (`depends_on: fallen8 service_healthy`)
+  cannot start.
+- Wire the overlay into `env:up`: `scripts/env-up.js` appends `-f docker-compose.split.yml` (last);
+  `env-info.js` prints the UI at `F8_UI_PORT` (8081) and the API at `F8_PORT` (8080);
+  `env:down`/`logs`/`status` add the overlay. Retire the now-redundant `env:split:*` scripts.
 - Extend `.github/workflows/buildAndTest.yml` `docker` job to
   `docker compose -f docker-compose.yml -f docker-compose.split.yml config -q` so the overlay is
   CI-validated.
-- **Verify:** `env:up` behavior unchanged (all-in-one, one UI at `:8080`); `env:split:up` brings up
-  exactly one UI at `:3000` reaching the data plane at `:8080` cross-origin; a graph read and a write
-  succeed; browser-direct NL-assist works (the overlay's `OLLAMA_ORIGINS`); raw `docker compose up` is
-  all-in-one only.
+- **Verify (live):** `npm run env:up` brings up the UI-less data plane (`:8080`, healthy) + the
+  `f8-studio` container (`:8081`, healthy) + `f8-mcp` (healthy, proving the healthcheck fix); the UI
+  serves and reaches the API cross-origin (a 204 preflight carrying the allow-origin + max-age); raw
+  `docker compose up` (no overlay) is the all-in-one.
 
 ## Phase 5: Cross-origin hardening (CORS diagnosability + preflight)
 
@@ -118,10 +119,12 @@ current code.
   - New `docs/src/content/docs/standalone-ui.mdx` (title "Standalone F8 Studio", slug `standalone-ui`);
     register it in the F8 Studio group in `docs/astro.config.mjs` (`:84-87`).
   - README: one Key-features line linking `https://cosh.github.io/fallen-8-core/standalone-ui/`;
-    update the architecture prose and mermaid to add the standalone/split channel (additive; all-in-one
-    stays the default). Reuse the existing `classDef`/brand-red styling; no mermaid defaults.
+    update the architecture prose and mermaid to add the standalone/split channel (the compose default
+    is decoupled; the all-in-one is the bare `docker compose up` path). Reuse the existing
+    `classDef`/brand-red styling; no mermaid defaults.
   - `docs/src/content/docs/architecture.md` mermaid (the single source) gains the split channel; prose
-    softened from "one deployable unit" to "all-in-one is the default, a split topology now exists".
+    reframed so the split topology is the default `env:up` and the all-in-one is the bare
+    `docker compose up` fallback.
   - `index.mdx` CardGrid parity card; `running.mdx` topology + `F8_API_URL` env table (the one home for
     the topologies table); `studio.md` Connect prose (the one home for managed-vs-personal).
   - `debugging.md` "Ports at a glance" (`:122`) split UI row + one-line CORS note.
@@ -158,9 +161,12 @@ current code.
   the two-origin e2e (P6).
 - **Compose overlay wrong-image trap:** override `build` (not `image`) on `fallen8`, since the base
   uses `build: .` (the all-in-one, UI-bearing) which merely tagging a new `image:` would not replace.
-- **Port collisions (`:3000` Grafana, `:8080` shared):** `F8_UI_PORT` override and excluding
-  observability from `env:split:up`; the overlay re-tasks the single `fallen8` service rather than
-  adding a second data plane, so `:8080` has one owner.
+- **f8-mcp healthcheck dependency:** the UI-less apiApp image must ship `curl` so `fallen8`'s
+  `/status` healthcheck runs; otherwise `f8-mcp` (`depends_on: service_healthy`) never starts. Caught
+  live (a config-only check missed it).
+- **Port collision (`:3000` Grafana):** the UI default is `:8081` (not `:3000`), so it coexists with
+  the observability stack under the default `env:up`; the overlay re-tasks the single `fallen8`
+  service rather than adding a second data plane, so `:8080` has one owner.
 - **New deployable unguarded by CI:** extend `buildAndTest.yml` to validate the overlay and build +
   smoke-test the UI image (P4/P6).
 - **Remote-host `localhost` footgun:** documented prominently plus first-run guidance; the managed

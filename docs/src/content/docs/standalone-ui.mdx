@@ -11,8 +11,8 @@ small static (nginx) container that serves the SPA and is pointed at an arbitrar
 data plane at container start. This decouples *where the UI runs* from *where the data plane runs*,
 without a rebuild.
 
-It is **additive**. The all-in-one container stays the turnkey default; standalone is a second
-option.
+The default `npm run env:up` runs F8 Studio this way — its own container talking to the data plane.
+The all-in-one (UI baked into the API container) remains available with a bare `docker compose up`.
 
 ## How it learns which data plane to talk to
 
@@ -35,30 +35,31 @@ the data plane on their own box; for any shared or remote deployment set `F8_API
 plane's **public** URL.
 :::
 
-## Run the split topology
+## Run it locally
 
-A UI-less data plane plus the standalone UI come up with one command (the full set of topologies is
-in [Running](/fallen-8-core/running/)):
+The default dev environment already runs this topology — a UI-less data plane plus the standalone UI
+container (the full set of topologies is in [Running](/fallen-8-core/running/)):
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
 
 ```bash
-npm run env:split:up      # data plane on :8080, standalone UI on :3000
+npm run env:up      # REST data plane on :8080, F8 Studio UI on :8081
 ```
 
 </TabItem>
 <TabItem label="PowerShell">
 
 ```powershell
-npm run env:split:up
+npm run env:up
 ```
 
 </TabItem>
 </Tabs>
 
-`F8_UI_PORT` (default `3000`) sets the UI's host port and `F8_PORT` (default `8080`) the data
-plane's. `npm run env:up` (the all-in-one) and a bare `docker compose up` are unchanged.
+`F8_UI_PORT` (default `8081`) sets the UI's host port and `F8_PORT` (default `8080`) the data plane's.
+A bare `docker compose up` (no overlay) instead runs the all-in-one, with the UI baked into the API
+container on `:8080`.
 
 ## CORS: allow the UI's origin
 
@@ -66,7 +67,7 @@ A UI on one origin calling a data plane on another is a **cross-origin** request
 counts), and Fallen-8's CORS is deny-all by default. Allow the UI's origin on the data plane:
 
 ```
-Fallen8__Security__AllowedCorsOrigins__0=http://localhost:3000
+Fallen8__Security__AllowedCorsOrigins__0=http://localhost:8081
 ```
 
 The indexed `__0` suffix is required to bind the array; a bare key does not. The split overlay wires
@@ -80,7 +81,7 @@ The image builds from the repo root (so the SPA build reaches the bundled sample
 
 ```bash
 docker build -f fallen-8-web-ui/Dockerfile -t f8-studio .
-docker run -p 3000:80 -e F8_API_URL=https://graph.example.com f8-studio
+docker run -p 8081:80 -e F8_API_URL=https://graph.example.com f8-studio
 ```
 
 It serves the SPA with a client-side-routing fallback, ships the sample gallery at `/samples`, and

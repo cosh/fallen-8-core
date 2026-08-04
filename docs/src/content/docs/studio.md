@@ -3,7 +3,7 @@ title: "F8 Studio"
 description: "The browser UI to browse, query, visualize, and author the C# delegates, with a natural-language assist."
 ---
 
-F8 Studio is the browser UI for Fallen-8: a React single-page app the API app serves from its own `wwwroot`, reachable at `http://localhost:8080` in the compose environment, or deployed [standalone](/fallen-8-core/standalone-ui/) as its own container pointed at any REST endpoint (build and serving are covered in [running.md](/fallen-8-core/running/)). It is a workbench over one instance's REST surface — connect to a server, inspect and mutate a graph, run queries and algorithms, visualize results — and, because Fallen-8 has no query language ([delegates.md](/fallen-8-core/delegates/)), it gives humans and code-generating agents a place to author, validate, and refine the C# delegate fragments that queries are made of.
+F8 Studio is the browser UI for Fallen-8: a React single-page app. The default compose environment runs it as its own [standalone](/fallen-8-core/standalone-ui/) container (F8 Studio on `:8081`, the REST API on `:8080`); the API app can also serve it from its own `wwwroot` (the all-in-one image). Build and serving are covered in [running.md](/fallen-8-core/running/). It is a workbench over one instance's REST surface — connect to a server, inspect and mutate a graph, run queries and algorithms, visualize results — and, because Fallen-8 has no query language ([delegates.md](/fallen-8-core/delegates/)), it gives humans and code-generating agents a place to author, validate, and refine the C# delegate fragments that queries are made of.
 
 ## Layout
 

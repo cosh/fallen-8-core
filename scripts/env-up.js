@@ -69,6 +69,11 @@ function main() {
   // is conditional because a device reservation hard-fails on hosts without an NVIDIA GPU).
   files.push('-f', 'docker-compose.observability.yml');
   if (gpu) files.push('-f', 'docker-compose.gpu.yml');
+  // Split topology is the default dev environment (feature standalone-ui): the data plane serves
+  // REST only and F8 Studio runs as its own f8-studio container. Applied LAST so its overrides
+  // (UI-less build, CORS allow-list, Ollama origins, the f8-studio service) win. The all-in-one
+  // stays available via a bare `docker compose up` (no overlay).
+  files.push('-f', 'docker-compose.split.yml');
 
   // Unstructured ingestion (feature unstructured-ingestion): the docling-serve sidecar rides
   // the "ingestion" profile, default ON like the rest of the environment. F8_INGESTION=false
@@ -93,6 +98,12 @@ function main() {
       : ingestion
         ? 'F8_NLP=false - no NLP sidecar; ingestion still writes Document/Chunk vertices (no entity graph).'
         : 'NLP enrichment is off (ingestion is off).'
+  );
+
+  console.log(
+    'F8 Studio runs as its own container (feature standalone-ui): UI on ' +
+      `http://localhost:${process.env.F8_UI_PORT || '8081'}, REST API on ` +
+      `http://localhost:${process.env.F8_PORT || '8080'}.`
   );
 
   // The AI-agent MCP surface (feature mcp-server) starts with the rest of the environment on

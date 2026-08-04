@@ -62,10 +62,11 @@ const f8Port =
   portFromRunningContainer() || process.env.F8_PORT || portFromDotEnv() || '8080';
 
 const grafanaPort = process.env.F8_GRAFANA_PORT || '3000';
+const uiPort = process.env.F8_UI_PORT || '8081';
 
 console.log('');
 console.log('Services:');
-console.log(`  F8 Studio UI:  http://localhost:${f8Port}`);
+console.log(`  F8 Studio UI:  http://localhost:${uiPort}  (its own container; talks to the REST API below)`);
 console.log(`  F8 REST API:   http://localhost:${f8Port}  (OpenAPI: /openapi/v0.1.json, Scalar: /scalar/v0.1)`);
 console.log('  NL assist:     http://localhost:11434  (Ollama, default model "phi4-f8-mini"; opt-in "phi4-f8")');
 console.log(`  Observability: http://localhost:${grafanaPort}  (Grafana; fleet + per-tenant dashboards, open on the trusted network)`);
