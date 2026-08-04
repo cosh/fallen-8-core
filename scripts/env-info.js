@@ -72,3 +72,14 @@ console.log('  NL assist:     http://localhost:11434  (Ollama, default model "ph
 console.log(`  Observability: http://localhost:${grafanaPort}  (Grafana; fleet + per-tenant dashboards, open on the trusted network)`);
 console.log('  OTLP ingest:   localhost:4317 (gRPC) / :4318 (HTTP)  (point external Fallen-8 instances here)');
 console.log('');
+
+// A stray F8_API_KEY in the shell silently secures the data plane, which reads as an
+// "unauthorized" instance in Studio. Surface it here (env-info runs on env:up AND env:status)
+// so the cause is never a mystery. The key stays fully opt-in; env:up itself is unchanged.
+if (process.env.F8_API_KEY) {
+  console.log('! F8_API_KEY is set in this shell, so the data plane REQUIRES that key.');
+  console.log('  For an OPEN demo, run env:up from a shell without it, or clear it:');
+  console.log('    PowerShell:  Remove-Item Env:F8_API_KEY');
+  console.log('    bash:        unset F8_API_KEY');
+  console.log('');
+}
