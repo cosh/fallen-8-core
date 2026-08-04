@@ -15,6 +15,8 @@ Connect, Save games, and Benchmark are Fallen-8-level (they can span namespaces)
 
 A low-key **Replay intro** button is pinned to the bottom of the rail and is always available: it plays the first-run walkthrough (below) on demand.
 
+Every screen also carries a **How does this work?** button in the top bar, next to the docs link. It opens a small popover listing the one to three documentation pages that explain the current section, each opening here in a new tab, so the relevant deep dive is one click away from wherever you are.
+
 ## Events
 
 ![Events panel: the change-feed slide-over with live rows and the interest filter](../../assets/images/screen-events.png)

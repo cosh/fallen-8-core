@@ -447,3 +447,31 @@ test("scenario 11: nav stays locked until the active instance is connected AND a
   await dismissFirstRunIfPresent(page);
   await expect(page.getByTestId("stat-vertices")).toBeVisible();
 });
+
+test("per-section help opens the docs for the current screen", async ({ page }) => {
+  await registerSecuredInstance(page);
+
+  // Land on a scoped screen; the shell resolves the legacy path to /q/{ns}/path.
+  await page.goto("/path");
+  await expect(page).toHaveURL(/\/q\/[^/]+\/path$/);
+
+  // The per-section help button sits in the top bar next to the docs pill and is keyed to the
+  // active section (feature studio-section-help).
+  const help = page.getByTestId("section-help");
+  await expect(help).toBeVisible();
+  await expect(help).toHaveAttribute("title", "How path finding works");
+
+  await help.click();
+  const popover = page.getByTestId("section-help-popover");
+  await expect(popover).toBeVisible();
+  const firstLink = page.getByTestId("section-help-link").first();
+  await expect(firstLink).toHaveAttribute(
+    "href",
+    "https://cosh.github.io/fallen-8-core/path-finding/",
+  );
+  await expect(firstLink).toHaveAttribute("target", "_blank");
+
+  // Escape closes it without leaving the app.
+  await page.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
+});
