@@ -14,11 +14,18 @@ capability. This doc walks through each one, with screenshots and queries you ca
 ## How loading works
 
 Clicking **Load** fetches the dataset, imports it, builds the sample's indices, and re-reads the
-elements onto the canvas with the sample's style — no embedding work happens at load time,
-because the vectors are baked into the file. The datasets ship with the app and are served
-same-origin from `/samples` by default, so the gallery shows exactly the samples the app was
-built with and works offline; set `VITE_F8_SAMPLES_BASE` to fetch them from a remote mirror or a
-fork instead.
+elements onto the canvas with the sample's style. For the baked datasets no embedding work
+happens at load time, because the vectors are already in the file. The datasets ship with the app
+and are served same-origin from `/samples` by default, so the gallery shows exactly the samples
+the app was built with and works offline; set `VITE_F8_SAMPLES_BASE` to fetch them from a remote
+mirror or a fork instead.
+
+One sample is different: **Wind Farm Fleet Integrity** additionally ingests three synthetic documents
+through the live [semantic layer](/fallen-8-core/unstructured-ingestion/) after the graph is
+imported, so it adds three steps (seeding the asset index, binding the layer, ingesting) and it
+does compute embeddings at load time. It therefore needs more of the environment than the others:
+when something it needs is missing, its card blocks the load and names what to fix before you
+click.
 
 - **Import needs an empty graph** (ids must not clash). Loading into a non-empty instance is
   gated behind a typed-name confirm that erases first — save a checkpoint
@@ -140,6 +147,74 @@ Try it:
   **`WCC`** to see each ecosystem fall out as its own component.
 - **Canvas** → color by `license` or `ecosystem`.
 
+### 🌬️ Wind Farm Fleet Integrity: 94 vertices, 164 edges, plus 3 ingested documents
+
+![The Wind Farm Fleet Integrity card in the gallery, badged knowledge, with its guided steps.](../../assets/images/sample-wind-farm.png)
+
+An offshore wind operator's asset graph (turbines, gearboxes, casting batches, substations, work
+orders, technicians) with **three synthetic documents ingested into it at load time**: a PDF
+root-cause analysis carrying a vibration figure, an XLSX maintenance register, and a markdown
+engineering standard. Nothing about the knowledge graph is baked; docling conversion, embedding,
+spaCy enrichment and exact-match linking all actually run, which is why this card needs the
+sidecars.
+
+It is the sample that shows the [semantic layer](/fallen-8-core/unstructured-ingestion/)'s real
+thesis: a Chunk is an ordinary vertex, so the text you searched and the assets you operate are
+**one graph**. Each document reaches the graph a different way, and one chunk ends up bridging
+both worlds:
+
+- **Structural linking reaches assets.** Identifier-shaped tokens in the text (`WTG_A17`,
+  `GBX_A17_02`, `GBX_BATCH_2023_11`) are matched exactly against an `asset-tags` index, so a
+  chunk gets `mentions` edges straight to the real equipment. The register's table chunk extracts
+  40 such tags and links to the first 16 of them, that being the `MaxLinksPerChunk` cap rather
+  than the end of the list.
+- **NER reaches people, organisations and places.** The technicians, the two gearbox
+  manufacturers, `Esbjerg`, the `North Sea`: those arrive as deduplicated Entity vertices,
+  because prose names with spaces are not identifier-shaped and never link structurally. The
+  reliability engineer who signs all three documents is one vertex with three mentions.
+
+The documents are **synthetic**, and so are the two manufacturers named in them: the narrative
+attributes a premature failure to a supplier's casting batch, which is not a thing to say about a
+real company.
+
+Try it, in order (the last two steps are the point):
+
+1. **Knowledge → Search:** `why did the bearing fail`. You get the section that explains the
+   mechanism without having to guess the vocabulary it uses (*rolling contact fatigue*,
+   *spalling*, *Hertzian contact stress*). You asked a question; you did not construct a keyword query.
+2. **Search `why is a single vibration number not enough`, then switch mode to `lexical`.**
+   Keyword matching alone lands on the wrong section (the bearing-failure narrative, which is
+   full of those words). The default **fused** mode gets it right, because the dense side
+   recognises the paraphrase of "an overall broadband level is a single number summarising all
+   the vibration energy". That is what fusion buys you, demonstrated rather than asserted.
+3. **Send the top hit to the canvas** and expand it. Its `mentions` edges reach both worlds at
+   once: `WTG_A17`, `GBX_A17_02` and `NW_STD_0417` on the asset side by exact tag match, plus
+   whichever entities the NLP sidecar found in that paragraph. Open the report's opening section
+   for the richest entity fan-out.
+4. **Search `WTG_A05`.** You get three confident-looking hits and **not one of them names that
+   turbine**, because no document covers it. This is the honest limit of retrieval, and it is the
+   moment the graph earns its place.
+5. **Expand `GBX_A17_02` → `GBX_BATCH_2023_11`, then expand the batch.** Seven gearboxes came
+   from that casting run. The documents name only two of the turbines carrying them. **The other
+   five, `WTG_A05` included, are in no document at all**, and their readings all sit under
+   the warning level, which is exactly what the root-cause analysis warns about. The corpus
+   explains the mechanism; the graph gives you the blast radius.
+6. **Knowledge → Entities:** note that the signing engineer exists twice, once as an Entity the
+   NLP sidecar derived from text and once as a `Technician` the asset import created. Resolving
+   those two is the next graph problem, and Fallen-8 hands you both sides of it.
+
+![Both graphs on one canvas after the load: the asset graph (turbines, gearboxes, work orders) and the knowledge graph (documents, chunks, 89 entities) joined, with the register's table chunk a visible hub.](../../assets/images/sample-wind-farm-canvas.png)
+
+The legend is the point: `Turbine`, `Gearbox`, `WorkOrder`, `CastingBatch` and `Substation` came
+from the imported dataset, while `Document`, `Chunk` and the `Entity` vertices were produced by
+the ingest a moment earlier. They are one graph, in one canvas, joined by `mentions` edges. The
+bright hub in the middle is the register's table chunk reaching its 16 linked assets. (The entity
+count shown, around 90, depends on the spaCy model and tier, so expect it to differ a little on
+your machine; the asset links do not vary, because exact matching is deterministic.)
+
+The pipeline itself (chunking, the binding, fused retrieval, linking) is documented in
+[semantic layer](/fallen-8-core/unstructured-ingestion/).
+
 ### 📈 Scale: 100k × 1M and 🐙 Any GitHub repo
 
 Two more cards round out the gallery:
@@ -193,6 +268,14 @@ The datasets live in the repo's top-level [samples/](https://github.com/cosh/fal
 raw URL; the gallery is driven entirely by `samples/index.json`, so adding a sample is a data
 change, not a UI change. The embedded samples' vectors are produced at build time (never at
 load) against an instance with the embedding provider on.
+
+A sample can also declare `documents`, which the loader ingests live after the import, plus
+`indexSeeds` to fill an equality index from an imported property and `linkIndexIds` to name the
+linking allowlist. The seeding step exists because creating an index does not backfill it: a
+dictionary index created after an import is empty, so linking against it would find nothing. The
+document files themselves live in
+[samples/documents/](https://github.com/cosh/fallen-8-core/tree/main/samples/documents/) and are
+committed rather than built.
 
 ## See also
 

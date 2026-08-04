@@ -641,17 +641,27 @@ export const deleteDocument = (i: InstanceConfig, id: number) =>
 export const ingestText = (i: InstanceConfig, spec: IngestTextSpecification) =>
   apiRequest<DocumentSummary>(i, "/document/text", { method: "POST", body: spec });
 
-/** Multipart upload; `embed=false` ingests without vectors (provider off). */
+/**
+ * Multipart upload; `embed=false` ingests without vectors (provider off). `link` is the
+ * multipart twin of the JSON body's link block: it rides as the `linkJson` form field, so a
+ * binary upload can request the same exact-match structural linking a text ingest can.
+ */
 export const ingestFile = (
   i: InstanceConfig,
   file: File,
-  options: { name?: string; embed?: boolean; sourceUri?: string } = {},
+  options: {
+    name?: string;
+    embed?: boolean;
+    sourceUri?: string;
+    link?: { indexIds: string[]; maxLinksPerChunk?: number };
+  } = {},
 ) => {
   const form = new FormData();
   form.append("file", file);
   if (options.name) form.append("name", options.name);
   if (options.embed !== undefined) form.append("embed", String(options.embed));
   if (options.sourceUri) form.append("sourceUri", options.sourceUri);
+  if (options.link) form.append("linkJson", JSON.stringify(options.link));
   return apiForm<DocumentSummary>(i, "/document", form);
 };
 

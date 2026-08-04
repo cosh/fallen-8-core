@@ -26,7 +26,7 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,7 +71,21 @@ const SAMPLES_DIR = resolve(rootDir, "..", "samples");
 const SAMPLE_CONTENT_TYPES: Record<string, string> = {
   ".json": "application/json",
   ".jsonl": "application/x-ndjson",
+  // samples/documents/: the files the wind-farm sample ingests (feature knowledge-demo).
+  ".md": "text/markdown",
+  ".pdf": "application/pdf",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
+
+/**
+ * What may ship from samples/ into the bundle. An ALLOWLIST on purpose: authoring aids live in
+ * that tree next to the assets (a generator script, a README, a Python cache), and with a
+ * recursive copy a denylist means anything new lands in the image by default. Extensions, not
+ * paths, so adding a dataset needs no change here.
+ */
+const SHIPPABLE_SAMPLE_FILE = /\.(?:json|jsonl|md|pdf|xlsx)$/i;
+/** The one .md that is an authoring aid rather than an ingestable asset. */
+const SAMPLE_README = /[\\/]README\.md$/i;
 
 function serveSamples(): Plugin {
   return {
@@ -81,18 +95,27 @@ function serveSamples(): Plugin {
         const url = req.url?.split("?")[0];
         if (!url || !url.startsWith("/samples/")) return next();
         const file = resolve(SAMPLES_DIR, url.slice("/samples/".length));
-        if (!file.startsWith(SAMPLES_DIR) || !existsSync(file)) return next();
+        // isFile, not exists: samples/ now has a documents/ subdirectory, and readFileSync on a
+        // directory throws EISDIR (a dev-server 500 instead of a clean 404).
+        if (!file.startsWith(SAMPLES_DIR) || !existsSync(file) || !statSync(file).isFile()) {
+          return next();
+        }
         res.setHeader("Content-Type", SAMPLE_CONTENT_TYPES[extname(file)] ?? "application/octet-stream");
         res.end(readFileSync(file));
       });
     },
     writeBundle(options) {
       if (!options.dir || !existsSync(SAMPLES_DIR)) return;
-      const dest = join(options.dir, "samples");
-      mkdirSync(dest, { recursive: true });
-      for (const name of readdirSync(SAMPLES_DIR)) {
-        copyFileSync(join(SAMPLES_DIR, name), join(dest, name));
-      }
+      // Recursive: samples/ has a documents/ subdirectory (the files the wind-farm sample
+      // ingests), and a flat copy throws EPERM on a directory entry. The authoring files that
+      // live next to those documents are NOT runtime assets, so they stay out of the image.
+      cpSync(SAMPLES_DIR, join(options.dir, "samples"), {
+        recursive: true,
+        // Directories must return true or their subtree is never walked.
+        filter: (source) =>
+          statSync(source).isDirectory() ||
+          (SHIPPABLE_SAMPLE_FILE.test(source) && !SAMPLE_README.test(source)),
+      });
     },
   };
 }

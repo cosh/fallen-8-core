@@ -11,3 +11,16 @@ Dockerfile*   text eol=lf
 # so the byte counts (and any meta-line guards) match what the build produced.
 samples/*.jsonl              linguist-generated=true text eol=lf
 fallen-8-web-ui/scripts/samples/data/fallen8-sbom.json linguist-generated=true
+
+# Ingestable sample documents (feature knowledge-demo). The PDF must be marked binary
+# EXPLICITLY: it happens to contain no NUL byte, so git's content heuristic classifies it as
+# TEXT, and with core.autocrlf=true (the Git-for-Windows default) checkout rewrites its 138 LF
+# bytes to CRLF. That shifts every offset after the first newline, so the trailer's startxref
+# points into the middle of a compressed stream and the file is unreadable - and since
+# `docker build` uses the working tree as its context, a Windows-built image would SHIP the
+# broken PDF. The XLSX is a zip and does contain NULs, so git detects it correctly, but it is
+# marked for the same reason: not by luck. The markdown one is genuinely text and is pinned to
+# LF so the ingested bytes (and its content hash) are identical on every platform.
+samples/documents/*.pdf      binary
+samples/documents/*.xlsx     binary
+samples/documents/*.md       text eol=lf

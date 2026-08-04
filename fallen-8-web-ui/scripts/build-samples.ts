@@ -54,6 +54,7 @@ import { buildAttackSurface } from "./samples/attackSurface";
 import { buildMovieNight } from "./samples/movieNight";
 import { buildAirRoutes } from "./samples/airRoutes";
 import { buildFallen8Deps } from "./samples/fallen8Deps";
+import { buildWindFarm } from "./samples/windFarm";
 
 // Repo-root samples/ so the committed files get a clean public raw URL.
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "samples");
@@ -66,6 +67,7 @@ const REGISTRY: Record<string, () => BuiltSample | Promise<BuiltSample>> = {
   "movie-night": buildMovieNight,
   "air-routes": buildAirRoutes,
   "fallen8-deps": buildFallen8Deps,
+  "wind-farm": buildWindFarm,
 };
 
 async function verifyRoundTrip(sample: BuiltSample): Promise<void> {

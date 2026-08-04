@@ -144,9 +144,20 @@ export interface StatusREST {
   // Unstructured-ingestion capability state (feature unstructured-ingestion). Optional so
   // instances predating the field still parse; the Documents screen gates on it.
   ingestion?: IngestionStats | null;
+  // NLP enrichment state (feature semantic-layer). Enrichment is ADDITIVE, so this being off
+  // degrades the entity network without failing an ingest. Optional so instances predating
+  // the field still parse.
+  nlp?: NlpStats | null;
 }
 
 // ---- unstructured ingestion (feature unstructured-ingestion) ----
+
+/** The entity/key-term enrichment sidecar's state. Off means chunks land without entities. */
+export interface NlpStats {
+  enabled: boolean;
+  configured: boolean;
+  reachable: boolean;
+}
 
 export interface IngestionStats {
   enabled: boolean;

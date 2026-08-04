@@ -1,0 +1,75 @@
+{
+  "_comment": "Single source of truth for the wind-farm knowledge demo (feature knowledge-demo). Read by BOTH the graph generator (scripts/samples/windFarm.ts) and the document authoring script (samples/documents/generate-documents.py). Asset tags must stay identifier-shaped: start uppercase, at least 4 characters, underscore-separated. Structural linking is ordinal-exact, so a single character of drift between this file and the documents silently links nothing.",
+  "operator": "Northwind Energy",
+  "region": "the Danish North Sea",
+  "standard": {
+    "tag": "NW_STD_0417",
+    "title": "Gearbox vibration monitoring and alarm limits",
+    "alarmMmPerS": 4.5,
+    "warningMmPerS": 3.2,
+    "revision": "Rev. 4"
+  },
+  "grid": { "tag": "GRID_DK1", "name": "Western Denmark transmission area" },
+  "sites": [
+    { "tag": "SITE_NORD_ESBJERG", "name": "Esbjerg Nord", "waterDepthM": 22, "turbineCount": 18 },
+    { "tag": "SITE_HORNS_VEST", "name": "Horns Vest", "waterDepthM": 17, "turbineCount": 8 }
+  ],
+  "substations": [
+    { "tag": "SUB_NORD_01", "site": "SITE_NORD_ESBJERG", "capacityMw": 180 },
+    { "tag": "SUB_NORD_02", "site": "SITE_NORD_ESBJERG", "capacityMw": 180 },
+    { "tag": "SUB_HORNS_01", "site": "SITE_HORNS_VEST", "capacityMw": 160 }
+  ],
+  "batches": [
+    {
+      "tag": "GBX_BATCH_2023_11",
+      "foundry": "casting run 11 of 2023",
+      "suspect": true,
+      "note": "Raceway hardness at the low end of specification. Root cause of the GBX_A17_02 failure."
+    },
+    { "tag": "GBX_BATCH_2022_04", "foundry": "casting run 4 of 2022", "suspect": false, "note": "Nominal hardness." },
+    { "tag": "GBX_BATCH_2023_05", "foundry": "casting run 5 of 2023", "suspect": false, "note": "Nominal hardness." },
+    { "tag": "GBX_BATCH_2024_03", "foundry": "casting run 3 of 2024", "suspect": false, "note": "Nominal hardness." }
+  ],
+  "technicians": [
+    { "name": "Priya Raman", "role": "Lead reliability engineer", "signsDocuments": true },
+    { "name": "Lars Jorgensen", "role": "Offshore service technician", "signsDocuments": false },
+    { "name": "Mette Sorensen", "role": "Condition monitoring analyst", "signsDocuments": false },
+    { "name": "Tomas Novak", "role": "Offshore service technician", "signsDocuments": false },
+    { "name": "Anders Bjerg", "role": "Blade and drivetrain specialist", "signsDocuments": false }
+  ],
+  "_vendorComment": "Deliberately FICTIONAL manufacturers. The documents describe a premature gearbox failure caused by a low-hardness casting batch, so naming a real OEM in that narrative would be an unfounded defect claim about a real company. Multi-token capitalised names are what the NER model needs to tag an ORG; fame is irrelevant to the demo.",
+  "vendors": ["Halvard Drivetrain", "Brantvik Gear Systems"],
+  "turbines": [
+    { "tag": "WTG_A01", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_01", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A01_01", "batch": "GBX_BATCH_2022_04", "vibration": 1.4, "status": "normal", "lastService": "2025-09-12", "technician": "Lars Jorgensen", "workOrder": "WO_88104" } },
+    { "tag": "WTG_A02", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_01", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A02_01", "batch": "GBX_BATCH_2022_04", "vibration": 1.9, "status": "normal", "lastService": "2025-09-14", "technician": "Lars Jorgensen", "workOrder": "WO_88109" } },
+    { "tag": "WTG_A03", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_01", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A03_02", "batch": "GBX_BATCH_2023_05", "vibration": 2.6, "status": "normal", "lastService": "2025-10-02", "technician": "Tomas Novak", "workOrder": "WO_88147" } },
+    { "tag": "WTG_A04", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_01", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A04_01", "batch": "GBX_BATCH_2023_05", "vibration": 1.1, "status": "normal", "lastService": "2025-10-05", "technician": "Tomas Novak", "workOrder": "WO_88152" } },
+    { "tag": "WTG_A05", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_01", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A05_01", "batch": "GBX_BATCH_2023_11", "vibration": 2.4, "status": "normal", "lastService": "2025-08-21", "technician": "Anders Bjerg", "workOrder": "WO_88061" } },
+    { "tag": "WTG_A06", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_01", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A06_01", "batch": "GBX_BATCH_2022_04", "vibration": 1.6, "status": "normal", "lastService": "2025-11-11", "technician": "Lars Jorgensen", "workOrder": "WO_88203" } },
+    { "tag": "WTG_A07", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_01", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A07_01", "batch": "GBX_BATCH_2024_03", "vibration": 1.3, "status": "normal", "lastService": "2026-01-08", "technician": "Mette Sorensen", "workOrder": "WO_88298" } },
+    { "tag": "WTG_A08", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_01", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A08_01", "batch": "GBX_BATCH_2024_03", "vibration": 1.2, "status": "normal", "lastService": "2026-01-12", "technician": "Mette Sorensen", "workOrder": "WO_88301" } },
+    { "tag": "WTG_A09", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_01", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A09_01", "batch": "GBX_BATCH_2023_05", "vibration": 2.2, "status": "normal", "lastService": "2025-10-09", "technician": "Tomas Novak", "workOrder": "WO_88158" } },
+    { "tag": "WTG_A10", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_02", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A10_01", "batch": "GBX_BATCH_2022_04", "vibration": 1.7, "status": "normal", "lastService": "2025-11-14", "technician": "Lars Jorgensen", "workOrder": "WO_88209" } },
+    { "tag": "WTG_A11", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_02", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A11_03", "batch": "GBX_BATCH_2023_11", "vibration": 2.9, "status": "normal", "lastService": "2025-08-25", "technician": "Anders Bjerg", "workOrder": "WO_88068" } },
+    { "tag": "WTG_A12", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_02", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A12_01", "batch": "GBX_BATCH_2023_05", "vibration": 2.0, "status": "normal", "lastService": "2025-10-16", "technician": "Tomas Novak", "workOrder": "WO_88171" } },
+    { "tag": "WTG_A13", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_02", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A13_01", "batch": "GBX_BATCH_2023_11", "vibration": 3.1, "status": "normal", "lastService": "2025-08-28", "technician": "Anders Bjerg", "workOrder": "WO_88074" } },
+    { "tag": "WTG_A14", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_02", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A14_01", "batch": "GBX_BATCH_2024_03", "vibration": 1.5, "status": "normal", "lastService": "2026-01-19", "technician": "Mette Sorensen", "workOrder": "WO_88312" } },
+    { "tag": "WTG_A15", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_02", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A15_01", "batch": "GBX_BATCH_2022_04", "vibration": 1.8, "status": "normal", "lastService": "2025-11-18", "technician": "Lars Jorgensen", "workOrder": "WO_88215" } },
+    { "tag": "WTG_A16", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_02", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A16_01", "batch": "GBX_BATCH_2023_05", "vibration": 2.3, "status": "normal", "lastService": "2025-10-21", "technician": "Tomas Novak", "workOrder": "WO_88178" } },
+    { "tag": "WTG_A17", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_02", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A17_02", "batch": "GBX_BATCH_2023_11", "vibration": 5.9, "status": "failed", "lastService": "2025-11-04", "technician": "Anders Bjerg", "workOrder": "WO_88231" } },
+    { "tag": "WTG_A18", "site": "SITE_NORD_ESBJERG", "substation": "SUB_NORD_02", "ratedMw": 8.0, "gearbox": { "tag": "GBX_A18_01", "batch": "GBX_BATCH_2023_11", "vibration": 3.8, "status": "warning", "lastService": "2025-11-06", "technician": "Anders Bjerg", "workOrder": "WO_88236" } },
+    { "tag": "WTG_B01", "site": "SITE_HORNS_VEST", "substation": "SUB_HORNS_01", "ratedMw": 7.0, "gearbox": { "tag": "GBX_B01_01", "batch": "GBX_BATCH_2022_04", "vibration": 1.5, "status": "normal", "lastService": "2025-12-03", "technician": "Lars Jorgensen", "workOrder": "WO_88254" } },
+    { "tag": "WTG_B02", "site": "SITE_HORNS_VEST", "substation": "SUB_HORNS_01", "ratedMw": 7.0, "gearbox": { "tag": "GBX_B02_01", "batch": "GBX_BATCH_2023_05", "vibration": 2.1, "status": "normal", "lastService": "2025-12-07", "technician": "Tomas Novak", "workOrder": "WO_88261" } },
+    { "tag": "WTG_B03", "site": "SITE_HORNS_VEST", "substation": "SUB_HORNS_01", "ratedMw": 7.0, "gearbox": { "tag": "GBX_B03_02", "batch": "GBX_BATCH_2023_11", "vibration": 2.7, "status": "normal", "lastService": "2025-09-02", "technician": "Anders Bjerg", "workOrder": "WO_88083" } },
+    { "tag": "WTG_B04", "site": "SITE_HORNS_VEST", "substation": "SUB_HORNS_01", "ratedMw": 7.0, "gearbox": { "tag": "GBX_B04_01", "batch": "GBX_BATCH_2022_04", "vibration": 1.6, "status": "normal", "lastService": "2026-01-19", "technician": "Mette Sorensen", "workOrder": "WO_88316" } },
+    { "tag": "WTG_B05", "site": "SITE_HORNS_VEST", "substation": "SUB_HORNS_01", "ratedMw": 7.0, "gearbox": { "tag": "GBX_B05_01", "batch": "GBX_BATCH_2024_03", "vibration": 1.2, "status": "normal", "lastService": "2026-02-04", "technician": "Mette Sorensen", "workOrder": "WO_88341" } },
+    { "tag": "WTG_B06", "site": "SITE_HORNS_VEST", "substation": "SUB_HORNS_01", "ratedMw": 7.0, "gearbox": { "tag": "GBX_B06_01", "batch": "GBX_BATCH_2023_05", "vibration": 2.5, "status": "normal", "lastService": "2025-12-11", "technician": "Tomas Novak", "workOrder": "WO_88268" } },
+    { "tag": "WTG_B07", "site": "SITE_HORNS_VEST", "substation": "SUB_HORNS_01", "ratedMw": 7.0, "gearbox": { "tag": "GBX_B07_01", "batch": "GBX_BATCH_2023_11", "vibration": 3.0, "status": "normal", "lastService": "2025-09-05", "technician": "Anders Bjerg", "workOrder": "WO_88089" } },
+    { "tag": "WTG_B08", "site": "SITE_HORNS_VEST", "substation": "SUB_HORNS_01", "ratedMw": 7.0, "gearbox": { "tag": "GBX_B08_01", "batch": "GBX_BATCH_2024_03", "vibration": 1.4, "status": "normal", "lastService": "2026-02-09", "technician": "Mette Sorensen", "workOrder": "WO_88349" } }
+  ],
+  "registerRows": [
+    "WTG_A17", "WTG_A18", "WTG_A03", "WTG_A06", "WTG_A07", "WTG_A10",
+    "WTG_A14", "WTG_A16", "WTG_B04", "WTG_B05", "WTG_B08"
+  ],
+  "_registerComment": "Which turbines the maintenance register document lists: the recently serviced ones. From the suspect batch GBX_BATCH_2023_11 it names ONLY WTG_A17 and WTG_A18, so the remaining five members (WTG_A05, WTG_A11, WTG_A13, WTG_B03, WTG_B07) appear in NO document. Finding them requires the graph. That is the demo payoff, so keep it that way."
+}

@@ -16,6 +16,12 @@ The scenario this serves: you keep describing knowledge in documents. Ingest the
 *"the server that terminates TLS for the shop"*, land on the matching chunk, and walk the
 graph from there, through the entities it mentions.
 
+**Want to see it rather than read it?** The
+[Wind Farm Fleet Integrity sample](/fallen-8-core/samples/) loads an asset graph and ingests
+three synthetic documents (a PDF with a figure, a spreadsheet, a markdown standard) through this exact
+pipeline in one click, then walks you to the payoff: a chunk whose `mentions` edges reach both
+the entity network and the real equipment, and a fleet-wide risk that no document states.
+
 ![The Knowledge screen: the State panel with the index binding, drag-and-drop ingest, the document table with the chunk budget, the entity network, and a fused search](../../assets/images/screen-knowledge.png)
 
 ## Quick start

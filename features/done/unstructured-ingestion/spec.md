@@ -394,8 +394,13 @@ over `mentions` edges into the domain graph.
   hard quota), so bounded overshoot is accepted. If exactness is needed, serialize the
   ingest critical section with a per-namespace async lock (which would also subsume the
   index-ensure race, already fixed by re-check). Only then.
-- **Gallery sample:** deferred (see Impact/Samples). Build it when the sample loader gains
-  a document-ingest step for another reason, or on explicit request.
+- **Gallery sample:** ~~deferred~~ **RESOLVED 2026-08-04 by feature `knowledge-demo`** on
+  explicit request, exactly as this trigger anticipated. The purpose-built identifier-shaped
+  dataset and the document-ingest loader branch were both built (see
+  `features/*/knowledge-demo/`): the loader gained seed, bind and ingest steps, and the
+  "Wind Farm Fleet Integrity" sample ingests a PDF, an XLSX and a markdown file live. The
+  reasoning recorded here held up: the shipped samples' prose vertex names genuinely do not
+  extract, so a new dataset with identifier-shaped asset tags was unavoidable.
 - **FinishDocument-failure cleanup has no injected test:** the post-write cleanup path
   (chunk-id sink + single catch) is covered by construction and the pre-write
   failure-injection tests; there is no HTTP seam to fault FinishDocument specifically

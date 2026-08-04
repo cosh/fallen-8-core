@@ -524,6 +524,8 @@ namespace NoSQL.GraphDB.App
                 // The bundled sample datasets (feature sample-graphs) ship under wwwroot/samples and
                 // are served same-origin at /samples. .json is a known type; .jsonl is not, so map it
                 // explicitly - otherwise the SPA fallback would answer .jsonl requests with index.html.
+                // The wind-farm sample's documents/ dir (feature knowledge-demo) needs no addition:
+                // .md, .pdf and .xlsx are all in FileExtensionContentTypeProvider's default map.
                 var contentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
                 contentTypes.Mappings[".jsonl"] = "application/x-ndjson";
                 app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = contentTypes });
