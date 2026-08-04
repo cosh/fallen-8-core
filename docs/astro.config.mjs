@@ -83,7 +83,10 @@ export default defineConfig({
 				},
 				{
 					label: 'F8 Studio',
-					items: [{ label: 'F8 Studio', slug: 'studio' }],
+					items: [
+						{ label: 'F8 Studio', slug: 'studio' },
+						{ label: 'Standalone deployment', slug: 'standalone-ui' },
+					],
 				},
 				{
 					label: 'AI agents',

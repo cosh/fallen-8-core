@@ -1,4 +1,4 @@
-<!doctype html>
+<!doctype html>
 <!--
   MIT License
 
@@ -33,6 +33,11 @@
     <link rel="icon" type="image/svg+xml" href="/F8Black.svg" />
     <link rel="icon" type="image/svg+xml" href="/F8White.svg" media="(prefers-color-scheme: dark)" />
     <title>F8 Studio</title>
+    <!-- Runtime config seam (feature standalone-ui): a CLASSIC script, loaded before the deferred
+         app module below, so window.__F8_CONFIG__.apiUrl is set before the instance registry reads
+         it. Empty apiUrl = same-origin (the all-in-one default); the standalone nginx image rewrites
+         this file from F8_API_URL at container start. -->
+    <script src="/config.js"></script>
   </head>
   <body>
     <div id="root"></div>

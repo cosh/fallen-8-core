@@ -125,5 +125,6 @@ attach configuration. For everything else, local debugging is faster.
 |---|---|---|
 | Local API (debug) | 5000 | `Development`; Scalar at `/scalar/v0.1` |
 | Vite dev server | 5173 | proxies API routes to 5000 |
-| Compose F8 Studio | `${F8_PORT}` (8080) | one-unit environment |
+| Compose F8 Studio UI | `${F8_UI_PORT}` (8081) | `env:up` runs it as its own container (all-in-one bakes it into `:8080` via a bare `docker compose up`) |
+| Compose REST API | `${F8_PORT}` (8080) | `env:up` data plane; the UI origin is in its `AllowedCorsOrigins` |
 | Ollama (NL assist) | 11434 | `OLLAMA_ORIGINS` must allow the calling origin |

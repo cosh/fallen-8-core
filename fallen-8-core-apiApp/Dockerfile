@@ -2,6 +2,12 @@
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 WORKDIR /app
+# curl backs the compose healthcheck (GET /status). The aspnet base ships without it (the all-in-one
+# root Dockerfile installs it too). Needed for the split topology (feature standalone-ui), where this
+# UI-less image is the data plane and f8-mcp depends on it being healthy.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 # .NET 8+ container images run as a non-root user and Kestrel listens on 8080 by
 # default (ASPNETCORE_HTTP_PORTS=8080), replacing the .NET Core 3.1 default of 80.
 EXPOSE 8080

@@ -14,6 +14,7 @@ doc is the map of how the pieces fit; each piece's contract lives in its own doc
 flowchart TB
     agents["AI agents"]:::client
     studio["F8 Studio<br/>(React SPA, browser)"]:::client
+    uistandalone["F8 Studio standalone<br/>nginx · config.js → apiUrl"]:::client
     svc["Your services / code"]:::client
 
     mcp["MCP server — fallen-8-mcp<br/>separate deployable · bridges MCP → REST"]:::mcp
@@ -56,6 +57,7 @@ flowchart TB
     agents -->|MCP| mcp
     mcp -->|HTTP| rest
     studio -->|HTTP| rest
+    uistandalone -->|HTTP · CORS| rest
     svc -->|HTTP| rest
     studio -.->|"custom model endpoint (optional, browser-direct)"| sidecar
     wwwroot -.- studio
@@ -146,6 +148,13 @@ the browser calls the model backend directly and any API key is held only in the
 (the earlier browser-only default was retired in favour of the gateway — see
 [studio.md](/fallen-8-core/studio/)).
 
+F8 Studio can also be **deployed standalone** — its own nginx container serving the SPA, pointed at
+an arbitrary REST data plane by a runtime `config.js` (the `apiUrl` the browser calls), rewritten
+from an environment variable at container start. The endpoint it ships with is a *managed default*
+instance re-synced from `config.js` on every load, while user-added instances persist separately;
+cross-origin calls need the data plane's `AllowedCorsOrigins` to include the UI's origin. See
+[Standalone F8 Studio](/fallen-8-core/standalone-ui/).
+
 ## Observability
 
 The engine and app emit metrics, traces, and logs through BCL instruments; the app and the
@@ -162,12 +171,15 @@ not guaranteed, is in [Observability](/fallen-8-core/observability/).
 The [compose environment](/fallen-8-core/running/) builds the SPA, publishes the app, and ships them in
 one container (the app serves the UI from `wwwroot`), alongside the Ollama sidecar and the
 docling document-conversion sidecar (skippable with `F8_INGESTION=false`). Managed as
-a whole, it is the "just works" default. The container is durable by default — checkpoints and
-the WAL live on a mounted volume.
+a whole, it is the "just works" default; a **split topology** ([standalone UI](/fallen-8-core/standalone-ui/)) is
+the additive alternative, running the same data plane without its bundled UI next to a separate F8
+Studio container. The container is durable by default — checkpoints and the WAL live on a mounted
+volume.
 
 ## See also
 
 - [Running](/fallen-8-core/running/) — how to launch each of these
+- [Standalone F8 Studio](/fallen-8-core/standalone-ui/) — deploying the UI apart from the data plane
 - [Graph model](/fallen-8-core/graph-model/) — the data model and the transaction/read contract
 - [Delegates](/fallen-8-core/delegates/) — why there is no query language and how fragments compile
 - [Plugins](/fallen-8-core/plugins/) — the extension model for indices and algorithms

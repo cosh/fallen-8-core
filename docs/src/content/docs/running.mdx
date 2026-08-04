@@ -34,7 +34,8 @@ This runs `docker compose up` for the full environment and prints where everythi
 
 | Service                | URL                    | What it is                                                         |
 | ---------------------- | ---------------------- | ------------------------------------------------------------------ |
-| F8 Studio + REST API   | http://localhost:8080  | The engine, the REST surface, and the browser UI, in one container |
+| F8 Studio (UI)         | http://localhost:8081  | The browser UI, its own container (override with `F8_UI_PORT`)      |
+| F8 REST API            | http://localhost:8080  | The engine + REST surface, the data plane                           |
 | Model sidecar (Ollama) | http://localhost:11434 | Serves the embedding model and the delegate-assist models          |
 
 Stop and inspect it as one unit — never start/stop individual containers:
@@ -85,6 +86,7 @@ for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 | `F8_GPU`           | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
 | `F8_PULL_PHI4F8`   | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |
 | `F8_DELEGATE_REPO` | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`)                                                                                |
+| `F8_UI_PORT`       | `8081`                           | Host port for the F8 Studio UI container (`env:up` runs the UI decoupled by default); the data plane allow-lists this origin |
 
 Examples:
 
@@ -106,6 +108,19 @@ $env:F8_PORT = "9090"; npm run env:up
 
 </TabItem>
 </Tabs>
+
+## Topology: a decoupled UI by default
+
+`npm run env:up` runs **F8 Studio as its own container** (the split topology): the data plane serves
+the REST API at `:8080`, and a separate `f8-studio` nginx container serves the UI at
+`http://localhost:${F8_UI_PORT}` (default `8081`), talking to the API cross-origin. This is applied by
+`docker-compose.split.yml` layered over the base compose file: it re-tasks the data plane to serve
+REST only, wires the UI origin into `Fallen8__Security__AllowedCorsOrigins`, and adds the `f8-studio`
+service.
+
+The **all-in-one** (UI baked into the API container, both on `:8080`) still ships as one image and
+runs with a bare `docker compose up` (no overlay). The runtime `config.js` seam, the image, and the
+CORS rules are in [Standalone F8 Studio](/fallen-8-core/standalone-ui/).
 
 ## Running the engine + API without Docker
 

@@ -414,7 +414,13 @@ namespace NoSQL.GraphDB.App
             {
                 if (security.AllowedCorsOrigins != null && security.AllowedCorsOrigins.Length > 0)
                 {
-                    p.WithOrigins(security.AllowedCorsOrigins).AllowAnyHeader().AllowAnyMethod();
+                    p.WithOrigins(security.AllowedCorsOrigins)
+                        .AllowAnyHeader()
+                        .AllowAnyMethod()
+                        // Cache the preflight (OPTIONS) result so a cross-origin standalone UI
+                        // (feature standalone-ui) does not re-preflight on every request - notably
+                        // the change-feed SSE reconnect loop and bulk import.
+                        .SetPreflightMaxAge(TimeSpan.FromSeconds(600));
                 }
                 // else: no origins configured -> the policy allows nothing cross-origin (deny).
             }));
