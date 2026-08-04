@@ -60,3 +60,21 @@ export function normalizeBaseUrl(url: string): string {
 export function describeEndpoint(instance: InstanceConfig): string {
   return instance.baseUrl === "" ? "same origin" : instance.baseUrl;
 }
+
+/**
+ * A cross-origin instance is one whose baseUrl resolves to a different origin than the page the
+ * Studio is served from. It matters for diagnostics (feature standalone-ui): when such an
+ * instance's /status probe fails at the fetch layer, a missing CORS allow-list entry on the data
+ * plane is indistinguishable from "server down", so the Connect screen surfaces a CORS hint for
+ * exactly these. Same-origin ("") is never cross-origin.
+ */
+export function isCrossOriginInstance(baseUrl: string): boolean {
+  const normalized = normalizeBaseUrl(baseUrl);
+  if (normalized === "") return false;
+  if (typeof window === "undefined") return false;
+  try {
+    return new URL(normalized, window.location.href).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}

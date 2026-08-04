@@ -27,7 +27,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SAME_ORIGIN_INSTANCE, useRegistry } from "../instances/registry";
 import type { InstanceConfig } from "../instances/types";
-import { describeEndpoint } from "../instances/types";
+import { describeEndpoint, isCrossOriginInstance } from "../instances/types";
 import { getStatus, isAuthorized } from "../api/endpoints";
 import { Field } from "../components/Field";
 import { NamespacesPanel } from "../components/NamespacesPanel";
@@ -53,7 +53,16 @@ function InstanceHealth({ instance }: { instance: InstanceConfig }) {
 
   if (health.isPending) return <span className="text-fg-faint">checking…</span>;
   if (health.isError || !health.data)
-    return <span className="text-danger">unreachable</span>;
+    return (
+      <span className="text-danger">
+        unreachable
+        {health.isError && isCrossOriginInstance(instance.baseUrl) && (
+          <span className="text-fg-faint ml-1 text-[11px]" data-testid="cors-hint">
+            (if the data plane is running, check its AllowedCorsOrigins includes this UI's origin)
+          </span>
+        )}
+      </span>
+    );
   if (!isAuthorized(health.data))
     return <span className="text-danger">unauthorized — check the API key</span>;
   return (
