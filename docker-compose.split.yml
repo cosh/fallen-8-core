@@ -1,0 +1,58 @@
+# Split-topology overlay (feature standalone-ui): decouple F8 Studio from the data plane.
+#
+# Applied ON TOP of docker-compose.yml (never alone):
+#   docker compose -f docker-compose.yml -f docker-compose.split.yml up      (npm run env:split:up)
+#
+# It re-tasks the single `fallen8` service to serve the REST API ONLY (the UI-less apiApp image)
+# and adds a separate `f8-studio` nginx container that talks to it over REST from the browser. All
+# base sidecars (ollama, embeddings, chat) are reused unchanged - nothing is duplicated. Raw
+# `docker compose up` (no -f overlay) stays the all-in-one, and `npm run env:up` is untouched.
+services:
+  # Data plane, UI-less. Override the BUILD to the apiApp Dockerfile: the base uses `build: .`,
+  # the all-in-one image that bakes the SPA into wwwroot, and overriding `image:` alone would not
+  # change that. Everything else (Ollama/embedding/chat wiring, volume, network, restart policy)
+  # is inherited from docker-compose.yml.
+  fallen8:
+    build:
+      context: .
+      dockerfile: fallen-8-core-apiApp/Dockerfile
+    # The UI-less apiApp image does not bundle curl (the all-in-one image installs it just for the
+    # base healthcheck), so that curl-based probe cannot run here. Disable it; the browser's own
+    # connection probe handles readiness and f8-studio only waits for the container to start.
+    healthcheck:
+      disable: true
+    environment:
+      # Allow the standalone UI's browser origin (CORS is deny-all by default). INDEXED form: a
+      # bare Fallen8__Security__AllowedCorsOrigins=... does NOT bind the String[].
+      - Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-3000}
+
+  # The Ollama server must also accept the standalone UI origin for browser-direct NL-assist
+  # (OLLAMA_ORIGINS is read by the ollama server, NOT the apiApp). Keep the all-in-one origin too.
+  ollama:
+    environment:
+      - OLLAMA_ORIGINS=http://localhost:${F8_PORT:-8080},http://localhost:${F8_UI_PORT:-3000}
+
+  # The decoupled UI: nginx serving the built SPA, pointed at the data plane's PUBLISHED host port
+  # (the browser reaches localhost:F8_PORT, never the in-network name). F8_UI_PORT is overridable;
+  # its default (3000) overlaps the repo's Grafana default, which is why this overlay does not pull
+  # in docker-compose.observability.yml.
+  f8-studio:
+    build:
+      context: .
+      dockerfile: fallen-8-web-ui/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${F8_UI_PORT:-3000}:80"
+    environment:
+      - F8_API_URL=http://localhost:${F8_PORT:-8080}
+    depends_on:
+      fallen8:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/config.js"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    networks:
+      - f8-net

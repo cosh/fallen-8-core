@@ -88,6 +88,8 @@ jobs:
     - uses: actions/checkout@v5
     - name: Validate compose file
       run: docker compose config -q
+    - name: Validate split-topology overlay (feature standalone-ui)
+      run: docker compose -f docker-compose.yml -f docker-compose.split.yml config -q
     - name: Build image (engine + API + UI)
       run: docker build -t fallen-8:ci .
     - name: Smoke-test the container
