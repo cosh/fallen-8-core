@@ -1,0 +1,52 @@
+// MIT License
+//
+// nav.ts
+//
+// Copyright (c) 2011-2026 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+/**
+ * The Studio navigation: the single source of truth for the shell's icon rail and for anything
+ * keyed by section (e.g. the per-section help in lib/sectionHelp.ts). Connect, Save games and
+ * Benchmark are Fallen-8-level (flat routes); the rest operate on the ACTIVE NAMESPACE and live
+ * under /q/{ns}/… (feature graph-namespaces).
+ */
+export const NAV = [
+  { leaf: "/", label: "Connect", icon: "◉", scoped: false },
+  { leaf: "dashboard", label: "Dashboard", icon: "▦", scoped: true },
+  { leaf: "samples", label: "Samples", icon: "◈", scoped: true },
+  { leaf: "/save-games", label: "Save games", icon: "⭯", scoped: false },
+  { leaf: "browser", label: "Browser", icon: "☰", scoped: true },
+  { leaf: "query", label: "Query", icon: "∴", scoped: true },
+  { leaf: "indexes", label: "Indexes", icon: "⌗", scoped: true },
+  { leaf: "path", label: "Path", icon: "↝", scoped: true },
+  { leaf: "subgraphs", label: "Subgraph", icon: "◫", scoped: true },
+  { leaf: "analytics", label: "Analytics", icon: "∑", scoped: true },
+  { leaf: "plugins", label: "Plugins", icon: "⧉", scoped: true },
+  { leaf: "canvas", label: "Canvas", icon: "❉", scoped: true },
+  { leaf: "/benchmarks", label: "Benchmark", icon: "◔", scoped: false },
+  // Knowledge (feature semantic-layer): the semantic layer over the graph. Deliberately last,
+  // after Benchmark - it is the "documents in, graph out" entry point, not a core-graph screen.
+  { leaf: "knowledge", label: "Knowledge", icon: "▤", scoped: true },
+] as const;
+
+/** One navigation entry. */
+export type NavItem = (typeof NAV)[number];

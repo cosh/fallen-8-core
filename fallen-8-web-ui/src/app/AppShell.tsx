@@ -40,32 +40,12 @@ import { getInstanceStore } from "../state/instanceStore";
 import { EventFeedBell } from "../components/EventFeedBell";
 import { EventFeedPanel } from "../components/EventFeedPanel";
 import { NamespaceSwitcher } from "../components/NamespaceSwitcher";
+import { SectionHelp } from "../components/SectionHelp";
 import { FirstRunOverlay } from "../firstrun/FirstRunOverlay";
 import { useFirstRun } from "../firstrun/firstRunStore";
 import { help } from "../lib/fieldHelp";
-
-/**
- * Navigation: Connect, Save games and Benchmark are Fallen-8-level (flat routes); the rest
- * operate on the ACTIVE NAMESPACE and live under /q/{ns}/… (feature graph-namespaces).
- */
-const NAV = [
-  { leaf: "/", label: "Connect", icon: "◉", scoped: false },
-  { leaf: "dashboard", label: "Dashboard", icon: "▦", scoped: true },
-  { leaf: "samples", label: "Samples", icon: "◈", scoped: true },
-  { leaf: "/save-games", label: "Save games", icon: "⭯", scoped: false },
-  { leaf: "browser", label: "Browser", icon: "☰", scoped: true },
-  { leaf: "query", label: "Query", icon: "∴", scoped: true },
-  { leaf: "indexes", label: "Indexes", icon: "⌗", scoped: true },
-  { leaf: "path", label: "Path", icon: "↝", scoped: true },
-  { leaf: "subgraphs", label: "Subgraph", icon: "◫", scoped: true },
-  { leaf: "analytics", label: "Analytics", icon: "∑", scoped: true },
-  { leaf: "plugins", label: "Plugins", icon: "⧉", scoped: true },
-  { leaf: "canvas", label: "Canvas", icon: "❉", scoped: true },
-  { leaf: "/benchmarks", label: "Benchmark", icon: "◔", scoped: false },
-  // Knowledge (feature semantic-layer): the semantic layer over the graph. Deliberately last,
-  // after Benchmark - it is the "documents in, graph out" entry point, not a core-graph screen.
-  { leaf: "knowledge", label: "Knowledge", icon: "▤", scoped: true },
-] as const;
+import { DOCS_BASE } from "../lib/sectionHelp";
+import { NAV, type NavItem } from "./nav";
 
 /**
  * Connection state of the ACTIVE instance, shared by the health chip and the nav gate.
@@ -227,12 +207,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
 
   /** The concrete path a nav item points at (scoped items resolve against the active ns). */
-  const navTarget = (item: (typeof NAV)[number]): string =>
+  const navTarget = (item: NavItem): string =>
     item.scoped ? `/q/${ns}/${item.leaf}` : item.leaf;
 
   /** The route mask Link navigates by (params supply the namespace). */
-  const navMask = (item: (typeof NAV)[number]): string =>
+  const navMask = (item: NavItem): string =>
     item.scoped ? `/q/$ns/${item.leaf}` : item.leaf;
+
+  // The section the current route resolves to (exact match, same rule as nav highlighting):
+  // its leaf keys the per-section "How does this work?" help (feature studio-section-help).
+  const activeNav = NAV.find((item) => navTarget(item) === pathname);
 
   return (
     <div className="flex h-full">
@@ -361,8 +345,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               </>
             )}
             <div className="ml-auto flex shrink-0 items-center gap-2">
+              <SectionHelp sectionKey={activeNav?.leaf ?? null} />
               <a
-                href="https://cosh.github.io/fallen-8-core/"
+                href={DOCS_BASE}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="docs-link"

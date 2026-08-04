@@ -60,17 +60,17 @@ test("capture the Benchmark tab on a loaded (non-generated) graph", async ({ pag
   );
   expect((await request.post("/bulk/import", { headers: NDJSON, data: jsonl })).ok()).toBeTruthy();
 
-  // The app seeds a same-origin "local" instance without a key; give it the e2e key so it
-  // authorizes (rather than adding a second "local"). Same handshake as screenshot-savegames.
+  // The auto-seeded same-origin "local" instance has no persistent key (feature standalone-ui
+  // never persists it, so editing its key would not survive a reload). Register a keyed
+  // same-origin instance and activate it (its /status then fetches with the key -> online).
   await page.goto("/");
-  await page.getByRole("button", { name: "Edit" }).first().click();
+  await page.getByTestId("instance-add").click();
+  await page.getByTestId("instance-name").fill("local");
+  await page.getByTestId("instance-url").fill("");
   await page.getByLabel(/api key/i).fill(API_KEY);
   await page.getByTestId("instance-save").click();
-  await page.getByRole("radio", { name: "activate local" }).check();
+  await page.getByRole("radio", { name: "activate local" }).last().check();
   await expect(page.getByTestId("active-endpoint")).toContainText("same origin");
-  // The status query was cached "unauthorized" before the key was set and only refetches on its
-  // interval; reload to fetch /status fresh so the nav gate opens and the counts populate.
-  await page.reload();
   await expect(page.getByTestId("health-chip")).toContainText(/online/i, { timeout: 20_000 });
 
   await page.goto("/benchmarks");

@@ -45,20 +45,21 @@ feature behind the current screen.
 |---|---|
 | Interaction | **Anchored popover.** The button drops a small popover listing 1-3 links, each with a one-line blurb; each row opens the docs page in a new tab. Not a modal, not an inline strip. |
 | Links per section | **1 to 3**, ordered primary-first. Never more than 3. |
-| Where it renders | **Once, by the shell**, driven by the active nav leaf, positioned top-right of the content region so it reads as sitting at the top of the current screen. Not wired into each screen individually (avoids 14 near-duplicate edits and drift; keeps one home). |
+| Where it renders | **Once, by the shell**, driven by the active nav leaf, in the top bar's right-hand chip cluster next to the `docs` pill (top-right, reads as the top of the current screen). Not wired into each screen individually (avoids 14 near-duplicate edits and drift; keeps one home). |
 | Mapping home | **One file:** `fallen-8-web-ui/src/lib/sectionHelp.ts`, keyed by the same `leaf` strings as `NAV`. Mirrors the `fieldHelp.ts` pattern. |
 | Benchmark gap | The Benchmark section has no docs page today, so **a new Benchmark docs page is authored as part of this feature** so every section maps to its own home. |
 | Link target | External published docs site, new tab, `rel="noopener noreferrer"` (same posture as the existing `docs` pill). Links are stored as slugs and resolved against one `DOCS_BASE` constant. |
-| Label | Button text "How does this work?"; per-section `aria-label` "How does the {Section} feature work?"; popover heading "How {Section} works". |
+| Label | Button text "How does this work?" is also the button's accessible name (no overriding `aria-label`, per WCAG 2.5.3 Label in Name). The current section is conveyed by the button's `title` tooltip and the popover heading "How {Section} works". |
 
 ## Behaviour after the change
 
 ### 1. The button
 
-A compact pill button appears at the top-right of the content region on every main section,
-styled like the existing `docs` pill (border-pill, `text-fg-dim hover:text-accent`), prefixed
-with a `?` glyph and reading "How does this work?". It carries `data-testid="section-help"` and
-an `aria-label` naming the current section (e.g. "How does the Path finding feature work?").
+A compact pill button appears in the top bar's right-hand chip cluster (next to the `docs` pill)
+on every main section, styled like that pill (border-pill, `text-fg-dim hover:text-accent`),
+prefixed with a `?` glyph and reading "How does this work?". It carries `data-testid="section-help"`.
+Its visible text is its accessible name (no overriding `aria-label`, per WCAG 2.5.3); the current
+section is named by its `title` tooltip (e.g. "How path finding works").
 
 The button is present only when the active route resolves to a nav leaf that has an entry in the
 section-help registry. On non-section routes (deep-linked element inspects, the first-run
@@ -74,9 +75,9 @@ Clicking the button opens an anchored popover below it containing:
   glyph. Clicking a row opens `${DOCS_BASE}${slug}/` in a new tab (`target="_blank"
   rel="noopener noreferrer"`).
 
-The popover is keyboard-accessible: it opens on Enter/Space, closes on Escape and on
-click/focus-out, and returns focus to the button on close. It never traps the whole screen the
-way a modal would.
+The popover is keyboard-accessible: the trigger activates on Enter/Space, and the popover closes
+on Escape (returning focus to the button), on an outside click, and when a link is chosen. It
+never traps the whole screen the way a modal would.
 
 ### 3. The mapping registry (single home)
 
@@ -133,9 +134,9 @@ it documents what the Benchmark screen already does.
 
 ### Limitations and named revisit triggers
 
-- **Single fixed placement (top-right of content).** Revisit if a screen's own header needs the
-  button inline for layout reasons; the registry/component split already allows a screen to opt
-  into rendering `<SectionHelp/>` itself.
+- **Single fixed placement (top bar, next to the docs pill).** Revisit if a screen's own header
+  needs the button inline for layout reasons; the registry/component split already allows a screen
+  to opt into rendering `<SectionHelp/>` itself.
 - **Blurbs are hand-mirrored from frontmatter, not imported at build time.** A drift guard test
   (below) keeps them honest against slug existence; if blurb text drift becomes a maintenance
   cost, revisit by generating the registry from the docs frontmatter at build time.
@@ -180,10 +181,11 @@ owned solely by `sectionHelp.ts`; no other file re-lists it.
 
 New/updated tests (MSTest is not involved; this is vitest + e2e + the docs build):
 
-1. **Component behaviour (vitest).** Button renders with the correct per-section `aria-label`;
-   clicking opens the popover; the popover lists the expected titles/blurbs for a sample section;
-   each row is an `<a target="_blank" rel="noopener noreferrer">` pointing at
-   `${DOCS_BASE}${slug}/`; Escape and click-outside close it and restore focus.
+1. **Component behaviour (vitest).** Button renders with the section's `title` and its visible
+   "How does this work?" text as the accessible name; clicking opens the popover; the popover
+   lists the expected titles/blurbs for a sample section; each row is an
+   `<a target="_blank" rel="noopener noreferrer">` pointing at `${DOCS_BASE}${slug}/`; Escape
+   (restoring focus to the button), an outside click, and choosing a link each close it.
 2. **Cap enforcement (vitest).** Every `SECTION_HELP` entry has `1 <= links.length <= 3`
    (fails the suite otherwise), matching the locked "max 3" decision.
 3. **Nav coverage (vitest).** Every `leaf` in `AppShell`'s `NAV` array has a `SECTION_HELP`

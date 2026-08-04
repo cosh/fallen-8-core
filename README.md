@@ -66,6 +66,8 @@ Each feature has a deep-dive doc — follow the link.
   browser-direct custom model backend).
 - **[Standalone F8 Studio](https://cosh.github.io/fallen-8-core/standalone-ui/)** — deploy the browser UI as its own
   container, decoupled from the data plane and pointed at any Fallen-8 REST endpoint at container start.
+- **[Benchmark](https://cosh.github.io/fallen-8-core/benchmark/)**: measure raw edge-traversal throughput over the
+  loaded graph (generated, a sample, or your own data) in the Studio Benchmark screen.
 - **[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
   writes and three auth modes up to OAuth 2.1.
