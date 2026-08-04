@@ -38,3 +38,7 @@ docs/dist/
 docs/.astro/
 # OpenAPI document is produced in CI, not committed
 docs/public/openapi/
+
+# Python bytecode from the by-hand sample-document generator (feature knowledge-demo).
+__pycache__/
+*.pyc

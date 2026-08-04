@@ -158,6 +158,13 @@ Each one is a guided tour of a different feature — analytics, weighted paths, 
 canvas visualization. See the gallery walkthrough, with screenshots and example queries, in
 [docs/samples.md](https://cosh.github.io/fallen-8-core/samples/).
 
+**Wind Farm Fleet Integrity** goes a step further: it imports an offshore asset graph and then
+ingests three synthetic documents (a PDF root-cause analysis with a figure, an XLSX maintenance
+register, a markdown engineering standard) through the live
+[semantic layer](https://cosh.github.io/fallen-8-core/unstructured-ingestion/). Ask *why did the
+bearing fail*, land on the paragraph that explains it, and follow that chunk into the fleet to
+find the turbines at risk that no document names.
+
 ## Use Fallen-8 from AI agents
 
 Agents reach Fallen-8 through the **MCP server** — a separate deployable that exposes the graph

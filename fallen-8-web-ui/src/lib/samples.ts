@@ -33,8 +33,14 @@
 
 import type { StyleConfig } from "../canvas/styleConfig";
 
-/** What a sample shows off — rendered as card badges. */
-export type SampleBadge = "canvas" | "path" | "analytics" | "semantic" | "spatial";
+/** What a sample shows off, rendered as card badges. */
+export type SampleBadge =
+  | "canvas"
+  | "path"
+  | "analytics"
+  | "semantic"
+  | "spatial"
+  | "knowledge";
 
 /** A POST /index recipe the loader creates right after import. */
 export interface SampleIndexRecipe {
@@ -45,6 +51,37 @@ export interface SampleIndexRecipe {
     string,
     { propertyId: string; propertyValue: string; fullQualifiedTypeName: string }
   >;
+}
+
+/**
+ * Fills an equality index from an imported property (feature knowledge-demo). Needed because
+ * `POST /index` does NOT backfill: a DictionaryIndex created after import is EMPTY, so a
+ * sample whose documents link against it would link nothing. The loader walks the imported
+ * vertices and issues one addToIndex per vertex carrying `propertyId`. A bound VectorIndex
+ * needs none of this (it projects existing embeddings), which is why only equality indexes
+ * appear here.
+ */
+export interface SampleIndexSeed {
+  /** An index the sample's `indexRecipes` created. */
+  indexId: string;
+  /** The vertex property whose value becomes the index key. Untagged vertices are skipped. */
+  propertyId: string;
+}
+
+/**
+ * A document the loader ingests LIVE through the real pipeline after the graph is imported
+ * (feature knowledge-demo). Deliberately not baked into the jsonl: the point is that docling
+ * conversion, embedding, NLP enrichment and structural linking actually run.
+ */
+export interface SampleDocument {
+  /** Same-origin asset path, e.g. "documents/nw-std-0417.md". */
+  file: string;
+  /** The document name recorded in the graph. */
+  name: string;
+  /** `text` posts to /document/text (no sidecar); `binary` uploads multipart to /document. */
+  kind: "text" | "binary";
+  /** Text documents only. */
+  format?: "markdown" | "plain";
 }
 
 /** Provenance of the dataset's precomputed vectors, compared against /status.embedding. */
@@ -71,6 +108,16 @@ export interface SampleManifestEntry {
   styleConfig: Partial<StyleConfig>;
   indexRecipes: SampleIndexRecipe[];
   embedding: SampleEmbeddingInfo | null;
+  /**
+   * The three fields below are OPTIONAL on purpose: absent means the loader behaves exactly
+   * as it did before feature knowledge-demo, so the document-free samples are untouched.
+   */
+  /** Equality indexes to fill after import, because creation does not backfill. */
+  indexSeeds?: SampleIndexSeed[];
+  /** Documents ingested live after seeding, in this order. */
+  documents?: SampleDocument[];
+  /** The linking allowlist passed on every ingest; ids must come from `indexRecipes`. */
+  linkIndexIds?: string[];
 }
 
 export interface SamplesManifest {

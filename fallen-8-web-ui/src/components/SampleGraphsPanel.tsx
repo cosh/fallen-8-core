@@ -32,9 +32,11 @@ import type { SampleBadge, SampleManifestEntry } from "../lib/samples";
 import {
   embeddingGate,
   fetchSamplesManifest,
+  ingestionGate,
   loadSampleGraph,
   samplesBaseUrl,
   type EmbeddingGate,
+  type IngestionGate,
   type LoadStep,
 } from "../lib/sampleLoader";
 import { buildJsonlGraph } from "../lib/jsonlGraph";
@@ -58,13 +60,23 @@ import { ConfirmDialog } from "./ConfirmDialog";
  */
 
 /** Filter chips in a fixed order; only tags present in the manifest are offered. */
-const TAG_ORDER: readonly SampleBadge[] = ["canvas", "path", "analytics", "semantic", "spatial"];
+const TAG_ORDER: readonly SampleBadge[] = [
+  "canvas",
+  "path",
+  "analytics",
+  "semantic",
+  "spatial",
+  "knowledge",
+];
 
 const STEP_LABEL: Record<LoadStep, string> = {
   wiping: "erasing current graph…",
   fetching: "fetching dataset…",
   importing: "importing…",
   indexing: "building indices…",
+  seeding: "seeding asset index…",
+  binding: "binding the semantic layer…",
+  ingesting: "ingesting documents…",
   rendering: "loading canvas…",
 };
 
@@ -86,6 +98,9 @@ export function SampleGraphsPanel() {
   });
 
   const [step, setStep] = useState<LoadStep | null>(null);
+  // Seeding and ingestion are the long steps, so they report which document is converting or
+  // how far the seed has got; the other steps carry no detail.
+  const [stepDetail, setStepDetail] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [trySteps, setTrySteps] = useState<{ title: string; steps: string[] } | null>(null);
   const [confirm, setConfirm] = useState<Pending | null>(null);
@@ -117,8 +132,17 @@ export function SampleGraphsPanel() {
     (status.data?.edgeCount ?? 0) === 0 &&
     (status.data?.indices?.length ?? 0) === 0;
 
-  const afterLoad = (title: string, steps: string[], vertices: number, edges: number) => {
-    setMessage(`Loaded ${title}: ${vertices.toLocaleString()} vertices, ${edges.toLocaleString()} edges.`);
+  const afterLoad = (
+    title: string,
+    steps: string[],
+    vertices: number,
+    edges: number,
+    extra?: string,
+  ) => {
+    setMessage(
+      `Loaded ${title}: ${vertices.toLocaleString()} vertices, ${edges.toLocaleString()} edges` +
+        `${extra ?? ""}.`,
+    );
     setTrySteps({ title, steps });
     invalidateInstanceQueries(queryClient, instance.id);
   };
@@ -129,7 +153,10 @@ export function SampleGraphsPanel() {
       setTrySteps(null);
       const result = await loadSampleGraph(instance, entry, baseUrl, {
         wipeFirst,
-        onStep: setStep,
+        onStep: (next, detail) => {
+          setStep(next);
+          setStepDetail(detail ?? null);
+        },
       });
       return { entry, result };
     },
@@ -139,9 +166,29 @@ export function SampleGraphsPanel() {
       // Reset to defaults first: setStyleConfig is a patch-merge, so a prior sample's keys
       // (e.g. Movie Night's edge-width-by-rating) would otherwise leak onto this graph.
       setStyleConfig({ ...DEFAULT_STYLE_CONFIG, ...entry.styleConfig });
-      afterLoad(entry.title, entry.trySteps, result.verticesCreated, result.edgesCreated);
+      // A sample that seeded or ingested created more than it imported: say so, because the
+      // chunks and entities are the part the user came to see. Reported independently, so a
+      // seed-only sample (no documents) still accounts for its index keys.
+      const extras = [
+        result.tagsSeeded ? `${result.tagsSeeded} asset tags indexed` : null,
+        result.documentsIngested
+          ? `${result.documentsIngested} document(s) ingested into ` +
+            `${result.chunksCreated.toLocaleString()} chunks`
+          : null,
+      ].filter(Boolean);
+      const ingested = extras.length ? `, plus ${extras.join(" and ")}` : undefined;
+      afterLoad(
+        entry.title,
+        entry.trySteps,
+        result.verticesCreated,
+        result.edgesCreated,
+        ingested,
+      );
     },
-    onSettled: () => setStep(null),
+    onSettled: () => {
+      setStep(null);
+      setStepDetail(null);
+    },
   });
 
   const githubMutation = useMutation({
@@ -251,6 +298,7 @@ export function SampleGraphsPanel() {
                   key={entry.id}
                   entry={entry}
                   gate={embeddingGate(entry.embedding, status.data ?? null)}
+                  ingestion={ingestionGate(entry, status.data ?? null)}
                   busy={busy}
                   onLoad={() => startSample(entry)}
                 />
@@ -280,6 +328,7 @@ export function SampleGraphsPanel() {
         {step && (
           <div className="text-accent text-[12px]" data-testid="sample-progress">
             {STEP_LABEL[step]}
+            {stepDetail && <span className="text-fg-faint"> {stepDetail}</span>}
           </div>
         )}
         {message && (
@@ -355,11 +404,13 @@ function TagChip({
 function SampleCard({
   entry,
   gate,
+  ingestion,
   busy,
   onLoad,
 }: {
   entry: SampleManifestEntry;
   gate: EmbeddingGate;
+  ingestion: IngestionGate;
   busy: boolean;
   onLoad: () => void;
 }) {
@@ -394,6 +445,26 @@ function SampleCard({
           Vector scans work; text-in search is 409 here — {gate.detail}.
         </p>
       )}
+      {/*
+        A document-bearing sample ingests through the live pipeline, so it needs more of the
+        environment than a baked dataset does. Blocking states disable the load rather than
+        half-loading into a misleading graph; nlp-off is honest but harmless.
+      */}
+      {ingestion.kind === "status-unknown" && (
+        <p className="text-fg-faint mt-2 text-[11px]" data-testid="gate-status-unknown">
+          Checking what this instance supports: {ingestion.detail}
+        </p>
+      )}
+      {ingestion.blocking && ingestion.kind !== "status-unknown" && (
+        <p className="text-danger mt-2 text-[11px]" data-testid={`gate-${ingestion.kind}`}>
+          This sample ingests documents and cannot load here: {ingestion.detail}
+        </p>
+      )}
+      {ingestion.kind === "nlp-off" && (
+        <p className="text-warn mt-2 text-[11px]" data-testid="gate-nlp-off">
+          Loads, with a caveat: {ingestion.detail}
+        </p>
+      )}
       <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0">
           <div className="text-fg-faint text-[10px] tracking-widest uppercase">
@@ -412,7 +483,7 @@ function SampleCard({
           type="button"
           className="btn btn-accent shrink-0 md:w-32"
           data-testid={`load-sample-${entry.id}`}
-          disabled={busy}
+          disabled={busy || ingestion.blocking}
           onClick={onLoad}
         >
           Load

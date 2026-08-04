@@ -255,6 +255,73 @@
       },
       "indexRecipes": [],
       "embedding": null
+    },
+    {
+      "id": "wind-farm",
+      "title": "Wind Farm Fleet Integrity",
+      "emoji": "🌬️",
+      "pitch": "Three synthetic documents (a PDF root-cause analysis with a figure, a spreadsheet register, a markdown standard) are ingested live into an offshore asset graph. Ask why a gearbox failed, land on the paragraph that explains it, then follow the chunk into the fleet to find the turbines at risk that no document names.",
+      "vertexCount": 94,
+      "edgeCount": 164,
+      "badges": [
+        "knowledge",
+        "semantic",
+        "canvas",
+        "path"
+      ],
+      "trySteps": [
+        "Knowledge screen, Search: ask \"why did the bearing fail\" in plain language. You land on the section that explains the mechanism without ever having to guess the words it uses (rolling contact fatigue, spalling, Hertzian contact stress).",
+        "Search again for \"why is a single vibration number not enough\", then switch mode to lexical: keyword matching lands on the WRONG section, while the default fused mode gets it right because the dense side understands the paraphrase. That is what fusion buys.",
+        "Send the top hit to the canvas and expand it. Its \"mentions\" edges reach BOTH worlds at once: the real assets WTG_A17, GBX_A17_02 and NW_STD_0417 by exact tag match, plus whichever named entities the NLP sidecar found in that same paragraph. Open the report's opening section for the richest entity fan-out (Halvard Drivetrain, Priya Raman, the North Sea).",
+        "Now search for WTG_A05. You get confident-looking hits that never actually name it, because no document covers that turbine. Retrieval alone cannot answer this.",
+        "Instead expand GBX_A17_02 to GBX_BATCH_2023_11 and expand the batch: 7 gearboxes were cast in that run, and 5 of the turbines carrying them (WTG_A05, WTG_A11, WTG_A13, WTG_B03, WTG_B07) appear in NO document. The corpus explains the mechanism; the graph gives you the blast radius.",
+        "Knowledge screen, Entities: one Priya Raman vertex whose mention count spans all three documents, because entities deduplicate per namespace. Note the same person also exists as a Technician vertex from the asset import: resolving the two is your next graph problem, and you have both sides of it.",
+        "Path: from the chunk that explains the failure to SUB_NORD_02, to see a text hit and an electrical asset joined in one traversal."
+      ],
+      "file": "wind-farm.jsonl",
+      "styleConfig": {
+        "nodeColorMode": "label",
+        "nodeSizeMode": "degree",
+        "nodeImageProperty": "icon",
+        "showNodeLabels": true,
+        "showEdgeLabels": true,
+        "edgeArrows": true
+      },
+      "indexRecipes": [
+        {
+          "uniqueId": "asset-tags",
+          "pluginType": "DictionaryIndex",
+          "pluginOptions": {}
+        }
+      ],
+      "embedding": null,
+      "indexSeeds": [
+        {
+          "indexId": "asset-tags",
+          "propertyId": "assetTag"
+        }
+      ],
+      "linkIndexIds": [
+        "asset-tags"
+      ],
+      "documents": [
+        {
+          "file": "documents/nw-rca-wtg-a17.pdf",
+          "name": "nw-rca-wtg-a17.pdf",
+          "kind": "binary"
+        },
+        {
+          "file": "documents/nw-fleet-register.xlsx",
+          "name": "nw-fleet-register.xlsx",
+          "kind": "binary"
+        },
+        {
+          "file": "documents/nw-std-0417.md",
+          "name": "nw-std-0417.md",
+          "kind": "text",
+          "format": "markdown"
+        }
+      ]
     }
   ]
 }
