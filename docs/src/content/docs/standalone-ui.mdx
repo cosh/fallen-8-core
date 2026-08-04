@@ -1,0 +1,102 @@
+---
+title: "Standalone F8 Studio"
+description: "Deploy F8 Studio as its own container, decoupled from the data plane, pointed at any Fallen-8 REST endpoint at container start."
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+F8 Studio normally ships baked into the all-in-one container, served same-origin from the API
+app's `wwwroot` ([Running](/fallen-8-core/running/)). You can also deploy it **standalone**: a
+small static (nginx) container that serves the SPA and is pointed at an arbitrary Fallen-8 REST
+data plane at container start. This decouples *where the UI runs* from *where the data plane runs*,
+without a rebuild.
+
+It is **additive**. The all-in-one container stays the turnkey default; standalone is a second
+option.
+
+## How it learns which data plane to talk to
+
+The UI runs in the browser, so it needs the **browser-reachable** URL of the REST API. A standalone
+build carries a tiny `config.js` that sets a global before the app loads:
+
+```js
+window.__F8_CONFIG__ = { apiUrl: "https://graph.example.com" };
+```
+
+The container's entrypoint rewrites that one file from the `F8_API_URL` environment variable every
+time it starts, so one built image can front any endpoint. An empty `apiUrl` (the default) means
+**same origin**, which is the all-in-one behaviour. The Connect screen still lets a user add or
+switch to other instances by hand.
+
+:::caution[`localhost` is the visitor's machine]
+Because the browser makes the call, `F8_API_URL=http://localhost:8080` points at port 8080 on
+whoever is *viewing* the page, not on the server. That is the right default for a developer running
+the data plane on their own box; for any shared or remote deployment set `F8_API_URL` to the data
+plane's **public** URL.
+:::
+
+## Run the split topology
+
+A UI-less data plane plus the standalone UI come up with one command (the full set of topologies is
+in [Running](/fallen-8-core/running/)):
+
+<Tabs syncKey="shell">
+<TabItem label="Bash">
+
+```bash
+npm run env:split:up      # data plane on :8080, standalone UI on :3000
+```
+
+</TabItem>
+<TabItem label="PowerShell">
+
+```powershell
+npm run env:split:up
+```
+
+</TabItem>
+</Tabs>
+
+`F8_UI_PORT` (default `3000`) sets the UI's host port and `F8_PORT` (default `8080`) the data
+plane's. `npm run env:up` (the all-in-one) and a bare `docker compose up` are unchanged.
+
+## CORS: allow the UI's origin
+
+A UI on one origin calling a data plane on another is a **cross-origin** request (a different port
+counts), and Fallen-8's CORS is deny-all by default. Allow the UI's origin on the data plane:
+
+```
+Fallen8__Security__AllowedCorsOrigins__0=http://localhost:3000
+```
+
+The indexed `__0` suffix is required to bind the array; a bare key does not. The split overlay wires
+this for you. If a cross-origin instance reads as "unreachable" on the Connect screen while the data
+plane is actually up, a missing allow-list entry is the usual cause, and Studio surfaces that hint
+for exactly this case. See [Security](/fallen-8-core/security/).
+
+## Build the image yourself
+
+The image builds from the repo root (so the SPA build reaches the bundled sample datasets):
+
+```bash
+docker build -f fallen-8-web-ui/Dockerfile -t f8-studio .
+docker run -p 3000:80 -e F8_API_URL=https://graph.example.com f8-studio
+```
+
+It serves the SPA with a client-side-routing fallback, ships the sample gallery at `/samples`, and
+never caches `config.js` (so an endpoint change takes effect on the next load). Hosting under a
+sub-path is not supported: assets resolve from the origin root.
+
+## Instances: managed vs personal
+
+The endpoint from `config.js` is a **managed default** instance: it re-syncs on every load (so
+changing `F8_API_URL` propagates) and cannot be removed. Instances a user adds on the Connect screen
+are **personal** and persist in the browser untouched. The instance model and the Connect screen are
+covered in [F8 Studio](/fallen-8-core/studio/#connect).
+
+## See also
+
+- [Running](/fallen-8-core/running/) — every way to launch it
+- [F8 Studio](/fallen-8-core/studio/) — the UI itself and the Connect screen
+- [Security](/fallen-8-core/security/) — the API key and the CORS allow-list
+- [Architecture](/fallen-8-core/architecture/) — how the standalone UI fits the whole

@@ -105,11 +105,13 @@ current code.
 
 ## Phase 6: Two-origin e2e + docs + architecture diagrams + CI image build
 
-- Add a split/standalone e2e profile with a two-origin `webServer` (UI origin + a separate data-plane
-  origin) in `fallen-8-web-ui`, exercising the two highest-value flows: `config.js` injection and one
-  cross-origin preflighted request proving the allow-list works. (SSE-reconnect-under-CORS and
-  multipart-import-under-CORS are covered by unit/integration and are a named revisit trigger, not part
-  of the initial two-origin harness.)
+- Cross-origin behavior is covered WITHOUT a browser two-origin harness: `config.js` injection by the
+  config-seam unit test plus the CI container smoke test (the real nginx image serving the real
+  `config.js` with `no-store`); the CORS contract by `CorsPreflightTest` (a 204 anonymous preflight
+  with the max-age, and deny for a disallowed origin, through the real pipeline); and the diagnostics
+  by the `isCrossOriginInstance` test. A full two-origin Playwright harness (two servers plus a
+  `config.js` rewrite) is deferred as disproportionate for the marginal added signal. *Revisit
+  trigger:* an observed cross-origin bug these layers do not catch.
 - Extend `.github/workflows/buildAndTest.yml` to build the new web-ui image and smoke-test it (serves
   `/index.html` and a `no-store` `/config.js`).
 - Docs (respect single-home assignment from the spec):

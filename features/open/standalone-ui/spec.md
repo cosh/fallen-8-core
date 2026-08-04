@@ -236,8 +236,10 @@ design; the reconciler is the `merge`):
   deferred.** *Revisit trigger:* a real identity/auth concept (the same trigger studio-embeddable and
   multi-instance-host name).
 - **Exactly one managed default.** *Revisit trigger:* multiple operator-seeded instances.
-- **Cross-origin SSE-reconnect and multipart-import are covered by unit/integration, not the initial
-  two-origin e2e.** *Revisit trigger:* an observed cross-origin bug specific to streaming or upload.
+- **No browser two-origin e2e harness.** Cross-origin behavior is covered by the config-seam and
+  cross-origin unit tests, the `CorsPreflightTest` integration test, and the CI container smoke test;
+  a full two-origin Playwright harness is deferred as disproportionate. *Revisit trigger:* an observed
+  cross-origin bug these layers do not catch.
 
 ## Non-goals (right-sizing)
 
@@ -268,7 +270,7 @@ plan.
 | NL-assist finetune | No | This feature touches no delegate-fragment/prompt/`type-model` surface, so per `nl-assist-finetune/RETRAIN-LOG.md` (its rule keys on the fragment surface the model drafts against) it needs no entry. |
 | Samples / stored queries | Served-by only | nginx must serve `/samples` (content and manifest unchanged); stored queries follow `apiUrl` to the remote plane, no client persistence. |
 | Observability identity | No, but port | The UI emits no OTLP and needs no fleet identity; the only interaction is the `:3000` Grafana port overlap (handled via `F8_UI_PORT` + excluding observability from `env:split:up`). |
-| Tests | Yes | New unit tests (`configuredApiUrl()` reader; `partialize`/`merge` managed-vs-personal seed and resync incl. `activeNamespaces` survival; migration of the legacy `local` record; injected-`apiUrl` normalization); a new two-origin e2e profile (config injection + one cross-origin preflighted request). `setup.ts` needs NO change (jsdom always has `window`; the reader's `?.`/`??` handle an absent global). |
+| Tests | Yes | New unit tests (`configuredApiUrl()` reader; `partialize`/`merge` managed-vs-personal seed, resync, `activeNamespaces` survival, and legacy-blob upgrade; injected-`apiUrl` normalization; `isCrossOriginInstance`); a backend `CorsPreflightTest` (real-pipeline preflight). Cross-origin is covered by these plus the CI container smoke test rather than a browser two-origin harness (deferred, see plan). `setup.ts` needs NO change (jsdom always has `window`; the reader's `?.`/`??` handle an absent global). |
 
 **Single-home doc assignment (one-home-per-explanation):**
 

@@ -126,4 +126,5 @@ attach configuration. For everything else, local debugging is faster.
 | Local API (debug) | 5000 | `Development`; Scalar at `/scalar/v0.1` |
 | Vite dev server | 5173 | proxies API routes to 5000 |
 | Compose F8 Studio | `${F8_PORT}` (8080) | one-unit environment |
+| Split standalone UI | `${F8_UI_PORT}` (3000) | `npm run env:split:up`; the data plane needs `AllowedCorsOrigins` set to this origin (overlaps the Grafana default, so the split overlay omits observability) |
 | Ollama (NL assist) | 11434 | `OLLAMA_ORIGINS` must allow the calling origin |

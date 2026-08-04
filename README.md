@@ -64,6 +64,8 @@ Each feature has a deep-dive doc — follow the link.
 - **[F8 Studio](https://cosh.github.io/fallen-8-core/studio/)** — a browser UI to browse, query, visualize, and author the C#
   delegates, with a natural-language assist that runs through your instance by default (or a
   browser-direct custom model backend).
+- **[Standalone F8 Studio](https://cosh.github.io/fallen-8-core/standalone-ui/)** — deploy the browser UI as its own
+  container, decoupled from the data plane and pointed at any Fallen-8 REST endpoint at container start.
 - **[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
   writes and three auth modes up to OAuth 2.1.
@@ -77,13 +79,16 @@ An in-memory engine with a thin REST app around it. **AI agents** reach it throu
 the [REST API](https://cosh.github.io/fallen-8-core/rest-api/) directly. Under the hood the engine (`fallen-8-core`) holds the
 graph in RAM, serializes every write through one writer thread, and runs the algorithms, while
 the app (`fallen-8-core-apiApp`) is the thin HTTP layer that also serves F8 Studio. Engine and
-app ship as one Docker unit alongside a model sidecar.
+app ship as one Docker unit alongside a model sidecar. F8 Studio can also be deployed
+[standalone](https://cosh.github.io/fallen-8-core/standalone-ui/) — its own nginx container, pointed at the REST API and
+kept in the CORS allow-list — so the UI and the data plane can run apart.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','lineColor':'#666666'}}}%%
 flowchart TB
     agents["AI agents"]:::client
     studio["F8 Studio<br/>browser UI"]:::client
+    uistandalone["F8 Studio<br/>standalone (nginx)"]:::client
     services["Your services / code"]:::client
 
     mcp["MCP server<br/>fallen-8-mcp"]:::mcp
@@ -103,6 +108,7 @@ flowchart TB
     agents -->|MCP| mcp
     mcp -->|HTTP| rest
     studio -->|HTTP| rest
+    uistandalone -->|HTTP · CORS| rest
     services -->|HTTP| rest
     rest -.->|embeddings + chat| sidecar
     rest -.->|document conversion| docling

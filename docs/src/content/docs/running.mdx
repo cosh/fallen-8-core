@@ -85,6 +85,7 @@ for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 | `F8_GPU`           | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
 | `F8_PULL_PHI4F8`   | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |
 | `F8_DELEGATE_REPO` | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`)                                                                                |
+| `F8_UI_PORT`       | `3000`                           | Host port for the standalone Studio in the split topology (`npm run env:split:up`); the data plane allow-lists this origin. Overlaps the Grafana default, so the split overlay omits observability |
 
 Examples:
 
@@ -106,6 +107,35 @@ $env:F8_PORT = "9090"; npm run env:up
 
 </TabItem>
 </Tabs>
+
+## Split topology: the UI apart from the data plane
+
+By default F8 Studio is baked into the all-in-one container. To run it as its own deployable — a
+static nginx container pointed at a separate REST data plane — use the split overlay:
+
+<Tabs syncKey="shell">
+<TabItem label="Bash">
+
+```bash
+npm run env:split:up      # UI-less data plane on :8080, standalone Studio on :3000
+```
+
+</TabItem>
+<TabItem label="PowerShell">
+
+```powershell
+npm run env:split:up
+```
+
+</TabItem>
+</Tabs>
+
+This applies `docker-compose.split.yml` over the base compose file: it re-tasks the data plane to
+serve the REST API only, wires the UI's origin into `Fallen8__Security__AllowedCorsOrigins`, and adds
+the `f8-studio` container (`F8_UI_PORT`, default `3000`, pointed at `http://localhost:${F8_PORT}`).
+`npm run env:up` and a bare `docker compose up` are unchanged. The mechanics — the runtime
+`config.js` seam, the image, and the CORS rules — are in
+[Standalone F8 Studio](/fallen-8-core/standalone-ui/).
 
 ## Running the engine + API without Docker
 
