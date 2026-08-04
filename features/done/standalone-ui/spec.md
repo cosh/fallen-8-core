@@ -3,7 +3,7 @@
 Status: open (spec/plan only). Owner: TBD. Feature branch: `feature/standalone-ui`
 (branch-only workflow; no GitHub issue/PR unless asked).
 
-Related: [web-ui](../../done/web-ui/), [studio-embeddable](../studio-embeddable/) (shares the
+Related: [web-ui](../../done/web-ui/), [studio-embeddable](../../open/studio-embeddable/) (shares the
 registry config-injection seam this feature introduces; see "The shared seam"),
 [api-security-boundary](../../done/api-security-boundary/) (the CORS allow-list this feature
 sets from the split overlay), [change-feed](../../done/change-feed/) (cross-origin SSE),
@@ -51,7 +51,7 @@ plane's CORS is deny-all by default; (4) no split-topology compose story.
 
 ## The shared seam: registry config-injection
 
-Both this feature and [studio-embeddable](../studio-embeddable/) need the **same seam**: seed the
+Both this feature and [studio-embeddable](../../open/studio-embeddable/) need the **same seam**: seed the
 registry's default ("managed") instance from an **external source** instead of the hardcoded
 `SAME_ORIGIN_INSTANCE` (`src/instances/registry.ts:64-69`). They differ only in the *producer*:
 

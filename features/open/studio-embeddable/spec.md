@@ -49,7 +49,7 @@ A related small item folded in: the delegate-editor modal uses `Dialog.Portal` w
 (`src/delegate/DelegateEditor.tsx`), so it escapes to `document.body` — fine standalone, wrong inside a
 host region. It renders into the Studio root container instead.
 
-> **Shared seam (feature [standalone-ui](../standalone-ui/spec.md)):** coupling #6's "default instance
+> **Shared seam (feature [standalone-ui](../../done/standalone-ui/spec.md)):** coupling #6's "default instance
 > from an external source" is the same registry config-injection seam that standalone-ui introduces
 > (its producer is a runtime `config.js` setting `window.__F8_CONFIG__.apiUrl`). `StudioConfig.instances`
 > is a second producer into that one seam, not a parallel path. Reuse it rather than re-designing it.
