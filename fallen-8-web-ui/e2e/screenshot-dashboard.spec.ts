@@ -51,12 +51,13 @@ test("capture the Dashboard screen with a loaded graph", async ({ page, request 
   // Activate the auto-seeded same-origin "local" instance with the e2e key (same handshake as
   // screenshot-savegames), then reload so /status refetches with the key and the nav opens.
   await page.goto("/");
-  await page.getByRole("button", { name: "Edit" }).first().click();
+  await page.getByTestId("instance-add").click();
+  await page.getByTestId("instance-name").fill("local");
+  await page.getByTestId("instance-url").fill("");
   await page.getByLabel(/api key/i).fill(API_KEY);
   await page.getByTestId("instance-save").click();
-  await page.getByRole("radio", { name: "activate local" }).check();
+  await page.getByRole("radio", { name: "activate local" }).last().check();
   await expect(page.getByTestId("active-endpoint")).toContainText("same origin");
-  await page.reload();
   await expect(page.getByTestId("health-chip")).toContainText(/online/i, { timeout: 20_000 });
 
   await page.goto("/q/default/dashboard");

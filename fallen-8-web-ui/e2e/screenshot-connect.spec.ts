@@ -44,13 +44,17 @@ test("capture the Connect screen", async ({ page, request }) => {
 
   await request.head("/tabularasa/all", { headers: AUTH });
 
+  // The auto-seeded same-origin "local" default has no persistent key (feature standalone-ui),
+  // so on a secured server it reads "unauthorized"; register a keyed same-origin instance with a
+  // distinct name so the list clearly shows the default alongside an authorized one.
   await page.goto("/");
-  await page.getByRole("button", { name: "Edit" }).first().click();
+  await page.getByTestId("instance-add").click();
+  await page.getByTestId("instance-name").fill("secured");
+  await page.getByTestId("instance-url").fill("");
   await page.getByLabel(/api key/i).fill(API_KEY);
   await page.getByTestId("instance-save").click();
-  await page.getByRole("radio", { name: "activate local" }).check();
+  await page.getByRole("radio", { name: "activate secured" }).check();
   await expect(page.getByTestId("active-endpoint")).toContainText("same origin");
-  await page.reload();
   await expect(page.getByTestId("health-chip")).toContainText(/online/i, { timeout: 20_000 });
 
   // Connect is the root route; it stays reachable in every connection state.
