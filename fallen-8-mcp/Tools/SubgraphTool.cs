@@ -32,7 +32,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using ModelContextProtocol.Protocol;
 using NoSQL.GraphDB.Mcp.Bridge;
-using NoSQL.GraphDB.Mcp.Bridge.Dto;
 using NoSQL.GraphDB.Mcp.Configuration;
 
 namespace NoSQL.GraphDB.Mcp.Tools
@@ -61,6 +60,10 @@ namespace NoSQL.GraphDB.Mcp.Tools
             var schema = SchemaBuilder.Create()
                 .Str("namespace", "The namespace (graph). Defaults to 'default'.")
                 .Str("name", "A name for the computed subgraph.", required: true)
+                // Free-form on purpose (engine -> REST -> MCP): PUT /subgraph resolves a built-in or
+                // runtime-registered SubGraph plugin by name, so agents get the same choice every
+                // other client has. An unknown name comes back as a 400 listing the available ones.
+                .Str("algorithm", "Subgraph algorithm plugin name (a built-in or a registered SubGraph plugin). Omit for the built-in breadth-first search; an unknown name is rejected with the list of available names.")
                 .Str("storedQuery", "Name of a registered subgraph template (code-free).");
 
             if (tools.EnableCode)
@@ -97,6 +100,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 return ToolResults.Error(400, "Invalid arguments", "subgraph 'name' is required.");
             }
 
+            var algorithm = ToolArgs.GetString(arguments, "algorithm");
             var storedQuery = ToolArgs.GetString(arguments, "storedQuery");
             // Fragments are honoured ONLY when the code capability is on (defence beyond the schema).
             var vertexFilter = tools.EnableCode ? ToolArgs.GetString(arguments, "vertexFilter") : null;
@@ -111,13 +115,28 @@ namespace NoSQL.GraphDB.Mcp.Tools
             }
 
             var @namespace = ToolArgs.GetString(arguments, "namespace");
-            var body = new SubGraphSpecDto
+
+            // The PUT /subgraph body, assembled here so the optional algorithm selector rides along
+            // with the code-free/inline fields. Absent fields are OMITTED (never sent as null or
+            // empty): REST reads every one of them with IsNullOrWhiteSpace, so a code-free request
+            // still compiles nothing, and an omitted algorithm still means the built-in BFS.
+            var body = new JsonObject { ["name"] = name };
+            if (!String.IsNullOrEmpty(algorithm))
             {
-                Name = name,
-                StoredQuery = storedQuery,
-                VertexFilter = vertexFilter,
-                EdgeFilter = edgeFilter,
-            };
+                body["algorithm"] = algorithm;
+            }
+            if (!String.IsNullOrEmpty(storedQuery))
+            {
+                body["storedQuery"] = storedQuery;
+            }
+            if (!String.IsNullOrEmpty(vertexFilter))
+            {
+                body["vertexFilter"] = vertexFilter;
+            }
+            if (!String.IsNullOrEmpty(edgeFilter))
+            {
+                body["edgeFilter"] = edgeFilter;
+            }
 
             var summary = await _bridge.RequestRawAsync(HttpMethod.Put, @namespace, "subgraph", body, cancellationToken)
                 .ConfigureAwait(false);

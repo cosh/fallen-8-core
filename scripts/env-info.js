@@ -67,7 +67,9 @@ const uiPort = process.env.F8_UI_PORT || '8081';
 console.log('');
 console.log('Services:');
 console.log(`  F8 Studio UI:  http://localhost:${uiPort}  (its own container; talks to the REST API below)`);
-console.log(`  F8 REST API:   http://localhost:${f8Port}  (OpenAPI: /openapi/v0.1.json, Scalar: /scalar/v0.1)`);
+// REST only: the OpenAPI document and the Scalar reference are mapped in Development, and the
+// container runs Production, so do NOT advertise /openapi or /scalar here - they 404.
+console.log(`  F8 REST API:   http://localhost:${f8Port}  (REST only; /openapi + /scalar are Development-only, so run "dotnet run --project fallen-8-core-apiApp" for those)`);
 console.log('  NL assist:     http://localhost:11434  (Ollama, default model "phi4-f8-mini"; opt-in "phi4-f8")');
 console.log(`  Observability: http://localhost:${grafanaPort}  (Grafana; fleet + per-tenant dashboards, open on the trusted network)`);
 console.log('  OTLP ingest:   localhost:4317 (gRPC) / :4318 (HTTP)  (point external Fallen-8 instances here)');

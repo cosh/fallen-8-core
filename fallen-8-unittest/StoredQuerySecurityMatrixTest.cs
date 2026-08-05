@@ -89,8 +89,8 @@ namespace NoSQL.GraphDB.Tests
 
         /// <summary>
         ///   Registers a compiled stored query directly on the hosted engine, bypassing REST -
-        ///   the "registered while the switch was on (provisioning window)" state, reproducible
-        ///   in a host whose switch is off.
+        ///   the state an operator provisions out of band (a library/plugin host, a restored
+        ///   save game), so invocation is exercised without a REST registration call.
         /// </summary>
         private static void RegisterDirectlyOnEngine(MatrixFactory factory, string name, StoredQueryKind kind)
         {
@@ -139,10 +139,10 @@ namespace NoSQL.GraphDB.Tests
             (await client.PutAsync("/vertex?waitForCompletion=true", Json(vertex))).EnsureSuccessStatusCode();
         }
 
-        #region switch ON
+        #region registration and invocation over REST
 
         [TestMethod]
-        public async Task SwitchOn_Registration_Returns201()
+        public async Task Registration_Returns201()
         {
             using var factory = new MatrixFactory();
             using var client = Client(factory);
@@ -153,7 +153,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task SwitchOn_InlineAndStoredAndFilterless_AllPass()
+        public async Task InlineAndStoredAndFilterless_AllPass()
         {
             using var factory = new MatrixFactory();
             using var client = Client(factory);
@@ -174,7 +174,7 @@ namespace NoSQL.GraphDB.Tests
             using var inlineSubGraph = await client.PutAsync("/subgraph", Json(InlineSubGraphBody));
             Assert.AreEqual(HttpStatusCode.Created, inlineSubGraph.StatusCode);
 
-            // The stored-subgraph and list/get/delete rows of the matrix, switch-ON column.
+            // The stored-subgraph and list/get/delete rows of the matrix.
             const string registerSubGraph =
                 "{\"name\":\"matrix-subgraph\",\"kind\":\"SubGraph\",\"subGraph\":{\"vertexFilter\":\"return (ge) => true;\"}}";
             using var registerSg = await client.PostAsync("/storedquery", Json(registerSubGraph));
@@ -196,7 +196,7 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
-        #region ungated behaviour (dynamic code is always on)
+        #region no gate exists: only authentication applies
 
         [TestMethod]
         public async Task StoredInvocation_Succeeds()
@@ -210,31 +210,31 @@ namespace NoSQL.GraphDB.Tests
 
             using var storedPath = await client.PostAsync("/path/0/to/1", Json("{\"storedQuery\":\"provisioned-path\"}"));
             Assert.AreEqual(HttpStatusCode.OK, storedPath.StatusCode,
-                "Invoking a stored path query must work with the switch OFF (the headline contract).");
+                "Invoking a stored path query registered out of band must work (the headline contract).");
 
             using var storedSubGraph = await client.PutAsync("/subgraph",
                 Json("{\"name\":\"from-stored\",\"storedQuery\":\"provisioned-subgraph\"}"));
             Assert.AreEqual(HttpStatusCode.Created, storedSubGraph.StatusCode,
-                "Instantiating a stored subgraph template must work with the switch OFF.");
+                "Instantiating a stored subgraph template registered out of band must work.");
         }
 
         [TestMethod]
-        public async Task SwitchOff_FilterlessPath_Succeeds()
+        public async Task FilterlessPath_Succeeds()
         {
-            // Deliberate contract fix: a filterless path search compiles no user-supplied code
-            // and no longer requires the switch.
+            // A filterless path search compiles no user-supplied code at all, so nothing but
+            // authentication stands between the caller and a 200.
             using var factory = new MatrixFactory();
             using var client = Client(factory);
             await CreateTwoVertices(client);
 
             // ({} is the canonical filterless body; a literal `null` body is rejected as 400 by
-            // MVC's implicit body-required validation before any gate runs - framework contract.)
+            // MVC's implicit body-required validation before the action runs - framework contract.)
             using var filterless = await client.PostAsync("/path/0/to/1", Json("{}"));
             Assert.AreEqual(HttpStatusCode.OK, filterless.StatusCode);
         }
 
         [TestMethod]
-        public async Task SwitchOff_ListGetDelete_AreNeverGated()
+        public async Task ListGetDelete_AreNeverGated()
         {
             using var factory = new MatrixFactory();
             using var client = Client(factory);
@@ -249,7 +249,7 @@ namespace NoSQL.GraphDB.Tests
 
             using var delete = await client.DeleteAsync("/storedquery/manage-me");
             Assert.AreEqual(HttpStatusCode.NoContent, delete.StatusCode,
-                "Deletion compiles nothing and must stay possible while the switch is off.");
+                "Deletion compiles nothing and is never refused for a code-execution reason.");
         }
 
         #endregion
@@ -264,7 +264,7 @@ namespace NoSQL.GraphDB.Tests
 
             using var path = await client.PostAsync("/path/0/to/1", Json(InlinePathBody));
             Assert.AreEqual(HttpStatusCode.Unauthorized, path.StatusCode,
-                "With a key configured, an anonymous caller is 401 — auth is layered on the code endpoints like any other.");
+                "With a key configured, an anonymous caller is 401: auth is layered on the code endpoints like any other.");
 
             using var register = await client.PostAsync("/storedquery", Json(RegisterBody));
             Assert.AreEqual(HttpStatusCode.Unauthorized, register.StatusCode);
@@ -283,7 +283,7 @@ namespace NoSQL.GraphDB.Tests
 
             using var storedPath = await client.PostAsync("/path/0/to/1", Json("{\"storedQuery\":\"auth-check\"}"));
             Assert.AreEqual(HttpStatusCode.Unauthorized, storedPath.StatusCode,
-                "Stored invocation is ungated by the SWITCH, not by authentication.");
+                "Stored invocation carries no code-execution gate, but authentication still applies.");
 
             using var list = await client.GetAsync("/storedquery");
             Assert.AreEqual(HttpStatusCode.Unauthorized, list.StatusCode);

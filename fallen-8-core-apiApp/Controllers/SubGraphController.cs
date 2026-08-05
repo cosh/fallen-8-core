@@ -99,27 +99,6 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Filter and pattern predicates are C# code fragments prefixed with "return", compiled
         /// at runtime. A null/empty fragment matches everything.
         ///
-        /// Sample request:
-        ///
-        ///     PUT /subgraph
-        ///     {
-        ///        "name": "friends-of-alice",
-        ///        "vertexFilter": "return (v) => v.Label == \"person\";",
-        ///        "patterns": [
-        ///          { "type": "Vertex", "patternName": "start", "vertexFilter": "return (v) => v.Label == \"person\";" },
-        ///          { "type": "Edge", "patternName": "rel", "direction": "OutgoingEdge", "edgePropertyFilter": "return (p) => p == \"knows\";" },
-        ///          { "type": "Vertex", "patternName": "end", "vertexFilter": "return (v) => v.Label == \"person\";" }
-        ///        ]
-        ///     }
-        /// </remarks>
-        /// <param name="fromSubGraph">Optional name of an existing subgraph to source this one from (creates a nested subgraph). When omitted, the subgraph is sourced from the whole graph.</param>
-        /// <response code="201">The subgraph was created and registered. A syntactically-valid pattern that matches nothing yields a registered EMPTY subgraph (201), identically whether the source graph is empty or populated.</response>
-        /// <response code="400">The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind</response>
-        /// <response code="401">No valid credential was supplied</response>
-        /// <response code="404">The source subgraph named by fromSubGraph does not exist, or no stored query with the referenced name exists</response>
-        /// <response code="409">A subgraph with the same name already exists, a resource quota (subgraph count or materialized-element ceiling) was exceeded, or the referenced stored query is not invocable (its recompile on load failed)</response>
-        /// <response code="500">The create transaction faulted with an internal error</response>
-        /// <remarks>
         /// Instead of inline fragments, the body may reference a registered stored query of kind
         /// "SubGraph" via "storedQuery" (mutually exclusive with "vertexFilter"/"edgeFilter"/
         /// "patterns"): the stored template is instantiated under this request's "name" and
@@ -140,7 +119,27 @@ namespace NoSQL.GraphDB.App.Controllers
         /// ALWAYS ON (there is no switch to disable it), so authentication (required whenever an API
         /// key is configured) is the boundary. Instantiating an operator-registered stored query
         /// narrows WHO can introduce code, but the invoked query still runs with full trust.
+        ///
+        /// Sample request:
+        ///
+        ///     PUT /subgraph
+        ///     {
+        ///        "name": "friends-of-alice",
+        ///        "vertexFilter": "return (v) => v.Label == \"person\";",
+        ///        "patterns": [
+        ///          { "type": "Vertex", "patternName": "start", "vertexFilter": "return (v) => v.Label == \"person\";" },
+        ///          { "type": "Edge", "patternName": "rel", "direction": "OutgoingEdge", "edgePropertyFilter": "return (p) => p == \"knows\";" },
+        ///          { "type": "Vertex", "patternName": "end", "vertexFilter": "return (v) => v.Label == \"person\";" }
+        ///        ]
+        ///     }
         /// </remarks>
+        /// <param name="fromSubGraph">Optional name of an existing subgraph to source this one from (creates a nested subgraph). When omitted, the subgraph is sourced from the whole graph.</param>
+        /// <response code="201">The subgraph was created and registered. A syntactically-valid pattern that matches nothing yields a registered EMPTY subgraph (201), identically whether the source graph is empty or populated.</response>
+        /// <response code="400">The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, the referenced stored query has the wrong kind, or the requested algorithm is not an available subgraph plugin</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="404">The source subgraph named by fromSubGraph does not exist, or no stored query with the referenced name exists</response>
+        /// <response code="409">A subgraph with the same name already exists, a resource quota (subgraph count or materialized-element ceiling) was exceeded, or the referenced stored query is not invocable (its recompile on load failed)</response>
+        /// <response code="500">The create transaction faulted with an internal error</response>
         [HttpPut("/subgraph")]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [RequestSizeLimit(1_048_576)]
@@ -194,6 +193,23 @@ namespace NoSQL.GraphDB.App.Controllers
                         "The maximum number of subgraphs ({0}) has been reached.", quota.MaxSubGraphCount));
                 }
 
+                // The optional algorithm selector must resolve to a plugin this namespace actually
+                // offers (a built-in or a runtime-registered SubGraph plugin - the very set
+                // GET /status advertises). Validated here so an unknown name is a clean 400 instead
+                // of the engine's "no plugin by that name" InternalError -> 500, and never a silent
+                // fallback to the built-in. A name that resolves but whose plugin then fails to
+                // initialize stays a 500: that is a server-side fault, not a bad request.
+                if (!String.IsNullOrWhiteSpace(specification.Algorithm))
+                {
+                    var availableAlgorithms = _fallen8.SubGraphFactory.GetAvailableSubGraphPlugins().ToList();
+                    if (!availableAlgorithms.Contains(specification.Algorithm, StringComparer.Ordinal))
+                    {
+                        return ProblemResults.BadRequest(String.Format(
+                            "No subgraph algorithm plugin named '{0}' is available. Available algorithms: {1}.",
+                            specification.Algorithm, String.Join(", ", availableAlgorithms)));
+                    }
+                }
+
                 SubGraphDefinition definition;
                 String specificationJson;
 
@@ -245,6 +261,9 @@ namespace NoSQL.GraphDB.App.Controllers
                     {
                         Name = specification.Name,
                         AdditionalInformation = specification.AdditionalInformation,
+                        // Per-instance, like the path API's pathAlgorithmName: a stored template
+                        // pins the filters, not which algorithm runs them.
+                        Algorithm = specification.Algorithm,
                         VertexFilter = templateBlock.VertexFilter,
                         EdgeFilter = templateBlock.EdgeFilter,
                         Patterns = templateBlock.Patterns
@@ -272,7 +291,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 {
                     Definition = definition,
                     SourceSubGraphName = fromSubGraph,
-                    SpecificationJson = specificationJson
+                    SpecificationJson = specificationJson,
+                    // Null/empty keeps the engine's built-in default, so a request without the
+                    // selector behaves exactly as before.
+                    AlgorithmPluginName = specification.Algorithm
                 };
 
                 // Feature observability: the algorithm-run span (tags: the plugin name and the
@@ -388,10 +410,15 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <remarks>
         /// Only subgraphs created by an algorithm (with a stored source and plugin name)
         /// can be recalculated; manually registered subgraphs cannot.
+        ///
+        /// The materialized-element quotas bound a refresh exactly as they bound the create: a
+        /// recalculation whose fresh extraction would exceed the per-subgraph or total element
+        /// ceiling is rejected and the subgraph KEEPS its previous, in-quota contents (it stays
+        /// stale until the quota is raised or it is deleted).
         /// </remarks>
         /// <response code="200">Returns the recalculated subgraph summary</response>
         /// <response code="404">No subgraph with the given name exists</response>
-        /// <response code="409">The subgraph exists but cannot be recalculated</response>
+        /// <response code="409">The subgraph exists but cannot be recalculated: either its source graph or algorithm plugin is missing, or the recalculated extraction would exceed a materialized-element quota (previous contents kept)</response>
         [HttpPost("/subgraph/{name}/recalculate")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(SubGraphSummary), StatusCodes.Status200OK)]
@@ -404,8 +431,17 @@ namespace NoSQL.GraphDB.App.Controllers
                 return ProblemResults.NotFound(String.Format("No subgraph named '{0}'.", name));
             }
 
-            if (!_fallen8.SubGraphFactory.TryRecalculateSubGraph(name))
+            if (!_fallen8.SubGraphFactory.TryRecalculateSubGraph(name, out var reason))
             {
+                // A quota breach is its own cause: the fresh extraction was discarded and the
+                // previous contents kept, so the generic "missing source graph or algorithm plugin"
+                // message would name the wrong reason.
+                if (reason == TransactionFailureReason.QuotaExceeded)
+                {
+                    return ProblemResults.Conflict(String.Format(
+                        "Recalculating subgraph '{0}' was rejected because it would exceed a materialized-element quota; its previous contents are unchanged.", name));
+                }
+
                 return ProblemResults.Conflict(String.Format(
                     "Subgraph '{0}' cannot be recalculated (missing source graph or algorithm plugin).", name));
             }

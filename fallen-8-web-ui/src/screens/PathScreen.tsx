@@ -328,7 +328,7 @@ export function PathScreen() {
                 value={draft.vertexFilter}
                 onChange={(fragment) => setDraft({ vertexFilter: fragment })}
                 disabled={semanticOwnsVertexFilter(draft.semantic)}
-                disabledReason="owned by semantic minScore — clear it to write a fragment"
+                disabledReason="owned by semantic minScore / costBySimilarity — clear it to write a fragment"
               />
               <DelegateSlot
                 instance={instance}

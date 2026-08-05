@@ -37,7 +37,8 @@ import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 
 /**
  * Path screen semantic wiring (feature element-embeddings / studio-semantics): the
- * declarative block attaches to the request, and its minScore owns the vertex-filter slot.
+ * declarative block attaches to the request, and it owns the delegate slots the server fills
+ * from it (minScore or costBySimilarity -> vertexFilter, costBySimilarity -> vertexCost).
  * Monaco is mocked to a textarea (the delegate slots pull it in transitively).
  */
 
@@ -129,6 +130,42 @@ describe("path semantic block", () => {
       queryVector: [1, 0],
       minScore: 0.7,
     });
+  });
+
+  it("costBySimilarity without minScore owns the vertex-filter slot too", async () => {
+    // Previously the slot stayed editable here and the fragment was sent, which /path 400s:
+    // costBySimilarity installs an implied has-embedding vertex FILTER as well as the cost.
+    const user = userEvent.setup();
+    renderScreen(true);
+
+    await user.type(screen.getByTestId("path-from"), "1");
+    await user.type(screen.getByTestId("path-to"), "9");
+    // costBySimilarity is a Dijkstra concept; under BLS the checkbox is disabled.
+    await user.selectOptions(screen.getByTestId("path-algo"), "DIJKSTRA");
+
+    await user.click(screen.getByTestId("path-semantic-enable"));
+    await user.type(screen.getByTestId("path-sem-vector"), "1, 0");
+    await user.click(screen.getByTestId("path-sem-cost"));
+    expect(screen.getByTestId("path-sem-minscore-enable")).not.toBeChecked();
+
+    await user.click(screen.getByTestId("toggle-advanced"));
+    await waitFor(() =>
+      expect(screen.getByTestId("slot-filter-vertexfilter-disabled")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("slot-cost-vertexcost-disabled")).toBeInTheDocument();
+    // The edge slots are untouched by semantic ownership.
+    expect(screen.getByTestId("slot-filter-edgefilter")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("path-run"));
+    await waitFor(() => expect(findPathsMock).toHaveBeenCalledTimes(1));
+    const spec = findPathsMock.mock.calls[0][3];
+    expect(spec.semantic).toEqual({
+      embeddingName: "default",
+      metric: "Cosine",
+      queryVector: [1, 0],
+      costBySimilarity: true,
+    });
+    expect(spec.filter?.vertexFilter).toBeUndefined();
   });
 
   it("blocks the run when the semantic block is enabled but the vector is empty", async () => {

@@ -5,7 +5,7 @@ description: "Checkpoints tracked by a registry that drives startup, on top of a
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Fallen-8 is durable by default. Every committed transaction is appended to a per-namespace **write-ahead log (WAL)** and fsync'd before the call returns; on demand — via `PUT /save` or a clean shutdown — the engine writes a **save game**, a full checkpoint of the graph. A single **registry** at `<deployment>/metadata/savegames.json` records every save game with its KPIs and file facts and is the sole authority for what loads on startup. Between checkpoints the WAL closes the gap, so a crash recovers every committed transaction by replaying the log on top of the last checkpoint. Volatile mode (opt-in) turns all of this off. Save games are for full point-in-time restore points; to move data as portable text instead, see [bulk import/export](/fallen-8-core/bulk-import-export/).
+Fallen-8 is durable by default. Every committed transaction is appended to a per-namespace **write-ahead log (WAL)** and fsync'd before the call returns; on demand (via `PUT /save` or a clean shutdown) the engine writes a **save game**, a full checkpoint of the graph. A single **registry** at `<deployment>/metadata/savegames.json` records every save game with its KPIs and file facts and is the sole authority for what loads on startup. Between checkpoints the WAL closes the gap, so a crash recovers every committed transaction by replaying the log on top of the last checkpoint. Volatile mode (opt-in) turns all of this off. Save games are for full point-in-time restore points; to move data as portable text instead, see [bulk import/export](/fallen-8-core/bulk-import-export/).
 
 ```mermaid
 flowchart LR
@@ -21,47 +21,49 @@ flowchart LR
 | Piece | Role |
 |---|---|
 | **WAL** | Append-only, one per namespace. Each committed data mutation is framed with a CRC-32 and fsync'd before `PUT`/`WaitUntilFinished` returns. A torn trailing entry (crash mid-append) is discarded cleanly on replay. |
-| **Checkpoint / save game** | A full snapshot: a primary file plus sidecars (element partitions, indices, services, subgraph and stored-query manifests). Written atomically (temp file + fsync + rename); a save resets the WAL to build on the new snapshot. |
+| **Checkpoint / save game** | A full snapshot: a primary file plus sidecars (element partitions, indices, services, and the subgraph, stored-query and plugin manifests). Written atomically (temp file + fsync + rename); a save resets the WAL to build on the new snapshot. |
 | **Registry** | One JSON document per deployment, written atomically. Records every save game (never overwritten silently; a corrupt document is a loud failure) and decides what boots. |
 
 ## What a save game contains
 
 | Content | Persisted | On load |
 |---|---|---|
-| Vertices & edges + their properties | Yes — id-partitioned element files | Restored |
-| Element embeddings | Yes — element state, travels with the elements | Restored ([semantic traversal](/fallen-8-core/semantic-traversal/)) |
-| Indices | Yes — one file per index | Restored; a bound vector index is rebuilt as a derived projection ([indexes](/fallen-8-core/indexes/), [vector search](/fallen-8-core/vector-search/)) |
-| Services | Yes | Restored (started when `startServices` is set) |
-| Subgraph recipes | Yes — one manifest | Recompiled ([subgraphs](/fallen-8-core/subgraphs/)) |
-| Stored queries | Yes — source only, one manifest | Recompiled ([stored queries](/fallen-8-core/stored-queries/)) |
+| Vertices & edges + their properties | Yes: id-partitioned element files | Restored |
+| Element embeddings | Yes: element state, travels with the elements | Restored ([semantic traversal](/fallen-8-core/semantic-traversal/)) |
+| Indices | Yes: one file per index | Restored; a load **replaces** the live index set with the checkpoint's (indices created since it are dropped), and a bound vector index is rebuilt as a derived projection ([indexes](/fallen-8-core/indexes/), [vector search](/fallen-8-core/vector-search/)) |
+| Services | Yes | Restored, but **not started** by the startup load (no configuration key changes that); started by `PUT /savegames/{id}/load`, and by `PUT /load` unless you send `startServices: false` |
+| Subgraph recipes | Yes: one manifest | Recompiled ([subgraphs](/fallen-8-core/subgraphs/)) |
+| Stored queries | Yes: source only, one manifest | Recompiled ([stored queries](/fallen-8-core/stored-queries/)) |
+| Registered plugins | Yes, source only (one manifest) | Recompiled ([plugin registration](/fallen-8-core/plugin-registration/)) |
 
-Between checkpoints the WAL records the same data mutations plus id-space markers (`Trim`, `TabulaRasa`) and subgraph/stored-query registrations committed since the last save, so crash recovery loses nothing committed.
+Between checkpoints the WAL records the same data mutations plus id-space markers (`Trim`, `TabulaRasa`) and the subgraph, stored-query and plugin registrations committed since the last save, so crash recovery loses nothing committed.
 
 ## Startup
 
-The registry — never the files on disk — decides what boots. Each namespace is resolved by its immutable id (a rename keeps its history; a drop + recreate does not inherit the old one's saves):
+The registry (never the files on disk) decides what boots. Each namespace is resolved by its immutable id (a rename keeps its history; a drop + recreate does not inherit the old one's saves):
 
 | Registry state | What loads |
 |---|---|
 | An entry contains the namespace | Its newest such entry's checkpoint is loaded, then the WAL tail is replayed |
-| No entry contains it | Nothing is loaded; the namespace keeps its WAL-replayed construction state — an empty graph on a fresh deployment |
+| No entry contains it | Nothing is loaded; the namespace keeps its WAL-replayed construction state, an empty graph on a fresh deployment |
 
-- A checkpoint file merely sitting in the storage directory is **not** auto-loaded. (Exception: a checkpoint strictly newer than the newest registered entry is adopted — it is a durable save whose registry write did not complete before a crash.)
+- A checkpoint file merely sitting in the storage directory is **not** auto-loaded. (Exception: a checkpoint strictly newer than the newest registered entry is adopted: it is a durable save whose registry write did not complete before a crash.)
 - To **adopt an unregistered checkpoint**, load it once with `PUT /load`; it is then registered permanently and boots normally thereafter.
-- A registered entry whose checkpoint file is missing aborts startup loudly rather than serving an empty graph — restore the file, or delete the entry (`DELETE /savegames/{id}`) and restart.
+- A registered entry whose checkpoint file is missing aborts startup loudly rather than serving an empty graph: restore the file, or delete the entry (`DELETE /savegames/{id}`) and restart.
+- A corrupt `savegames.json` is a loud failure too, never silently overwritten: fix the JSON, or move the file aside and re-adopt the checkpoints with `PUT /load` (you lose the history, not the data).
 
 ## Configuration
 
 | Key | Default | Effect |
 |---|---|---|
 | `Fallen8:Durability:StorageDirectory` | app base directory | Directory holding the checkpoint files and the WAL |
-| `Fallen8:Durability:CheckpointBaseName` | `Temp.f8s` | Base file name for the clean-shutdown checkpoint |
+| `Fallen8:Durability:CheckpointBaseName` | `Temp.f8s` | Base file name of the default checkpoint path, used by the clean-shutdown save, `PUT /save/all`, and a bare `PUT /save` |
 | `Fallen8:Durability:WalPath` | `<StorageDirectory>/fallen8.wal` | WAL path for the default namespace |
 | `Fallen8:Durability:Volatile` | `false` | `true` = pure in-memory: no boot load, no shutdown save, **WAL disabled**; a restart loses all data by choice |
 | `Fallen8:Durability:SaveOnShutdown` | `true` | `true` = final checkpoint on clean shutdown; `false` = rely on the per-commit WAL (committed work still survives; the next boot replays a longer log) |
 | `Fallen8:Metadata:Directory` | `<app base>/metadata` | Directory holding `savegames.json` |
 
-In the compose environment these bind from environment variables (`Fallen8__Durability__StorageDirectory=/data`, `Fallen8__Metadata__Directory=/data/metadata`) so the graph data and the registry share one named volume; see [running](/fallen-8-core/running/). A bare `PUT /save` uses the namespace's default checkpoint file — pass `saveGameLocation` to place it under your storage volume explicitly.
+In the compose environment these bind from environment variables (`Fallen8__Durability__StorageDirectory=/data`, `Fallen8__Metadata__Directory=/data/metadata`) so the graph data and the registry share one named volume; see [running](/fallen-8-core/running/). A bare `PUT /save` writes to the addressed namespace's default checkpoint path (`CheckpointBaseName` inside its directory); pass `saveGameLocation` to write somewhere else explicitly.
 
 ## REST surface
 
@@ -72,9 +74,11 @@ Base URL `http://localhost:8080`. `PUT /save` and `PUT /load` target the address
 | Route | Scope | Body | Responses |
 |---|---|---|---|
 | `PUT /save` | namespace | `SaveSpecification` (all optional) | `200` created entry · `400` · `500` rolled back |
-| `PUT /save/all` | Fallen-8 | — | `200` one entry spanning all namespaces · `429` rate-limited · `500` (body names failed namespaces; successful ones are still registered) |
+| `PUT /save/all` | Fallen-8 | (none) | `200` one entry spanning all namespaces · `429` rate-limited · `500` (body names failed namespaces; successful ones are still registered) |
 
-`SaveSpecification`: `saveGameLocation` (path; defaults to `Temp.f8s` in the storage directory), `savePartitions` (defaults to the optimal count for the CPU). Both `PUT /save` and `PUT /save/all` wait for the save to finish before responding.
+`SaveSpecification`: `saveGameLocation` (path; defaults to `CheckpointBaseName` in the addressed namespace's directory), `savePartitions` (defaults to the optimal count for the CPU). Both `PUT /save` and `PUT /save/all` wait for the save to finish before responding.
+
+**A save never overwrites an existing checkpoint.** If the target path is already on disk, the engine writes a versioned sibling instead: `<path>#<stamp>`, where the stamp is a monotonically increasing UTC timestamp. So repeated saves to the default location pile up as `Temp.f8s`, then `Temp.f8s#…`, then another `Temp.f8s#…`. Two consequences: read the returned entry's `location` as the authoritative path (it is not necessarily the path you asked for), and prune old snapshots yourself with `DELETE /savegames/{id}?deleteFiles=true`, which deletes exactly that entry's own primary file and sidecars and never a sibling version's.
 
 ### Registry and restore
 
@@ -82,13 +86,17 @@ Base URL `http://localhost:8080`. `PUT /save` and `PUT /load` target the address
 |---|---|---|
 | `GET /savegames` | List every entry, newest first | `200` |
 | `GET /savegames/{id}` | One entry | `200` · `204` unknown id |
-| `PUT /savegames/{id}/load` | Restore the entry's namespaces, replacing their in-memory graphs | `200` (waited) · `202` (accepted) · `404` · `500` rolled back |
+| `PUT /savegames/{id}/load` | Restore the entry's namespaces, replacing their in-memory graphs | `200` (waited) · `202` (accepted) · `404` · `500` (three causes, below) |
 | `DELETE /savegames/{id}` | Remove the entry; `?deleteFiles=true` also deletes its checkpoint files | `204` · `404` |
 | `PUT /load` | Load a checkpoint from an arbitrary path into the addressed namespace | `204` · `400` · `500` rolled back |
 
-Restore query parameters: `?waitForCompletion=true` awaits the load and returns `200` (otherwise it returns `202` immediately); `?namespace={name}` restores just that member of the entry (`404` when the entry does not contain it). Restoring recreates a dropped namespace, replaces an existing one's content, and leaves namespaces the entry does not contain untouched. `PUT /load` takes a `LoadSpecification`: `saveGameLocation` and `startServices`; a checkpoint loaded this way is registered if not already known.
+Restore query parameters: `?waitForCompletion=true` awaits the load and returns `200` (otherwise it returns `202` immediately); `?namespace={name}` restores just that member of the entry (`404` when the entry does not contain it, the other `404` being an unknown id). Restoring recreates a dropped namespace, replaces an existing one's content, and leaves namespaces the entry does not contain untouched. `PUT /load` takes a `LoadSpecification`: `saveGameLocation` and `startServices` (default `true`); a checkpoint loaded this way is registered if not already known. Unlike `PUT /savegames/{id}/load` it does no pre-flight file check, so a path that does not exist answers `204` with nothing loaded (the miss reaches the server log only): verify the counts afterwards.
 
-A registry entry (`SaveGameREST`) reports: `id`, `savedAt` (ISO-8601 UTC), `trigger` (`api` \| `shutdown` \| `imported`), `location`, `fileCount`, `totalBytes`, `engineVersion`, `kpis` (`vertexCount`, `edgeCount`, index/plugin/subgraph inventory), and a `namespaces[]` manifest (`name`, `id`, `location`, file facts, `kpis` per member).
+**A restore is not a rollback, because the WAL always participates.** A successful save re-anchors its namespace's WAL to the checkpoint it just wrote. Restoring the entry the live log is anchored to (normally the newest) therefore loads that checkpoint and then replays everything committed since it, landing back on the current committed state: "restore the last save game to undo my recent writes" is a no-op. Restoring an *older* entry re-anchors the log to it and **discards** the transactions committed after it, which is the honest way back to a point in time; the discard is announced as a loud server-log warning. `PUT /load` of an arbitrary path behaves identically.
+
+`500` from `PUT /savegames/{id}/load` has three causes, and the first two are all-or-nothing pre-flight failures that touch no graph at all: a member's checkpoint file is missing (`Save game files missing`, the REST twin of the startup abort above) or a dropped namespace could not be recreated (`Namespace restore failed`). Only the third, a rolled-back load transaction, can leave a partial restore; that body carries a `failedNamespaces` member naming the namespaces that failed.
+
+A registry entry (`SaveGameREST`) reports: `id`, `savedAt` (ISO-8601 UTC), `trigger` (`api` \| `shutdown` \| `imported`), `location`, `fileCount`, `totalBytes`, `engineVersion`, `kpis` (`vertexCount`, `edgeCount`, `usedMemoryBytes` for the process working set at save time, plus the index/plugin/subgraph inventory), and a `namespaces[]` manifest (`name`, `id`, `location`, file facts, `kpis` per member). The top level is conditional: on a multi-namespace entry (what `PUT /save/all` and the shutdown save produce) `location` is `null` and `fileCount`/`totalBytes`/`kpis` are sums across the members, so read `namespaces[].location` for a member's checkpoint. A single-member entry mirrors that member at the top level, and a pre-namespace entry has no `namespaces` at all (it reads as a `default`-only save).
 
 ## Examples
 
@@ -143,14 +151,14 @@ Invoke-RestMethod -Method Delete `
 </TabItem>
 </Tabs>
 
-Adopt a checkpoint that is on disk but not in the registry (registers it permanently):
+Adopt a checkpoint that is on disk but not in the registry (registers it permanently). Point at the exact primary file: the first save to a path is the bare name, later saves are versioned, so the newest snapshot is the `Temp.f8s#<stamp>` with the highest stamp; files whose name continues with `_` are its sidecars and never a load target.
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
 
 ```bash
 curl -X PUT http://localhost:8080/load -H "Content-Type: application/json" \
-  -d '{ "saveGameLocation": "/data/Temp.f8s", "startServices": true }'
+  -d '{ "saveGameLocation": "/data/Temp.f8s#5250912345678901234", "startServices": true }'
 ```
 
 </TabItem>
@@ -158,7 +166,7 @@ curl -X PUT http://localhost:8080/load -H "Content-Type: application/json" \
 
 ```powershell
 Invoke-RestMethod -Method Put -Uri http://localhost:8080/load -ContentType "application/json" `
-  -Body '{ "saveGameLocation": "/data/Temp.f8s", "startServices": true }'
+  -Body '{ "saveGameLocation": "/data/Temp.f8s#5250912345678901234", "startServices": true }'
 ```
 
 </TabItem>
@@ -166,19 +174,19 @@ Invoke-RestMethod -Method Put -Uri http://localhost:8080/load -ContentType "appl
 
 ## Namespaces
 
-`PUT /save/all` checkpoints every namespace into **one** save-game entry — a single consistent restore point for the whole Fallen-8; the clean-shutdown save produces the same shape. Restore the whole entry, or a single member with `?namespace={name}`, via `PUT /savegames/{id}/load`. Each namespace keeps its own checkpoint files and WAL under its own directory, while the registry is shared. The namespace model itself lives in [namespaces](/fallen-8-core/namespaces/).
+`PUT /save/all` checkpoints every namespace into **one** save-game entry: a single consistent restore point for the whole Fallen-8; the clean-shutdown save produces the same shape. Restore the whole entry, or a single member with `?namespace={name}`, via `PUT /savegames/{id}/load`. Each namespace keeps its own checkpoint files and WAL under its own directory (`default` uses the storage directory itself, every other namespace a `namespaces/<id>/` subdirectory of it), while the registry is shared. The namespace model itself lives in [namespaces](/fallen-8-core/namespaces/).
 
 ## Studio
 
-F8 Studio has a Save games screen that lists entries and drives save, restore, and delete — see [studio](/fallen-8-core/studio/).
+F8 Studio has a Save games screen that lists entries and drives save, restore, and delete; see [studio](/fallen-8-core/studio/).
 
 ## See also
 
-- [Indexes](/fallen-8-core/indexes/) — how indices are captured and restored/rebuilt on load
-- [Namespaces](/fallen-8-core/namespaces/) — the namespace model and `/ns/{ns}/…` route twins
-- [Bulk import/export](/fallen-8-core/bulk-import-export/) — the portable-text alternative for moving data
-- [Stored queries](/fallen-8-core/stored-queries/) · [Subgraphs](/fallen-8-core/subgraphs/) — assets recompiled from a save game
-- [Semantic traversal](/fallen-8-core/semantic-traversal/) · [Vector search](/fallen-8-core/vector-search/) — embedding and vector-index durability
-- [Running](/fallen-8-core/running/) — storage-directory configuration in the compose environment
-- [REST API](/fallen-8-core/rest-api/) — OpenAPI document and Scalar reference
-- [Troubleshooting](/fallen-8-core/troubleshooting/) — recovering from a missing checkpoint or corrupt registry
+- [Indexes](/fallen-8-core/indexes/): how indices are captured and restored/rebuilt on load
+- [Namespaces](/fallen-8-core/namespaces/): the namespace model and `/ns/{ns}/…` route twins
+- [Bulk import/export](/fallen-8-core/bulk-import-export/): the portable-text alternative for moving data
+- [Stored queries](/fallen-8-core/stored-queries/) · [Subgraphs](/fallen-8-core/subgraphs/): assets recompiled from a save game
+- [Semantic traversal](/fallen-8-core/semantic-traversal/) · [Vector search](/fallen-8-core/vector-search/): embedding and vector-index durability
+- [Running](/fallen-8-core/running/): storage-directory configuration in the compose environment
+- [REST API](/fallen-8-core/rest-api/): OpenAPI document and Scalar reference
+- [Troubleshooting](/fallen-8-core/troubleshooting/): common API, NL-assist and sidecar failure modes

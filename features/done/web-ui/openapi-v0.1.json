@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.1",
   "info": {
-    "title": "fallen-8-core-apiApp | v0.1",
+    "title": "Fallen-8 REST API",
     "description": "A Fallen-8 hosts isolated graph namespaces. Every namespace-scoped path exists twice: bare, aliasing the reserved \"default\" namespace, and prefixed with /ns/{ns} to address a named namespace. A request naming an unknown namespace answers 404 application/problem+json with a \"namespace\" extension member. Fallen-8-level paths (the /ns management routes, save games, benchmark, delegate validation) exist once and concern the whole collection of namespaces.",
-    "version": "1.0.0"
+    "version": "0.1"
   },
   "servers": [
     {
@@ -17,7 +17,7 @@
           "Analytics"
         ],
         "summary": "Lists the discovered analytics algorithm plugins",
-        "description": "The five built-ins are PAGERANK, WCC, LABELPROPAGATION, DEGREE and TRIANGLECOUNT;\r\nthird-party IGraphAnalyticsAlgorithm plugins from assimilated assemblies appear here\r\ntoo (the same discovery as path and subgraph algorithms).",
+        "description": "The five built-ins are PAGERANK, WCC, LABELPROPAGATION, DEGREE and TRIANGLECOUNT;\r\nIGraphAnalyticsAlgorithm plugins compiled into the shipped assemblies appear here too\r\n(the same discovery as path and subgraph algorithms), as do the addressed namespace's\r\nruntime-registered analytics plugins (POST /plugins/algorithm). Every name listed here\r\nis invocable through POST /analytics/{algorithmName}.",
         "parameters": [
           {
             "name": "api-version",
@@ -381,7 +381,7 @@
           {
             "name": "iterations",
             "in": "query",
-            "description": "Number of timed iterations (default 1000)",
+            "description": "Number of timed iterations (default 1000, at most\r\n    Fallen8:Security:BenchmarkMaxIterations; the default is clamped to that ceiling)",
             "schema": {
               "type": "string"
             }
@@ -414,7 +414,7 @@
             }
           },
           "400": {
-            "description": "Empty graph, non-positive or non-numeric iteration count",
+            "description": "Empty graph, non-positive or non-numeric iteration count, or a count\r\n    above Fallen8:Security:BenchmarkMaxIterations",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -493,7 +493,7 @@
             }
           },
           "422": {
-            "description": "An element carries a property outside the exportable type\r\n     allow-list (or a null value); the body names the element and property. Sent BEFORE any\r\n     streaming, so a failed export is never a half-written file",
+            "description": "An element carries a property that cannot be exported: a null\r\n     value, a runtime type outside the exportable allow-list, or a String/Char holding an\r\n     unpaired surrogate (invalid UTF-16). The body names the element, the property and which\r\n     of the three it was. Sent BEFORE any streaming, so a failed export is never a\r\n     half-written file",
             "content": {
               "application/x-ndjson; ver=0.1": {
                 "schema": {
@@ -1007,7 +1007,7 @@
           "Document"
         ],
         "summary": "Ingests a document file into the graph",
-        "description": "Asynchronous (feature semantic-layer): the Document vertex is created first (status\r\n`processing`, visible on the change feed) and the pipeline - convert, chunk,\r\nembed, write, then additive NLP enrichment into the entity graph - runs off the request\r\nthread on a single global queue; the row flips to `indexed` when it finishes. Any\r\nfailure leaves exactly one failed Document vertex and zero chunks.",
+        "description": "Asynchronous (feature semantic-layer): the Document vertex is created first (status\r\n`processing`, visible on the change feed) and the pipeline - convert, chunk,\r\nembed, write, then additive NLP enrichment into the entity graph - runs off the request\r\nthread on a single global queue; the row flips to `indexed` when it finishes. Any\r\nfailure leaves exactly one failed Document vertex and zero chunks.\r\nOnly what is knowable BEFORE the hand-off can answer with an HTTP status. Everything the\r\nworker discovers later - the page cap (`Fallen8:Ingestion:MaxPages`), the per-document\r\nchunk cap (`MaxChunksPerDocument`), a conversion that yields no text, and any\r\nembedding-backend fault - cannot, because this call has already answered 202. Those\r\noutcomes flip the queued document to `failed` with the reason on its status, so a\r\ncaller learns them from the change feed or from GET /document/{documentId}, never from\r\nthis response.",
         "parameters": [
           {
             "name": "api-version",
@@ -1111,7 +1111,7 @@
             }
           },
           "400": {
-            "description": "Unsupported format, reserved tag key, invalid link allowlist, empty conversion, or no chunks",
+            "description": "Unsupported format, a reserved tag key, or an invalid link allowlist",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -1166,7 +1166,7 @@
             }
           },
           "413": {
-            "description": "Above Fallen8:Ingestion:MaxUploadBytes, MaxPages, or MaxChunksPerDocument",
+            "description": "The upload exceeds Fallen8:Ingestion:MaxUploadBytes",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -1187,14 +1187,8 @@
               "application/json": { }
             }
           },
-          "502": {
-            "description": "The embedding backend produced invalid output",
-            "content": {
-              "application/json": { }
-            }
-          },
           "503": {
-            "description": "The docling sidecar or the embedding backend is unavailable, or the ingestion queue is full",
+            "description": "No docling endpoint is configured for a binary format, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -1408,7 +1402,7 @@
           {
             "name": "type",
             "in": "query",
-            "description": "Optional entity-type filter (case-insensitive, e.g. PER/ORG/LOC)",
+            "description": "Optional filter on the raw NLP label, compared case-insensitively (e.g. PERSON/ORG/GPE)",
             "schema": {
               "type": "string"
             }
@@ -1704,7 +1698,7 @@
             }
           },
           "413": {
-            "description": "The text exceeds Fallen8:Ingestion:MaxUploadBytes, or the chunk cap",
+            "description": "The text exceeds Fallen8:Ingestion:MaxUploadBytes",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -1725,14 +1719,8 @@
               "application/json": { }
             }
           },
-          "502": {
-            "description": "The embedding backend produced invalid output",
-            "content": {
-              "application/json": { }
-            }
-          },
           "503": {
-            "description": "The embedding backend is unavailable, or the ingestion queue is full",
+            "description": "The ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -2071,7 +2059,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "security": [ ]
       }
     },
     "/edge/{edgeIdentifier}": {
@@ -3922,7 +3911,7 @@
             }
           },
           "400": {
-            "description": "The property specification was missing or malformed",
+            "description": "The property specification was missing or malformed, or the index is a vector index bound to an embedding (it maintains its own content)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3988,6 +3977,17 @@
               "application/json; ver=0.1": {
                 "schema": {
                   "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The index is a vector index bound to an embedding (it maintains its own content; remove the element embedding instead)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -4624,7 +4624,7 @@
           "Analytics"
         ],
         "summary": "Lists the discovered analytics algorithm plugins",
-        "description": "The five built-ins are PAGERANK, WCC, LABELPROPAGATION, DEGREE and TRIANGLECOUNT;\r\nthird-party IGraphAnalyticsAlgorithm plugins from assimilated assemblies appear here\r\ntoo (the same discovery as path and subgraph algorithms).",
+        "description": "The five built-ins are PAGERANK, WCC, LABELPROPAGATION, DEGREE and TRIANGLECOUNT;\r\nIGraphAnalyticsAlgorithm plugins compiled into the shipped assemblies appear here too\r\n(the same discovery as path and subgraph algorithms), as do the addressed namespace's\r\nruntime-registered analytics plugins (POST /plugins/algorithm). Every name listed here\r\nis invocable through POST /analytics/{algorithmName}.",
         "parameters": [
           {
             "name": "ns",
@@ -5075,7 +5075,7 @@
             }
           },
           "422": {
-            "description": "An element carries a property outside the exportable type\r\n     allow-list (or a null value); the body names the element and property. Sent BEFORE any\r\n     streaming, so a failed export is never a half-written file",
+            "description": "An element carries a property that cannot be exported: a null\r\n     value, a runtime type outside the exportable allow-list, or a String/Char holding an\r\n     unpaired surrogate (invalid UTF-16). The body names the element, the property and which\r\n     of the three it was. Sent BEFORE any streaming, so a failed export is never a\r\n     half-written file",
             "content": {
               "application/x-ndjson; ver=0.1": {
                 "schema": {
@@ -5353,7 +5353,7 @@
           "Document"
         ],
         "summary": "Ingests a document file into the graph",
-        "description": "Asynchronous (feature semantic-layer): the Document vertex is created first (status\r\n`processing`, visible on the change feed) and the pipeline - convert, chunk,\r\nembed, write, then additive NLP enrichment into the entity graph - runs off the request\r\nthread on a single global queue; the row flips to `indexed` when it finishes. Any\r\nfailure leaves exactly one failed Document vertex and zero chunks.",
+        "description": "Asynchronous (feature semantic-layer): the Document vertex is created first (status\r\n`processing`, visible on the change feed) and the pipeline - convert, chunk,\r\nembed, write, then additive NLP enrichment into the entity graph - runs off the request\r\nthread on a single global queue; the row flips to `indexed` when it finishes. Any\r\nfailure leaves exactly one failed Document vertex and zero chunks.\r\nOnly what is knowable BEFORE the hand-off can answer with an HTTP status. Everything the\r\nworker discovers later - the page cap (`Fallen8:Ingestion:MaxPages`), the per-document\r\nchunk cap (`MaxChunksPerDocument`), a conversion that yields no text, and any\r\nembedding-backend fault - cannot, because this call has already answered 202. Those\r\noutcomes flip the queued document to `failed` with the reason on its status, so a\r\ncaller learns them from the change feed or from GET /document/{documentId}, never from\r\nthis response.",
         "parameters": [
           {
             "name": "ns",
@@ -5465,7 +5465,7 @@
             }
           },
           "400": {
-            "description": "Unsupported format, reserved tag key, invalid link allowlist, empty conversion, or no chunks",
+            "description": "Unsupported format, a reserved tag key, or an invalid link allowlist",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -5520,7 +5520,7 @@
             }
           },
           "413": {
-            "description": "Above Fallen8:Ingestion:MaxUploadBytes, MaxPages, or MaxChunksPerDocument",
+            "description": "The upload exceeds Fallen8:Ingestion:MaxUploadBytes",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -5541,14 +5541,8 @@
               "application/json": { }
             }
           },
-          "502": {
-            "description": "The embedding backend produced invalid output",
-            "content": {
-              "application/json": { }
-            }
-          },
           "503": {
-            "description": "The docling sidecar or the embedding backend is unavailable, or the ingestion queue is full",
+            "description": "No docling endpoint is configured for a binary format, or the ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -5786,7 +5780,7 @@
           {
             "name": "type",
             "in": "query",
-            "description": "Optional entity-type filter (case-insensitive, e.g. PER/ORG/LOC)",
+            "description": "Optional filter on the raw NLP label, compared case-insensitively (e.g. PERSON/ORG/GPE)",
             "schema": {
               "type": "string"
             }
@@ -6106,7 +6100,7 @@
             }
           },
           "413": {
-            "description": "The text exceeds Fallen8:Ingestion:MaxUploadBytes, or the chunk cap",
+            "description": "The text exceeds Fallen8:Ingestion:MaxUploadBytes",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -6127,14 +6121,8 @@
               "application/json": { }
             }
           },
-          "502": {
-            "description": "The embedding backend produced invalid output",
-            "content": {
-              "application/json": { }
-            }
-          },
           "503": {
-            "description": "The embedding backend is unavailable, or the ingestion queue is full",
+            "description": "The ingestion queue is full",
             "content": {
               "application/json": { }
             }
@@ -6505,7 +6493,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "security": [ ]
       }
     },
     "/ns/{ns}/edge/{edgeIdentifier}": {
@@ -8451,7 +8440,7 @@
             }
           },
           "400": {
-            "description": "The property specification was missing or malformed",
+            "description": "The property specification was missing or malformed, or the index is a vector index bound to an embedding (it maintains its own content)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -8525,6 +8514,17 @@
               "application/json; ver=0.1": {
                 "schema": {
                   "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The index is a vector index bound to an embedding (it maintains its own content; remove the element embedding instead)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -8616,7 +8616,7 @@
           "Graph"
         ],
         "summary": "Calculates the shortest path between two vertices in the graph",
-        "description": "The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.\r\n\r\nSelect the algorithm via \"pathAlgorithmName\". \"BLS\" is a hop-count (unweighted) shortest\r\npath that ignores the \"cost\" block (\"totalWeight\" is 0), whereas \"DIJKSTRA\" is a weighted\r\nshortest path that honours the \"cost\" block and \"maxPathWeight\" (and returns the K\r\nleast-weight loop-free paths when \"maxResults\" &gt; 1).\r\n\r\nIMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a \"return\" statement.\r\nThese are compiled at runtime into delegate methods.\r\n\r\nCorrect format for filter expressions:\r\n- \"return (parameter) =&gt; boolean_expression;\"\r\n\r\nCorrect format for cost expressions:\r\n- \"return (parameter) =&gt; numeric_expression;\"\r\n\r\nSample request:\r\n\r\n    POST /path/1/to/5\r\n    {\r\n       \"pathAlgorithmName\": \"BLS\",\r\n       \"maxDepth\": 5,\r\n       \"maxPathWeight\": 100.0,\r\n       \"maxResults\": 10,\r\n       \"filter\": {\r\n         \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"Person\\\";\",\r\n         \"edgeFilter\": \"return (e) =&gt; e.Label == \\\"friendship\\\";\",\r\n         \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\"\r\n       },\r\n       \"cost\": {\r\n         \"vertexCost\": \"return (v) =&gt; v.TryGetProperty(out var age, \\\"age\\\") ? (double)age : 1.0;\",\r\n         \"edgeCost\": \"return (e) =&gt; e.TryGetProperty(out var weight, \\\"weight\\\") ? (double)weight : 1.0;\"\r\n       }\r\n    }",
+        "description": "The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.\r\n\r\nSelect the algorithm via \"pathAlgorithmName\". \"BLS\" is a hop-count (unweighted) shortest\r\npath that ignores the \"cost\" block (\"totalWeight\" is 0), whereas \"DIJKSTRA\" is a weighted\r\nshortest path that honours the \"cost\" block and \"maxPathWeight\" (and returns the K\r\nleast-weight loop-free paths when \"maxResults\" &gt; 1).\r\n\r\nIMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a \"return\" statement.\r\nThese are compiled at runtime into delegate methods.\r\n\r\nCorrect format for filter expressions:\r\n- \"return (parameter) =&gt; boolean_expression;\"\r\n\r\nCorrect format for cost expressions:\r\n- \"return (parameter) =&gt; numeric_expression;\"\r\n\r\nInstead of inline fragments, the body may reference a registered stored query of kind\r\n\"Path\" via \"storedQuery\" (mutually exclusive with \"filter\"/\"cost\"): the pre-compiled\r\nartifact is used and nothing is compiled per request. The numeric bounds and\r\n\"pathAlgorithmName\" stay per-request either way.\r\n\r\nSEMANTIC TRAVERSAL (feature element-embeddings): an optional \"semantic\" block carries\r\na query vector (or, with the embedding provider enabled, a \"queryText\" embedded once,\r\nup front) plus code-free similarity options - \"minScore\" filters vertices by\r\nsimilarity against their named element embedding, \"costBySimilarity\" weights a\r\nDIJKSTRA search by it. The block is pure data (it compiles no C#);\r\ncompiled fragments and stored queries read the same vector via the \"context\"\r\nparameter. Example: { \"semantic\": { \"queryVector\": [0.1, 0.2], \"minScore\": 0.7 } }.\r\nFull rules: features/element-embeddings README, \"Semantic traversal\".\r\n\r\nSECURITY: inline filter/cost fragments are compiled with Roslyn and executed IN-PROCESS\r\nWITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone permitted to\r\nintroduce code is trusted as the server process. Dynamic code execution is ALWAYS ON -\r\nthere is no switch to disable it - so authentication (required whenever an API key is\r\nconfigured) is the boundary. Invoking an operator-registered stored query narrows WHO can\r\nintroduce code, but the invoked query still runs with full trust; it is not a sandbox.\r\n\r\nEXECUTION BUDGET: the optional \"timeBudgetSeconds\" bounds the traversal (omitted =\r\nunbounded, exactly as before), and the traversal is always bound to the request abort, so\r\na client that gives up stops the work. Exhaustion answers 408. The budget is COOPERATIVE -\r\nit is checked between filter/cost invocations - so it contains an algorithmic blow-up but\r\ncannot interrupt a single fragment call that never returns.\r\n\r\nSample request:\r\n\r\n    POST /path/1/to/5\r\n    {\r\n       \"pathAlgorithmName\": \"BLS\",\r\n       \"maxDepth\": 5,\r\n       \"maxPathWeight\": 100.0,\r\n       \"maxResults\": 10,\r\n       \"filter\": {\r\n         \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"Person\\\";\",\r\n         \"edgeFilter\": \"return (e) =&gt; e.Label == \\\"friendship\\\";\",\r\n         \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\"\r\n       },\r\n       \"cost\": {\r\n         \"vertexCost\": \"return (v) =&gt; v.TryGetProperty(out var age, \\\"age\\\") ? (double)age : 1.0;\",\r\n         \"edgeCost\": \"return (e) =&gt; e.TryGetProperty(out var weight, \\\"weight\\\") ? (double)weight : 1.0;\"\r\n       }\r\n    }",
         "parameters": [
           {
             "name": "from",
@@ -8724,6 +8724,17 @@
           },
           "404": {
             "description": "No stored query with the referenced name exists (a missing source/target vertex is not a 404: it yields a 200 with an empty path list)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "408": {
+            "description": "The execution budget (\"timeBudgetSeconds\") or the client's own cancellation stopped the traversal before it finished; no result is reported, because an empty 200 would read as \"no path exists\"",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -9674,7 +9685,7 @@
           "Graph"
         ],
         "summary": "Scans the graph for elements with a specific property value",
-        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the scan to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to scan every element type.",
+        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": 0,\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the scan to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to scan every element type.",
         "parameters": [
           {
             "name": "propertyId",
@@ -9769,7 +9780,7 @@
           "Graph"
         ],
         "summary": "Performs a scan operation on an index with a specific value and operator",
-        "description": "Sample request:\r\n\r\n    POST /scan/index/all\r\n    {\r\n       \"indexId\": \"userNameIndex\",\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"Jane\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the hits to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to return every match.",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/all\r\n    {\r\n       \"indexId\": \"userNameIndex\",\r\n       \"operator\": 0,\r\n       \"literal\": {\r\n         \"value\": \"Jane\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the hits to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to return every match.",
         "parameters": [
           {
             "name": "ns",
@@ -9934,7 +9945,7 @@
           "Graph"
         ],
         "summary": "Performs a range-based scan on an index between two values",
-        "description": "Sample request:\r\n\r\n    POST /scan/index/range\r\n    {\r\n       \"indexId\": \"ageIndex\",\r\n       \"leftLimit\": 18,\r\n       \"rightLimit\": 30,\r\n       \"includeLeft\": true,\r\n       \"includeRight\": false,\r\n       \"fullQualifiedTypeName\": \"System.Int32\",\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/range\r\n    {\r\n       \"indexId\": \"ageIndex\",\r\n       \"leftLimit\": \"18\",\r\n       \"rightLimit\": \"30\",\r\n       \"includeLeft\": true,\r\n       \"includeRight\": false,\r\n       \"fullQualifiedTypeName\": \"System.Int32\",\r\n       \"resultType\": \"Vertices\"\r\n    }",
         "parameters": [
           {
             "name": "ns",
@@ -10415,7 +10426,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "security": [ ]
       }
     },
     "/ns/{ns}/storedquery": {
@@ -10424,7 +10436,7 @@
           "StoredQueries"
         ],
         "summary": "Registers a stored query: validates and compiles the specification, then publishes it under a unique name.",
-        "description": "Exactly one of \"path\" / \"subGraph\" must be present and must match \"kind\". The code\r\nfragments are compiled ONCE here, with the same bounds as the inline endpoints; a\r\ncompile failure rejects the registration with the compiler diagnostics. Entries are\r\nimmutable: to change one, delete and re-register.\r\n\r\nSample request:\r\n\r\n    POST /storedquery\r\n    {\r\n       \"name\": \"adults-shortest\",\r\n       \"kind\": \"Path\",\r\n       \"description\": \"age&gt;30 vertices, weight-by-distance\",\r\n       \"path\": {\r\n         \"filter\": { \"vertexFilter\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\" },\r\n         \"cost\":   { \"edgeCost\": \"return (e) =&gt; 1.0;\" }\r\n       }\r\n    }",
+        "description": "Exactly one of \"path\" / \"subGraph\" must be present and must match \"kind\". The code\r\nfragments are compiled ONCE here, with the same bounds as the inline endpoints; a\r\ncompile failure rejects the registration with the compiler diagnostics. Entries are\r\nimmutable: to change one, delete and re-register.\r\n\r\nSECURITY: registration compiles C# fragments with Roslyn that later execute IN-PROCESS\r\nWITH FULL TRUST. It carries the same authentication as the inline code endpoints\r\n(required whenever an API key is configured); dynamic code execution itself is always on.\r\n\r\nSample request:\r\n\r\n    POST /storedquery\r\n    {\r\n       \"name\": \"adults-shortest\",\r\n       \"kind\": \"Path\",\r\n       \"description\": \"age&gt;30 vertices, weight-by-distance\",\r\n       \"path\": {\r\n         \"filter\": { \"vertexFilter\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\" },\r\n         \"cost\":   { \"edgeCost\": \"return (e) =&gt; 1.0;\" }\r\n       }\r\n    }",
         "parameters": [
           {
             "name": "ns",
@@ -10747,7 +10759,7 @@
           "SubGraph"
         ],
         "summary": "Creates and registers a new subgraph from a specification.",
-        "description": "Filter and pattern predicates are C# code fragments prefixed with \"return\", compiled\r\nat runtime. A null/empty fragment matches everything.\r\n\r\nSample request:\r\n\r\n    PUT /subgraph\r\n    {\r\n       \"name\": \"friends-of-alice\",\r\n       \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\",\r\n       \"patterns\": [\r\n         { \"type\": \"Vertex\", \"patternName\": \"start\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" },\r\n         { \"type\": \"Edge\", \"patternName\": \"rel\", \"direction\": \"OutgoingEdge\", \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\" },\r\n         { \"type\": \"Vertex\", \"patternName\": \"end\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" }\r\n       ]\r\n    }",
+        "description": "Filter and pattern predicates are C# code fragments prefixed with \"return\", compiled\r\nat runtime. A null/empty fragment matches everything.\r\n\r\nInstead of inline fragments, the body may reference a registered stored query of kind\r\n\"SubGraph\" via \"storedQuery\" (mutually exclusive with \"vertexFilter\"/\"edgeFilter\"/\r\n\"patterns\"): the stored template is instantiated under this request's \"name\" and\r\nnothing is compiled per request. The created subgraph is self-contained - deleting the\r\nstored query later does not affect it.\r\n\r\nSEMANTIC SUBGRAPHS (feature element-embeddings): an optional \"semantic\" block carries\r\na query vector (or \"queryText\" via the embedding provider) bound at REGISTRATION -\r\nrecalculation reuses it and never embeds anything. \"minScore\" becomes the code-free\r\nvertex pre-filter, a vertex pattern step's \"semanticMinScore\" that step's filter\r\n(feature subgraph-semantic-thresholds); compiled fragments read the same vector via\r\n\"context\". Pure data (it compiles no C#); not available on\r\nstored-template invocations.\r\nFull rules: features/element-embeddings README, \"Semantic traversal\".\r\n\r\nSECURITY: inline filter/pattern fragments are compiled with Roslyn and executed\r\nIN-PROCESS WITH FULL TRUST - a trust boundary, not a sandbox. Dynamic code execution is\r\nALWAYS ON (there is no switch to disable it), so authentication (required whenever an API\r\nkey is configured) is the boundary. Instantiating an operator-registered stored query\r\nnarrows WHO can introduce code, but the invoked query still runs with full trust.\r\n\r\nSample request:\r\n\r\n    PUT /subgraph\r\n    {\r\n       \"name\": \"friends-of-alice\",\r\n       \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\",\r\n       \"patterns\": [\r\n         { \"type\": \"Vertex\", \"patternName\": \"start\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" },\r\n         { \"type\": \"Edge\", \"patternName\": \"rel\", \"direction\": \"OutgoingEdge\", \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\" },\r\n         { \"type\": \"Vertex\", \"patternName\": \"end\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" }\r\n       ]\r\n    }",
         "parameters": [
           {
             "name": "fromSubGraph",
@@ -10820,7 +10832,7 @@
             }
           },
           "400": {
-            "description": "The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind",
+            "description": "The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, the referenced stored query has the wrong kind, or the requested algorithm is not an available subgraph plugin",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -11124,7 +11136,7 @@
           "SubGraph"
         ],
         "summary": "Recalculates a subgraph against the current state of its source graph.",
-        "description": "Only subgraphs created by an algorithm (with a stored source and plugin name)\r\ncan be recalculated; manually registered subgraphs cannot.",
+        "description": "Only subgraphs created by an algorithm (with a stored source and plugin name)\r\ncan be recalculated; manually registered subgraphs cannot.\r\n\r\nThe materialized-element quotas bound a refresh exactly as they bound the create: a\r\nrecalculation whose fresh extraction would exceed the per-subgraph or total element\r\nceiling is rejected and the subgraph KEEPS its previous, in-quota contents (it stays\r\nstale until the quota is raised or it is deleted).",
         "parameters": [
           {
             "name": "name",
@@ -11182,7 +11194,7 @@
             }
           },
           "409": {
-            "description": "The subgraph exists but cannot be recalculated",
+            "description": "The subgraph exists but cannot be recalculated: either its source graph or algorithm plugin is missing, or the recalculated extraction would exceed a materialized-element quota (previous contents kept)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -11312,7 +11324,7 @@
           "Graph"
         ],
         "summary": "Creates a new vertex in the graph",
-        "description": "Sample request:\r\n\r\n    PUT /vertex\r\n    {\r\n       \"label\": \"person\",\r\n       \"creationDate\": \"2025-04-22T00:00:00\",\r\n       \"properties\": {\r\n         \"name\": {\r\n           \"propertyValue\": \"John Doe\",\r\n           \"fullQualifiedTypeName\": \"System.String\"\r\n         }\r\n       }\r\n    }",
+        "description": "Sample request:\r\n\r\n    PUT /vertex\r\n    {\r\n       \"label\": \"person\",\r\n       \"creationDate\": 1713862800,\r\n       \"properties\": [\r\n         {\r\n           \"propertyId\": \"name\",\r\n           \"propertyValue\": \"John Doe\",\r\n           \"fullQualifiedTypeName\": \"System.String\"\r\n         }\r\n       ]\r\n    }",
         "parameters": [
           {
             "name": "waitForCompletion",
@@ -11439,7 +11451,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "security": [ ]
       }
     },
     "/ns/{ns}/vertex/{vertexIdentifier}": {
@@ -12239,7 +12252,7 @@
           "Graph"
         ],
         "summary": "Calculates the shortest path between two vertices in the graph",
-        "description": "The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.\r\n\r\nSelect the algorithm via \"pathAlgorithmName\". \"BLS\" is a hop-count (unweighted) shortest\r\npath that ignores the \"cost\" block (\"totalWeight\" is 0), whereas \"DIJKSTRA\" is a weighted\r\nshortest path that honours the \"cost\" block and \"maxPathWeight\" (and returns the K\r\nleast-weight loop-free paths when \"maxResults\" &gt; 1).\r\n\r\nIMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a \"return\" statement.\r\nThese are compiled at runtime into delegate methods.\r\n\r\nCorrect format for filter expressions:\r\n- \"return (parameter) =&gt; boolean_expression;\"\r\n\r\nCorrect format for cost expressions:\r\n- \"return (parameter) =&gt; numeric_expression;\"\r\n\r\nSample request:\r\n\r\n    POST /path/1/to/5\r\n    {\r\n       \"pathAlgorithmName\": \"BLS\",\r\n       \"maxDepth\": 5,\r\n       \"maxPathWeight\": 100.0,\r\n       \"maxResults\": 10,\r\n       \"filter\": {\r\n         \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"Person\\\";\",\r\n         \"edgeFilter\": \"return (e) =&gt; e.Label == \\\"friendship\\\";\",\r\n         \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\"\r\n       },\r\n       \"cost\": {\r\n         \"vertexCost\": \"return (v) =&gt; v.TryGetProperty(out var age, \\\"age\\\") ? (double)age : 1.0;\",\r\n         \"edgeCost\": \"return (e) =&gt; e.TryGetProperty(out var weight, \\\"weight\\\") ? (double)weight : 1.0;\"\r\n       }\r\n    }",
+        "description": "The path specification allows for dynamic filtering and cost calculation using compiled C# code fragments.\r\n\r\nSelect the algorithm via \"pathAlgorithmName\". \"BLS\" is a hop-count (unweighted) shortest\r\npath that ignores the \"cost\" block (\"totalWeight\" is 0), whereas \"DIJKSTRA\" is a weighted\r\nshortest path that honours the \"cost\" block and \"maxPathWeight\" (and returns the K\r\nleast-weight loop-free paths when \"maxResults\" &gt; 1).\r\n\r\nIMPORTANT: Filter and cost properties must contain valid C# lambda expressions prefixed with a \"return\" statement.\r\nThese are compiled at runtime into delegate methods.\r\n\r\nCorrect format for filter expressions:\r\n- \"return (parameter) =&gt; boolean_expression;\"\r\n\r\nCorrect format for cost expressions:\r\n- \"return (parameter) =&gt; numeric_expression;\"\r\n\r\nInstead of inline fragments, the body may reference a registered stored query of kind\r\n\"Path\" via \"storedQuery\" (mutually exclusive with \"filter\"/\"cost\"): the pre-compiled\r\nartifact is used and nothing is compiled per request. The numeric bounds and\r\n\"pathAlgorithmName\" stay per-request either way.\r\n\r\nSEMANTIC TRAVERSAL (feature element-embeddings): an optional \"semantic\" block carries\r\na query vector (or, with the embedding provider enabled, a \"queryText\" embedded once,\r\nup front) plus code-free similarity options - \"minScore\" filters vertices by\r\nsimilarity against their named element embedding, \"costBySimilarity\" weights a\r\nDIJKSTRA search by it. The block is pure data (it compiles no C#);\r\ncompiled fragments and stored queries read the same vector via the \"context\"\r\nparameter. Example: { \"semantic\": { \"queryVector\": [0.1, 0.2], \"minScore\": 0.7 } }.\r\nFull rules: features/element-embeddings README, \"Semantic traversal\".\r\n\r\nSECURITY: inline filter/cost fragments are compiled with Roslyn and executed IN-PROCESS\r\nWITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone permitted to\r\nintroduce code is trusted as the server process. Dynamic code execution is ALWAYS ON -\r\nthere is no switch to disable it - so authentication (required whenever an API key is\r\nconfigured) is the boundary. Invoking an operator-registered stored query narrows WHO can\r\nintroduce code, but the invoked query still runs with full trust; it is not a sandbox.\r\n\r\nEXECUTION BUDGET: the optional \"timeBudgetSeconds\" bounds the traversal (omitted =\r\nunbounded, exactly as before), and the traversal is always bound to the request abort, so\r\na client that gives up stops the work. Exhaustion answers 408. The budget is COOPERATIVE -\r\nit is checked between filter/cost invocations - so it contains an algorithmic blow-up but\r\ncannot interrupt a single fragment call that never returns.\r\n\r\nSample request:\r\n\r\n    POST /path/1/to/5\r\n    {\r\n       \"pathAlgorithmName\": \"BLS\",\r\n       \"maxDepth\": 5,\r\n       \"maxPathWeight\": 100.0,\r\n       \"maxResults\": 10,\r\n       \"filter\": {\r\n         \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"Person\\\";\",\r\n         \"edgeFilter\": \"return (e) =&gt; e.Label == \\\"friendship\\\";\",\r\n         \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\"\r\n       },\r\n       \"cost\": {\r\n         \"vertexCost\": \"return (v) =&gt; v.TryGetProperty(out var age, \\\"age\\\") ? (double)age : 1.0;\",\r\n         \"edgeCost\": \"return (e) =&gt; e.TryGetProperty(out var weight, \\\"weight\\\") ? (double)weight : 1.0;\"\r\n       }\r\n    }",
         "parameters": [
           {
             "name": "from",
@@ -12339,6 +12352,17 @@
           },
           "404": {
             "description": "No stored query with the referenced name exists (a missing source/target vertex is not a 404: it yields a 200 with an empty path list)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "408": {
+            "description": "The execution budget (\"timeBudgetSeconds\") or the client's own cancellation stopped the traversal before it finished; no result is reported, because an empty 200 would read as \"no path exists\"",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -13534,7 +13558,7 @@
           "Graph"
         ],
         "summary": "Scans the graph for elements with a specific property value",
-        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the scan to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to scan every element type.",
+        "description": "Sample request:\r\n\r\n    POST /scan/graph/property/name\r\n    {\r\n       \"operator\": 0,\r\n       \"literal\": {\r\n         \"value\": \"John Doe\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the scan to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to scan every element type.",
         "parameters": [
           {
             "name": "propertyId",
@@ -13621,7 +13645,7 @@
           "Graph"
         ],
         "summary": "Performs a scan operation on an index with a specific value and operator",
-        "description": "Sample request:\r\n\r\n    POST /scan/index/all\r\n    {\r\n       \"indexId\": \"userNameIndex\",\r\n       \"operator\": \"Equal\",\r\n       \"literal\": {\r\n         \"value\": \"Jane\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the hits to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to return every match.",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/all\r\n    {\r\n       \"indexId\": \"userNameIndex\",\r\n       \"operator\": 0,\r\n       \"literal\": {\r\n         \"value\": \"Jane\",\r\n         \"fullQualifiedTypeName\": \"System.String\"\r\n       },\r\n       \"resultType\": \"Vertices\"\r\n    }\r\n\r\nThe optional \"label\" field restricts the hits to elements whose label matches exactly\r\n(e.g. \"person\"); omit it to return every match.",
         "parameters": [
           {
             "name": "api-version",
@@ -13770,7 +13794,7 @@
           "Graph"
         ],
         "summary": "Performs a range-based scan on an index between two values",
-        "description": "Sample request:\r\n\r\n    POST /scan/index/range\r\n    {\r\n       \"indexId\": \"ageIndex\",\r\n       \"leftLimit\": 18,\r\n       \"rightLimit\": 30,\r\n       \"includeLeft\": true,\r\n       \"includeRight\": false,\r\n       \"fullQualifiedTypeName\": \"System.Int32\",\r\n       \"resultType\": \"Vertices\"\r\n    }",
+        "description": "Sample request:\r\n\r\n    POST /scan/index/range\r\n    {\r\n       \"indexId\": \"ageIndex\",\r\n       \"leftLimit\": \"18\",\r\n       \"rightLimit\": \"30\",\r\n       \"includeLeft\": true,\r\n       \"includeRight\": false,\r\n       \"fullQualifiedTypeName\": \"System.Int32\",\r\n       \"resultType\": \"Vertices\"\r\n    }",
         "parameters": [
           {
             "name": "api-version",
@@ -14195,7 +14219,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "security": [ ]
       }
     },
     "/storedquery": {
@@ -14204,7 +14229,7 @@
           "StoredQueries"
         ],
         "summary": "Registers a stored query: validates and compiles the specification, then publishes it under a unique name.",
-        "description": "Exactly one of \"path\" / \"subGraph\" must be present and must match \"kind\". The code\r\nfragments are compiled ONCE here, with the same bounds as the inline endpoints; a\r\ncompile failure rejects the registration with the compiler diagnostics. Entries are\r\nimmutable: to change one, delete and re-register.\r\n\r\nSample request:\r\n\r\n    POST /storedquery\r\n    {\r\n       \"name\": \"adults-shortest\",\r\n       \"kind\": \"Path\",\r\n       \"description\": \"age&gt;30 vertices, weight-by-distance\",\r\n       \"path\": {\r\n         \"filter\": { \"vertexFilter\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\" },\r\n         \"cost\":   { \"edgeCost\": \"return (e) =&gt; 1.0;\" }\r\n       }\r\n    }",
+        "description": "Exactly one of \"path\" / \"subGraph\" must be present and must match \"kind\". The code\r\nfragments are compiled ONCE here, with the same bounds as the inline endpoints; a\r\ncompile failure rejects the registration with the compiler diagnostics. Entries are\r\nimmutable: to change one, delete and re-register.\r\n\r\nSECURITY: registration compiles C# fragments with Roslyn that later execute IN-PROCESS\r\nWITH FULL TRUST. It carries the same authentication as the inline code endpoints\r\n(required whenever an API key is configured); dynamic code execution itself is always on.\r\n\r\nSample request:\r\n\r\n    POST /storedquery\r\n    {\r\n       \"name\": \"adults-shortest\",\r\n       \"kind\": \"Path\",\r\n       \"description\": \"age&gt;30 vertices, weight-by-distance\",\r\n       \"path\": {\r\n         \"filter\": { \"vertexFilter\": \"return (v) =&gt; v.TryGetProperty(out int age, \\\"age\\\") &amp;&amp; age &gt; 30;\" },\r\n         \"cost\":   { \"edgeCost\": \"return (e) =&gt; 1.0;\" }\r\n       }\r\n    }",
         "parameters": [
           {
             "name": "api-version",
@@ -14495,7 +14520,7 @@
           "SubGraph"
         ],
         "summary": "Creates and registers a new subgraph from a specification.",
-        "description": "Filter and pattern predicates are C# code fragments prefixed with \"return\", compiled\r\nat runtime. A null/empty fragment matches everything.\r\n\r\nSample request:\r\n\r\n    PUT /subgraph\r\n    {\r\n       \"name\": \"friends-of-alice\",\r\n       \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\",\r\n       \"patterns\": [\r\n         { \"type\": \"Vertex\", \"patternName\": \"start\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" },\r\n         { \"type\": \"Edge\", \"patternName\": \"rel\", \"direction\": \"OutgoingEdge\", \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\" },\r\n         { \"type\": \"Vertex\", \"patternName\": \"end\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" }\r\n       ]\r\n    }",
+        "description": "Filter and pattern predicates are C# code fragments prefixed with \"return\", compiled\r\nat runtime. A null/empty fragment matches everything.\r\n\r\nInstead of inline fragments, the body may reference a registered stored query of kind\r\n\"SubGraph\" via \"storedQuery\" (mutually exclusive with \"vertexFilter\"/\"edgeFilter\"/\r\n\"patterns\"): the stored template is instantiated under this request's \"name\" and\r\nnothing is compiled per request. The created subgraph is self-contained - deleting the\r\nstored query later does not affect it.\r\n\r\nSEMANTIC SUBGRAPHS (feature element-embeddings): an optional \"semantic\" block carries\r\na query vector (or \"queryText\" via the embedding provider) bound at REGISTRATION -\r\nrecalculation reuses it and never embeds anything. \"minScore\" becomes the code-free\r\nvertex pre-filter, a vertex pattern step's \"semanticMinScore\" that step's filter\r\n(feature subgraph-semantic-thresholds); compiled fragments read the same vector via\r\n\"context\". Pure data (it compiles no C#); not available on\r\nstored-template invocations.\r\nFull rules: features/element-embeddings README, \"Semantic traversal\".\r\n\r\nSECURITY: inline filter/pattern fragments are compiled with Roslyn and executed\r\nIN-PROCESS WITH FULL TRUST - a trust boundary, not a sandbox. Dynamic code execution is\r\nALWAYS ON (there is no switch to disable it), so authentication (required whenever an API\r\nkey is configured) is the boundary. Instantiating an operator-registered stored query\r\nnarrows WHO can introduce code, but the invoked query still runs with full trust.\r\n\r\nSample request:\r\n\r\n    PUT /subgraph\r\n    {\r\n       \"name\": \"friends-of-alice\",\r\n       \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\",\r\n       \"patterns\": [\r\n         { \"type\": \"Vertex\", \"patternName\": \"start\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" },\r\n         { \"type\": \"Edge\", \"patternName\": \"rel\", \"direction\": \"OutgoingEdge\", \"edgePropertyFilter\": \"return (p) =&gt; p == \\\"knows\\\";\" },\r\n         { \"type\": \"Vertex\", \"patternName\": \"end\", \"vertexFilter\": \"return (v) =&gt; v.Label == \\\"person\\\";\" }\r\n       ]\r\n    }",
         "parameters": [
           {
             "name": "fromSubGraph",
@@ -14560,7 +14585,7 @@
             }
           },
           "400": {
-            "description": "The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind",
+            "description": "The specification was invalid, the pattern was structurally invalid, a filter failed to compile, storedQuery was mixed with inline fragments, the referenced stored query has the wrong kind, or the requested algorithm is not an available subgraph plugin",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -14832,7 +14857,7 @@
           "SubGraph"
         ],
         "summary": "Recalculates a subgraph against the current state of its source graph.",
-        "description": "Only subgraphs created by an algorithm (with a stored source and plugin name)\r\ncan be recalculated; manually registered subgraphs cannot.",
+        "description": "Only subgraphs created by an algorithm (with a stored source and plugin name)\r\ncan be recalculated; manually registered subgraphs cannot.\r\n\r\nThe materialized-element quotas bound a refresh exactly as they bound the create: a\r\nrecalculation whose fresh extraction would exceed the per-subgraph or total element\r\nceiling is rejected and the subgraph KEEPS its previous, in-quota contents (it stays\r\nstale until the quota is raised or it is deleted).",
         "parameters": [
           {
             "name": "name",
@@ -14882,7 +14907,7 @@
             }
           },
           "409": {
-            "description": "The subgraph exists but cannot be recalculated",
+            "description": "The subgraph exists but cannot be recalculated: either its source graph or algorithm plugin is missing, or the recalculated extraction would exceed a materialized-element quota (previous contents kept)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -15038,7 +15063,7 @@
           "Graph"
         ],
         "summary": "Creates a new vertex in the graph",
-        "description": "Sample request:\r\n\r\n    PUT /vertex\r\n    {\r\n       \"label\": \"person\",\r\n       \"creationDate\": \"2025-04-22T00:00:00\",\r\n       \"properties\": {\r\n         \"name\": {\r\n           \"propertyValue\": \"John Doe\",\r\n           \"fullQualifiedTypeName\": \"System.String\"\r\n         }\r\n       }\r\n    }",
+        "description": "Sample request:\r\n\r\n    PUT /vertex\r\n    {\r\n       \"label\": \"person\",\r\n       \"creationDate\": 1713862800,\r\n       \"properties\": [\r\n         {\r\n           \"propertyId\": \"name\",\r\n           \"propertyValue\": \"John Doe\",\r\n           \"fullQualifiedTypeName\": \"System.String\"\r\n         }\r\n       ]\r\n    }",
         "parameters": [
           {
             "name": "waitForCompletion",
@@ -15149,7 +15174,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "security": [ ]
       }
     },
     "/vertex/{vertexIdentifier}": {
@@ -16960,7 +16986,7 @@
               "null",
               "string"
             ],
-            "description": "The entity type (the NLP label, e.g. PER/ORG/LOC)."
+            "description": "The entity type: the label the NLP sidecar emitted, e.g. PERSON, ORG or GPE."
           },
           "mentionCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -18301,9 +18327,9 @@
             "example": "nameIndex"
           },
           "operator": {
-            "description": "The binary operator to use for comparing property values",
+            "description": "The binary operator to use for comparing property values, sent as its integer code:\r\n0 Equals, 1 Greater, 2 GreaterOrEquals, 3 Lower, 4 LowerOrEquals, 5 NotEquals.\r\nA member name is not accepted: unlike resultType, this enum carries no string-enum\r\nconverter, so the code is the wire form (this summary is the mapping's one home,\r\nsince the generated schema shows only \"integer\").",
             "examples": [
-              "Equal"
+              0
             ],
             "$ref": "#/components/schemas/BinaryOperator"
           },
@@ -18331,7 +18357,7 @@
         "description": "Specification for scanning an index for elements with specific property values",
         "example": {
           "indexId": "nameIndex",
-          "operator": "Equal",
+          "operator": 0,
           "literal": {
             "value": "John Doe",
             "fullQualifiedTypeName": "System.String"
@@ -18361,20 +18387,22 @@
           "keys": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
+              "null",
               "integer",
               "string"
             ],
-            "description": "CountOfKeys().",
+            "description": "`CountOfKeys()`, or `null` when the index reports a negative\r\n    \"count not supported\" sentinel - the sentinel contract is documented on\r\n    int? IndexDescriptionREST.Keys, whose inventory answers identically.",
             "format": "int32",
             "example": 1000
           },
           "values": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
+              "null",
               "integer",
               "string"
             ],
-            "description": "CountOfValues().",
+            "description": "`CountOfValues()`, or `null` for a negative sentinel (see\r\n    int? IndexStatsREST.Keys).",
             "format": "int32",
             "example": 1200
           }
@@ -19202,8 +19230,18 @@
             ],
             "description": "The maximum allowed weight for a path to be included in results",
             "format": "double",
-            "default": 100,
             "example": 100.0
+          },
+          "timeBudgetSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "Optional wall-clock budget for the traversal, in seconds.",
+            "format": "double",
+            "example": 5.0
           },
           "filter": {
             "description": "Filtering criteria for elements to include in path calculations",
@@ -19413,7 +19451,7 @@
               "null",
               "string"
             ],
-            "description": "The name of the plugin type to instantiate",
+            "description": "The name of the plugin type to instantiate, resolved against the plugin contract the\r\ncalled endpoint needs: an INDEX plugin for `POST /index` (shipped names include\r\n`DictionaryIndex`, `RangeIndex`, `SingleValueIndex` and\r\n`VectorIndex`; `availableIndexPlugins` on `GET /status` is the live\r\nlist), or a SERVICE plugin for `POST /service`. No service plugin ships with\r\nFallen-8, so the example and default below are index names and are NOT valid for\r\n`POST /service`: that endpoint answers `200 false` for every value until a\r\nservice plugin is deployed next to the server and appears in\r\n`availableServicePlugins` on `GET /status`.",
             "default": "DictionaryIndex",
             "example": "DictionaryIndex"
           },
@@ -19428,7 +19466,7 @@
             "description": "Configuration options for the plugin as key-value pairs"
           }
         },
-        "description": "Specification for creating and configuring a plugin service",
+        "description": "Specification for creating a named plugin instance: an index (`POST /index`) or a\r\nservice (`POST /service`). The sample body below is the INDEX flavour; see\r\n`pluginType` for why no sample body can succeed on `POST /service`.",
         "example": {
           "uniqueId": "indexService1",
           "pluginType": "DictionaryIndex",
@@ -19972,9 +20010,9 @@
         "type": "object",
         "properties": {
           "operator": {
-            "description": "The binary operator to use for comparing property values",
+            "description": "The binary operator to use for comparing property values, sent as its integer code:\r\n0 Equals, 1 Greater, 2 GreaterOrEquals, 3 Lower, 4 LowerOrEquals, 5 NotEquals.\r\nA member name is not accepted: unlike resultType, this enum carries no string-enum\r\nconverter, so the code is the wire form (this summary is the mapping's one home,\r\nsince the generated schema shows only \"integer\").",
             "examples": [
-              "Equal"
+              0
             ],
             "$ref": "#/components/schemas/BinaryOperator"
           },
@@ -20001,7 +20039,7 @@
         },
         "description": "Specification for scanning the graph for elements with specific property values",
         "example": {
-          "operator": "Equal",
+          "operator": 0,
           "literal": {
             "value": "John Doe",
             "fullQualifiedTypeName": "System.String"
@@ -20686,6 +20724,14 @@
             },
             "description": "Ordered pattern sequence describing the paths to keep. Should alternate\r\nvertex ↔ edge and start with a vertex pattern. Empty means \"no pruning\"."
           },
+          "algorithm": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional name of the subgraph algorithm plugin that performs the extraction, as\r\nreported by the plugin's `PluginName`. Accepts a built-in name or the name a\r\nplugin of contract `SubGraph` was registered under in this namespace (the set\r\n`GET /status` reports as `availableSubGraphPlugins`); an unknown name is a\r\n400, never a silent fallback. Omitted (null or empty) selects the built-in\r\nbreadth-first search algorithm, which is what every request without this field gets.\r\nThe selected name is stored with the subgraph, so a recalculation re-resolves the same\r\nplugin.",
+            "example": "Breadth First Search Subgraph Algorithm"
+          },
           "storedQuery": {
             "type": [
               "null",
@@ -21208,8 +21254,21 @@
         },
         "description": "The write-back report when the request opted in."
       }
+    },
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "description": "The Fallen-8 API key. An \"Authorization: Bearer <key>\" header is accepted as well. Required only on an instance that configures Fallen8:Security:ApiKey - an instance without a key runs unauthenticated.",
+        "name": "X-Api-Key",
+        "in": "header"
+      }
     }
   },
+  "security": [
+    {
+      "ApiKey": [ ]
+    }
+  ],
   "tags": [
     {
       "name": "Admin"

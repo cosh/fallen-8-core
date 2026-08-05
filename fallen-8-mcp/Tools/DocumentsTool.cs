@@ -103,7 +103,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     .Obj("properties", "User tag properties (string values) applied to document and chunks (ingest_text).")
                     .StrArray("linkIndexIds", "Structural linking: equality-capable index ids to match extracted identifiers against (ingest_text).")
                     .Int("maxLinksPerChunk", "Per-chunk cap for structural links (ingest_text).")
-                    .Str("entityType", "Filter entities by type (entities), e.g. PER/ORG/LOC.")
+                    .Str("entityType", "Filter entities by type (entities): the raw spaCy OntoNotes label, case-insensitive, e.g. PERSON/ORG/GPE.")
                     .Str("contains", "Filter entities whose text contains this substring (entities).")
                     .Int("limit", "Max entities to return (entities). Default 200, max 10000.")
                     .Build(),

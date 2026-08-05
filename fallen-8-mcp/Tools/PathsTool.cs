@@ -62,7 +62,10 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 .Str("namespace", "The namespace (graph). Defaults to 'default'.")
                 .Int("from", "Source vertex id.", required: true)
                 .Int("to", "Target vertex id.", required: true)
-                .Str("algorithm", "Path algorithm.", choices: new[] { "BLS", "DIJKSTRA" })
+                // Free-form on purpose (engine -> REST -> MCP): REST resolves a runtime-registered
+                // Path plugin by name, so a closed BLS/DIJKSTRA enum would hide from agents what
+                // every other client can select.
+                .Str("algorithm", "Path algorithm: 'BLS' (hop count, the default), 'DIJKSTRA' (weighted, honours the cost knobs), or any name f8_overview reports under availablePathAlgorithms (registered Path plugins included). A name that resolves to no plugin yields an empty result, not an error.")
                 .Int("maxDepth", "Maximum hop depth (default 7).")
                 .Int("maxResults", "Maximum number of paths.")
                 .Str("storedQuery", "Name of a registered stored path query (mutually exclusive with algorithm knobs).");

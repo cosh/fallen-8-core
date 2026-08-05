@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cosh.github.io/fallen-8-core/schemas/capacity-report-1.json",
+  "title": "Fallen-8 capacity report",
+  "description": "The result file fallen-8-bench writes. It carries measured capacity and throughput numbers together with the environment that produced them, so a number is never published without the machine it belongs to. scripts/update-capacity-doc.mjs renders it into the Capacity and performance page.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAtUtc", "tool", "source", "environment", "profile", "metrics"],
+  "properties": {
+    "schemaVersion": {
+      "description": "Major version of THIS schema. A consumer must refuse a major it does not know.",
+      "type": "string",
+      "const": "1"
+    },
+    "generatedAtUtc": {
+      "description": "When the run finished, ISO-8601 in UTC.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "const": "fallen-8-bench" },
+        "version": { "description": "Informational version of the measuring tool.", "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "description": "What was measured. The commit is what makes a number reproducible.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engineVersion"],
+      "properties": {
+        "engineVersion": { "description": "Fallen-8 engine assembly version.", "type": "string", "minLength": 1 },
+        "commit": { "description": "Git commit of the working tree, when it could be resolved.", "type": ["string", "null"] },
+        "dirtyWorkingTree": { "description": "True when the tree had uncommitted changes, so the commit alone does not identify the code.", "type": "boolean" }
+      }
+    },
+    "environment": {
+      "description": "The machine. Every number in metrics describes THIS environment and nothing else.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operatingSystem", "architecture", "runtime", "processorCount", "serverGarbageCollection"],
+      "properties": {
+        "operatingSystem": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "runtime": { "type": "string", "minLength": 1 },
+        "processorCount": { "type": "integer", "minimum": 1 },
+        "processorName": { "type": ["string", "null"] },
+        "totalPhysicalMemoryMb": { "type": ["number", "null"], "minimum": 0 },
+        "serverGarbageCollection": { "type": "boolean" },
+        "concurrentGarbageCollection": { "type": "boolean" },
+        "runnerLabel": { "description": "Free-form label for the machine, e.g. a CI runner image or \"laptop\".", "type": ["string", "null"] }
+      }
+    },
+    "profile": {
+      "description": "Which measurement set ran. \"quick\" is sized for CI, \"full\" for a real machine and larger graphs.",
+      "type": "string",
+      "enum": ["quick", "full"]
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memory", "writeThroughput", "saveStall", "traversal"],
+      "properties": {
+        "memory": {
+          "description": "Retained managed heap attributable to the graph, after a forced blocking compacting collection.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "vertices", "edges", "averageDegree", "bytesPerVertex", "bytesPerEdge", "retainedMb"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1 },
+              "vertices": { "type": "integer", "minimum": 1 },
+              "edges": { "type": "integer", "minimum": 0 },
+              "averageDegree": { "type": "number", "minimum": 0 },
+              "bytesPerVertex": { "description": "Retained bytes per vertex with no edges attached.", "type": "number" },
+              "bytesPerEdge": { "description": "Retained bytes per edge including its adjacency slots.", "type": "number" },
+              "retainedMb": { "description": "Total retained megabytes for vertices plus edges.", "type": "number" }
+            }
+          }
+        },
+        "writeThroughput": {
+          "description": "Committed single-element writes per second, WAL on, so the fsync and the group-commit amortisation are both in the number.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "producers", "writes", "writesPerSecond", "walEnabled"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1 },
+              "producers": { "type": "integer", "minimum": 1 },
+              "writes": { "type": "integer", "minimum": 1 },
+              "writesPerSecond": { "type": "number", "minimum": 0 },
+              "walEnabled": { "type": "boolean" }
+            }
+          }
+        },
+        "saveStall": {
+          "description": "How long a checkpoint holds the single writer thread, which is what a concurrent write waits.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["elements", "vertices", "edges", "writerHoldMs"],
+            "properties": {
+              "elements": { "type": "integer", "minimum": 1 },
+              "vertices": { "type": "integer", "minimum": 0 },
+              "edges": { "type": "integer", "minimum": 0 },
+              "writerHoldMs": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        "traversal": {
+          "description": "Raw out-edge traversal throughput, the same work GET /benchmark does.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "vertices", "edges", "iterations", "edgesPerSecond"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1 },
+              "vertices": { "type": "integer", "minimum": 1 },
+              "edges": { "type": "integer", "minimum": 0 },
+              "iterations": { "type": "integer", "minimum": 1 },
+              "edgesPerSecond": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

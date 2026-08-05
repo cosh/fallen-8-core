@@ -62,7 +62,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.Analytics
             get;
         }
 
-        public String Manufacturer => "Henning Rauch";
+        /// <summary>The vendor the plugin listing advertises. Virtual because this base is offered
+        /// to third parties: a subclass declares its own vendor by overriding it, instead of being
+        /// advertised under the built-ins' one. The five built-in algorithms keep the default.</summary>
+        public virtual String Manufacturer => "Henning Rauch";
 
         public void Initialize(IFallen8 fallen8, IDictionary<String, Object> parameter)
         {

@@ -104,6 +104,12 @@ namespace NoSQL.GraphDB.App.Controllers
                 return ProblemResults.BadRequest("An edge specification is required.");
             }
 
+            // Guarded property conversion: see TryGenerateProperties (GraphController.Vertex.cs).
+            if (!TryGenerateProperties(definition.Properties, out var properties, out var propertyError))
+            {
+                return ProblemResults.BadRequest(propertyError);
+            }
+
             #endregion
 
             var tx = new CreateEdgeTransaction()
@@ -115,7 +121,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     EdgePropertyId = definition.EdgePropertyId,
                     TargetVertexId = definition.TargetVertex,
                     Label = definition.Label,
-                    Properties = ServiceHelper.GenerateProperties(definition.Properties)
+                    Properties = properties
                 }
             };
 
@@ -161,6 +167,11 @@ namespace NoSQL.GraphDB.App.Controllers
                     return ProblemResults.BadRequest("An edge specification may not be null.");
                 }
 
+                if (!TryGenerateProperties(definition.Properties, out var properties, out var propertyError))
+                {
+                    return ProblemResults.BadRequest(propertyError);
+                }
+
                 tx.AddEdge(new EdgeDefinition()
                 {
                     CreationDate = definition.CreationDate,
@@ -168,7 +179,7 @@ namespace NoSQL.GraphDB.App.Controllers
                     EdgePropertyId = definition.EdgePropertyId,
                     TargetVertexId = definition.TargetVertex,
                     Label = definition.Label,
-                    Properties = ServiceHelper.GenerateProperties(definition.Properties)
+                    Properties = properties
                 });
             }
 

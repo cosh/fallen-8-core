@@ -52,6 +52,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -61,6 +62,34 @@ namespace NoSQL.GraphDB.App
 {
     public class Program
     {
+        /// <summary>
+        ///   Name of the API-key security scheme in the OpenAPI document. A document-local
+        ///   identifier (it names the "components.securitySchemes" entry and the generated clients'
+        ///   auth setting), deliberately not the ASP.NET authentication scheme name
+        ///   <see cref="Fallen8SecurityOptions.ApiKeyScheme"/>.
+        /// </summary>
+        private const String ApiKeySchemeName = "ApiKey";
+
+        /// <summary>
+        ///   True when the action behind <paramref name="description"/> opts out of authentication
+        ///   with <c>[AllowAnonymous]</c>, so its operation must not claim the document-level
+        ///   API-key requirement. Both sources are consulted: the endpoint metadata is what the
+        ///   authorization middleware reads (and the only source for a non-controller endpoint),
+        ///   the controller/action attributes are the declared view of an MVC action.
+        /// </summary>
+        private static Boolean AllowsAnonymousAccess(Microsoft.AspNetCore.Mvc.ApiExplorer.ApiDescription description)
+        {
+            if (description.ActionDescriptor.EndpointMetadata != null &&
+                description.ActionDescriptor.EndpointMetadata.OfType<IAllowAnonymous>().Any())
+            {
+                return true;
+            }
+
+            return description.ActionDescriptor is Microsoft.AspNetCore.Mvc.Controllers.ControllerActionDescriptor action &&
+                (action.MethodInfo.GetCustomAttributes(inherit: true).OfType<IAllowAnonymous>().Any() ||
+                 action.ControllerTypeInfo.GetCustomAttributes(inherit: true).OfType<IAllowAnonymous>().Any());
+        }
+
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "MVC Controllers use reflection (AddControllers is RequiresUnreferencedCode) which is incompatible with trimming. Trimming is disabled for this application.")]
         public static void Main(string[] args)
         {
@@ -92,8 +121,15 @@ namespace NoSQL.GraphDB.App
                 // declaration order), so any regrouping of controller code would reorder the
                 // pinned snapshot. Sorting makes the snapshot byte-stable across refactors
                 // (feature structural-decomposition, target 0).
-                options.AddDocumentTransformer((document, _, _) =>
+                options.AddDocumentTransformer((document, context, _) =>
                 {
+                    // Without these the framework defaults stand: the title is the assembly name
+                    // ("fallen-8-core-apiApp | v0.1") and the version is "1.0.0", contradicting the
+                    // API version every route is served under. The version is taken off the document
+                    // name so the version literal keeps ONE home: the AddOpenApi call above.
+                    document.Info.Title = "Fallen-8 REST API";
+                    document.Info.Version = context.DocumentName.TrimStart('v');
+
                     // The ONE home for the namespace URL scheme (feature graph-namespaces):
                     // explained here at the document level instead of on every operation.
                     document.Info.Description =
@@ -105,12 +141,59 @@ namespace NoSQL.GraphDB.App
                         "routes, save games, benchmark, delegate validation) exist " +
                         "once and concern the whole collection of namespaces.";
 
+                    // Describe the credential (feature api-security-boundary) so Scalar offers an
+                    // auth field and a generated client has somewhere to put the key. Declared
+                    // ALWAYS, with a document-level requirement, because only ENFORCEMENT is a
+                    // per-deployment setting (the handler demands the key solely when one is
+                    // configured) while the credential's shape never changes - a conditional
+                    // declaration would be absent from every published reference and from the pinned
+                    // snapshot, both produced without a key. The [AllowAnonymous] operations override
+                    // the requirement with an empty one (see the operation transformer below).
+                    var apiKeyHeader = context.ApplicationServices
+                        .GetRequiredService<IOptions<Fallen8SecurityOptions>>().Value.ApiKeyHeader;
+                    document.Components ??= new Microsoft.OpenApi.OpenApiComponents();
+                    document.Components.SecuritySchemes ??=
+                        new Dictionary<String, Microsoft.OpenApi.IOpenApiSecurityScheme>();
+                    document.Components.SecuritySchemes[ApiKeySchemeName] = new Microsoft.OpenApi.OpenApiSecurityScheme
+                    {
+                        Type = Microsoft.OpenApi.SecuritySchemeType.ApiKey,
+                        In = Microsoft.OpenApi.ParameterLocation.Header,
+                        // A blank configured header falls back exactly as the handler does - see
+                        // ApiKeyAuthenticationHandler, which owns the credential's runtime contract.
+                        Name = String.IsNullOrWhiteSpace(apiKeyHeader) ? "X-Api-Key" : apiKeyHeader,
+                        Description =
+                            "The Fallen-8 API key. An \"Authorization: Bearer <key>\" header is accepted " +
+                            "as well. Required only on an instance that configures " +
+                            "Fallen8:Security:ApiKey - an instance without a key runs unauthenticated."
+                    };
+                    document.Security = new List<Microsoft.OpenApi.OpenApiSecurityRequirement>
+                    {
+                        new Microsoft.OpenApi.OpenApiSecurityRequirement
+                        {
+                            [new Microsoft.OpenApi.OpenApiSecuritySchemeReference(ApiKeySchemeName, document)] =
+                                new List<String>()
+                        }
+                    };
+
                     var sorted = new Microsoft.OpenApi.OpenApiPaths();
                     foreach (var path in document.Paths.OrderBy(p => p.Key, StringComparer.Ordinal))
                     {
                         sorted.Add(path.Key, path.Value);
                     }
                     document.Paths = sorted;
+                    return System.Threading.Tasks.Task.CompletedTask;
+                });
+
+                // An [AllowAnonymous] operation answers without a credential even on a key-secured
+                // instance, so it overrides the document-level requirement with an empty array - the
+                // OpenAPI way of saying "no security here". Derived from the action's metadata rather
+                // than a hand-kept path list, so a new anonymous route is described correctly.
+                options.AddOperationTransformer((operation, context, _) =>
+                {
+                    if (AllowsAnonymousAccess(context.Description))
+                    {
+                        operation.Security = new List<Microsoft.OpenApi.OpenApiSecurityRequirement>();
+                    }
                     return System.Threading.Tasks.Task.CompletedTask;
                 });
             });
@@ -446,6 +529,13 @@ namespace NoSQL.GraphDB.App
                 options.Conventions.Add(new NamespaceRouteConvention());
                 options.Filters.Add(typeof(NamespaceValidationFilter));
                 options.Filters.Add(typeof(UnknownNamespaceExceptionFilter));
+                // Restores application/problem+json on an error body that an action's
+                // [Produces("application/json")] would otherwise downgrade; see the filter. The
+                // order MUST be passed here: a filter added by type is described by a
+                // TypeFilterAttribute whose own Order (0) is what MVC sorts on, so the type's
+                // IOrderedFilter.Order is ignored and the action-scoped [Produces] would win the tie.
+                options.Filters.Add(typeof(NoSQL.GraphDB.App.Helper.ProblemDetailsContentTypeFilter),
+                    NoSQL.GraphDB.App.Helper.ProblemDetailsContentTypeFilter.FilterOrder);
             }).AddJsonOptions(options =>
             {
                 // Serve the REST DTOs through source-generated metadata instead of runtime

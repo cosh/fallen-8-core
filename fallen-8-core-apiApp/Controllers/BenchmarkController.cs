@@ -29,6 +29,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.App.Controllers.Benchmark;
 using NoSQL.GraphDB.App.Controllers.Model;
@@ -48,6 +50,13 @@ namespace NoSQL.GraphDB.App.Controllers
         #region Data
 
         /// <summary>
+        ///   Timed iterations used when the request names none. Clamped to
+        ///   <see cref="Fallen8SecurityOptions.BenchmarkMaxIterations"/> so a request that asks for
+        ///   nothing can never breach the configured ceiling.
+        /// </summary>
+        private const Int32 DefaultIterations = 1000;
+
+        /// <summary>
         ///   The internal Fallen-8 instance
         /// </summary>
         private readonly IFallen8 _fallen8;
@@ -59,13 +68,18 @@ namespace NoSQL.GraphDB.App.Controllers
 
         private readonly ILogger<BenchmarkController> _logger;
 
+        private readonly Fallen8SecurityOptions _securityOptions;
+
         #endregion
 
-        public BenchmarkController(ILogger<BenchmarkController> logger, IFallen8 fallen8)
+        public BenchmarkController(ILogger<BenchmarkController> logger, IFallen8 fallen8,
+            IOptions<Fallen8SecurityOptions> securityOptions)
         {
             _logger = logger;
 
             _fallen8 = fallen8;
+
+            _securityOptions = securityOptions.Value;
 
             _introProvider = new ScaleFreeNetwork(fallen8);
         }
@@ -132,7 +146,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>
         /// Runs the edge-traversal benchmark and returns structured statistics
         /// </summary>
-        /// <param name="iterations">Number of timed iterations (default 1000)</param>
+        /// <param name="iterations">Number of timed iterations (default 1000, at most
+        /// Fallen8:Security:BenchmarkMaxIterations; the default is clamped to that ceiling)</param>
         /// <returns>Per-iteration TPS statistics (average, median, standard deviation)</returns>
         /// <remarks>
         /// Fallen-8-level: the benchmark traverses the "default" namespace (feature graph-namespaces).
@@ -140,7 +155,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// works on any loaded graph and reports edges traversed per second (not query latency).
         /// </remarks>
         /// <response code="200">The benchmark statistics</response>
-        /// <response code="400">Empty graph, non-positive or non-numeric iteration count</response>
+        /// <response code="400">Empty graph, non-positive or non-numeric iteration count, or a count
+        /// above Fallen8:Security:BenchmarkMaxIterations</response>
         [HttpGet("/benchmark")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(BenchmarkResultREST), StatusCodes.Status200OK)]
@@ -150,11 +166,20 @@ namespace NoSQL.GraphDB.App.Controllers
             int iterationCount;
             if (String.IsNullOrWhiteSpace(iterations))
             {
-                iterationCount = 1000;
+                // Clamped like the analytics default budget, so a request that names NO count can
+                // never fail the ceiling check for a value it never sent.
+                iterationCount = Math.Min(DefaultIterations, _securityOptions.BenchmarkMaxIterations);
             }
             else if (!Int32.TryParse(iterations, out iterationCount))
             {
                 return ProblemResults.BadRequest(String.Format("'{0}' is not a valid iteration count.", iterations));
+            }
+
+            if (iterationCount > _securityOptions.BenchmarkMaxIterations)
+            {
+                return ProblemResults.BadRequest(String.Format(
+                    "iterations must be at most {0} (Fallen8:Security:BenchmarkMaxIterations).",
+                    _securityOptions.BenchmarkMaxIterations));
             }
 
             if (!_introProvider.TryBench(out var result, out var message, iterationCount))

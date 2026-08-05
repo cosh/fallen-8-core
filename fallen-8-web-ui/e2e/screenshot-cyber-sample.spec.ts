@@ -32,9 +32,9 @@ import { expect, test, type Page } from "@playwright/test";
  * It needs the sample manifest reachable, so run it against an app built with
  * VITE_F8_SAMPLES_BASE pointing at a mirror of the repo samples/ (the orchestration script wires
  * this up). Outputs:
- *   docs/images/screen-samples.png            (gallery, cyber-warfare card first)
- *   docs/images/sample-cyber-warfare.png      (2D force canvas)
- *   docs/images/sample-cyber-warfare-3d.png   (3D dag-radial canvas)
+ *   docs/src/assets/images/screen-samples.png            (gallery, cyber-warfare card first)
+ *   docs/src/assets/images/sample-cyber-warfare.png      (2D force canvas)
+ *   docs/src/assets/images/sample-cyber-warfare-3d.png   (3D dag-radial canvas)
  */
 
 const API_KEY = process.env.F8_E2E_API_KEY ?? "e2e-key";

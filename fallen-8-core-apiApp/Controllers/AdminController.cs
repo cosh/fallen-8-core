@@ -437,6 +437,23 @@ namespace NoSQL.GraphDB.App.Controllers
                 return ProblemResults.BadRequest("A load specification is required.");
             }
 
+            // Pre-flight the checkpoint file exactly as the engine does (PersistencyFactory.Load
+            // returns false for a missing path, which the load transaction does NOT turn into a
+            // rollback). Without this, a typo'd path answered 204 and was then recorded as the
+            // namespace's NEWEST save game below, which aborts the next startup. This is the
+            // documented 400 "file not found", and the twin of the SaveGamesController pre-flight.
+            if (String.IsNullOrWhiteSpace(definition.SaveGameLocation))
+            {
+                return ProblemResults.BadRequest("A save game location is required.");
+            }
+
+            if (!System.IO.File.Exists(definition.SaveGameLocation))
+            {
+                return ProblemResults.BadRequest(String.Format(
+                    "The save game location \"{0}\" does not exist; nothing was loaded.",
+                    definition.SaveGameLocation));
+            }
+
             _logger.LogInformation(String.Format("Loading Fallen-8. Start services: {0}", definition.StartServices));
 
             LoadTransaction tx = new LoadTransaction();
@@ -720,7 +737,9 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
         public bool DeleteService([FromRoute] string key)
         {
-            return _fallen8.ServiceFactory.Services.Remove(key);
+            // The factory owns the stop-then-remove sequence and the write lock that every other
+            // mutation of its dictionary takes; see ServiceFactory.TryRemoveService.
+            return _fallen8.ServiceFactory.TryRemoveService(key);
         }
 
         // The runtime plugin-DLL upload endpoint (PUT /plugin) was REMOVED (feature

@@ -54,7 +54,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///
         ///     POST /scan/graph/property/name
         ///     {
-        ///        "operator": "Equal",
+        ///        "operator": 0,
         ///        "literal": {
         ///          "value": "John Doe",
         ///          "fullQualifiedTypeName": "System.String"
@@ -152,7 +152,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     POST /scan/index/all
         ///     {
         ///        "indexId": "userNameIndex",
-        ///        "operator": "Equal",
+        ///        "operator": 0,
         ///        "literal": {
         ///          "value": "Jane",
         ///          "fullQualifiedTypeName": "System.String"
@@ -212,8 +212,8 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     POST /scan/index/range
         ///     {
         ///        "indexId": "ageIndex",
-        ///        "leftLimit": 18,
-        ///        "rightLimit": 30,
+        ///        "leftLimit": "18",
+        ///        "rightLimit": "30",
         ///        "includeLeft": true,
         ///        "includeRight": false,
         ///        "fullQualifiedTypeName": "System.Int32",

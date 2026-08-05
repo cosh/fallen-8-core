@@ -65,6 +65,33 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Correct format for cost expressions:
         /// - "return (parameter) => numeric_expression;"
         ///
+        /// Instead of inline fragments, the body may reference a registered stored query of kind
+        /// "Path" via "storedQuery" (mutually exclusive with "filter"/"cost"): the pre-compiled
+        /// artifact is used and nothing is compiled per request. The numeric bounds and
+        /// "pathAlgorithmName" stay per-request either way.
+        ///
+        /// SEMANTIC TRAVERSAL (feature element-embeddings): an optional "semantic" block carries
+        /// a query vector (or, with the embedding provider enabled, a "queryText" embedded once,
+        /// up front) plus code-free similarity options - "minScore" filters vertices by
+        /// similarity against their named element embedding, "costBySimilarity" weights a
+        /// DIJKSTRA search by it. The block is pure data (it compiles no C#);
+        /// compiled fragments and stored queries read the same vector via the "context"
+        /// parameter. Example: { "semantic": { "queryVector": [0.1, 0.2], "minScore": 0.7 } }.
+        /// Full rules: features/element-embeddings README, "Semantic traversal".
+        ///
+        /// SECURITY: inline filter/cost fragments are compiled with Roslyn and executed IN-PROCESS
+        /// WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone permitted to
+        /// introduce code is trusted as the server process. Dynamic code execution is ALWAYS ON -
+        /// there is no switch to disable it - so authentication (required whenever an API key is
+        /// configured) is the boundary. Invoking an operator-registered stored query narrows WHO can
+        /// introduce code, but the invoked query still runs with full trust; it is not a sandbox.
+        ///
+        /// EXECUTION BUDGET: the optional "timeBudgetSeconds" bounds the traversal (omitted =
+        /// unbounded, exactly as before), and the traversal is always bound to the request abort, so
+        /// a client that gives up stops the work. Exhaustion answers 408. The budget is COOPERATIVE -
+        /// it is checked between filter/cost invocations - so it contains an algorithmic blow-up but
+        /// cannot interrupt a single fragment call that never returns.
+        ///
         /// Sample request:
         ///
         ///     POST /path/1/to/5
@@ -88,32 +115,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="400">Invalid path specification, a fragment failed to compile, storedQuery was mixed with inline fragments, or the referenced stored query has the wrong kind</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="404">No stored query with the referenced name exists (a missing source/target vertex is not a 404: it yields a 200 with an empty path list)</response>
+        /// <response code="408">The execution budget ("timeBudgetSeconds") or the client's own cancellation stopped the traversal before it finished; no result is reported, because an empty 200 would read as "no path exists"</response>
         /// <response code="409">The referenced stored query is not invocable (its recompile on load failed - see its diagnostics via GET /storedquery/{name})</response>
         /// <response code="413">The request body exceeds the code-endpoint size limit</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         /// <response code="500">An unexpected runtime fault occurred while calculating the path (e.g. a compiled filter/cost fragment threw)</response>
-        /// <remarks>
-        /// Instead of inline fragments, the body may reference a registered stored query of kind
-        /// "Path" via "storedQuery" (mutually exclusive with "filter"/"cost"): the pre-compiled
-        /// artifact is used and nothing is compiled per request. The numeric bounds and
-        /// "pathAlgorithmName" stay per-request either way.
-        ///
-        /// SEMANTIC TRAVERSAL (feature element-embeddings): an optional "semantic" block carries
-        /// a query vector (or, with the embedding provider enabled, a "queryText" embedded once,
-        /// up front) plus code-free similarity options - "minScore" filters vertices by
-        /// similarity against their named element embedding, "costBySimilarity" weights a
-        /// DIJKSTRA search by it. The block is pure data (it compiles no C#);
-        /// compiled fragments and stored queries read the same vector via the "context"
-        /// parameter. Example: { "semantic": { "queryVector": [0.1, 0.2], "minScore": 0.7 } }.
-        /// Full rules: features/element-embeddings README, "Semantic traversal".
-        ///
-        /// SECURITY: inline filter/cost fragments are compiled with Roslyn and executed IN-PROCESS
-        /// WITH FULL TRUST. This endpoint is a trust boundary, not a sandbox: anyone permitted to
-        /// introduce code is trusted as the server process. Dynamic code execution is ALWAYS ON -
-        /// there is no switch to disable it - so authentication (required whenever an API key is
-        /// configured) is the boundary. Invoking an operator-registered stored query narrows WHO can
-        /// introduce code, but the invoked query still runs with full trust; it is not a sandbox.
-        /// </remarks>
         [HttpPost("/path/{from}/to/{to}")]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [RequestSizeLimit(1_048_576)]
@@ -123,6 +129,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status408RequestTimeout)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<ActionResult<List<PathREST>>> CalculateShortestPath([FromRoute] Int32 from, [FromRoute] Int32 to, [FromBody] PathSpecification definition)
@@ -135,6 +142,20 @@ namespace NoSQL.GraphDB.App.Controllers
                 if (definition == null)
                 {
                     definition = new PathSpecification();
+                }
+
+                // The optional execution budget is plain request data, so it is validated before
+                // anything is embedded or compiled.
+                if (definition.TimeBudgetSeconds.HasValue)
+                {
+                    var budgetSeconds = definition.TimeBudgetSeconds.Value;
+                    if (Double.IsNaN(budgetSeconds) || budgetSeconds <= 0d ||
+                        budgetSeconds > PathSpecification.MaxTimeBudgetSeconds)
+                    {
+                        return ProblemResults.BadRequest(String.Format(
+                            "timeBudgetSeconds must be greater than 0 and at most {0}; omit it for an unbounded traversal.",
+                            PathSpecification.MaxTimeBudgetSeconds));
+                    }
                 }
 
                 // semantic.queryText resolves to a vector ONCE, before anything else runs
@@ -235,7 +256,16 @@ namespace NoSQL.GraphDB.App.Controllers
                         VertexFilter = vertexFilter ?? semantic.VertexFilter,
                         EdgeFilter = traverser.EdgeFilter(semantic.Context),
                         EdgeCost = traverser.EdgeCost(semantic.Context),
-                        VertexCost = vertexCost ?? semantic.VertexCost
+                        VertexCost = vertexCost ?? semantic.VertexCost,
+
+                        // Cooperative execution budget: the caller's optional deadline plus the
+                        // request abort, so a client that gives up stops the traversal. No deadline
+                        // and no abortable token means unbounded, exactly as before. What the budget
+                        // can and cannot do is documented on ShortestPathDefinition.TimeBudget.
+                        TimeBudget = definition.TimeBudgetSeconds.HasValue
+                            ? TimeSpan.FromSeconds(definition.TimeBudgetSeconds.Value)
+                            : TimeSpan.Zero,
+                        CancellationToken = HttpContext?.RequestAborted ?? default
                     };
 
                     // Feature observability: the algorithm-run span. The algorithm tag is set
@@ -245,10 +275,23 @@ namespace NoSQL.GraphDB.App.Controllers
                     using var searchSpan = Diagnostics.AppDiagnostics.Source.StartActivity("fallen8.path.search");
 
                     List<Core.Algorithms.Path.Path> paths;
-                    if (_fallen8.TryCalculateShortestPath(
+                    var found = _fallen8.TryCalculateShortestPath(
                         out paths,
                         algorithmName,
-                        pathDefinition))
+                        pathDefinition);
+
+                    if (pathDefinition.BudgetExhausted)
+                    {
+                        // The deadline or the client's abort stopped the traversal, so the search
+                        // never finished: an empty 200 would claim "no path exists". Mirrors the
+                        // 408 that /analytics answers for its own budget.
+                        searchSpan?.SetTag("budget.exhausted", true);
+                        return ProblemResults.Create(StatusCodes.Status408RequestTimeout,
+                            "Path budget exhausted",
+                            "The execution budget (or the client's cancellation) stopped the path search before it finished, so no result is reported. Retry with a larger timeBudgetSeconds, a smaller maxDepth/maxResults, or cheaper filter/cost fragments. Note that the budget is checked BETWEEN filter/cost invocations: a fragment that never returns cannot be interrupted.");
+                    }
+
+                    if (found)
                     {
                         searchSpan?.SetTag("algorithm", algorithmName);
                         if (paths != null && paths.Count > 0)

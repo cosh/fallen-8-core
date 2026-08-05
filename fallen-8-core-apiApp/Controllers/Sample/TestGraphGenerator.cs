@@ -85,7 +85,13 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             #endregion
 
-            var stats = new SampleStats() { VertexCount = 5, EdgeCount = 7 };
+            // Counted from what the transactions actually created, never from a literal that a
+            // later edit can leave behind.
+            var stats = new SampleStats()
+            {
+                VertexCount = verticesCreated.Count,
+                EdgeCount = edgesTx.GetCreatedEdges().Count
+            };
 
             return stats;
         }
@@ -147,7 +153,11 @@ namespace NoSQL.GraphDB.App.Controllers.Sample
 
             #endregion
 
-            var stats = new SampleStats() { VertexCount = 26, EdgeCount = 25 };
+            var stats = new SampleStats()
+            {
+                VertexCount = vertexTx.GetCreatedVertices().Count,
+                EdgeCount = edgesTx.GetCreatedEdges().Count
+            };
 
             return stats;
         }

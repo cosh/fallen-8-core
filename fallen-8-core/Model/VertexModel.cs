@@ -338,7 +338,11 @@ namespace NoSQL.GraphDB.Core.Model
         }
 
         /// <summary>
-        ///   Gets all neighbors.
+        ///   Gets all neighbors: the vertices adjacent in EITHER direction, each edge projected onto its
+        ///   far endpoint (out-neighbors first, then in-neighbors). Not a set: a neighbor appears once
+        ///   per connecting edge, so parallel edges repeat it and a self-loop lists this vertex twice
+        ///   (once per direction). The count is therefore
+        ///   <see cref="GetOutDegree" /> + <see cref="GetInDegree" />.
         /// </summary>
         /// <returns> The neighbors. </returns>
         public List<VertexModel> GetAllNeighbors()
@@ -347,10 +351,10 @@ namespace NoSQL.GraphDB.Core.Model
             // projected, so the result holds OutDegree + InDegree neighbours - avoiding list regrowth.
             var neighbors = new List<VertexModel>((int)(GetOutDegree() + GetInDegree()));
 
-            // Behaviour preserved verbatim from the prior representation: BOTH directions are projected
-            // through the edge's target vertex (the former code applied the same target extractor to the
-            // out- and in-edge lists). Kept identical so neighbour semantics do not change under the
-            // storage swap.
+            // The far endpoint of an in-edge is its SourceVertex, never its TargetVertex: an entry in
+            // _inEdges is by construction an edge whose target IS this vertex (see the
+            // AddOutEdge/AddIncomingEdge pairing in Fallen8.CreateEdge_internal), so projecting it
+            // through TargetVertex would yield self-references instead of the predecessors.
             var outSnapshot = _outEdges;
             if (outSnapshot != null)
             {
@@ -372,7 +376,7 @@ namespace NoSQL.GraphDB.Core.Model
                     var edges = group.Value;
                     for (var i = 0; i < edges.Count; i++)
                     {
-                        neighbors.Add(edges[i].TargetVertex);
+                        neighbors.Add(edges[i].SourceVertex);
                     }
                 }
             }

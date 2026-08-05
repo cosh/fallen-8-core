@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NoSQL.GraphDB.Bench</RootNamespace>
+    <AssemblyName>fallen-8-bench</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The published capacity numbers must describe the same GC mode the engine package and the
+         API app declare, otherwise a measurement here would not transfer to a real deployment. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\fallen-8-core\fallen-8-core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The result-file contract. Shipped next to the tool so a third party consuming a report can
+         validate it without cloning the repo, and copied out so `dotnet run` can resolve it. -->
+    <None Include="capacity-report.schema.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

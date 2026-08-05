@@ -39,7 +39,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// <example>
     /// {
     ///   "indexId": "nameIndex",
-    ///   "operator": "Equal",
+    ///   "operator": 0,
     ///   "literal": {
     ///     "value": "John Doe",
     ///     "fullQualifiedTypeName": "System.String"

@@ -32,7 +32,7 @@ import { expect, test } from "@playwright/test";
  *
  *   F8_UI_URL=http://127.0.0.1:5000 npx playwright test e2e/screenshot-observability.spec.ts
  *
- * Output: docs/images/screen-connect-observability.png.
+ * Output: docs/src/assets/images/screen-connect-observability.png.
  */
 
 const API_KEY = process.env.F8_E2E_API_KEY ?? "e2e-key";

@@ -137,20 +137,34 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        /// <summary>CountOfKeys().</summary>
+        /// <summary><c>CountOfKeys()</c>, or <c>null</c> when the index reports a negative
+        /// "count not supported" sentinel - the sentinel contract is documented on
+        /// <see cref="IndexDescriptionREST.Keys"/>, whose inventory answers identically.</summary>
         /// <example>1000</example>
         [JsonPropertyName("keys")]
-        public Int32 Keys
+        public Int32? Keys
         {
             get; set;
         }
 
-        /// <summary>CountOfValues().</summary>
+        /// <summary><c>CountOfValues()</c>, or <c>null</c> for a negative sentinel (see
+        /// <see cref="Keys"/>).</summary>
         /// <example>1200</example>
         [JsonPropertyName("values")]
-        public Int32 Values
+        public Int32? Values
         {
             get; set;
+        }
+
+        /// <summary>
+        ///   Normalises an engine index count for the wire: a negative count is the
+        ///   "count not supported" sentinel (see <see cref="IndexDescriptionREST.Keys"/>) and
+        ///   surfaces as <c>null</c>, never as a fake count. Shared by the two index inventories
+        ///   (<c>/statistics</c> and <c>/status</c>) so they can never disagree for the same index.
+        /// </summary>
+        public static Int32? NonNegativeCount(Int32? count)
+        {
+            return count >= 0 ? count : null;
         }
     }
 

@@ -121,6 +121,23 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
         }
 
         /// <summary>
+        ///   Whether <see cref="Dispose"/> has run: the feed is shut down for good (the engine was
+        ///   disposed because its namespace was dropped or the server is stopping) and
+        ///   <see cref="TrySubscribe"/> refuses every caller. Lets a caller tell that refusal apart
+        ///   from a refusal because <see cref="ChangeFeedOptions.MaxSubscribers"/> is reached.
+        /// </summary>
+        public Boolean IsDisposed
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _disposed;
+                }
+            }
+        }
+
+        /// <summary>
         ///   The highest sequence number the dispatcher has processed (tests/diagnostics). A
         ///   subscription without <c>since</c> starts at THIS position - dispatch is asynchronous,
         ///   so it may trail the newest commit briefly; a caller that needs a deterministic start
@@ -332,7 +349,9 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
         ///   epoch mismatch (a restarted server) - starts with <c>resync(seekOutOfRange)</c>.
         ///   No <paramref name="sinceSeq"/> starts at the live head with no replay.</para>
         /// </summary>
-        /// <returns>false when <see cref="ChangeFeedOptions.MaxSubscribers"/> is reached.</returns>
+        /// <returns>false for either of two unrelated causes: the feed is disposed (see
+        /// <see cref="IsDisposed"/>, the distinguishing check a caller renders a message from), or
+        /// <see cref="ChangeFeedOptions.MaxSubscribers"/> is reached.</returns>
         public bool TrySubscribe(ChangeFeedFilter filter, Guid? sinceEpoch, long? sinceSeq,
             out ChangeFeedSubscription subscription)
         {

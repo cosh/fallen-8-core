@@ -398,18 +398,12 @@ namespace NoSQL.GraphDB.Core
                 return;
             }
 
-            // The create transaction always uses the default subgraph algorithm, so a recipe naming a
-            // different algorithm cannot be reproduced faithfully via this path. In the current engine
-            // the transaction/REST create is BFS-only, so this never fires; the guard makes the
-            // assumption visible if a future multi-algorithm create regresses it.
-            if (!string.IsNullOrEmpty(recipe.AlgorithmPluginName) &&
-                !string.Equals(recipe.AlgorithmPluginName,
-                    Algorithms.SubGraph.BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName, StringComparison.Ordinal))
-            {
-                _logger.LogWarning(
-                    "Logged subgraph \"{Name}\" was created with algorithm \"{Algorithm}\", but replay recreates it with the default algorithm.",
-                    recipe.Name, recipe.AlgorithmPluginName);
-            }
+            // The recipe's algorithm is replayed as recorded (the create transaction carries a
+            // selector since the subgraph algorithm became selectable over REST). A recipe naming a
+            // runtime-registered plugin therefore only replays while that plugin is still registered:
+            // if it is gone the create below fails and the entry is warned and skipped, exactly like
+            // any other unrecoverable recipe, rather than silently coming back as a different graph
+            // built by the default algorithm.
 
             // Compile + re-execute are guarded: a registered ISubGraphRecipeCompiler is third-party
             // code, and if it throws (violating the Try contract) the throw must NOT abort recovery of
@@ -431,7 +425,8 @@ namespace NoSQL.GraphDB.Core
                 {
                     Definition = definition,
                     SourceSubGraphName = string.IsNullOrEmpty(sourceSubGraphName) ? null : sourceSubGraphName,
-                    SpecificationJson = recipe.SpecificationJson
+                    SpecificationJson = recipe.SpecificationJson,
+                    AlgorithmPluginName = recipe.AlgorithmPluginName
                 };
 
                 if (!tx.TryExecute(this))

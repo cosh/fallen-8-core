@@ -1,0 +1,92 @@
+name: capacity
+
+# Measures capacity and throughput with fallen-8-bench and renders the result into the
+# Capacity and performance docs page (feature capacity-bench).
+#
+# Why a workflow rather than hand-written numbers: a capacity figure only means something next to the
+# machine that produced it. The tool emits a schema-conformant result file carrying its own
+# environment block, and scripts/update-capacity-doc.mjs renders that file into the page, so the
+# published numbers always name the hardware they came from.
+#
+# A shared GitHub runner is NOT a performance reference: it is virtualised, noisy, and its neighbours
+# are invisible. It is used here because it is reproducible and always available, and the page says so
+# by printing the runner label. For numbers that describe real hardware, run the tool locally
+# (`npm run bench:capacity`) and commit the result file plus the rendered page.
+
+on:
+  # Deliberately manual: a benchmark that reruns on every push would rewrite the published numbers
+  # with runner noise and bury the real diffs.
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Measurement profile (quick is CI-sized, full needs a real machine)'
+        required: false
+        default: 'quick'
+        type: choice
+        options:
+          - quick
+          - full
+      commit:
+        description: 'Commit the refreshed report and page back to the branch'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  measure:
+    name: measure and render the capacity page
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to commit the refreshed report + page back
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Release, because the published numbers must not describe a Debug build.
+      - name: Measure
+        env:
+          F8_BENCH_RUNNER_LABEL: "GitHub Actions ${{ runner.os }} (${{ runner.arch }}, shared runner)"
+        run: >
+          dotnet run --project fallen-8-bench -c Release --
+          --profile ${{ inputs.profile || 'quick' }}
+          --output fallen-8-bench/results/capacity-report.json
+
+      # The renderer validates the report against the shape capacity-report.schema.json declares and
+      # fails loudly rather than writing a half-populated page.
+      - name: Render into the docs page
+        run: node scripts/update-capacity-doc.mjs fallen-8-bench/results/capacity-report.json
+
+      # The docs build is the real gate on the rendered markdown: it fails on a broken internal link
+      # and on malformed content, so a bad render cannot reach the site.
+      - name: Build the docs site
+        run: |
+          npm --prefix docs ci
+          npm --prefix docs run build
+
+      - name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: capacity-report
+          path: fallen-8-bench/results/capacity-report.json
+
+      - name: Commit if the numbers moved
+        if: ${{ inputs.commit }}
+        run: |
+          if [[ -n "$(git status --porcelain fallen-8-bench/results docs/src/content/docs/capacity-and-performance.md)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add fallen-8-bench/results docs/src/content/docs/capacity-and-performance.md
+            git commit -m "capacity-bench: refresh the measured capacity numbers"
+            git push
+          else
+            echo "Capacity numbers unchanged - nothing to commit."
+          fi

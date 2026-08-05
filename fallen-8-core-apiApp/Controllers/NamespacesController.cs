@@ -163,6 +163,17 @@ namespace NoSQL.GraphDB.App.Controllers
                     "Supply a new \"name\" and/or a \"pluginRegistration\" of \"enabled\"/\"disabled\"/\"inherit\".");
             }
 
+            // Parse the override BEFORE any mutation: the rename is committed to the catalog and
+            // survives a restart, so a 400 raised after it had already renamed the namespace would
+            // contradict "rejected, nothing changed". Both fields are validated up front, then applied.
+            bool? pluginRegistration = null;
+            if (specification.PluginRegistration != null &&
+                !TryParsePluginRegistration(specification.PluginRegistration, out pluginRegistration))
+            {
+                return ProblemResults.Create(StatusCodes.Status400BadRequest, "Invalid pluginRegistration",
+                    "Expected \"enabled\", \"disabled\", or \"inherit\".");
+            }
+
             Namespace ns = null;
             var effectiveName = name;
 
@@ -177,12 +188,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (specification.PluginRegistration != null)
             {
-                if (!TryParsePluginRegistration(specification.PluginRegistration, out var enabled))
-                {
-                    return ProblemResults.Create(StatusCodes.Status400BadRequest, "Invalid pluginRegistration",
-                        "Expected \"enabled\", \"disabled\", or \"inherit\".");
-                }
-                if (!_namespaces.TrySetPluginRegistration(effectiveName, enabled, out ns, out var setFailure))
+                if (!_namespaces.TrySetPluginRegistration(effectiveName, pluginRegistration, out ns, out var setFailure))
                 {
                     return FailureProblem(effectiveName, setFailure);
                 }

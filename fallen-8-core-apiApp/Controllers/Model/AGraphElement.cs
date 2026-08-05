@@ -48,15 +48,20 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// Base constructor for graph elements
         /// </summary>
         /// <param name="id">The unique identifier of the graph element</param>
-        /// <param name="creationDate">The creation timestamp</param>
-        /// <param name="modificationDate">The last modification timestamp</param>
+        /// <param name="creationDate">The creation timestamp, in seconds since the 1970 epoch</param>
+        /// <param name="modificationDate">
+        /// The modification stamp as the engine keeps it: a DELTA in seconds since
+        /// <paramref name="creationDate"/>, zero for a never-modified element. See
+        /// <see cref="NoSQL.GraphDB.Core.Model.AGraphElementModel.GetModificationDate"/> for the
+        /// owning contract.
+        /// </param>
         /// <param name="label">The element's type label</param>
         /// <param name="properties">The element's properties</param>
         protected AGraphElement(Int32 id, UInt32 creationDate, UInt32 modificationDate, String label, ImmutableDictionary<String, Object> properties)
         {
             Id = id;
             CreationDate = DateHelper.GetDateTimeFromUnixTimeStamp(creationDate);
-            ModificationDate = DateHelper.GetDateTimeFromUnixTimeStamp(modificationDate);
+            ModificationDate = DateHelper.GetDateTimeFromUnixTimeStamp(creationDate + modificationDate);
             Label = label;
             Properties = properties.Select(_ => new PropertySpecification
             {

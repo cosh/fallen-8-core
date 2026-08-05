@@ -9,9 +9,9 @@ Fallen-8 has no query language, and that is the point. Instead of a Cypher/Greml
 
 ## No query language, on purpose
 
-Fallen-8 deliberately ships without a query language. There is no Cypher, no Gremlin, no SQL dialect — and none is planned. Owning a query language is a large, permanent commitment: a grammar, a parser, a planner, an optimizer, and a lifetime of compatibility promises. That responsibility was declined on purpose, not left as a to-do.
+Fallen-8 deliberately ships without a query language. There is no Cypher, no Gremlin, no SQL dialect, and none is planned. Owning a query language is a large, permanent commitment: a grammar, a parser, a planner, an optimizer, and a lifetime of compatibility promises. That responsibility was declined on purpose, not left as a to-do.
 
-Queries are expressed as C# instead. You hand the engine a tiny delegate fragment — `return (v) => v.Label == "person";` — and it compiles that fragment to a real .NET delegate and invokes it inside the traversal at full in-memory speed. There is no query string to parse, no intermediate representation, no impedance layer between what you wrote and what runs. The precompiled flavor (stored queries, below) removes even the per-request compile.
+Queries are expressed as C# instead. You hand the engine a tiny delegate fragment (`return (v) => v.Label == "person";`) and it compiles that fragment to a real .NET delegate and invokes it inside the traversal at full in-memory speed. There is no query string to parse, no intermediate representation, no impedance layer between what you wrote and what runs. The precompiled flavor (stored queries, below) removes even the per-request compile.
 
 This is a deliberate fit for the era of code-generating agents. An agent already writes C# fluently; asking it to emit a three-line lambda is easier and less error-prone than teaching it a bespoke query dialect, and the fragment runs against the graph with nothing lost in translation. The absence of a query language is a feature of Fallen-8, not a gap in it.
 
@@ -23,10 +23,10 @@ A fragment is the **body of a factory method** whose return type is one of the d
 return (v) => v.Label == "person";
 ```
 
-- The `return` prefix is required — the fragment is a method body, not a bare expression.
+- The `return` prefix is required: the fragment is a method body, not a bare expression.
 - End the statement with `;`.
 - The lambda parameter name (`v`, `e`, `p`, …) is yours to choose; only its type is fixed by the delegate kind.
-- For multi-step logic use a **block-body lambda** so the fragment stays a single `return` statement: `return (v) => { var n = v.GetOutDegree(); return n > 2; };`.
+- For multi-step logic use a **block-body lambda**: `return (v) => { var n = v.GetOutDegree(); return n > 2; };`. Statements may also precede the `return` (the fragment is a whole method body): `var min = 2; return (v) => v.GetOutDegree() > min;`.
 - A `null`/empty fragment means "match everything" (filters) or "no custom cost" (costs).
 
 The generated method also receives `context`, so the returned lambda may close over it (see below).
@@ -42,14 +42,14 @@ Every fragment compiles against one of the delegate types in [`Delegates.cs`](ht
 | `EdgePropertyFilter` | `string` (the edge's type, `edgePropertyId`) | `bool` | path `edgePropertyFilter`; subgraph Edge pattern |
 | `VertexCost` | `VertexModel` | `double` | path `vertexCost` |
 | `EdgeCost` | `EdgeModel` | `double` | path `edgeCost` |
-| `GraphElementFilter` | `AGraphElementModel` | `bool` | `/delegates/validate` only — no live REST slot produces it today |
-| `LabelFilter` | `string` (label) | `bool` | engine-internal; not exposed over REST |
+| `GraphElementFilter` | `AGraphElementModel` | `bool` | `/delegates/validate` only: no live REST slot produces it today |
+| `LabelFilter` | `string` (label) | `bool` | nowhere: declared in `Delegates.cs` but currently unused, and `/delegates/validate` rejects it |
 
 ### Accessor surface
 
 The lambda parameter is a live engine model object. Read it through these members (properties are typed values behind `TryGetProperty<T>`, not C# fields).
 
-`AGraphElementModel` — base of both `VertexModel` and `EdgeModel`:
+`AGraphElementModel`: base of both `VertexModel` and `EdgeModel`:
 
 | Member | Purpose |
 |---|---|
@@ -57,26 +57,27 @@ The lambda parameter is a live engine model object. Read it through these member
 | `string Label` | Element label (may be `null`) |
 | `bool TryGetProperty<T>(out T value, string key)` | Typed property read; `false` if absent, not a `T`, or `null` - never throws |
 | `bool AnyPropertyValueMatches(Func<string,bool> valuePredicate)` | Full-text test across the element's string property **values** (names never reach the predicate; reserved embedding entries are skipped): `v.AnyPropertyValueMatches(s => s.Contains("Tech", StringComparison.OrdinalIgnoreCase))` |
-| `ImmutableDictionary<string,object> GetAllProperties()` | Snapshot of all properties |
 | `int GetPropertyCount()` | Number of properties |
 | `DateTime GetCreationDate()` / `GetModificationDate()` | Timestamps |
 | `bool TryGetEmbedding(out ReadOnlySpan<float> vector, string name = "default")` | Named embedding, if present |
+| `bool TryGetEmbeddingModelStamp(out string stamp, string name = "default")` | The model stamp stored next to a provider-written embedding (absent for bring-your-own vectors) |
 
 `VertexModel` adds:
 
 | Member | Purpose |
 |---|---|
 | `uint GetOutDegree()` / `GetInDegree()` | Degree counts |
-| `List<VertexModel> GetAllNeighbors()` | All adjacent vertices |
-| `List<string> GetOutgoingEdgeIds()` / `GetIncomingEdgeIds()` | Edge-property-id groups |
-| `IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>> OutEdges` / `InEdges` | Adjacency grouped by edge-property id |
-| `bool TryGetOutEdge(out IReadOnlyList<EdgeModel> edges, string edgePropertyId)` / `TryGetInEdge(…)` | One adjacency group |
+| `IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>> OutEdges` / `InEdges` | Adjacency grouped by edge-property id, or **`null`** when the vertex has no edges in that direction: guard before dereferencing |
+| `bool TryGetOutEdge(out IReadOnlyList<EdgeModel> edges, string edgePropertyId)` / `TryGetInEdge(…)` | One adjacency group; `false` with a `null` result when the group is absent |
+| `bool TryGetOutEdgesSpan(out ReadOnlySpan<EdgeModel> edges, string edgePropertyId)` / `TryGetInEdgesSpan(…)` | The same group, allocation-free; the span is a `ref struct`, so iterate it in scope |
 
 `EdgeModel` adds: `VertexModel SourceVertex`, `VertexModel TargetVertex`, `string EdgePropertyId` (all read-only).
 
+Some public engine members are **not** usable in a fragment, because the compile does not reference the assembly their return type lives in and the call fails with `CS0012`: `GetAllProperties()` (`ImmutableDictionary<,>`), plus `GetAllNeighbors()` and `GetOutgoingEdgeIds()` / `GetIncomingEdgeIds()` (`List<>`). Reach for `GetPropertyCount` / `TryGetProperty` / `AnyPropertyValueMatches` and the adjacency members above instead. [Compilation and caching](#compilation-and-caching) lists what the compile does reference.
+
 ## The `context` parameter
 
-`context` is a `TraversalContext` — the per-request semantic state, embedded once before the traversal starts. It is empty (`HasQueryVector == false`) unless the request carries a `semantic` block; that block is the code-free way to supply a query vector and is owned by [semantic-traversal.md](/fallen-8-core/semantic-traversal/). A fragment reads it to blend similarity into a filter or cost:
+`context` is a `TraversalContext`: the per-request semantic state, embedded once before the traversal starts. It is empty (`HasQueryVector == false`) unless the request carries a `semantic` block; that block is the code-free way to supply a query vector and is owned by [semantic-traversal.md](/fallen-8-core/semantic-traversal/). A fragment reads it to blend similarity into a filter or cost:
 
 | Member | Purpose |
 |---|---|
@@ -85,7 +86,7 @@ The lambda parameter is a live engine model object. Read it through these member
 | `ReadOnlySpan<float> QueryVector` | The raw query vector |
 | `string EmbeddingName` / `VectorDistanceMetric Metric` | Which embedding and metric are scored |
 
-Example — keep vertices whose embedding is close to the query vector:
+Example, keep vertices whose embedding is close to the query vector:
 `return (v) => context.TrySimilarity(v, out var s) && s > 0.8f;`
 
 ## Compilation and caching
@@ -94,12 +95,16 @@ Fragments are wrapped into a provider class and compiled with **Roslyn** (`CodeG
 
 | Surface | Cache | Key | Size | Eviction |
 |---|---|---|---|---|
-| Path filters/costs | `GeneratedCodeCache` (process-wide, static) | the `(filter, cost)` pair, by value equality — numeric bounds (`maxDepth`/`maxResults`/`maxPathWeight`) and `pathAlgorithmName` are applied at traversal time and **excluded** from the key | 1024 entries | 60 s sliding; collectible context unloads on eviction |
+| Path filters/costs | `GeneratedCodeCache` (process-wide, static) | the `(filter, cost)` pair, by value equality: numeric bounds (`maxDepth`/`maxResults`/`maxPathWeight`) and `pathAlgorithmName` are applied at traversal time and **excluded** from the key | 1024 entries | 60 s sliding; collectible context unloads on eviction |
 | Subgraph filters | provider cache in `CodeGenerationHelper` | the generated provider source string | 256 entries | 60 s sliding; collectible context unloads on eviction |
 
-So repeating the same fragment set reuses one compiled artifact, and two path requests that differ only in a numeric bound share the same cached traverser. Compile timings and cache hit/miss counters are exported as metrics — see [observability.md](/fallen-8-core/observability/).
+So repeating the same fragment set reuses one compiled artifact, and two path requests that differ only in a numeric bound share the same cached traverser. Compile timings and cache hit/miss counters are exported as metrics; see [observability.md](/fallen-8-core/observability/).
 
-There is no type/namespace allowlist and no sandbox: the compilation references the .NET core assemblies plus the engine assembly, and imports a fixed set of usings — `System`, `System.Linq`, `NoSQL.GraphDB.Core.Model`, `NoSQL.GraphDB.Core.Index.Vector` (subgraph fragments also get `NoSQL.GraphDB.Core.Algorithms`); `TraversalContext` resolves by simple name. Any reachable type may be used (fully qualified if not imported), and compiled code runs in-process with full trust. That is exactly why the code endpoints sit behind authentication — [security.md](/fallen-8-core/security/) owns that posture (dynamic code execution itself is always on; the API key controls *access*). The only structural guards are size caps: a fragment over 100,000 characters, or a generated source over 1,000,000, is rejected before Roslyn runs. These runtime-compiled delegates are not [plugins](/fallen-8-core/plugins/) — that is a separate discovery mechanism.
+There is no sandbox: compiled code runs in-process with full trust. That is exactly why the code endpoints sit behind authentication; [security.md](/fallen-8-core/security/) owns that posture (dynamic code execution itself is always on; the API key controls *access*). These runtime-compiled delegates are not [plugins](/fallen-8-core/plugins/): that is a separate discovery mechanism.
+
+The compile environment is narrow, and that narrowness is the de-facto type allowlist. It imports a fixed set of usings (`System`, `System.Linq`, `NoSQL.GraphDB.Core.Model`, `NoSQL.GraphDB.Core.Index.Vector`; subgraph fragments also get `NoSQL.GraphDB.Core.Algorithms`), so `TraversalContext` resolves by simple name, and it references only the runtime core (`System.Private.CoreLib` plus the `mscorlib` / `System` / `System.Core` / `System.Runtime` facades), `System.Linq` and the engine assembly. A type from any other assembly is out of reach even fully qualified: `System.Text.RegularExpressions.Regex` fails with `CS1069`, and an engine member whose signature names `List<>` or `ImmutableDictionary<,>` fails with `CS0012` (see [accessor surface](#accessor-surface)).
+
+Size caps are the first structural guard and they are uniform: every generator rejects a fragment longer than 100,000 characters before Roslyn runs and a generated source over 1,000,000 characters, so `POST /path`, `POST /delegates/validate`, `PUT /subgraph` and the stored queries that go through the same generators all inherit both, on top of the 1 MiB request-size limit every code endpoint carries (`413` beyond it). There is still no compile timeout. Execution is bounded only cooperatively, and only on `/path` ([security](/fallen-8-core/security/#dynamic-code-execution-always-on)): a fragment that loops forever occupies its request thread.
 
 ## Where fragments are accepted
 
@@ -109,12 +114,13 @@ There is no type/namespace allowlist and no sandbox: the compilation references 
 | `PUT /subgraph` | top-level `vertexFilter` / `edgeFilter` plus per-pattern filters | [subgraphs.md](/fallen-8-core/subgraphs/) |
 | `POST /storedquery` | the same fragments, compiled once and invoked by name | [stored-queries.md](/fallen-8-core/stored-queries/) |
 | `POST /delegates/validate` | compile-check a single fragment (below) | this doc |
+| MCP `f8_paths` / `f8_subgraph` | `vertexFilter` / `edgeFilter` / `edgePropertyFilter` / `vertexCost` / `edgeCost` on `f8_paths`, `vertexFilter` / `edgeFilter` on `f8_subgraph`, bridged to `POST /path` and `PUT /subgraph`; offered only with the `code` capability | [MCP server](/fallen-8-core/mcp-server/) |
 
 ## Validating a fragment: `POST /delegates/validate`
 
-Compile-checks one fragment without running it — nothing is emitted, loaded, or executed. Use it to give an editor or agent instant feedback before submitting a query. It carries the same authentication as the query endpoints ([security.md](/fallen-8-core/security/)): `401` without a credential when a key is configured, `429` when rate-limited.
+Compile-checks one fragment without running it: nothing is emitted, loaded, or executed. Use it to give an editor or agent instant feedback before submitting a query. It carries the same authentication as the query endpoints ([security.md](/fallen-8-core/security/)): `401` without a credential when a key is configured, `429` when rate-limited, `400` for a missing body or an unknown `delegateKind`.
 
-Request: `{ "delegateKind": "<kind>", "fragment": "<C#>" }`, where `delegateKind` is one of the kinds above (case-insensitive). Response:
+Request: `{ "delegateKind": "<kind>", "fragment": "<C#>" }`. `delegateKind` is case-insensitive and must be one of `VertexFilter`, `EdgeFilter`, `EdgePropertyFilter`, `VertexCost`, `EdgeCost`, `GraphElementFilter`; `LabelFilter` is not accepted. Response:
 
 ```json
 {
@@ -126,7 +132,7 @@ Request: `{ "delegateKind": "<kind>", "fragment": "<C#>" }`, where `delegateKind
 }
 ```
 
-`valid` is `true` when the fragment compiles with no errors (warnings are reported but do not block). Diagnostic positions are 1-based and already mapped to fragment coordinates — line 1 / column 1 is the first character you sent. A `null`/empty fragment is valid with no diagnostics; an oversized one fails with id `F8LIMIT`.
+`valid` is `true` when the fragment compiles with no errors (warnings are reported but do not block). Diagnostic positions are 1-based and already mapped to fragment coordinates, line 1 / column 1 is the first character you sent. A `null`/empty fragment is valid with no diagnostics; an oversized one fails with id `F8LIMIT`.
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -164,15 +170,18 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/delegates/validate `
 | "not all code paths return a value" | Missing `return`, or logic placed outside the lambda | Prefix with `return`; put branching inside a block-body lambda |
 | `CS1061: '…' does not contain '…'` | Using an `EdgeModel` member on a `VertexFilter` (or reading a property as a C# field) | Match the kind's parameter type; read properties via `TryGetProperty<T>` |
 | A filter silently drops elements it should keep | `TryGetProperty<T>` with `T` different from the stored value's CLR type reads as absent (there is no numeric widening, and no throw) | Request the exact stored type (e.g. `out int`, `out double`, `out string`) |
+| `500` from `/path` or `/subgraph` on a fragment that compiled fine | The fragment threw during the traversal, most often dereferencing a `null` `OutEdges` / `InEdges` (no edges in that direction) or a `null` `Label` | Guard for `null`. A runtime throw is not a compile error, so `/delegates/validate` cannot catch it |
+| `CS0012: the type '…' is defined in an assembly that is not referenced` | The member's return type lives outside the referenced assemblies (`List<>`, `ImmutableDictionary<,>`) | Use the substitutes listed under [Accessor surface](#accessor-surface) |
 
 ## See also
 
-- [Path finding](/fallen-8-core/path-finding/) — the path request and its filter/cost slots
-- [Subgraphs](/fallen-8-core/subgraphs/) — subgraph pattern filters
-- [Stored queries](/fallen-8-core/stored-queries/) — named, precompiled fragment sets
-- [Semantic traversal](/fallen-8-core/semantic-traversal/) — the code-free `semantic` block that populates `context`
-- [Security](/fallen-8-core/security/) — the API key that gates access to these always-on code endpoints
-- [Observability](/fallen-8-core/observability/) — codegen compile and cache metrics
-- [Studio](/fallen-8-core/studio/) — the browser delegate editor and NL-assist UI
-- [Graph model](/fallen-8-core/graph-model/) — elements, properties, and transactions the fragments read
-- [REST API](/fallen-8-core/rest-api/) — OpenAPI document and Scalar reference
+- [Path finding](/fallen-8-core/path-finding/): the path request and its filter/cost slots
+- [Subgraphs](/fallen-8-core/subgraphs/): subgraph pattern filters
+- [Stored queries](/fallen-8-core/stored-queries/): named, precompiled fragment sets
+- [Semantic traversal](/fallen-8-core/semantic-traversal/): the code-free `semantic` block that populates `context`
+- [Security](/fallen-8-core/security/): the API key that gates access to these always-on code endpoints
+- [Observability](/fallen-8-core/observability/): codegen compile and cache metrics
+- [Studio](/fallen-8-core/studio/): the browser delegate editor and NL-assist UI
+- [MCP server](/fallen-8-core/mcp-server/): the agent channel that forwards inline fragments on `f8_paths` / `f8_subgraph`
+- [Graph model](/fallen-8-core/graph-model/): elements, properties, and transactions the fragments read
+- [REST API](/fallen-8-core/rest-api/): OpenAPI document and Scalar reference

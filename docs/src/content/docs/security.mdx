@@ -6,23 +6,26 @@ description: "The optional all-or-nothing API key; dynamic code execution is alw
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 
-Fallen-8's hosted API has one access control: an **API key** that gates *access* to the whole service (all or nothing). Set it and every request needs it; leave it unset and the whole service is open. There is no dynamic-code switch — compiling and running submitted C# fragments is Fallen-8's core "queries are C#" model and is **always available** (auth permitting). Runtime **plugin registration** compiles submitted C# too ([plugin registration](/fallen-8-core/plugin-registration/)); it is **on by default** and can be turned off globally or **per namespace**. This page is the one home for that posture; other docs reference it.
+Fallen-8's hosted API has one access control: an **API key** that gates *access* to the whole service (all or nothing). Set it and every request needs it; leave it unset and the whole service is open. There is no dynamic-code switch, compiling and running submitted C# fragments is Fallen-8's core "queries are C#" model and is **always available** (auth permitting). Runtime **plugin registration** compiles submitted C# too ([plugin registration](/fallen-8-core/plugin-registration/)); it is **on by default** and can be turned off globally or **per namespace**. This page is the one home for that posture; other docs reference it.
+
+Plugin registration is one of four operator **capability** switches the authorization layer enforces. A capability is orthogonal to authentication: when it is off the endpoint answers **403** to every caller, valid key-holder or not.
 
 | Control | Config key | Gates | Default |
 |---|---|---|---|
 | API key | `Fallen8:Security:ApiKey` | Access to every endpoint | unset → open |
 | Plugin registration | `Fallen8:Security:EnableDynamicPluginLoading` (global default) + per-namespace `pluginRegistration` override | Registering plugins from source (`POST /plugins/*`, [plugin registration](/fallen-8-core/plugin-registration/)) | `true` → allowed; override per namespace via `PATCH /ns/{name}` |
+| Embedding / chat / ingestion capabilities | `Fallen8:Embedding:Enabled`, `Fallen8:Chat:Enabled`, `Fallen8:Ingestion:Enabled` | `/embedding/*`, `POST /chat`, `/document/*` (each also the only path to an external sidecar) | `false` → **403** on a bare run; the compose environment turns all three on (see [running](/fallen-8-core/running/)) |
 
 ## API key authentication
 
-Set a key and the **entire** service requires it — reads, mutations, and code endpoints alike. Leave it unset and the whole service is open (the API-key scheme authenticates nobody); the server logs a prominent `UNAUTHENTICATED` warning at startup. There is no per-endpoint or per-role model: it is all or nothing.
+Set a key and the **entire** service requires it, reads, mutations, and code endpoints alike. Leave it unset and the whole service is open (the API-key scheme authenticates nobody); the server logs a prominent `UNAUTHENTICATED` warning at startup. There is no per-endpoint, per-role, or per-namespace model: it is all or nothing, and the single key opens **every** namespace. [Namespaces](/fallen-8-core/namespaces/) isolate data, not tenants; the only per-namespace security state is the plugin-registration override, and a separate instance per tenant is the only real split today.
 
 | Key | Env (compose) | Default | Meaning |
 |---|---|---|---|
-| `Fallen8:Security:ApiKey` | `Fallen8__Security__ApiKey` (`F8_API_KEY`) | `null` | The secret. Supply from environment or user-secrets — never checked in. |
+| `Fallen8:Security:ApiKey` | `Fallen8__Security__ApiKey` (`F8_API_KEY`) | `null` | The secret. Supply from environment or user-secrets, never checked in. |
 | `Fallen8:Security:ApiKeyHeader` | `Fallen8__Security__ApiKeyHeader` | `X-Api-Key` | Request header carrying the key. |
 
-The client sends the key in the `X-Api-Key` header (or, as a fallback, `Authorization: Bearer <key>` — the same key). The comparison is constant-time and the key is never logged. Behaviour when a key **is** configured:
+The client sends the key in the `X-Api-Key` header (or, as a fallback, `Authorization: Bearer <key>`, the same key). The comparison is constant-time and the key is never logged. Behaviour when a key **is** configured:
 
 | Request | Result |
 |---|---|
@@ -30,13 +33,13 @@ The client sends the key in the `X-Api-Key` header (or, as a fallback, `Authoriz
 | Missing key | **401 Unauthorized** |
 | Wrong key | **401 Unauthorized** |
 
-**Anonymous exemptions** (reachable without a key even when one is set): `GET /status`, `GET /vertex/count`, `GET /edge/count`, the health probes `GET /healthz` and `GET /readyz`, the Studio SPA shell, and `GET /metrics` by default (see [observability](/fallen-8-core/observability/)). Everything else requires the key. `GET /status` is also the connection probe: it reports `apiKeyRequired` (server config) and `authenticated` (this request) so a client can tell "reachable" from "authorized".
+**Anonymous exemptions** (reachable without a key even when one is set): `GET /status`, `GET /vertex/count`, `GET /edge/count`, the health probes `GET /healthz` and `GET /readyz`, `GET /metrics` by default (see [observability](/fallen-8-core/observability/)), and **everything served from `wwwroot`** in the all-in-one image: the Studio shell, its hashed assets, and the bundled [sample](/fallen-8-core/samples/) datasets under `/samples/`. Static files are served by middleware that runs *before* authentication, so no file in `wwwroot` is ever key-gated. Everything else requires the key, `GET /statistics` included: it exposes schema-shaped data (label names, property keys, index names), unlike `/metrics`, whose inventory is aggregate numbers only. `GET /status` is also the connection probe: it reports `apiKeyRequired` (server config) and `authenticated` (this request) so a client can tell "reachable" from "authorized".
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
 
 ```bash
-# Probe first — is a key required?  Then send it on real calls.
+# Probe first: is a key required?  Then send it on real calls.
 curl http://localhost:8080/status
 curl -H "X-Api-Key: <your-key>" http://localhost:8080/storedquery
 ```
@@ -54,7 +57,7 @@ Invoke-RestMethod -Uri http://localhost:8080/storedquery -Headers @{ "X-Api-Key"
 
 ## Dynamic code execution (always on)
 
-The path and subgraph endpoints compile inline C# filter/cost fragments with Roslyn and run them in-process — see [delegates](/fallen-8-core/delegates/). This is Fallen-8's query model, so **there is no switch to disable it**. The only gate is authentication: with a key configured, a code-introducing request needs the key like any other request (401 without it); with no key, anyone who can reach the service can run arbitrary in-process C#.
+The path and subgraph endpoints compile inline C# filter/cost fragments with Roslyn and run them in-process; see [delegates](/fallen-8-core/delegates/). This is Fallen-8's query model, so **there is no switch to disable it**. The only gate is authentication: with a key configured, a code-introducing request needs the key like any other request (401 without it); with no key, anyone who can reach the service can run arbitrary in-process C#.
 
 | Endpoint class | Needs a credential (when a key is configured) | Notes |
 |---|---|---|
@@ -63,49 +66,54 @@ The path and subgraph endpoints compile inline C# filter/cost fragments with Ros
 | Stored-query **registration** (`POST /storedquery`) | yes | Compiled once at registration ([stored queries](/fallen-8-core/stored-queries/)). |
 | `POST /delegates/validate` | yes | Compile-checks a fragment without running it. |
 | Stored-query **invocation** by name, list / get / delete | as any request | No new code is introduced; the pre-compiled artifact runs. |
-| Filterless path search (`{}` body), the `semantic` block, analytics, change feed, reads/scans, mutations | as any request | Compile no C# at all. |
-| Plugin **registration** (`POST /plugins/algorithm`, `/plugins/function`, `/plugins/{category}/validate`) | yes **and** plugin registration enabled | On by default; disable globally (`EnableDynamicPluginLoading=false`) or per namespace (`PATCH /ns/{name}` `pluginRegistration`) — see [plugin registration](/fallen-8-core/plugin-registration/). Invoking/listing/deleting a registered plugin is never gated by this. |
+| Filterless path search (`{}` body) or a `semantic`-only path request | as any request | Compiles nothing: with no filter and no cost fragment the generator short-circuits, so no Roslyn run and no assembly load. The `semantic` block itself is pure data. |
+| Analytics, change feed, reads/scans, mutations, and a `PUT /subgraph` with no fragments at all | as any request | Compile no C# at all. |
+| Plugin **registration** (`POST /plugins/algorithm`, `/plugins/function`, `/plugins/algorithm/validate`, `/plugins/function/validate`) | yes **and** plugin registration enabled | On by default; disable globally (`EnableDynamicPluginLoading=false`) or per namespace (`PATCH /ns/{name}` `pluginRegistration`), see [plugin registration](/fallen-8-core/plugin-registration/). Invoking/listing/deleting a registered plugin is never gated by this. |
 
-**Honest limit.** A compiled fragment — inline or stored — runs in-process with the server's full authority. Authentication is *access control* (who may reach the code endpoints at all); it is **not a sandbox**. Anyone who can present the key has full code execution as the server process. Running genuinely untrusted code would need out-of-process or WASM isolation, which Fallen-8 does not provide. **Therefore: never expose an unauthenticated instance off-box — set an API key (or front the service with an authenticating proxy) before it is reachable beyond localhost or a trusted network.**
+**Honest limit.** A compiled fragment (inline or stored) runs in-process with the server's full authority. Authentication is *access control* (who may reach the code endpoints at all); it is **not a sandbox**. Anyone who can present the key has full code execution as the server process. Running genuinely untrusted code would need out-of-process or WASM isolation, which Fallen-8 does not provide. **Therefore, never expose an unauthenticated instance off-box: set an API key (or front the service with an authenticating proxy) before it is reachable beyond localhost or a trusted network.**
+
+The execution budget is **cooperative, and only that**. `POST /path` accepts an optional `timeBudgetSeconds`, is always bound to the client's abort, and answers `408` when either trips, which contains an accidentally expensive traversal and lets a caller give up. It cannot contain a hostile one: the budget is checked between filter and cost invocations, so a fragment that never returns (`return (v) => { while(true){} };`) still holds its thread until the process restarts. That is the trust model, not an oversight: a fragment author is already trusted as the process. The other guards are pre-compile only: the fragment and source length caps described in [delegates](/fallen-8-core/delegates/), plus the shared sensitive-endpoint rate limit below as a coarse brake.
 
 ## How the key composes
 
 | Posture | Who can reach it | Who can run in-process C# |
 |---|---|---|
-| **Key unset (open)** — default | anyone who can reach the service | anyone who can reach the service. **Localhost / trusted network only.** |
+| **Key unset (open)**: default | anyone who can reach the service | anyone who can reach the service. **Localhost / trusted network only.** |
 | **Key set** | only key-holders (reads exempted above) | only key-holders. The recommended exposed posture. |
 
 ## Deployment postures
 
-| Posture | API key | Plugin loading | TLS | Shape |
+| Posture | API key | Plugin registration | TLS | Shape |
 |---|---|---|---|---|
-| Localhost dev | unset (open) | off | none | `dotnet run`; iterate on fragments freely on your own machine. |
-| Trusted network | set | off | none / optional | Every request authenticated; code runs in-process — keep the network trusted. |
-| Exposed | set | off | terminate upstream | Every request authenticated behind a TLS-terminating reverse proxy. |
+| Localhost dev | unset (open) | on (the default) | none | `dotnet run`; iterate on fragments freely on your own machine. |
+| Trusted network | set | on (the default); turn it off globally or per namespace if callers should not introduce plugin code | none / optional | Every request authenticated; code runs in-process, keep the network trusted. |
+| Exposed | set | on (the default); leaving it on means every key-holder can register full-trust C# | terminate upstream | Every request authenticated behind a TLS-terminating reverse proxy. |
 
 **TLS.** The app serves plain HTTP (the container listens on `8080`, the dev profile on `5000`); it does **not** terminate TLS and ships no certificate, so `UseHttpsRedirection` is a no-op without an HTTPS port. When exposing the service, put a TLS-terminating reverse proxy in front of it.
 
-**Bind address.** `Fallen8:Security:AllowRemoteAccess` exists but is currently inert — `Program.cs` does not read it, so it forces nothing. The actual bind address is whatever `ASPNETCORE_URLS` / Kestrel / the launch profile sets (the container binds all interfaces on `8080`). Do not rely on a "loopback-by-default" guarantee: set the API key before the service is reachable off-box.
+**Bind address.** `Fallen8:Security:AllowRemoteAccess` exists but is currently inert: `Program.cs` does not read it, so it forces nothing. The actual bind address is whatever `ASPNETCORE_URLS` / Kestrel / the launch profile sets (the container binds all interfaces on `8080`). Do not rely on a "loopback-by-default" guarantee: set the API key before the service is reachable off-box.
+
+**The API key protects the REST port only.** The compose environment also starts the [MCP server](/fallen-8-core/mcp-server/) as a second listener onto the same graph (published on `8090`; it has no compose profile, so it comes up with the rest of the environment). It authenticates its *own* callers with its own settings, and it holds `F8_API_KEY` as the downstream credential it presents to the REST API on every bridged call. In the shipped compose defaults it is anonymous (`F8_MCP_AUTH_MODE=None`) and read-only (write/admin/code tiers off). Before that environment goes off-box, set `F8_MCP_AUTH_MODE=StaticToken` with `F8_MCP_TOKEN` (or OAuth), or stop publishing `8090`: setting `F8_API_KEY` alone does not close it.
 
 ## Other perimeter controls
 
-Additional knobs under `Fallen8:Security`, applied to the sensitive (code/plugin) endpoints:
+Additional settings under `Fallen8:Security`. Only the rate limit is scoped to the sensitive endpoints; the CORS policy is app-wide.
 
 | Key | Default | Effect |
 |---|---|---|
-| `AllowedCorsOrigins` | `[]` | CORS allow-list; empty denies all cross-origin. No wildcard-with-credentials. |
-| `SensitiveRateLimitPermitPerWindow` / `RateLimitWindowSeconds` | `30` / `10` | Fixed-window rate limit on code/plugin endpoints; breach → **429**. |
-| (request body) | 1 MiB | Fragment/registration bodies over the limit → **413**. |
+| `AllowedCorsOrigins` | `[]` | The CORS **default** policy, applied to *every* endpoint (there is no per-endpoint CORS attribute). Empty denies all cross-origin; a listed origin gets any header and method, with the preflight cached for 600 s. No wildcard-with-credentials. Preflight (`OPTIONS`) is answered before authentication. As an environment variable the array binds only in **indexed** form, `Fallen8__Security__AllowedCorsOrigins__0=http://localhost:8081`; a bare `Fallen8__Security__AllowedCorsOrigins=…` binds nothing. A [standalone UI](/fallen-8-core/standalone-ui/) on another origin does not work until its origin is listed. |
+| `SensitiveRateLimitPermitPerWindow` / `RateLimitWindowSeconds` | `30` / `10` | Fixed-window rate limit; breach → **429** with no queueing. The window is **process-wide, not per caller**: 30 requests from any one client inside 10 s rate-limit everyone. The guarded set is wider than the code endpoints: `POST /path/…`, `PUT /subgraph`, `POST /storedquery`, `POST /delegates/validate` and `POST /plugins/*`, plus `GET /statistics`, namespace create / rename / drop, `PUT /save/all`, `HEAD /tabularasa/all`, `POST /chat`, every `/embedding/*` route, and `POST /document`, `/document/text`, `/document/search`. |
+| (request body) | 1 MiB | Fixed per endpoint (a `[RequestSizeLimit]` attribute), not configurable: a fragment or registration body over it → **413**. There is deliberately no configuration key for it. Document upload deliberately carries its own, much larger bound ([unstructured ingestion](/fallen-8-core/unstructured-ingestion/)). |
 
 ## See also
 
-- [Delegates](/fallen-8-core/delegates/) — the Roslyn-compiled C# fragments (always available), and `/delegates/validate`
-- [Stored queries](/fallen-8-core/stored-queries/) — named, pre-compiled queries: registration needs a credential, invocation reuses the artifact
-- [Semantic traversal](/fallen-8-core/semantic-traversal/) — the code-free `semantic` block
-- [Change feed](/fallen-8-core/change-feed/) — declarative, compiles no code
-- [Plugin registration](/fallen-8-core/plugin-registration/) — the `EnableDynamicPluginLoading` global default + the per-namespace override
-- [Observability](/fallen-8-core/observability/) — metrics/health endpoints and whether `/metrics` requires the key
-- [Running Fallen-8](/fallen-8-core/running/) — setting `F8_API_KEY` in compose
-- [Studio](/fallen-8-core/studio/) — registering an instance with its key
-- [REST API](/fallen-8-core/rest-api/) — the auth header on the endpoint surface
-```
+- [Delegates](/fallen-8-core/delegates/): the Roslyn-compiled C# fragments (always available), and `/delegates/validate`
+- [Stored queries](/fallen-8-core/stored-queries/): named, pre-compiled queries, where registration needs a credential and invocation reuses the artifact
+- [Semantic traversal](/fallen-8-core/semantic-traversal/): the code-free `semantic` block
+- [Change feed](/fallen-8-core/change-feed/): declarative, compiles no code
+- [Plugin registration](/fallen-8-core/plugin-registration/): the `EnableDynamicPluginLoading` global default + the per-namespace override
+- [Observability](/fallen-8-core/observability/): metrics/health endpoints and whether `/metrics` requires the key
+- [MCP server](/fallen-8-core/mcp-server/): the second listener's own auth modes and tool tiers
+- [Running Fallen-8](/fallen-8-core/running/): setting `F8_API_KEY` in compose
+- [Studio](/fallen-8-core/studio/): registering an instance with its key
+- [REST API](/fallen-8-core/rest-api/): the auth header on the endpoint surface

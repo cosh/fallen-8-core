@@ -6,7 +6,7 @@ description: "Exact k-nearest-neighbour over float[] embeddings (cosine, dot pro
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 `VectorIndex` is an exact k-nearest-neighbour index over `float[]` embedding vectors: a SIMD
-brute-force scan (`TensorPrimitives`) over one contiguous vector slab — no approximate
+brute-force scan (`TensorPrimitives`) over one contiguous vector slab: no approximate
 structures, no recall parameter, always the true top-k. Because every hit is a graph element,
 similarity search is a graph entry point, not a detached vector store. All routes below also
 answer under `/ns/{ns}/…` for a specific namespace ([namespaces.md](/fallen-8-core/namespaces/)).
@@ -19,7 +19,7 @@ answer under `/ns/{ns}/…` for a specific namespace ([namespaces.md](/fallen-8-
 | `DotProduct` | inner product, unbounded | `true` | allowed |
 | `L2` | Euclidean distance, ≥ 0 | `false` | allowed |
 
-Scores are raw — interpret them via the `metric` and `higherIsBetter` fields the response
+Scores are raw, interpret them via the `metric` and `higherIsBetter` fields the response
 carries. Ordering is deterministic: best score first, ties broken by ascending element id.
 Candidates whose score comes out non-finite (possible from finite inputs, e.g. dot-product
 overflow) are skipped; NaN never enters a ranking.
@@ -31,13 +31,17 @@ A vector index is created through the normal index surface ([indexes.md](/fallen
 
 | Option | Required | Meaning |
 |---|---|---|
-| `dimension` | yes | Fixed vector dimension, 1–4096 |
+| `dimension` | yes | Fixed vector dimension, 1 to 4096 |
 | `metric` | no | `Cosine` (default), `DotProduct`, or `L2` |
-| `embeddingName` | no | Binds the index to a named element embedding — the index then maintains itself and rejects explicit adds ([semantic-traversal.md](/fallen-8-core/semantic-traversal/)) |
+| `embeddingName` | no | Binds the index to a named element embedding: the index then maintains itself and rejects explicit adds ([semantic-traversal.md](/fallen-8-core/semantic-traversal/)) |
 | `model` | no | Opaque model-identity string, stored and persisted; enforced by the embedding provider ([semantic-traversal.md](/fallen-8-core/semantic-traversal/)) |
 
 The endpoint returns `true`/`false`; invalid options (dimension out of range, unknown metric)
 fail creation with the reason logged.
+
+The semantic layer creates and owns its own bound `documents` vector index instead, through
+`POST /document/binding/ensure`, taking dimension, metric and `model` from the embedding provider
+([unstructured-ingestion.md](/fallen-8-core/unstructured-ingestion/)).
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -75,7 +79,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/index -ContentType "ap
 
 ## Adding vectors
 
-`PUT /index/vector/{indexId}` adds (or replaces — one vector per element) with exactly one of
+`PUT /index/vector/{indexId}` adds (or replaces: one vector per element) with exactly one of
 two modes:
 
 | Mode | Body | Use when |
@@ -83,12 +87,22 @@ two modes:
 | Explicit | `{ "graphElementId": 42, "vector": [0.1, 0.2, 0.3] }` | The vector lives only in the index |
 | Property | `{ "graphElementId": 42, "propertyId": "embedding" }` | The element carries the vector as a `float[]` property |
 
+Property mode reads that property **once**, at add time, and copies the floats into the slab.
+There is no ongoing link: later writes to the property do not update the index, so re-`PUT` to
+refresh it, or bind the index to a named embedding (`embeddingName`) for a projection the engine
+maintains for you ([semantic-traversal.md](/fallen-8-core/semantic-traversal/)).
+
 Responses: `200 true` on success; `400` with a reason for wrong dimension, NaN/Infinity
 components, a zero-norm vector under `Cosine`, both/neither mode, a missing or non-`float[]`
 property, not a vector index, or an index bound to an embedding (bound indices maintain
-themselves — write the element embedding instead, see
+themselves, write the element embedding instead, see
 [semantic-traversal.md](/fallen-8-core/semantic-traversal/)); `404` for an unknown index or element.
-Removing an element purges its vector automatically.
+
+Removing an element purges its vector automatically. To drop one vector while keeping the
+element, use the shared `DELETE /index/{indexId}/{graphElementId}`
+([indexes.md](/fallen-8-core/indexes/)). Its sibling `DELETE /index/{indexId}/propertyValue` cannot
+address a vector at all: the key travels as a typed literal and `float[]` is not one of the
+accepted literal types.
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -116,9 +130,9 @@ Invoke-RestMethod -Method Put -Uri http://localhost:8080/index/vector/docEmbeddi
 |---|---|---|
 | `indexId` | yes | The vector index to query |
 | `query` | yes | Query vector; must match the index dimension, finite components, non-zero-norm under `Cosine` |
-| `k` | yes | Number of neighbours, 1–1024 |
+| `k` | yes | Number of neighbours, 1 to 1024 |
 | `kind` | no | `vertex`, `edge`, or `any` (default); lowercase |
-| `label` | no | Exact, case-sensitive label match; unlabeled elements never match |
+| `label` | no | Exact, case-sensitive label match on the element's own label; unlabeled elements never match. Never an edge's type ([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)), and there is no edge-type restrictor |
 
 Constraints are applied before top-k selection, so you get k *matching* elements (fewer only
 when the matching corpus is smaller). Removed elements never appear. `400` covers invalid
@@ -144,7 +158,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/scan/index/vector -Con
 </TabItem>
 </Tabs>
 
-Response — hits are graph element ids with raw scores, best first:
+Response, hits are graph element ids with raw scores, best first:
 
 ```json
 {
@@ -157,31 +171,50 @@ Response — hits are graph element ids with raw scores, best first:
 }
 ```
 
+To query with **text** instead of a vector, `POST /embedding/search` embeds the query once through
+the provider and runs this identical kNN, taking the same `k`/`kind`/`label` and returning the same
+shape (plus a `409` when the index's dimension or declared `model` conflicts with the active
+provider): see [semantic-traversal.md](/fallen-8-core/semantic-traversal/). F8 Studio's Query screen
+offers both forms ([studio.md](/fallen-8-core/studio/)).
+
 ## From hits to graph (GraphRAG)
 
 kNN hits are graph elements, so retrieval does not stop at a ranked list: connect two hits
 with a path query ([path-finding.md](/fallen-8-core/path-finding/)), expand a hit's neighbourhood as a
 subgraph ([subgraphs.md](/fallen-8-core/subgraphs/)), or read its properties and adjacency directly
-([graph-model.md](/fallen-8-core/graph-model/)) — then feed the retrieved neighbourhood, not isolated
+([graph-model.md](/fallen-8-core/graph-model/)), then feed the retrieved neighbourhood, not isolated
 snippets, to the model. To rank or filter *during* a traversal instead of before it, use
 semantic traversal ([semantic-traversal.md](/fallen-8-core/semantic-traversal/)).
 
+If your corpus is documents rather than vectors you already hold, the semantic layer is the
+turnkey version of this pipeline: it ingests files into Document, Chunk and Entity vertices over
+its own bound vector index and retrieves chunks by fused semantic plus exact-token search, hits
+being ordinary vertex ids ([unstructured-ingestion.md](/fallen-8-core/unstructured-ingestion/)).
+
 ## Memory and durability
 
-Budget roughly `4·d` bytes per indexed element for the vector plus ~64 bytes bookkeeping —
+Budget roughly `4·d` bytes per indexed element for the vector plus ~64 bytes bookkeeping:
 the vectors dominate (d=768: ~3.1 kB/element, 1 M elements ≈ 3.1 GB). Storing the embedding
 additionally as an element property or embedding is a second full copy.
 
-Index contents persist in checkpoints ([save-games.md](/fallen-8-core/save-games/)) but index writes are
-not WAL-logged: vectors added to an *unbound* index after the last checkpoint do not survive
-crash replay. A *bound* index rebuilds itself from WAL-covered element embeddings
-([semantic-traversal.md](/fallen-8-core/semantic-traversal/)); for unbound indices, property-mode adds
-let you re-add from WAL-recovered properties after a replay.
+Those are *occupied* bytes, not the allocation. The slab is capacity-based: it doubles when full,
+and shrinks (to 2x the live count) only once capacity exceeds 4x it. Size the host for up to 2x
+the figure above while an index fills, and up to 4x after heavy removals.
+
+Indices live in checkpoints ([save-games.md](/fallen-8-core/save-games/)) and nowhere else: neither
+index writes nor index *definitions* are WAL-logged, so an index created since the last checkpoint
+is gone entirely after a crash replay, not merely emptied, and queries answer `404` until it is
+re-created (the family-wide rule is in [indexes.md](/fallen-8-core/indexes/)). Once the index exists
+again, a *bound* one re-projects itself from the WAL-covered element embeddings
+([semantic-traversal.md](/fallen-8-core/semantic-traversal/)); an *unbound* one has lost every vector
+added since that checkpoint and needs them re-added, for which property-mode adds can read them
+back off WAL-recovered properties.
 
 ## See also
 
-- [indexes.md](/fallen-8-core/indexes/) — the index surface all families share
-- [semantic-traversal.md](/fallen-8-core/semantic-traversal/) — element embeddings, bound indices, the embedding provider, semantic path/subgraph blocks
-- [path-finding.md](/fallen-8-core/path-finding/) / [subgraphs.md](/fallen-8-core/subgraphs/) — the traversal surface kNN hits feed into
-- [namespaces.md](/fallen-8-core/namespaces/) — per-namespace routing (`/ns/{ns}/…`)
-- [rest-api.md](/fallen-8-core/rest-api/) — OpenAPI document and Scalar UI
+- [indexes.md](/fallen-8-core/indexes/): the index surface all families share
+- [semantic-traversal.md](/fallen-8-core/semantic-traversal/): element embeddings, bound indices, the embedding provider, semantic path/subgraph blocks
+- [unstructured-ingestion.md](/fallen-8-core/unstructured-ingestion/): the semantic layer (documents in, graph out) over its own bound vector index
+- [path-finding.md](/fallen-8-core/path-finding/) / [subgraphs.md](/fallen-8-core/subgraphs/): the traversal surface kNN hits feed into
+- [namespaces.md](/fallen-8-core/namespaces/): per-namespace routing (`/ns/{ns}/…`)
+- [rest-api.md](/fallen-8-core/rest-api/): OpenAPI document and Scalar UI

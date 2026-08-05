@@ -18,32 +18,38 @@ delegates in [Delegates](/fallen-8-core/delegates/).
 | Concept | Detail |
 | --- | --- |
 | **Vertex** | A node. Has an id, optional `label`, and properties. |
-| **Edge** | A **directed** relationship from a source vertex to a target vertex. Edges are graph elements too: an edge has its own id, `label`, and properties — plus a required `edgePropertyId`, its type. |
+| **Edge** | A **directed** relationship from a source vertex to a target vertex. Edges are graph elements too: an edge has its own id, `label`, and properties, plus a required `edgePropertyId`, which is its type. |
 | **`edgePropertyId`** | The edge's **type** (e.g. `knows`, `trusts`). Required, set at creation. See [Edge type vs label](#edge-type-vs-label). |
 | **`label`** | A free-form category string on any element (e.g. `person`, `friendship`). Optional. |
 | **Properties** | A per-element map of `string` key -> typed value. Empty by default; keys are unique per element. |
 
-Every element also carries system fields: `id` (assigned by the engine on commit — you do not
+Every element also carries system fields: `id` (assigned by the engine on commit: you do not
 choose it), `creationDate`, and `modificationDate`. Over REST, create requests take
 `creationDate` as a Unix-seconds `uint` (`0` is fine); reads return both timestamps as ISO-8601.
+Vertices and edges share **one id space**: ids are handed out from a single counter in creation
+order, so an id names exactly one element of either kind (hence the kind-agnostic
+`/graphelement/{id}` routes, and `GET /vertex/{id}` on an edge id answering `204`), and edge ids
+interleave with vertex ids.
 Property keys beginning with `$embedding:` / `$embeddingModel:` are reserved for engine-managed
-vector state — see [Semantic traversal](/fallen-8-core/semantic-traversal/).
+vector state; see [Semantic traversal](/fallen-8-core/semantic-traversal/). They are not filtered
+out of reads: an embedded element's `properties` array lists `$embedding:<name>` with
+`fullQualifiedTypeName` `System.Single[]` and a bracketed component list as its value.
 
 ### Edge type vs label
 
 An edge carries two classifier strings that are easy to conflate. They do different jobs:
 
-- **`edgePropertyId` is the edge's type — structural.** It names the adjacency group the edge
+- **`edgePropertyId` is the edge's type: structural.** It names the adjacency group the edge
   occupies on both endpoints: a vertex's outgoing/incoming edges are stored per type, and the
-  whole traversal surface keys on it — `GET /vertex/{id}/edges/out/{edgePropertyId}`, degree
+  whole traversal surface keys on it, `GET /vertex/{id}/edges/out/{edgePropertyId}`, degree
   routes, the path and subgraph `edgePropertyFilter`, and analytics scoping. It is required at
   creation and, despite the name, it is **not** one of the edge's key/value properties.
-- **`label` is an optional category tag — decorative.** It is the same field vertices have, and
+- **`label` is an optional category tag: decorative.** It is the same field vertices have, and
   serves scans (`label` restrictor), bulk-export filters, and statistics. On an edge it is an
-  *orthogonal* second grouping, typically a human-facing one — e.g. type `suppliesTrojan`,
+  *orthogonal* second grouping, typically a human-facing one, e.g. type `suppliesTrojan`,
   label `supplies trojan`.
 
-Most graphs set only the type and leave edge labels unset. Don't copy the type into the label —
+Most graphs set only the type and leave edge labels unset. Don't copy the type into the label:
 add a label only when it says something the type doesn't. Reads return both: every edge read
 (`GET /edge/{id}`, `GET /graph`, path results, change-feed `edgeCreated` events) carries
 `edgePropertyId` alongside `label`.
@@ -58,42 +64,93 @@ target .NET type. The string is parsed to that type with `InvariantCulture` (so 
 `Single`, `Double`, `Decimal`, `Char`, `DateTime`, `DateTimeOffset`, `TimeSpan`, `Guid`.
 
 The name is case-insensitive and accepts the full name (`System.Int32`), the short name (`Int32`),
-or the C# alias (`int`); an unknown name is a `400`.
+or the C# alias (`int`). An unknown name is a `400` on the scan routes and on
+`PUT /graphelement/{id}/{propertyId}`, which also answer `400` for a value that cannot be parsed to
+the named type. On the create routes (`PUT /vertex`, `/vertices`, `/edge`, `/edges`) neither case is
+caught: both currently surface as a `500`.
+
+Always send all three fields of a property (`propertyId`, `propertyValue`,
+`fullQualifiedTypeName`). They are schema-required but each carries a placeholder default
+(`cacheSize`, `1000`, `System.Int32`), so an omitted field is not rejected: it silently takes the
+placeholder.
 
 ## Mutation goes through the transaction queue
 
-All writes (create, property add/remove, delete) are enqueued and applied by one writer thread —
+All writes (create, property add/remove, delete) are enqueued and applied by one writer thread:
 serialized, while lock-free readers keep running. Over REST this is the `waitForCompletion` query
-parameter on every write endpoint:
+parameter, carried by the element write endpoints (`PUT /vertex`, `/vertices`, `/edge`, `/edges` and
+the `PUT`/`DELETE /graphelement/...` routes). The maintenance routes below have no such parameter:
+`HEAD /tabularasa` and `HEAD /trim` only enqueue, and answer `200` with an empty body.
 
 | `waitForCompletion` | Behaviour |
 | --- | --- |
 | `false` (default) | The write is enqueued and the call returns `202 Accepted` immediately. |
-| `true` | The call awaits the outcome. A committed write is `202`; a rolled-back write maps to `400`/`404`/`409`/`500` by cause. |
+| `true` | The call awaits the outcome. A committed write is `202` (`200` with the assigned ids for the batch creates); a rolled-back write maps to `400`/`404`/`409`/`500` by cause. |
 
-A create returns no body — the new id is not echoed back; locate a just-created element with a
-property scan (below) or `GET /graph`. Writer/commit internals are in [Architecture](/fallen-8-core/architecture/).
+The single-element creates return no body: the new id is not echoed back. When you need the
+assigned ids, use the batch creates `PUT /vertices` / `PUT /edges` with `waitForCompletion=true`;
+otherwise locate a just-created element with a property scan (below) or `GET /graph`.
+Writer/commit internals are in [Architecture](/fallen-8-core/architecture/).
 
 ## REST CRUD
 
 Base URL `http://localhost:8080`. These are the bare (default-namespace) paths; every route also
-answers under `/ns/{name}/...` — see [Namespaces](/fallen-8-core/namespaces/).
+answers under `/ns/{name}/...`; see [Namespaces](/fallen-8-core/namespaces/).
 
 | Method & path | Purpose |
 | --- | --- |
 | `PUT /vertex` | Create a vertex. Body: `VertexSpecification`. |
+| `PUT /vertices` | Create many vertices in ONE atomic transaction. Body: an array of `VertexSpecification`. Waited: `200` with the assigned ids in input order. |
 | `PUT /edge` | Create an edge (`404` if a referenced endpoint is missing and `waitForCompletion=true`). Body: `EdgeSpecification`. |
+| `PUT /edges` | Create many edges in ONE atomic transaction. Body: an array of `EdgeSpecification`. Waited: `200` with the assigned ids; a single missing endpoint rolls the whole batch back and answers `404`. |
 | `GET /vertex/{id}` · `GET /edge/{id}` | Read one element (`200`, or `204` when absent). |
 | `GET /graphelement/{id}` | Read a vertex or edge by id. |
 | `GET /graph?maxElements=1000` | A bounded page of vertices and edges (clamped to 100000 each). |
 | `PUT /graphelement/{id}/{propertyId}` | Add or update one property. Body: `PropertySpecification`. |
 | `DELETE /graphelement/{id}/{propertyId}` | Remove one property. |
-| `DELETE /graphelement/{id}` | Remove a vertex or edge (removing a vertex detaches its edges). |
-| `HEAD /tabularasa` | Erase all data in the addressed namespace (it stays registered, empty). |
+| `DELETE /graphelement/{id}` | Remove a vertex or edge. Removing a vertex **cascades** to every incident edge. |
+| `HEAD /tabularasa` | Erase all data in the addressed namespace (it stays registered, empty). Every index **definition** goes with it, not just its entries ([Indexes](/fallen-8-core/indexes/)). |
+| `HEAD /tabularasa/all` | Fallen-8-level factory reset: drops every non-`default` namespace and erases `default`. Irreversible, and rate-limited (`429`). |
+| `HEAD /trim` | Enqueue a memory trim (releases unused memory). Changes no data. |
 | `GET /vertex/count` · `GET /edge/count` | Element counts. |
 
-Vertex-scoped traversal reads (all return `204` when the vertex has nothing to return, `404`
-when the vertex is missing on the degree routes):
+Two of those rows have consequences worth spelling out:
+
+- **Removing a vertex removes its edges.** The cascade deletes every incident edge, so
+  `GET /edge/count` drops with it, and the [change feed](/fallen-8-core/change-feed/) reports one
+  `edgeRemoved` per cascaded edge next to the `vertexRemoved`. There is no detach-only option.
+- **`GET /graph` bounds vertices and edges independently.** `maxElements` is applied to each of the
+  two reads separately (and a negative value yields an empty page), so a truncated page can contain
+  edges whose `sourceVertex`/`targetVertex` are not in its own `vertices` array. Resolve those with
+  `GET /vertex/{id}`, raise the bound, or take an internally consistent dump with
+  `GET /bulk/export` ([Bulk import/export](/fallen-8-core/bulk-import-export/)).
+
+A read returns the system fields, the properties as an array, and, for a vertex, its full adjacency
+as edge type -> edge ids. That adjacency often saves the per-group traversal calls below
+(`creationDate: 0` reads back as the 1970 epoch):
+
+```json
+{
+  "id": 7,
+  "creationDate": "1970-01-01T00:00:00",
+  "modificationDate": "1970-01-01T00:00:00",
+  "label": "person",
+  "properties": [
+    { "propertyId": "name", "fullQualifiedTypeName": "System.String", "propertyValue": "Trent" },
+    { "propertyId": "age",  "fullQualifiedTypeName": "System.Int32",  "propertyValue": "35" }
+  ],
+  "outEdges": { "trusts": [12] },
+  "inEdges":  { "trusts": [9, 11] }
+}
+```
+
+An edge read carries `sourceVertex`, `targetVertex` and `edgePropertyId` instead of the two
+adjacency maps.
+
+Traversal reads around an element. Absence is reported differently per row: the group and edge-id
+list routes answer `204` when the vertex or the group is missing, the degree routes and
+`GET /edge/{id}/source|target` answer `404` when the vertex or edge does not exist, and a per-group
+degree on a live vertex that simply has no such group is `200` with `0`.
 
 | Method & path | Returns |
 | --- | --- |
@@ -141,8 +198,8 @@ Invoke-RestMethod http://localhost:8080/vertex -Method Put -ContentType 'applica
 </TabItem>
 </Tabs>
 
-An edge is created the same way against `PUT /edge`, with this body shape (`label` is optional —
-see [Edge type vs label](#edge-type-vs-label) — so a minimal edge sets only its type):
+An edge is created the same way against `PUT /edge`, with this body shape (`label` is optional, so a
+minimal edge sets only its type: see [Edge type vs label](#edge-type-vs-label)):
 
 ```json
 {
@@ -153,26 +210,30 @@ see [Edge type vs label](#edge-type-vs-label) — so a minimal edge sets only it
 }
 ```
 
-Batch creation and file-based loading are covered in [Bulk import/export](/fallen-8-core/bulk-import-export/).
+`PUT /vertices` and `PUT /edges` take a JSON **array** of the same bodies and commit it as one
+transaction. Because edges reference ids that already exist, the usual sequence is: post the
+vertices with `waitForCompletion=true`, read the returned ids, then post the edges. File-based
+loading and dumping are covered in [Bulk import/export](/fallen-8-core/bulk-import-export/).
 
 ## Full-graph property scans
 
 `POST /scan/graph/property/{propertyId}` walks **every** element and returns the ids of those
-whose `{propertyId}` value satisfies the comparison. It is a linear O(n) scan with no index — for
+whose `{propertyId}` value satisfies the comparison. It is a linear O(n) scan with no index, for
 indexed lookups use [Indexes](/fallen-8-core/indexes/). Request body:
 
 | Field | Value |
 | --- | --- |
 | `operator` | The comparison, as an integer: `0` Equals, `1` Greater, `2` GreaterOrEquals, `3` Lower, `4` LowerOrEquals, `5` NotEquals. |
-| `literal` | `{ "value": "<string>", "fullQualifiedTypeName": "<type>" }` — the value to compare against, typed as above. |
+| `literal` | `{ "value": "<string>", "fullQualifiedTypeName": "<type>" }`, the value to compare against, typed as above. |
 | `label` | Optional exact-match label restrictor on the hits; omit to scan every label. |
 | `resultType` | `"Vertices"`, `"Edges"`, or `"Both"`. |
 
 The response is a `200` with a JSON array of matching ids (empty when nothing matches); a missing
 `literal` or an unknown/unconvertible type is a `400`.
 
-Worked example against the built-in sample graph (create it with `PUT /unittest`; see
-[Samples](/fallen-8-core/samples/)), which stores each person's name under `name` — find "Trent":
+Worked example against the built-in sample graph (create it with `PUT /unittest`; the graph it
+builds is listed under [Path finding](/fallen-8-core/path-finding/)), which stores each person's
+name under `name`. Find "Trent":
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -255,8 +316,7 @@ var f8 = new Fallen8(loggerFactory);
 
 // Write: enqueue, then wait for the writer thread to commit.
 var tx = new CreateVerticesTransaction();
-tx.AddVertex(creationDate: 0, label: "person",
-             properties: new Dictionary<string, object> { { "name", "Trent" } });
+tx.AddVertex(0, "person", new Dictionary<string, object> { { "name", "Trent" } });
 f8.EnqueueTransaction(tx).WaitUntilFinished();
 
 // Read: no queue, never blocks.
@@ -278,10 +338,10 @@ rollback.
 
 ## See also
 
-- [Indexes](/fallen-8-core/indexes/) — index types and `POST /scan/index/...`.
-- [Delegates](/fallen-8-core/delegates/) — why there is no query language; C# predicates over the graph.
-- [Path finding](/fallen-8-core/path-finding/) — traversals between vertices.
-- [Namespaces](/fallen-8-core/namespaces/) — isolated graphs and `/ns/{name}` routing.
-- [Semantic traversal](/fallen-8-core/semantic-traversal/) — element embeddings and reserved property keys.
-- [Bulk import/export](/fallen-8-core/bulk-import-export/) — creating and dumping graphs in bulk.
-- [REST API](/fallen-8-core/rest-api/) — versioning, OpenAPI, and shared conventions.
+- [Indexes](/fallen-8-core/indexes/): index types and `POST /scan/index/...`.
+- [Delegates](/fallen-8-core/delegates/): why there is no query language; C# predicates over the graph.
+- [Path finding](/fallen-8-core/path-finding/): traversals between vertices.
+- [Namespaces](/fallen-8-core/namespaces/): isolated graphs and `/ns/{name}` routing.
+- [Semantic traversal](/fallen-8-core/semantic-traversal/): element embeddings and reserved property keys.
+- [Bulk import/export](/fallen-8-core/bulk-import-export/): creating and dumping graphs in bulk.
+- [REST API](/fallen-8-core/rest-api/): versioning, OpenAPI, and shared conventions.

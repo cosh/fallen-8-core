@@ -88,18 +88,24 @@ namespace NoSQL.GraphDB.App.Controllers
         /// embed, write, then additive NLP enrichment into the entity graph - runs off the request
         /// thread on a single global queue; the row flips to <c>indexed</c> when it finishes. Any
         /// failure leaves exactly one failed Document vertex and zero chunks.
+        /// Only what is knowable BEFORE the hand-off can answer with an HTTP status. Everything the
+        /// worker discovers later - the page cap (<c>Fallen8:Ingestion:MaxPages</c>), the per-document
+        /// chunk cap (<c>MaxChunksPerDocument</c>), a conversion that yields no text, and any
+        /// embedding-backend fault - cannot, because this call has already answered 202. Those
+        /// outcomes flip the queued document to <c>failed</c> with the reason on its status, so a
+        /// caller learns them from the change feed or from GET /document/{documentId}, never from
+        /// this response.
         /// </remarks>
         /// <response code="202">The document was accepted for asynchronous ingestion; the stub starts <c>processing</c> and flips to <c>indexed</c> on the change feed</response>
-        /// <response code="400">Unsupported format, reserved tag key, invalid link allowlist, empty conversion, or no chunks</response>
+        /// <response code="400">Unsupported format, a reserved tag key, or an invalid link allowlist</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Ingestion is disabled (Fallen8:Ingestion:Enabled), or embed=true while the embedding provider is off</response>
         /// <response code="404">The replace target does not exist</response>
         /// <response code="409">Duplicate content hash, or an index shape/model conflict</response>
-        /// <response code="413">Above Fallen8:Ingestion:MaxUploadBytes, MaxPages, or MaxChunksPerDocument</response>
+        /// <response code="413">The upload exceeds Fallen8:Ingestion:MaxUploadBytes</response>
         /// <response code="428">The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
-        /// <response code="502">The embedding backend produced invalid output</response>
-        /// <response code="503">The docling sidecar or the embedding backend is unavailable, or the ingestion queue is full</response>
+        /// <response code="503">No docling endpoint is configured for a binary format, or the ingestion queue is full</response>
         /// <response code="507">The namespace chunk ceiling is reached (Fallen8:Ingestion:MaxChunksPerNamespace)</response>
         [HttpPost("/document")]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
@@ -115,7 +121,6 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
         [ProducesResponseType(StatusCodes.Status428PreconditionRequired)]
-        [ProducesResponseType(StatusCodes.Status502BadGateway)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         [ProducesResponseType(StatusCodes.Status507InsufficientStorage)]
         public async Task<IActionResult> IngestFile(IFormFile file,
@@ -204,11 +209,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="403">Ingestion is disabled, or embed=true while the embedding provider is off</response>
         /// <response code="404">The replace target does not exist</response>
         /// <response code="409">Duplicate content hash, or an index shape/model conflict</response>
-        /// <response code="413">The text exceeds Fallen8:Ingestion:MaxUploadBytes, or the chunk cap</response>
+        /// <response code="413">The text exceeds Fallen8:Ingestion:MaxUploadBytes</response>
         /// <response code="428">The semantic layer is not bound; create the required indices first (POST /document/binding/ensure)</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
-        /// <response code="502">The embedding backend produced invalid output</response>
-        /// <response code="503">The embedding backend is unavailable, or the ingestion queue is full</response>
+        /// <response code="503">The ingestion queue is full</response>
         /// <response code="507">The namespace chunk ceiling is reached</response>
         [HttpPost("/document/text")]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
@@ -223,7 +227,6 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
         [ProducesResponseType(StatusCodes.Status428PreconditionRequired)]
-        [ProducesResponseType(StatusCodes.Status502BadGateway)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         [ProducesResponseType(StatusCodes.Status507InsufficientStorage)]
         public async Task<IActionResult> IngestText([FromBody] IngestTextSpecification definition,
@@ -450,7 +453,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>
         /// Lists the entities the corpus mentions
         /// </summary>
-        /// <param name="type">Optional entity-type filter (case-insensitive, e.g. PER/ORG/LOC)</param>
+        /// <param name="type">Optional filter on the raw NLP label, compared case-insensitively (e.g. PERSON/ORG/GPE)</param>
         /// <param name="contains">Optional case-insensitive substring the entity text must contain</param>
         /// <param name="limit">Page cap (default 200, max 10000)</param>
         /// <remarks>Deduplicated Entity vertices (feature semantic-layer) ranked by mention count.

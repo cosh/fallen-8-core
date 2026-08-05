@@ -29,9 +29,9 @@ import { expect, test, type Page } from "@playwright/test";
  * Docs screenshot capture (feature stored-query-scenario-scoped-ux): stored queries are
  * unique to their scenario, so the management panel now lives on the Path and Subgraph
  * screens (kind-scoped) and no longer on the Query screen. Capture-only. Outputs:
- *   docs/images/screen-query.png             (Query: no stored-query section)
- *   docs/images/screen-path.png              (Path: Stored path queries panel)
- *   docs/images/screen-subgraph-builder.png  (Subgraph: Stored subgraph queries panel)
+ *   docs/src/assets/images/screen-query.png             (Query: no stored-query section)
+ *   docs/src/assets/images/screen-path.png              (Path: Stored path queries panel)
+ *   docs/src/assets/images/screen-subgraph-builder.png  (Subgraph: Stored subgraph queries panel)
  *
  * Run: F8_SCREENSHOT=1 npm run e2e -- screenshot-stored-queries
  */
