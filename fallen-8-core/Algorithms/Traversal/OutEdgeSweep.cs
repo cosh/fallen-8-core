@@ -1,0 +1,173 @@
+// MIT License
+//
+// OutEdgeSweep.cs
+//
+// Copyright (c) 2011-2026 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using NoSQL.GraphDB.Core.Model;
+
+namespace NoSQL.GraphDB.Core.Algorithms.Traversal
+{
+    /// <summary>
+    ///   Follows every outgoing edge of a vertex set, in parallel, and returns how many it followed.
+    ///   This is the raw traversal-throughput primitive: the fastest honest full sweep of the
+    ///   adjacency, doing the pointer-following work a real traversal does and nothing else.
+    ///
+    ///   <para><b>The ONE home for the sweep.</b> <c>GET /benchmark</c> and the offline
+    ///   <c>fallen-8-bench</c> capacity tool both call this, so the throughput a user measures with
+    ///   either is the same code path. It lives in the engine because that is the only place the
+    ///   allocation-free adjacency enumerator is reachable: an out-of-assembly caller has to go
+    ///   through <see cref="VertexModel.GetOutgoingEdgeIds" />, which allocates a key list PER VERTEX
+    ///   (ten million allocations per pass on a ten-million-vertex graph) and dominates the
+    ///   measurement it is supposed to be taking.</para>
+    ///
+    ///   <para>Schema-agnostic on purpose: it walks every out-edge group whatever its
+    ///   edge-property-id, so it measures the graph that is loaded rather than one generated shape.</para>
+    /// </summary>
+    public static class OutEdgeSweep
+    {
+        /// <summary>
+        ///   A sink for the dereferenced target ids. Without it the JIT is free to notice that the
+        ///   loaded <see cref="EdgeModel.TargetVertex" /> is never used and skip the load, which is
+        ///   the one memory access the measurement exists to perform: the count alone can be served
+        ///   from the adjacency arrays without ever touching a target vertex.
+        /// </summary>
+        private static Int64 _sink;
+
+        /// <summary>
+        ///   The default partition size: enough ranges to keep every core busy without paying
+        ///   per-range overhead on a tiny graph. Clamped to at least one, because
+        ///   <see cref="Partitioner" /> rejects a zero range and a graph can have fewer vertices than
+        ///   the host has cores.
+        /// </summary>
+        /// <param name="vertexCount">Number of vertices to be partitioned.</param>
+        public static Int32 DefaultPartitionSize(Int32 vertexCount)
+            => Math.Max(1, ((vertexCount / Environment.ProcessorCount) * 3) / 2);
+
+        /// <summary>
+        ///   Follows every out-edge of every vertex in <paramref name="vertices" /> and returns the
+        ///   number traversed. Each edge's <see cref="EdgeModel.TargetVertex" /> is dereferenced, so
+        ///   the pass does the real pointer-chasing of a traversal instead of reading cached degrees.
+        ///
+        ///   <para>The caller supplies the vertex snapshot and is expected to reuse it across
+        ///   repeated passes: materialising it is an O(V) allocation that has nothing to do with
+        ///   traversal speed and would otherwise be timed as if it did.</para>
+        /// </summary>
+        /// <param name="vertices">The vertex snapshot to sweep, typically <c>GetAllVertices()</c>.</param>
+        /// <param name="partitionSize">
+        ///   Vertices per parallel range, or <c>null</c> for <see cref="DefaultPartitionSize" />.
+        /// </param>
+        /// <returns>The total number of outgoing edges followed.</returns>
+        public static Int64 Sweep(IReadOnlyList<VertexModel> vertices, Int32? partitionSize = null)
+        {
+            ArgumentNullException.ThrowIfNull(vertices);
+
+            if (vertices.Count == 0)
+            {
+                return 0L;
+            }
+
+            var range = partitionSize ?? DefaultPartitionSize(vertices.Count);
+            if (range < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(partitionSize), "The partition size must be at least one vertex.");
+            }
+
+            var edgeCount = 0L;
+            var targetSink = 0L;
+
+            Parallel.ForEach(
+                Partitioner.Create(0, vertices.Count, range),
+                () => new Accumulator(),
+                (bounds, _, accumulator) =>
+                {
+                    var edges = accumulator.Edges;
+                    var sink = accumulator.Sink;
+
+                    for (var i = bounds.Item1; i < bounds.Item2; i++)
+                    {
+                        // The raw adjacency is immutable after publication, so a snapshot read needs no
+                        // lock; null means the vertex has no outgoing edges at all.
+                        var adjacency = vertices[i].GetRawOutEdges();
+                        if (adjacency == null)
+                        {
+                            continue;
+                        }
+
+                        // Struct enumerator over every group: no key list, no wrapper, no allocation.
+                        foreach (var group in adjacency)
+                        {
+                            var segment = group.Value;
+                            var array = segment.Array;
+                            var count = segment.Count;
+                            var offset = segment.Offset;
+
+                            // Read the backing array directly rather than through the ArraySegment
+                            // indexer: the segment is count-bounded, so this is the same elements with
+                            // one less bounds-check layer. Bounds and offset are hoisted, so the inner
+                            // loop carries no field loads at all.
+                            for (var j = 0; j < count; j++)
+                            {
+                                var target = array[offset + j].TargetVertex;
+                                if (target != null)
+                                {
+                                    sink += target.Id;
+                                }
+
+                                edges++;
+                            }
+                        }
+                    }
+
+                    accumulator.Edges = edges;
+                    accumulator.Sink = sink;
+                    return accumulator;
+                },
+                accumulator =>
+                {
+                    Interlocked.Add(ref edgeCount, accumulator.Edges);
+                    Interlocked.Add(ref targetSink, accumulator.Sink);
+                });
+
+            // Publish once, after the sweep, so the dereferences cannot be elided but the hot loop
+            // never touches shared state.
+            Volatile.Write(ref _sink, targetSink);
+            return edgeCount;
+        }
+
+        /// <summary>
+        ///   Per-range thread-local state. A class rather than a tuple so the hot loop mutates locals
+        ///   and writes back once, instead of copying a struct on every range.
+        /// </summary>
+        private sealed class Accumulator
+        {
+            internal Int64 Edges;
+
+            internal Int64 Sink;
+        }
+    }
+}

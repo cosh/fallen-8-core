@@ -144,7 +144,7 @@ namespace NoSQL.GraphDB.Bench
         public Int32 Vertices { get; set; }
 
         [JsonPropertyName("edges")]
-        public Int32 Edges { get; set; }
+        public Int64 Edges { get; set; }
 
         [JsonPropertyName("averageDegree")]
         public Double AverageDegree { get; set; }
@@ -169,7 +169,7 @@ namespace NoSQL.GraphDB.Bench
         public Int32 Producers { get; set; }
 
         [JsonPropertyName("writes")]
-        public Int32 Writes { get; set; }
+        public Int64 Writes { get; set; }
 
         [JsonPropertyName("writesPerSecond")]
         public Double WritesPerSecond { get; set; }
@@ -182,13 +182,13 @@ namespace NoSQL.GraphDB.Bench
     public sealed class SaveStallMetric
     {
         [JsonPropertyName("elements")]
-        public Int32 Elements { get; set; }
+        public Int64 Elements { get; set; }
 
         [JsonPropertyName("vertices")]
         public Int32 Vertices { get; set; }
 
         [JsonPropertyName("edges")]
-        public Int32 Edges { get; set; }
+        public Int64 Edges { get; set; }
 
         [JsonPropertyName("writerHoldMs")]
         public Double WriterHoldMs { get; set; }
@@ -204,7 +204,7 @@ namespace NoSQL.GraphDB.Bench
         public Int32 Vertices { get; set; }
 
         [JsonPropertyName("edges")]
-        public Int32 Edges { get; set; }
+        public Int64 Edges { get; set; }
 
         [JsonPropertyName("iterations")]
         public Int32 Iterations { get; set; }

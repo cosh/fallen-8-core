@@ -53,6 +53,7 @@ namespace NoSQL.GraphDB.Bench
             String output = Path.Combine("fallen-8-bench", "results", "capacity-report.json");
             var profile = "quick";
             String? runnerLabel = null;
+            String? only = null;
 
             for (var i = 0; i < args.Length; i++)
             {
@@ -73,6 +74,14 @@ namespace NoSQL.GraphDB.Bench
                         if (++i >= args.Length) { return Usage("--runner-label needs a value"); }
                         runnerLabel = args[i];
                         break;
+                    case "--only":
+                        if (++i >= args.Length) { return Usage("--only needs a family name"); }
+                        only = args[i];
+                        if (only != "memory" && only != "writes" && only != "save" && only != "traversal")
+                        {
+                            return Usage("--only must be memory, writes, save or traversal");
+                        }
+                        break;
                     case "--help":
                     case "-h":
                         PrintUsage();
@@ -88,7 +97,7 @@ namespace NoSQL.GraphDB.Bench
             Console.WriteLine("Every number below describes THIS machine. Do not quote one without it.");
             Console.WriteLine();
 
-            var report = Run(profile, runnerLabel);
+            var report = Run(profile, runnerLabel, only);
             Write(report, output);
 
             Console.WriteLine();
@@ -103,40 +112,74 @@ namespace NoSQL.GraphDB.Bench
         ///   really about. The shapes are part of the published contract, so changing one changes what
         ///   the page's rows mean: say so in the commit.
         /// </summary>
-        private static CapacityReport Run(String profile, String? runnerLabel)
+        private static CapacityReport Run(String profile, String? runnerLabel, String? only)
         {
+            // A family filter, so someone iterating on one measurement (traversal speed, say) does not
+            // have to rebuild a hundred-million-edge graph four times to see one number move. A
+            // filtered report is NOT publishable: the renderer requires every family, and it should,
+            // because a page showing three of four families would silently look complete.
+            Boolean Wanted(String family) => only == null || only == family;
+
             var full = profile == "full";
 
+            // The full profile's headline shape is 10,000,000 vertices with 100,000,000 edges. That
+            // graph retains on the order of 13 GB, so a full run wants a machine with 32 GB or more and
+            // takes tens of minutes, most of it building edges. The scenarios run one after another and
+            // each releases its graph, so the peak is one shape, not their sum.
             var memoryShapes = full
                 ? new[]
                 {
-                    new Shape("degree 2", 200_000, 2),
-                    new Shape("degree 10", 200_000, 10),
-                    new Shape("degree 20", 50_000, 20)
+                    new Shape("degree 2", 2_000_000, 2),
+                    new Shape("degree 10", 10_000_000, 10),
+                    new Shape("degree 20", 1_000_000, 20)
                 }
                 : new[]
                 {
-                    new Shape("degree 2", 20_000, 2),
-                    new Shape("degree 10", 20_000, 10),
-                    new Shape("degree 20", 10_000, 20)
+                    new Shape("degree 2", 200_000, 2),
+                    new Shape("degree 10", 200_000, 10),
+                    new Shape("degree 20", 100_000, 20)
                 };
 
             var saveShapes = full
                 ? new[]
                 {
-                    new Shape("100k elements", 34_000, 2),
-                    new Shape("400k elements", 134_000, 2),
-                    new Shape("2M elements", 667_000, 2)
+                    new Shape("1M elements", 334_000, 2),
+                    new Shape("4M elements", 1_334_000, 2),
+                    new Shape("20M elements", 6_667_000, 2)
                 }
                 : new[]
                 {
-                    new Shape("30k elements", 10_000, 2),
-                    new Shape("120k elements", 40_000, 2)
+                    new Shape("300k elements", 100_000, 2),
+                    new Shape("1.2M elements", 400_000, 2)
                 };
 
-            var traversalShape = full ? new Shape("1M edges", 100_000, 10) : new Shape("100k edges", 10_000, 10);
-            var writes = full ? 20_000 : 4_000;
+            // Traversal is measured at SEVERAL sizes, because one number hides the only thing that
+            // really governs traversal speed: whether the working set fits in cache. A small graph
+            // reports a rate the same machine cannot sustain on a large one, and the drop between them
+            // is memory latency on the random target dereference, not the engine getting slower.
+            //
+            // A graph also has to be big enough that ONE pass takes tens of milliseconds: below that
+            // the stopwatch resolution and the thread-pool ramp dominate and the rate is noise, which
+            // is what the first version of this tool got wrong.
+            var traversalShapes = full
+                ? new[]
+                {
+                    new Shape("5M edges", 500_000, 10),
+                    new Shape("20M edges", 2_000_000, 10),
+                    new Shape("100M edges", 10_000_000, 10)
+                }
+                : new[]
+                {
+                    new Shape("1M edges", 100_000, 10),
+                    new Shape("5M edges", 500_000, 10)
+                };
+
+            var writes = full ? 200_000 : 20_000;
             var producers = Math.Max(2, Math.Min(32, Environment.ProcessorCount * 2));
+
+            // Per write scenario. Keeps an fsync-bound serial run from adding minutes to a full profile;
+            // the rate is computed over whatever committed inside the window.
+            var writeSeconds = full ? 30d : 10d;
 
             var report = new CapacityReport
             {
@@ -147,26 +190,41 @@ namespace NoSQL.GraphDB.Bench
                 Environment = EnvironmentOf(runnerLabel)
             };
 
-            foreach (var shape in memoryShapes)
+            if (Wanted("memory"))
             {
-                Console.WriteLine("memory: " + shape.Label + " ...");
-                report.Metrics.Memory.Add(Measurements.Memory(shape));
+                foreach (var shape in memoryShapes)
+                {
+                    Console.WriteLine("memory: " + shape.Label + " ...");
+                    report.Metrics.Memory.Add(Measurements.Memory(shape));
+                }
             }
 
-            Console.WriteLine("write throughput: serial ...");
-            report.Metrics.WriteThroughput.Add(Measurements.WriteThroughput("serial (1 producer)", writes, 1));
-            Console.WriteLine("write throughput: " + producers + " producers ...");
-            report.Metrics.WriteThroughput.Add(Measurements.WriteThroughput(
-                producers.ToString(CultureInfo.InvariantCulture) + " concurrent producers", writes, producers));
-
-            foreach (var shape in saveShapes)
+            if (Wanted("writes"))
             {
-                Console.WriteLine("save stall: " + shape.Label + " ...");
-                report.Metrics.SaveStall.Add(Measurements.SaveStall(shape));
+                Console.WriteLine("write throughput: serial ...");
+                report.Metrics.WriteThroughput.Add(Measurements.WriteThroughput("serial (1 producer)", writes, 1, writeSeconds));
+                Console.WriteLine("write throughput: " + producers + " producers ...");
+                report.Metrics.WriteThroughput.Add(Measurements.WriteThroughput(
+                    producers.ToString(CultureInfo.InvariantCulture) + " concurrent producers", writes, producers, writeSeconds));
             }
 
-            Console.WriteLine("traversal: " + traversalShape.Label + " ...");
-            report.Metrics.Traversal.Add(Measurements.Traversal(traversalShape, full ? 20 : 10));
+            if (Wanted("save"))
+            {
+                foreach (var shape in saveShapes)
+                {
+                    Console.WriteLine("save stall: " + shape.Label + " ...");
+                    report.Metrics.SaveStall.Add(Measurements.SaveStall(shape));
+                }
+            }
+
+            if (Wanted("traversal"))
+            {
+                foreach (var shape in traversalShapes)
+                {
+                    Console.WriteLine("traversal: " + shape.Label + " ...");
+                    report.Metrics.Traversal.Add(Measurements.Traversal(shape, full ? 5 : 10));
+                }
+            }
 
             return report;
         }
