@@ -47,7 +47,7 @@
         "architecture": { "type": "string", "minLength": 1 },
         "runtime": { "type": "string", "minLength": 1 },
         "processorCount": { "type": "integer", "minimum": 1 },
-        "processorName": { "type": ["string", "null"] },
+        "processorName": { "description": "The CPU's own name, read from the hardware (CPUID brand string, or /proc/cpuinfo) rather than from user input, so it cannot contradict the machine that ran. Null only when no source was available.", "type": ["string", "null"] },
         "totalPhysicalMemoryMb": { "type": ["number", "null"], "minimum": 0 },
         "serverGarbageCollection": { "type": "boolean" },
         "concurrentGarbageCollection": { "type": "boolean" },
