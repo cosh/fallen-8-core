@@ -1,94 +1,100 @@
 {
   "schemaVersion": "1",
-  "generatedAtUtc": "2026-08-05T13:07:38.6948762+00:00",
+  "generatedAtUtc": "2026-08-05T13:28:21.787658+00:00",
   "tool": {
     "name": "fallen-8-bench",
     "version": "1.0.0.0"
   },
   "source": {
     "engineVersion": "0.3.0.0",
-    "commit": "6cbbfc4262d10a4cfa3617c3a192430c96193d0a",
-    "dirtyWorkingTree": true
+    "commit": "eff1a34404bdfe6205ba5a8e64d55b482df3b75c",
+    "dirtyWorkingTree": false
   },
   "environment": {
     "operatingSystem": "Microsoft Windows 10.0.26200",
     "architecture": "X64",
     "runtime": ".NET 10.0.10",
-    "processorCount": 16,
-    "processorName": "Intel64 Family 6 Model 197 Stepping 2, GenuineIntel",
-    "totalPhysicalMemoryMb": 97717,
+    "processorCount": 32,
+    "processorName": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+    "totalPhysicalMemoryMb": 65442,
     "serverGarbageCollection": true,
     "concurrentGarbageCollection": true,
-    "runnerLabel": "dev workstation (Windows, 16 cores)"
+    "runnerLabel": "Ryzen"
   },
-  "profile": "quick",
+  "profile": "full",
   "metrics": {
     "memory": [
       {
         "label": "degree 2",
-        "vertices": 20000,
-        "edges": 40000,
+        "vertices": 200000,
+        "edges": 400000,
         "averageDegree": 2,
-        "bytesPerVertex": 128.5,
-        "bytesPerEdge": 171.4,
-        "retainedMb": 9
+        "bytesPerVertex": 128.1,
+        "bytesPerEdge": 171.2,
+        "retainedMb": 89.7
       },
       {
         "label": "degree 10",
-        "vertices": 20000,
-        "edges": 200000,
+        "vertices": 200000,
+        "edges": 2000000,
         "averageDegree": 10,
-        "bytesPerVertex": 128.2,
+        "bytesPerVertex": 128,
         "bytesPerEdge": 118.4,
-        "retainedMb": 25
+        "retainedMb": 250.3
       },
       {
         "label": "degree 20",
-        "vertices": 10000,
-        "edges": 200000,
+        "vertices": 50000,
+        "edges": 1000000,
         "averageDegree": 20,
-        "bytesPerVertex": 129.9,
+        "bytesPerVertex": 128.5,
         "bytesPerEdge": 111.2,
-        "retainedMb": 22.5
+        "retainedMb": 112.2
       }
     ],
     "writeThroughput": [
       {
         "label": "serial (1 producer)",
         "producers": 1,
-        "writes": 4000,
-        "writesPerSecond": 783,
+        "writes": 20000,
+        "writesPerSecond": 398,
         "walEnabled": true
       },
       {
         "label": "32 concurrent producers",
         "producers": 32,
-        "writes": 4000,
-        "writesPerSecond": 15707,
+        "writes": 20000,
+        "writesPerSecond": 11991,
         "walEnabled": true
       }
     ],
     "saveStall": [
       {
-        "elements": 30000,
-        "vertices": 10000,
-        "edges": 20000,
-        "writerHoldMs": 13.1
+        "elements": 102000,
+        "vertices": 34000,
+        "edges": 68000,
+        "writerHoldMs": 17.6
       },
       {
-        "elements": 120000,
-        "vertices": 40000,
-        "edges": 80000,
-        "writerHoldMs": 21.9
+        "elements": 402000,
+        "vertices": 134000,
+        "edges": 268000,
+        "writerHoldMs": 41.7
+      },
+      {
+        "elements": 2001000,
+        "vertices": 667000,
+        "edges": 1334000,
+        "writerHoldMs": 146.8
       }
     ],
     "traversal": [
       {
-        "label": "100k edges",
-        "vertices": 10000,
-        "edges": 100000,
-        "iterations": 10,
-        "edgesPerSecond": 228346996
+        "label": "1M edges",
+        "vertices": 100000,
+        "edges": 1000000,
+        "iterations": 20,
+        "edgesPerSecond": 118888888
       }
     ]
   }
