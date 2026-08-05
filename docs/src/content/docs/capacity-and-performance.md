@@ -39,14 +39,14 @@ The numbers on this page come from one recorded run of that tool. They describe 
 
 | | |
 | --- | --- |
-| Machine | Ryzen |
-| CPU | AMD Ryzen 9 5950X 16-Core Processor, 32 logical processors |
-| Memory | 65,442 MB available to the runtime |
+| Machine | RENK |
+| CPU | Intel(R) Core(TM) Ultra 9 285H, 16 logical processors |
+| Memory | 97,717 MB available to the runtime |
 | OS | Microsoft Windows 10.0.26200 (X64) |
 | Runtime | .NET 10.0.10, server GC on |
-| Engine | 0.3.0.0, commit `75048997f6` |
+| Engine | 0.3.0.0, commit `5f5dfb6a41` |
 | Profile | `full` |
-| Measured | 2026-08-05 19:12 UTC |
+| Measured | 2026-08-05 19:33 UTC |
 
 <!-- /capacity:environment -->
 
@@ -96,10 +96,10 @@ measurement below is deliberately the worst case, single-element writes with the
 
 | Producers | Throughput | Writes committed |
 | --- | --- | --- |
-| serial (1 producer) | 393 writes/s | 11,840 |
-| 32 concurrent producers | 10,138 writes/s | 200,000 |
+| serial (1 producer) | 841 writes/s | 25,280 |
+| 32 concurrent producers | 21,058 writes/s | 200,000 |
 
-That is roughly 25.8x from group commit alone, on single-element writes with the WAL on, and the serial latency floor is unchanged: a group of one still fsyncs immediately.
+That is roughly 25.0x from group commit alone, on single-element writes with the WAL on, and the serial latency floor is unchanged: a group of one still fsyncs immediately.
 
 <!-- /capacity:writes -->
 
@@ -118,9 +118,9 @@ I/O. Every mutation enqueued during a save waits:
 
 | Graph size | Save duration (writer held) |
 | --- | --- |
-| 1,002,000 elements | 74.1 ms |
-| 4,002,000 elements | 447.8 ms |
-| 20,001,000 elements | 1139.3 ms |
+| 1,002,000 elements | 434.9 ms |
+| 4,002,000 elements | 247.1 ms |
+| 20,001,000 elements | 1432.0 ms |
 
 <!-- /capacity:save -->
 
@@ -153,9 +153,9 @@ graph sizes on the machine described above:
 
 | Graph | Passes | Out-edge traversal |
 | --- | --- | --- |
-| 500,000 vertices, 5,000,000 edges | 5 | 369,847,105 edges/s |
-| 2,000,000 vertices, 20,000,000 edges | 5 | 298,700,057 edges/s |
-| 10,000,000 vertices, 100,000,000 edges | 5 | 283,051,178 edges/s |
+| 500,000 vertices, 5,000,000 edges | 5 | 446,420,600 edges/s |
+| 2,000,000 vertices, 20,000,000 edges | 5 | 447,941,373 edges/s |
+| 10,000,000 vertices, 100,000,000 edges | 5 | 373,686,073 edges/s |
 
 <!-- /capacity:traversal -->
 
