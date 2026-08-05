@@ -102,6 +102,7 @@ namespace NoSQL.GraphDB.Bench
         [JsonPropertyName("processorCount")]
         public Int32 ProcessorCount { get; set; }
 
+        /// <summary>Read from the silicon by <see cref="HardwareProbe" />, never from user input.</summary>
         [JsonPropertyName("processorName")]
         public String? ProcessorName { get; set; }
 

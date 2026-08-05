@@ -92,8 +92,9 @@ namespace NoSQL.GraphDB.Bench
             }
 
             Console.WriteLine("fallen-8-bench: profile=" + profile);
-            Console.WriteLine("Measuring on " + RuntimeInformation.OSDescription + ", " +
-                Environment.ProcessorCount.ToString(CultureInfo.InvariantCulture) + " logical processors.");
+            Console.WriteLine("Measuring on " + (HardwareProbe.CpuName() ?? "unidentified CPU") + ", " +
+                Environment.ProcessorCount.ToString(CultureInfo.InvariantCulture) + " logical processors, " +
+                RuntimeInformation.OSDescription + ".");
             Console.WriteLine("Every number below describes THIS machine. Do not quote one without it.");
             Console.WriteLine();
 
@@ -255,7 +256,7 @@ namespace NoSQL.GraphDB.Bench
                 Architecture = RuntimeInformation.OSArchitecture.ToString(),
                 Runtime = RuntimeInformation.FrameworkDescription,
                 ProcessorCount = Environment.ProcessorCount,
-                ProcessorName = Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER"),
+                ProcessorName = HardwareProbe.CpuName(),
                 TotalPhysicalMemoryMb = gcInfo.TotalAvailableMemoryBytes > 0
                     ? Math.Round(gcInfo.TotalAvailableMemoryBytes / 1048576.0, 0)
                     : (Double?)null,
@@ -328,7 +329,9 @@ namespace NoSQL.GraphDB.Bench
             Console.WriteLine("  -o, --output <path>     Where to write the report");
             Console.WriteLine("                          (default fallen-8-bench/results/capacity-report.json)");
             Console.WriteLine("  -p, --profile <name>    quick (CI-sized, the default) or full (larger graphs)");
-            Console.WriteLine("      --runner-label <s>   Free-form name for this machine, e.g. a CI runner image");
+            Console.WriteLine("      --runner-label <s>   Free-form name for this machine. The CPU is identified");
+            Console.WriteLine("                          automatically; use the label for what the tool cannot");
+            Console.WriteLine("                          read, e.g. \"DDR4-3600, dual channel\" or a CI image name");
             Console.WriteLine("  -h, --help              This text");
             Console.WriteLine();
             Console.WriteLine("The result file conforms to fallen-8-bench/capacity-report.schema.json.");

@@ -25,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\fallen-8-bench\fallen-8-bench.csproj" />
     <ProjectReference Include="..\fallen-8-core-apiApp\fallen-8-core-apiApp.csproj" />
     <ProjectReference Include="..\fallen-8-core\fallen-8-core.csproj" />
     <ProjectReference Include="..\fallen-8-mcp\fallen-8-mcp.csproj" />
