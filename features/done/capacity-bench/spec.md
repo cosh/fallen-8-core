@@ -16,21 +16,31 @@ prose and become the output of a tool anyone can run.
    - **memory**: retained managed bytes per vertex and per edge at several average degrees
    - **writeThroughput**: committed single-element writes per second, WAL on, serial and concurrent
    - **saveStall**: how long a checkpoint holds the single writer thread, by graph size
-   - **traversal**: raw out-edge traversal throughput, the in-process equivalent of `GET /benchmark`
+   - **traversal**: raw out-edge traversal throughput at several graph sizes, through the same engine
+     primitive `GET /benchmark` uses
 
-   Two profiles: `quick` (CI-sized) and `full` (the larger graphs the page's guidance is about).
+   Two profiles. `full` peaks at the headline shape of **10,000,000 vertices and 100,000,000 edges**,
+   which retains around 13 GB, so it wants a machine with 32 GB or more and takes tens of minutes, most
+   of it building edges. `quick` is sized for CI but is deliberately not tiny: see the sizing note below.
+   `--only <family>` runs one family, for iterating on a single measurement.
 
-2. **`capacity-report.schema.json`**, the result-file contract. It is a JSON Schema 2020-12 document
+2. **`OutEdgeSweep` in the engine**, the one home for the traversal sweep, shared by `GET /benchmark` and
+   this tool so a user measuring either gets the same code path. It lives in the engine because that is
+   the only place the allocation-free adjacency enumerator is reachable: an out-of-assembly caller has to
+   use `VertexModel.GetOutgoingEdgeIds()`, which allocates a key list **per vertex**. On a
+   ten-million-vertex graph that was ten million allocations per pass, inside the measurement.
+
+3. **`capacity-report.schema.json`**, the result-file contract. It is a JSON Schema 2020-12 document
    shipped next to the tool, so a third party can validate a report without cloning the repo. Its
    defining property: the file carries the **environment** (OS, CPU, processor count, runtime, GC mode,
    runner label) and the **source** (engine version, commit, dirty-tree flag) alongside the metrics.
    A report cannot exist without saying which machine it describes.
 
-3. **`scripts/update-capacity-doc.mjs`**, which validates a report and renders it into five generated
+4. **`scripts/update-capacity-doc.mjs`**, which validates a report and renders it into five generated
    regions of the docs page, delimited by `<!-- capacity:<name> -->` markers. Prose outside the regions
    is never touched, so the page stays writable by hand. `--check` fails when the page is stale.
 
-4. **`.github/workflows/capacity.yml`**, manual-dispatch, which measures on a runner, renders, builds the
+5. **`.github/workflows/capacity.yml`**, manual-dispatch, which measures on a runner, renders, builds the
    docs site as the gate, uploads the report as an artifact, and optionally commits the result back.
 
 ## Contract
@@ -54,6 +64,15 @@ knob.
   it for hardware guidance. Real numbers come from a local `full` run.
 - **The tool measures the engine in-process, not the REST surface.** HTTP, serialization and ASP.NET are
   out of scope here; `GET /benchmark` and the Studio Benchmark screen cover the served path.
+- **A measurement has a minimum useful size.** The first version of this tool traversed 100,000 edges,
+  which completes in under a millisecond: the reported rate swung between 186M and 457M edges/s across
+  passes on one machine, because it was measuring stopwatch resolution and thread-pool ramp, not
+  throughput. Every scenario is now sized so one pass takes tens of milliseconds. This is why `quick` is
+  not as small as it could be.
+- **Traversal is measured at several sizes, not one.** Following an edge is a chain of dependent loads
+  (adjacency slot, edge object, neighbour), so the rate is governed by whether the working set fits in
+  cache. A single figure would either flatter the engine (small graph) or understate it (large graph);
+  the curve is the honest answer, and the drop across it is memory latency rather than the engine.
 - **`quick` numbers are not comparable to `full` numbers.** Different graph sizes amortise fixed costs
   differently, most visibly in `bytesPerVertex`. Compare like with like, which is why the profile is in the
   report and printed on the page.

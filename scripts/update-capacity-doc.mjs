@@ -137,17 +137,20 @@ const memoryBlock = () => {
 };
 
 const writeBlock = () => {
+  // The write count is per row: each scenario runs under a time cap, so an fsync-bound serial run
+  // commits fewer writes than a concurrent one in the same window. The rate is over what committed,
+  // so showing the count is what makes the comparison checkable rather than merely plausible.
   const rows = metrics.writeThroughput.map(
-    (w) => `| ${w.label} | ${int(w.writesPerSecond)} writes/s |`
+    (w) => `| ${w.label} | ${int(w.writesPerSecond)} writes/s | ${int(w.writes)} |`
   );
   const serial = metrics.writeThroughput.find((w) => w.producers === 1);
   const best = metrics.writeThroughput.reduce((a, b) => (b.writesPerSecond > a.writesPerSecond ? b : a));
   const factor = serial && serial.writesPerSecond > 0 ? (best.writesPerSecond / serial.writesPerSecond).toFixed(1) : null;
-  const out = ["| Producers | Throughput |", "| --- | --- |", ...rows];
+  const out = ["| Producers | Throughput | Writes committed |", "| --- | --- | --- |", ...rows];
   if (factor && best !== serial) {
     out.push(
       "",
-      `That is roughly ${factor}x from group commit alone, measured over ${int(best.writes)} single-element writes with the WAL on, and the serial latency floor is unchanged: a group of one still fsyncs immediately.`
+      `That is roughly ${factor}x from group commit alone, on single-element writes with the WAL on, and the serial latency floor is unchanged: a group of one still fsyncs immediately.`
     );
   }
   return out.join("\n");

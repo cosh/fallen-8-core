@@ -39,14 +39,14 @@ The numbers on this page come from one recorded run of that tool. They describe 
 
 | | |
 | --- | --- |
-| Machine | Ryzen |
-| CPU | AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD, 32 logical processors |
-| Memory | 65,442 MB available to the runtime |
+| Machine | dev workstation (Intel, 16 logical) |
+| CPU | Intel64 Family 6 Model 197 Stepping 2, GenuineIntel, 16 logical processors |
+| Memory | 97,717 MB available to the runtime |
 | OS | Microsoft Windows 10.0.26200 (X64) |
 | Runtime | .NET 10.0.10, server GC on |
-| Engine | 0.3.0.0, commit `eff1a34404` |
-| Profile | `full` |
-| Measured | 2026-08-05 13:28 UTC |
+| Engine | 0.3.0.0, commit `8ab8529914` (uncommitted changes present) |
+| Profile | `quick` |
+| Measured | 2026-08-05 14:22 UTC |
 
 <!-- /capacity:environment -->
 
@@ -60,9 +60,9 @@ the GC's free space and, in the service, ASP.NET.
 
 | Graph | Retained | Per vertex | Per edge (adjacency included) |
 | --- | --- | --- | --- |
-| 200,000 vertices, 400,000 edges (avg degree 2) | 89.7 MB | 128.1 B | 171.2 B |
-| 200,000 vertices, 2,000,000 edges (avg degree 10) | 250.3 MB | 128.0 B | 118.4 B |
-| 50,000 vertices, 1,000,000 edges (avg degree 20) | 112.2 MB | 128.5 B | 111.2 B |
+| 200,000 vertices, 400,000 edges (avg degree 2) | 82.1 MB | 88.1 B | 171.2 B |
+| 200,000 vertices, 2,000,000 edges (avg degree 10) | 242.7 MB | 88.0 B | 118.4 B |
+| 100,000 vertices, 2,000,000 edges (avg degree 20) | 220.5 MB | 88.2 B | 111.2 B |
 
 <!-- /capacity:memory -->
 
@@ -94,12 +94,12 @@ measurement below is deliberately the worst case, single-element writes with the
 
 <!-- capacity:writes -->
 
-| Producers | Throughput |
-| --- | --- |
-| serial (1 producer) | 398 writes/s |
-| 32 concurrent producers | 11,991 writes/s |
+| Producers | Throughput | Writes committed |
+| --- | --- | --- |
+| serial (1 producer) | 765 writes/s | 7,680 |
+| 32 concurrent producers | 18,681 writes/s | 20,000 |
 
-That is roughly 30.1x from group commit alone, measured over 20,000 single-element writes with the WAL on, and the serial latency floor is unchanged: a group of one still fsyncs immediately.
+That is roughly 24.4x from group commit alone, on single-element writes with the WAL on, and the serial latency floor is unchanged: a group of one still fsyncs immediately.
 
 <!-- /capacity:writes -->
 
@@ -118,9 +118,8 @@ I/O. Every mutation enqueued during a save waits:
 
 | Graph size | Save duration (writer held) |
 | --- | --- |
-| 102,000 elements | 17.6 ms |
-| 402,000 elements | 41.7 ms |
-| 2,001,000 elements | 146.8 ms |
+| 300,000 elements | 67.9 ms |
+| 1,200,000 elements | 149.4 ms |
 
 <!-- /capacity:save -->
 
@@ -146,19 +145,33 @@ middle of a write burst. Reads are unaffected, because they never touch the writ
 Readers never block writers and writers never block readers: the graph is published copy-on-write, so a
 reader holds a consistent snapshot for the whole operation.
 
-Raw out-edge traversal, the same work `GET /benchmark` does, on the machine described above:
+Raw out-edge traversal, through the same engine primitive `GET /benchmark` uses, measured at several
+graph sizes on the machine described above:
 
 <!-- capacity:traversal -->
 
 | Graph | Passes | Out-edge traversal |
 | --- | --- | --- |
-| 100,000 vertices, 1,000,000 edges | 20 | 118,888,888 edges/s |
+| 100,000 vertices, 1,000,000 edges | 10 | 521,730,057 edges/s |
+| 500,000 vertices, 5,000,000 edges | 10 | 377,307,234 edges/s |
 
 <!-- /capacity:traversal -->
 
-That figure is memory-bandwidth bound and scales with cores, so it moves more between machines than any
-other number here. The [Benchmark](/fallen-8-core/benchmark/) screen runs the same measurement against
-whatever graph you have loaded.
+**Read the sizes, not just the fastest row.** Traversal depends more on the graph than on the engine,
+because following an edge is a chain of dependent memory loads: the adjacency slot, then the edge object,
+then the neighbour. While the working set fits in cache those loads are nearly free; once it does not,
+each is a memory round trip. So the rate falls as the graph grows, and a figure measured on a small graph
+is not one the same machine sustains on a large one. It also scales with cores and memory bandwidth, which
+makes it the number that moves most between machines.
+
+The adjacency walk itself is already the cheap part: each edge-property group is one contiguous array, the
+sweep runs in parallel across vertex ranges, and it allocates nothing per vertex. What remains is the
+neighbour dereference, which is inherent to traversing a graph whose edges are first-class objects.
+Making that materially cheaper would mean maintaining a parallel array of neighbour ids per group, which
+is the CSR-style overlay this project assessed and rejected (below).
+
+The [Benchmark](/fallen-8-core/benchmark/) screen runs the same sweep against whatever graph you have
+loaded, so you can compare your own data against these shapes.
 
 ## Knobs that actually move the numbers
 

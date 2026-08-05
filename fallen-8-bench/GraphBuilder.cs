@@ -57,42 +57,81 @@ namespace NoSQL.GraphDB.Bench
             => new Fallen8(NullLoggerFactory.Instance, new WriteAheadLogOptions(walPath));
 
         /// <summary>
-        ///   Adds <paramref name="count" /> bare vertices in ONE transaction and returns them in
-        ///   creation order. Bare on purpose: properties are the caller's variable, so the structural
-        ///   cost is measured without them and the page says to add yours on top.
+        ///   Vertices per construction transaction. Batched rather than one transaction for the whole
+        ///   graph because the transaction holds a definition object per element until it commits: at
+        ///   ten million vertices a single transaction's definition list is itself hundreds of
+        ///   megabytes, on top of the graph it is building. Batching bounds that to one batch's worth.
+        /// </summary>
+        private const Int32 VertexBatch = 1_000_000;
+
+        /// <summary>Edges per construction transaction, bounded for the same reason.</summary>
+        private const Int32 EdgeBatch = 2_000_000;
+
+        /// <summary>
+        ///   Adds <paramref name="count" /> bare vertices and returns them in creation order. Bare on
+        ///   purpose: properties are the caller's variable, so the structural cost is measured without
+        ///   them and the page says to add yours on top.
         /// </summary>
         internal static IReadOnlyList<VertexModel> AddVertices(Fallen8 engine, Int32 count)
         {
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i < count; i++)
+            // Presized: growing a ten-million-element list by doubling would leave a trail of
+            // abandoned arrays right where the next reading measures retained bytes.
+            var created = new List<VertexModel>(count);
+
+            for (var start = 0; start < count; start += VertexBatch)
             {
-                tx.AddVertex(CreationDate, null);
+                var batch = Math.Min(VertexBatch, count - start);
+                var tx = new CreateVerticesTransaction();
+                for (var i = 0; i < batch; i++)
+                {
+                    tx.AddVertex(CreationDate, null);
+                }
+
+                engine.EnqueueTransaction(tx).WaitUntilFinished();
+                created.AddRange(tx.GetCreatedVertices());
             }
 
-            engine.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices();
+            return created;
         }
 
         /// <summary>
         ///   Adds <paramref name="edgesPerVertex" /> out-edges to every vertex, targets drawn from the
-        ///   same vertex set with a seeded generator, in ONE transaction. Returns the edge count added.
+        ///   same vertex set with a seeded generator. Returns the edge count added.
+        ///
+        ///   <para>Targets are uniform over the whole vertex set, which is the pessimistic case for a
+        ///   traversal: every followed edge is a random access into the vertex heap, so at a size that
+        ///   outgrows cache the sweep measures memory latency rather than the adjacency walk. That is
+        ///   deliberate, because it is what a real graph traversal does.</para>
         /// </summary>
-        internal static Int32 AddEdges(Fallen8 engine, IReadOnlyList<VertexModel> vertices, Int32 edgesPerVertex)
+        internal static Int64 AddEdges(Fallen8 engine, IReadOnlyList<VertexModel> vertices, Int32 edgesPerVertex)
         {
             var random = new Random(Seed);
+            var added = 0L;
             var tx = new CreateEdgesTransaction();
-            var added = 0;
+            var pending = 0;
 
             for (var v = 0; v < vertices.Count; v++)
             {
                 for (var e = 0; e < edgesPerVertex; e++)
                 {
                     tx.AddEdge(vertices[v].Id, EdgeType, vertices[random.Next(vertices.Count)].Id, CreationDate);
+                    pending++;
                     added++;
+
+                    if (pending == EdgeBatch)
+                    {
+                        engine.EnqueueTransaction(tx).WaitUntilFinished();
+                        tx = new CreateEdgesTransaction();
+                        pending = 0;
+                    }
                 }
             }
 
-            engine.EnqueueTransaction(tx).WaitUntilFinished();
+            if (pending > 0)
+            {
+                engine.EnqueueTransaction(tx).WaitUntilFinished();
+            }
+
             return added;
         }
 

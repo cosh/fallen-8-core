@@ -35,6 +35,7 @@ using System.Text;
 using System.Threading.Tasks;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Algorithms.Traversal;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
@@ -248,16 +249,17 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                 return false;
             }
 
-            // Clamp to >=1: with fewer vertices than logical CPUs the naive formula is 0,
-            // and Partitioner.Create(..., rangeSize: 0) throws. (A tiny graph on a
-            // many-core host, exercised by the tests and the docker smoke test.)
-            Int32 range = Math.Max(1, ((vertices.Count / Environment.ProcessorCount) * 3) / 2);
+            // The sweep itself lives in the engine (OutEdgeSweep), which is the only place the
+            // allocation-free adjacency enumerator is reachable, and is shared with the offline
+            // fallen-8-bench capacity tool so both report the same code path. The vertex snapshot is
+            // taken once above and reused: materialising it is O(V) and is not traversal work.
+            Int32 range = OutEdgeSweep.DefaultPartitionSize(vertices.Count);
 
             for (var i = 0; i < myIterations; i++)
             {
                 var sw = Stopwatch.StartNew();
 
-                edgeCount = CountAllEdgesParallelPartitioner(vertices, range);
+                edgeCount = OutEdgeSweep.Sweep(vertices, range);
 
                 sw.Stop();
 
@@ -273,63 +275,6 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                 StandardDeviationTps = Statistics.StandardDeviation(tps)
             };
             return true;
-        }
-
-        /// <summary>
-        /// Follows every outgoing edge of every vertex in parallel and returns the number
-        /// traversed. Schema-agnostic: it walks ALL out-edge groups of each vertex regardless of
-        /// edge-property-id, so it measures traversal throughput on whatever graph is loaded - not
-        /// only the edges <see cref="CreateScaleFreeNetworkAsync"/> writes under property "A". Each
-        /// edge's <see cref="EdgeModel.TargetVertex"/> is dereferenced so the pass does the real
-        /// pointer-following work of a traversal rather than reading a cached degree count.
-        /// </summary>
-        /// <param name="vertices">The vertices to traverse</param>
-        /// <param name="vertexRange">Partition size handed to <see cref="Partitioner"/></param>
-        /// <returns>The total number of outgoing edges followed</returns>
-        private static long CountAllEdgesParallelPartitioner(IReadOnlyList<VertexModel> vertices, Int32 vertexRange)
-        {
-            var lockObject = new object();
-            var edgeCount = 0L;
-            var rangePartitioner = Partitioner.Create(0, vertices.Count, vertexRange);
-
-            Parallel.ForEach(
-                rangePartitioner,
-                () => 0L,
-                delegate (Tuple<int, int> range, ParallelLoopState loopstate, long initialValue) {
-                    var localCount = initialValue;
-
-                    for (var i = range.Item1; i < range.Item2; i++)
-                    {
-                        var vertex = vertices[i];
-
-                        // Every out-edge group, whatever its edge-property-id. GetOutgoingEdgeIds
-                        // costs one key-list per vertex; the per-group span read is then
-                        // allocation-free, so the inner edge-following loop stays tight. (The fully
-                        // allocation-free adjacency enumerator is engine-internal, not reachable here.)
-                        var edgePropertyIds = vertex.GetOutgoingEdgeIds();
-                        for (var k = 0; k < edgePropertyIds.Count; k++)
-                        {
-                            if (vertex.TryGetOutEdgesSpan(out var outEdges, edgePropertyIds[k]))
-                            {
-                                for (var j = 0; j < outEdges.Length; j++)
-                                {
-                                    var target = outEdges[j].TargetVertex;
-                                    localCount++;
-                                }
-                            }
-                        }
-                    }
-
-                    return localCount;
-                },
-                delegate (long localSum) {
-                    lock (lockObject)
-                    {
-                        edgeCount += localSum;
-                    }
-                });
-
-            return edgeCount;
         }
     }
 }
