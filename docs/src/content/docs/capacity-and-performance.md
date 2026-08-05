@@ -39,14 +39,14 @@ The numbers on this page come from one recorded run of that tool. They describe 
 
 | | |
 | --- | --- |
-| Machine | Ryzen 9950X, 32 threads |
-| CPU | AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD, 32 logical processors |
-| Memory | 65,442 MB available to the runtime |
+| Machine | dev workstation (Intel, 16 logical) |
+| CPU | Intel64 Family 6 Model 197 Stepping 2, GenuineIntel, 16 logical processors |
+| Memory | 97,717 MB available to the runtime |
 | OS | Microsoft Windows 10.0.26200 (X64) |
 | Runtime | .NET 10.0.10, server GC on |
-| Engine | 0.3.0.0, commit `17ba179ffb` |
-| Profile | `full` |
-| Measured | 2026-08-05 16:24 UTC |
+| Engine | 0.3.0.0, commit `5bcbd83be3` |
+| Profile | `quick` |
+| Measured | 2026-08-05 17:18 UTC |
 
 <!-- /capacity:environment -->
 
@@ -60,9 +60,9 @@ the GC's free space and, in the service, ASP.NET.
 
 | Graph | Retained | Per vertex | Per edge (adjacency included) |
 | --- | --- | --- | --- |
-| 2,000,000 vertices, 4,000,000 edges (avg degree 2) | 823.1 MB | 88.0 B | 171.8 B |
-| 10,000,000 vertices, 100,000,000 edges (avg degree 10) | 12407.7 MB | 88.0 B | 121.3 B |
-| 1,000,000 vertices, 20,000,000 edges (avg degree 20) | 2261.1 MB | 88.0 B | 114.1 B |
+| 200,000 vertices, 400,000 edges (avg degree 2) | 82.1 MB | 88.1 B | 171.2 B |
+| 200,000 vertices, 2,000,000 edges (avg degree 10) | 242.7 MB | 88.0 B | 118.4 B |
+| 100,000 vertices, 2,000,000 edges (avg degree 20) | 220.5 MB | 88.2 B | 111.2 B |
 
 <!-- /capacity:memory -->
 
@@ -96,10 +96,10 @@ measurement below is deliberately the worst case, single-element writes with the
 
 | Producers | Throughput | Writes committed |
 | --- | --- | --- |
-| serial (1 producer) | 410 writes/s | 12,352 |
-| 32 concurrent producers | 12,265 writes/s | 200,000 |
+| serial (1 producer) | 769 writes/s | 7,744 |
+| 32 concurrent producers | 15,233 writes/s | 20,000 |
 
-That is roughly 29.9x from group commit alone, on single-element writes with the WAL on, and the serial latency floor is unchanged: a group of one still fsyncs immediately.
+That is roughly 19.8x from group commit alone, on single-element writes with the WAL on, and the serial latency floor is unchanged: a group of one still fsyncs immediately.
 
 <!-- /capacity:writes -->
 
@@ -118,9 +118,8 @@ I/O. Every mutation enqueued during a save waits:
 
 | Graph size | Save duration (writer held) |
 | --- | --- |
-| 1,002,000 elements | 74.6 ms |
-| 4,002,000 elements | 268.0 ms |
-| 20,001,000 elements | 1449.8 ms |
+| 300,000 elements | 41.5 ms |
+| 1,200,000 elements | 131.9 ms |
 
 <!-- /capacity:save -->
 
@@ -153,9 +152,8 @@ graph sizes on the machine described above:
 
 | Graph | Passes | Out-edge traversal |
 | --- | --- | --- |
-| 500,000 vertices, 5,000,000 edges | 5 | 337,063,503 edges/s |
-| 2,000,000 vertices, 20,000,000 edges | 5 | 290,024,884 edges/s |
-| 10,000,000 vertices, 100,000,000 edges | 5 | 278,692,043 edges/s |
+| 100,000 vertices, 1,000,000 edges | 10 | 565,866,908 edges/s |
+| 500,000 vertices, 5,000,000 edges | 10 | 386,291,295 edges/s |
 
 <!-- /capacity:traversal -->
 
