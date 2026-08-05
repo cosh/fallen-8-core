@@ -103,6 +103,28 @@ describe("buildPathSpecification", () => {
     expect(spec.filter?.edgeFilter).toBe("return (e) => true;");
   });
 
+  it("costBySimilarity alone also omits the vertexFilter fragment", () => {
+    // The server installs an implied "has embedding" vertex filter for costBySimilarity even
+    // without minScore, so sending a fragment in that slot is a 400. Only the vertex slots
+    // are affected.
+    const spec = buildPathSpecification(
+      {
+        ...DEFAULT_PATH_DRAFT,
+        algorithm: "DIJKSTRA",
+        vertexFilter: "return (v) => true;",
+        vertexCost: "return (v) => 1.0;",
+        edgeFilter: "return (e) => true;",
+        edgeCost: "return (e) => 1.0;",
+      },
+      { queryVector: [1, 0], metric: "Cosine", costBySimilarity: true },
+    );
+    expect(spec.semantic?.minScore).toBeUndefined();
+    expect(spec.filter?.vertexFilter).toBeUndefined();
+    expect(spec.cost?.vertexCost).toBeUndefined();
+    expect(spec.filter?.edgeFilter).toBe("return (e) => true;");
+    expect(spec.cost?.edgeCost).toBe("return (e) => 1.0;");
+  });
+
   it("keeps the fragment when the semantic block does NOT own that slot", () => {
     const spec = buildPathSpecification(
       { ...DEFAULT_PATH_DRAFT, vertexFilter: "return (v) => true;" },

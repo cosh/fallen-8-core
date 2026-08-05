@@ -68,7 +68,8 @@ namespace NoSQL.GraphDB.Core.SubGraph
         private readonly PluginCache _pluginCache;
 
         /// <summary>
-        /// Resource ceilings enforced at creation time. Generous but bounded by default (M6).
+        /// Resource ceilings enforced when a subgraph is created AND when one is recalculated.
+        /// Generous but bounded by default (M6).
         /// </summary>
         private SubGraphQuota _quota = new SubGraphQuota();
 
@@ -96,9 +97,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
         #region public methods
 
         /// <summary>
-        /// Gets or sets the resource ceilings enforced when creating subgraphs. Setting null
-        /// resets to the default quota. Defaults to a generous-but-bounded quota (M6) so ordinary
-        /// embedded/trusted use is unaffected while a runaway caller cannot exhaust memory.
+        /// Gets or sets the resource ceilings enforced when creating a subgraph and when
+        /// recalculating one (a refresh that would breach an element ceiling is rejected and the
+        /// subgraph keeps its previous contents). Setting null resets to the default quota. Defaults
+        /// to a generous-but-bounded quota (M6) so ordinary embedded/trusted use is unaffected while
+        /// a runaway caller cannot exhaust memory.
         /// </summary>
         public SubGraphQuota Quota
         {
@@ -241,11 +244,18 @@ namespace NoSQL.GraphDB.Core.SubGraph
             algo = null;
 
             // Runtime-registered plugins (feature plugin-registration) take precedence over the
-            // built-ins and are activated FRESH from the source graph's registry (never cached by
-            // name), so a delete/re-register is never served a stale instance. Initialized against the
-            // requested source, exactly like the cached path. Capture the registry once (Dispose may
-            // null it under a concurrent teardown).
-            var registry = fallen8.Plugins;
+            // built-ins and are activated FRESH (never cached by name), so a delete/re-register is
+            // never served a stale instance. Initialized against the requested source, exactly like
+            // the cached path. Capture the registry once (Dispose may null it under a concurrent
+            // teardown).
+            //
+            // The registry consulted is THIS FACTORY'S OWN graph, which is the namespace the
+            // plugin was registered under, NOT the requested source: a NESTED create passes the
+            // parent subgraph's materialized engine as the source, and that engine has no registry
+            // of its own, so resolving against the source would make a registered algorithm
+            // selectable at the top level and silently unavailable one level down. For a root
+            // create the two are the same object, so nothing changes there.
+            var registry = _fallen8.Plugins;
             if (registry != null && registry.TryActivate<ISubGraphAlgorithm>(out algo, algorithmTypeName))
             {
                 try
@@ -542,14 +552,35 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <returns><c>true</c> if the subgraph was successfully recalculated; otherwise, <c>false</c>.</returns>
         /// <remarks>
         /// This method can only recalculate a subgraph if the source Fallen8 instance is not null.
-        /// The IDs and names of the subgraph remain stable after recalculation.
+        /// The IDs and names of the subgraph remain stable after recalculation. A refresh that would
+        /// breach an element ceiling in <see cref="Quota"/> is rejected and the subgraph keeps its
+        /// previous contents.
         /// </remarks>
         public bool TryRecalculateSubGraph(string subGraphName)
         {
+            return TryRecalculateSubGraph(subGraphName, out _);
+        }
+
+        /// <summary>
+        /// Reason-reporting overload of <see cref="TryRecalculateSubGraph(string)"/>, mirroring the
+        /// create path: on a failed recalculation it reports a structured
+        /// <see cref="TransactionFailureReason"/> (NotFound / Conflict / QuotaExceeded /
+        /// InvalidInput / InternalError) so a caller can tell a quota rejection - which discards the
+        /// fresh extraction and keeps the existing contents - from a subgraph that cannot be
+        /// recalculated at all. The parameterless-reason overload delegates here and discards it.
+        /// </summary>
+        /// <param name="subGraphName">The name of the subgraph to recalculate.</param>
+        /// <param name="reason">The structured failure category; <see cref="TransactionFailureReason.None"/> on success.</param>
+        /// <returns><c>true</c> if the subgraph was successfully recalculated; otherwise, <c>false</c>.</returns>
+        public bool TryRecalculateSubGraph(string subGraphName, out TransactionFailureReason reason)
+        {
+            reason = TransactionFailureReason.None;
+
             // Try to get the existing subgraph
             if (!_subGraphsByName.TryGetValue(subGraphName, out var outdatedSubGraphResult))
             {
                 _logger.LogError(String.Format("Subgraph \"{0}\" not found.", subGraphName));
+                reason = TransactionFailureReason.NotFound;
                 return false;
             }
 
@@ -557,12 +588,14 @@ namespace NoSQL.GraphDB.Core.SubGraph
             if (outdatedSubGraphResult.SourceFallen8 == null)
             {
                 _logger.LogError(String.Format("Cannot recalculate subgraph \"{0}\" - source Fallen8 is null.", subGraphName));
+                reason = TransactionFailureReason.Conflict;
                 return false;
             }
 
             if (outdatedSubGraphResult.Definitions == null || string.IsNullOrEmpty(outdatedSubGraphResult.AlgorithmPluginName))
             {
                 _logger.LogError(String.Format("Cannot recalculate subgraph \"{0}\" - missing definition or algorithm plugin name.", subGraphName));
+                reason = TransactionFailureReason.Conflict;
                 return false;
             }
 
@@ -579,6 +612,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 // Get or load the algorithm
                 if (!TryGetOrLoadAlgorithm(out var algo, outdatedSubGraphResult.SourceFallen8, outdatedSubGraphResult.AlgorithmPluginName, outdatedSubGraphResult.AlgorithmParameters))
                 {
+                    reason = TransactionFailureReason.InternalError;
                     return false;
                 }
 
@@ -586,11 +620,40 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 if (!algo.TryCreateSubgraph(out var newSubGraph, outdatedSubGraphResult.Definitions))
                 {
                     _logger.LogError(String.Format("Failed to recalculate subgraph \"{0}\" using algorithm \"{1}\".", subGraphName, outdatedSubGraphResult.AlgorithmPluginName));
+                    reason = TransactionFailureReason.InvalidInput;
                     return false;
                 }
 
                 runSpan?.SetTag("result.vertices", newSubGraph.SubGraph?.VertexCount ?? 0);
                 runSpan?.SetTag("result.edges", newSubGraph.SubGraph?.EdgeCount ?? 0);
+
+                // Quota: the element ceilings that bound a CREATE bound a refresh too, so a subgraph
+                // whose source grew cannot slip past MaxElementsPerSubGraph or push the aggregate
+                // past MaxTotalElements. Checked BEFORE the swap below: on a breach the fresh
+                // extraction is discarded and the subgraph keeps its existing, in-quota contents
+                // (staying stale until the quota is raised or it is deleted). The aggregate subtracts
+                // this subgraph's own current contribution, which the swap would replace, so
+                // recalculating a large subgraph never double-counts itself and fails spuriously.
+                int newElementCount = (newSubGraph.SubGraph?.VertexCount ?? 0) + (newSubGraph.SubGraph?.EdgeCount ?? 0);
+                int oldElementCount = (outdatedSubGraphResult.SubGraph?.VertexCount ?? 0) + (outdatedSubGraphResult.SubGraph?.EdgeCount ?? 0);
+
+                if (newElementCount > _quota.MaxElementsPerSubGraph)
+                {
+                    _logger.LogWarning(String.Format(
+                        "Cannot recalculate subgraph \"{0}\": its {1} recalculated elements exceed the per-subgraph limit of {2}; the previous contents are kept.",
+                        subGraphName, newElementCount, _quota.MaxElementsPerSubGraph));
+                    reason = TransactionFailureReason.QuotaExceeded;
+                    return false;
+                }
+
+                if (CurrentTotalElements() - oldElementCount + newElementCount > _quota.MaxTotalElements)
+                {
+                    _logger.LogWarning(String.Format(
+                        "Cannot recalculate subgraph \"{0}\": it would exceed the total materialized element limit of {1}; the previous contents are kept.",
+                        subGraphName, _quota.MaxTotalElements));
+                    reason = TransactionFailureReason.QuotaExceeded;
+                    return false;
+                }
 
                 // Preserve the existing IDs and metadata
                 Guid oldSubGraphId = outdatedSubGraphResult.SubGraph.Id;
@@ -604,12 +667,28 @@ namespace NoSQL.GraphDB.Core.SubGraph
                 outdatedSubGraphResult.Definitions = newSubGraph.Definitions;
                 outdatedSubGraphResult.SubGraph = newSubGraph.SubGraph;
 
+                // Nested subgraphs sourced from this one hold their source as an object
+                // reference, so they must follow the swap: the instance they were bound to is
+                // discarded here and would keep serving pre-recalculation contents forever.
+                // Dependents are identified by SourceFallen8Id, which survives the swap because
+                // SetId preserves the guid. This does NOT cascade recalculation: a dependent
+                // keeps its own contents until it is recalculated, it then reads the live source.
+                foreach (var dependent in _subGraphsById.Values)
+                {
+                    if (!ReferenceEquals(dependent, outdatedSubGraphResult)
+                        && dependent.SourceFallen8Id.Equals(oldSubGraphId))
+                    {
+                        dependent.SourceFallen8 = newSubGraph.SubGraph;
+                    }
+                }
+
                 _logger.LogInformation(String.Format("Successfully recalculated subgraph \"{0}\".", subGraphName));
                 return true;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, String.Format("Exception occurred while recalculating subgraph \"{0}\": {1}", subGraphName, ex.Message));
+                reason = TransactionFailureReason.InternalError;
                 return false;
             }
         }

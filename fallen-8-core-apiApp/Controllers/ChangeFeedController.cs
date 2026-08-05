@@ -146,10 +146,19 @@ namespace NoSQL.GraphDB.App.Controllers
 
             if (!feed.TrySubscribe(filter, sinceEpoch, sinceSeq, out var subscription))
             {
-                return Helper.ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
-                    "Subscriber limit reached",
-                    String.Format("The maximum number of concurrent change feed subscribers ({0}) is reached.",
-                        feed.Options.MaxSubscribers));
+                // A refusal has two causes and they are not interchangeable to a client: a full
+                // subscriber table is transient and worth retrying, a disposed feed means this
+                // namespace's engine is gone (dropped, or the server is shutting down) and retrying
+                // the same URL never succeeds. Reporting both as "Subscriber limit reached" sent
+                // callers hunting a limit that was not the problem.
+                return feed.IsDisposed
+                    ? Helper.ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                        "Change feed unavailable",
+                        "The change feed for this namespace is no longer available: the namespace was dropped or the server is shutting down.")
+                    : Helper.ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                        "Subscriber limit reached",
+                        String.Format("The maximum number of concurrent change feed subscribers ({0}) is reached.",
+                            feed.Options.MaxSubscribers));
             }
 
             try

@@ -37,7 +37,7 @@ import path from "node:path";
  *
  *   F8_SCREENSHOT=1 npx playwright test e2e/screenshot-benchmark.spec.ts
  *
- * Output: docs/images/screen-benchmark.png. Volatile durability is fine (no save-games needed);
+ * Output: docs/src/assets/images/screen-benchmark.png. Volatile durability is fine (no save-games needed);
  * the default webServer config (see playwright.config.ts) provides exactly that.
  */
 

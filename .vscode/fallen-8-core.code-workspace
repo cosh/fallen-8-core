@@ -43,9 +43,13 @@
       "**/package-lock.json": true
     },
     "playwright.reuseBrowser": true,
-    "playwright.env": {
-      "F8_UI_URL": "http://localhost:5000"
-    },
+    // No "playwright.env": { "F8_UI_URL": ... } here, on purpose. The functional e2e specs erase
+    // the "default" namespace, so pinning F8_UI_URL would point a Test Explorer run at whatever
+    // listens on :5000 - typically the "F8 API App (Debug)" / "F8 Studio (API + built UI)"
+    // instance above, which persists - and wipe that graph. Without the pin, playwright starts
+    // its own throwaway apiApp on its own port with volatile durability; the invariant lives in
+    // fallen-8-web-ui/playwright.config.ts. Only set F8_UI_URL (here or in a shell) when the
+    // target is a throwaway instance, e.g. for the F8_SCREENSHOT=1 capture specs.
     "tailwindCSS.includeLanguages": {
       "typescriptreact": "javascript"
     },

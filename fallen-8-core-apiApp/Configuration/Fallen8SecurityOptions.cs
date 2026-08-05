@@ -95,12 +95,6 @@ namespace NoSQL.GraphDB.App.Configuration
         public String[] AllowedCorsOrigins { get; set; } = Array.Empty<String>();
 
         /// <summary>
-        ///   Maximum request body size (bytes) for the code + plugin endpoints. Defaults to 1 MiB - a
-        ///   filter fragment or a plugin DLL over this is rejected with 413 before it is buffered.
-        /// </summary>
-        public Int64 MaxSensitiveRequestBodyBytes { get; set; } = 1L * 1024 * 1024;
-
-        /// <summary>
         ///   Permitted request count per fixed window for the sensitive (code/plugin) endpoints. A
         ///   breach returns 429. Defaults to 30 per <see cref="RateLimitWindowSeconds"/>.
         /// </summary>
@@ -108,6 +102,26 @@ namespace NoSQL.GraphDB.App.Configuration
 
         /// <summary>Fixed-window length (seconds) for the sensitive-endpoint rate limiter. Default 10.</summary>
         public Int32 RateLimitWindowSeconds { get; set; } = 10;
+
+        private const Int32 DefaultBenchmarkMaxIterations = 10000;
+
+        private Int32 _benchmarkMaxIterations = DefaultBenchmarkMaxIterations;
+
+        /// <summary>
+        ///   Ceiling on the timed iterations <c>GET /benchmark</c> accepts: a higher count is a 400,
+        ///   and a request that names no count gets the endpoint default clamped to this value.
+        ///   Default 10000, the same ceiling analytics puts on its iterations
+        ///   (<c>GraphAnalyticsDefinition.MaxIterationsCeiling</c>). It sits with the other
+        ///   abuse ceilings (the sensitive-endpoint rate limiter above) because it is the ONLY bound
+        ///   on a benchmark pass: each iteration saturates every core and the loop cannot be
+        ///   interrupted once started, so a mistyped extra zero would otherwise pin the host until
+        ///   it finished. Non-positive values reset to the default.
+        /// </summary>
+        public Int32 BenchmarkMaxIterations
+        {
+            get { return _benchmarkMaxIterations; }
+            set { _benchmarkMaxIterations = value > 0 ? value : DefaultBenchmarkMaxIterations; }
+        }
 
         /// <summary>
         ///   Reserved and currently NOT enforced: the app binds wherever ASPNETCORE_URLS / Kestrel is

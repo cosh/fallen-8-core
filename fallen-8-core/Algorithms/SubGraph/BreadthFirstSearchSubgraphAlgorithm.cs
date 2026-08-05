@@ -642,6 +642,15 @@ namespace NoSQL.GraphDB.Core.Algorithms.SubGraph
                     {
                         foreach (var e in subgraph.GetAllEdges())
                         {
+                            // Seeding honors the edge-property filter exactly like the deeper
+                            // levels do (see ProcessOutgoingEdges): MatchesEdgePattern never sees
+                            // the property id, so a leading edge pattern would otherwise match
+                            // every edge type.
+                            if (ep.EdgeProperty != null && !ep.EdgeProperty(e.EdgePropertyId))
+                            {
+                                continue;
+                            }
+
                             if (MatchesEdgePattern(e, ep, Direction.OutgoingEdge))
                             {
                                 var path = new PathInfo();

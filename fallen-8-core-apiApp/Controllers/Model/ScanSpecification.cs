@@ -36,7 +36,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// </summary>
     /// <example>
     /// {
-    ///   "operator": "Equal",
+    ///   "operator": 0,
     ///   "literal": {
     ///     "value": "John Doe",
     ///     "fullQualifiedTypeName": "System.String"
@@ -48,9 +48,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     public class ScanSpecification
     {
         /// <summary>
-        ///   The binary operator to use for comparing property values
+        ///   The binary operator to use for comparing property values, sent as its integer code:
+        ///   0 Equals, 1 Greater, 2 GreaterOrEquals, 3 Lower, 4 LowerOrEquals, 5 NotEquals.
+        ///   A member name is not accepted: unlike resultType, this enum carries no string-enum
+        ///   converter, so the code is the wire form (this summary is the mapping's one home,
+        ///   since the generated schema shows only "integer").
         /// </summary>
-        /// <example>Equal</example>
+        /// <example>0</example>
         [Required]
         [JsonPropertyName("operator")]
         public BinaryOperator Operator

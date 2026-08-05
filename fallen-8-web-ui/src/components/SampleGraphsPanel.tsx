@@ -52,9 +52,11 @@ import { ConfirmDialog } from "./ConfirmDialog";
  * Sample graphs (feature sample-graphs): a manifest-driven gallery of one-click demo
  * graphs plus the dynamic GitHub dependency card. Each card spans the full width and
  * carries its "what you can test" steps up front; a tag bar filters the gallery by
- * capability (canvas / path / analytics / semantic / spatial). Datasets are fetched from a
- * public GitHub raw URL and ingested via /bulk/import — embeddings are baked in, so no
- * embedding work happens here. Loading into a non-empty graph is gated behind a typed
+ * capability (the tags are TAG_ORDER below). Datasets come from samplesBaseUrl() (the
+ * same-origin /samples that ships with the app by default, overridable to a remote mirror)
+ * and are ingested via /bulk/import; most carry baked vectors, but a sample with
+ * `documents` binds the semantic layer and ingests live (see sampleLoader).
+ * Loading into a non-empty graph is gated behind a typed
  * confirm and runs Tabula rasa first (import requires an empty target). Rendered by the
  * Samples screen (its own rail entry).
  */

@@ -109,6 +109,23 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
+        ///   Optional name of the subgraph algorithm plugin that performs the extraction, as
+        ///   reported by the plugin's <c>PluginName</c>. Accepts a built-in name or the name a
+        ///   plugin of contract <c>SubGraph</c> was registered under in this namespace (the set
+        ///   <c>GET /status</c> reports as <c>availableSubGraphPlugins</c>); an unknown name is a
+        ///   400, never a silent fallback. Omitted (null or empty) selects the built-in
+        ///   breadth-first search algorithm, which is what every request without this field gets.
+        ///   The selected name is stored with the subgraph, so a recalculation re-resolves the same
+        ///   plugin.
+        /// </summary>
+        /// <example>Breadth First Search Subgraph Algorithm</example>
+        [JsonPropertyName("algorithm")]
+        public String Algorithm
+        {
+            get; set;
+        }
+
+        /// <summary>
         ///   The name of a registered stored query of kind <c>SubGraph</c> to instantiate instead
         ///   of inline <see cref="VertexFilter"/>/<see cref="EdgeFilter"/>/<see cref="Patterns"/>
         ///   fragments (feature stored-query-library). Mutually exclusive with them (400 when

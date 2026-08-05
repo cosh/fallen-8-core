@@ -103,6 +103,8 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                 return false;
             }
 
+            var budget = PathBudget.Create(definition);
+
             VertexModel sourceVertex;
             VertexModel destinationVertex;
             if (!(_fallen8.TryGetVertex(out sourceVertex, definition.SourceVertexId)
@@ -122,6 +124,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             }
 
             if (ReferenceEquals(sourceVertex, destinationVertex))
+            {
+                return false;
+            }
+
+            // A caller that already gave up (an aborted request, an expired deadline) must not start
+            // a search at all.
+            if (budget.IsExhaustedNow())
             {
                 return false;
             }
@@ -148,7 +157,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                 effectiveMaxDepth = hopCap;
             }
 
-            var search = new Search(definition, _fallen8, _logger);
+            var search = new Search(definition, budget, _fallen8, _logger);
 
             List<Path> paths;
             if (definition.MaxResults == 1)
@@ -162,6 +171,15 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 paths = search.KShortestPaths(
                     sourceVertex, destinationVertex, definition.MaxResults, effectiveMaxDepth, definition.MaxPathWeight);
+            }
+
+            // An exhausted budget stopped the search mid-way, so whatever it collected is not the
+            // answer to the question asked (the least-weight path / the K least-weight paths): report
+            // no result plus ShortestPathDefinition.BudgetExhausted rather than a truncated success.
+            if (budget.IsExhausted)
+            {
+                result = new List<Path>();
+                return false;
             }
 
             if (paths.Count > 0)
@@ -185,6 +203,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         {
             private readonly IFallen8 _fallen8;
             private readonly ILogger _logger;
+            private readonly PathBudget _budget;
             private readonly Delegates.EdgePropertyFilter _edgePropertyFilter;
             private readonly Delegates.EdgeFilter _edgeFilter;
             private readonly Delegates.VertexFilter _vertexFilter;
@@ -206,10 +225,11 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             /// </summary>
             private Dictionary<int, List<NeighbourStep>> _neighbourMemo;
 
-            public Search(ShortestPathDefinition definition, IFallen8 fallen8, ILogger logger)
+            public Search(ShortestPathDefinition definition, PathBudget budget, IFallen8 fallen8, ILogger logger)
             {
                 _fallen8 = fallen8;
                 _logger = logger;
+                _budget = budget;
                 _edgePropertyFilter = definition.EdgePropertyFilter;
                 _edgeFilter = definition.EdgeFilter;
                 _vertexFilter = definition.VertexFilter;
@@ -225,7 +245,9 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             ///   cumulative weight of at most <paramref name="maxWeight"/>, optionally forbidding a
             ///   set of vertices and directed edge-steps (used by the K-shortest routine).
             /// </summary>
-            /// <returns>The path, or <c>null</c> when none exists within the bounds.</returns>
+            /// <returns>The path, or <c>null</c> when none exists within the bounds - or when the
+            /// run budget was exhausted before the search finished (see
+            /// <see cref="ShortestPathDefinition.BudgetExhausted"/>).</returns>
             public Path TryShortestPath(
                 VertexModel source,
                 VertexModel destination,
@@ -256,6 +278,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                 while (queue.TryDequeue(out var state, out var priority))
                 {
+                    // One budget step per dequeued search state. A partially explored search cannot
+                    // prove a path optimal, so exhaustion yields no path at all (the caller reports
+                    // the exhaustion, not an empty "no path" answer).
+                    if (_budget.IsExhaustedAtStep())
+                    {
+                        return null;
+                    }
+
                     var currentWeight = priority.Weight;
 
                     // Skip stale queue entries (no decrease-key; superseded labels are left behind).
@@ -390,7 +420,10 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
             /// <summary>
             ///   Computes up to <paramref name="k"/> least-weight loop-free paths in non-decreasing
-            ///   weight order using Yen's algorithm on top of <see cref="TryShortestPath"/>.
+            ///   weight order using Yen's algorithm on top of <see cref="TryShortestPath"/>. An
+            ///   exhausted run budget stops the enumeration early; the caller then reports the
+            ///   exhaustion instead of the collected prefix (see
+            ///   <see cref="ShortestPathDefinition.BudgetExhausted"/>).
             /// </summary>
             public List<Path> KShortestPaths(
                 VertexModel source,
@@ -416,11 +449,24 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                 for (var index = 1; index < k; index++)
                 {
+                    // One full budget check per K iteration: each iteration runs a whole spur search
+                    // per element of the previous path, so the clock read is free at this scale.
+                    if (_budget.IsExhaustedNow())
+                    {
+                        break;
+                    }
+
                     var previous = accepted[index - 1];
                     var previousElements = previous.GetPathElements();
 
                     for (var spurIndex = 0; spurIndex < previousElements.Count; spurIndex++)
                     {
+                        //the spur search below counts the steps; stop as soon as it reported exhaustion
+                        if (_budget.IsExhausted)
+                        {
+                            break;
+                        }
+
                         var spurNodeId = previousElements[spurIndex].SourceVertex.Id;
 
                         VertexModel spurNode;

@@ -92,6 +92,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// compile failure rejects the registration with the compiler diagnostics. Entries are
         /// immutable: to change one, delete and re-register.
         ///
+        /// SECURITY: registration compiles C# fragments with Roslyn that later execute IN-PROCESS
+        /// WITH FULL TRUST. It carries the same authentication as the inline code endpoints
+        /// (required whenever an API key is configured); dynamic code execution itself is always on.
+        ///
         /// Sample request:
         ///
         ///     POST /storedquery
@@ -112,11 +116,6 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="413">The request body exceeds the code-endpoint size limit</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         /// <response code="500">The registration transaction faulted with an internal error</response>
-        /// <remarks>
-        /// SECURITY: registration compiles C# fragments with Roslyn that later execute IN-PROCESS
-        /// WITH FULL TRUST. It carries the same authentication as the inline code endpoints
-        /// (required whenever an API key is configured); dynamic code execution itself is always on.
-        /// </remarks>
         [HttpPost("/storedquery")]
         [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
         [RequestSizeLimit(1_048_576)]

@@ -32,7 +32,7 @@ import { expect, test, type Page } from "@playwright/test";
  *
  *   F8_SCREENSHOT=1 F8_UI_URL=http://127.0.0.1:5000 npx playwright test e2e/screenshot-first-run.spec.ts
  *
- * Output: docs/images/screen-first-run.png.
+ * Output: docs/src/assets/images/screen-first-run.png.
  */
 
 const API_KEY = process.env.F8_E2E_API_KEY ?? "e2e-key";

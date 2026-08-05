@@ -136,9 +136,29 @@ describe("slot ownership", () => {
     );
   });
 
+  it("costBySimilarity ALONE also owns the vertex-filter slot (implied has-embedding filter)", () => {
+    // The server installs a vertex filter for costBySimilarity even without minScore
+    // (SemanticTraversalHelper.TryBuild's else-if branch), so a fragment in that slot is a
+    // 400. Both switches together, and minScore alone, are the same story.
+    expect(semanticOwnsVertexFilter(enabled({ costBySimilarity: true }))).toBe(true);
+    expect(
+      semanticOwnsVertexFilter(enabled({ costBySimilarity: true, minScoreEnabled: true })),
+    ).toBe(true);
+    // Still nothing when the block itself is off, and nothing for a bare query.
+    expect(
+      semanticOwnsVertexFilter({ ...enabled({ costBySimilarity: true }), enabled: false }),
+    ).toBe(false);
+    expect(semanticOwnsVertexFilter(enabled())).toBe(false);
+  });
+
   it("costBySimilarity owns the vertex-cost slot only when enabled + active", () => {
     expect(semanticOwnsVertexCost(DEFAULT_SEMANTIC_DRAFT)).toBe(false);
     expect(semanticOwnsVertexCost(enabled({ costBySimilarity: true }))).toBe(true);
+    // minScore is a filter, never a cost: the two slots stay independent in that direction.
+    expect(semanticOwnsVertexCost(enabled({ minScoreEnabled: true }))).toBe(false);
+    expect(semanticOwnsVertexCost({ ...enabled({ costBySimilarity: true }), enabled: false })).toBe(
+      false,
+    );
   });
 });
 

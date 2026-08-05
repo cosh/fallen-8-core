@@ -197,6 +197,48 @@ namespace NoSQL.GraphDB.Core.Service
             throw new CollisionException();
         }
 
+        /// <summary>
+        ///   Stops and removes a service, under the same write lock every other mutation of
+        ///   <see cref="Services" /> takes. The stop happens BEFORE the removal because this
+        ///   dictionary holds the only handle: a service removed while running would keep its timers
+        ///   and listeners alive with nothing able to reach it again, not even a later
+        ///   <see cref="ShutdownAllServices" />. A misbehaving plugin's <c>TryStop</c> is contained so
+        ///   it cannot turn a removal into a fault, and the service is dropped regardless.
+        /// </summary>
+        /// <param name="serviceName">The key the service was registered under.</param>
+        /// <returns><c>true</c> when a service was removed; <c>false</c> when the key was unknown.</returns>
+        public Boolean TryRemoveService(String serviceName)
+        {
+            if (WriteResource())
+            {
+                try
+                {
+                    if (!Services.TryGetValue(serviceName, out var service))
+                    {
+                        return false;
+                    }
+
+                    try
+                    {
+                        service.TryStop();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, String.Format(
+                            "The service \"{0}\" threw while being stopped; it is removed anyway.", serviceName));
+                    }
+
+                    return Services.Remove(serviceName);
+                }
+                finally
+                {
+                    FinishWriteResource();
+                }
+            }
+
+            throw new CollisionException();
+        }
+
         #endregion
 
         #region internal methods

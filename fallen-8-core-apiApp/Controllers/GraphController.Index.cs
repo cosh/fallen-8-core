@@ -90,14 +90,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 return ProblemResults.BadRequest(String.Format("Index '{0}' is not a vector index.", indexId));
             }
 
-            // A BOUND index is a derived projection of the named element embedding (feature
-            // element-embeddings): membership is declared at creation, the writer thread keeps
-            // it, explicit adds would create a second membership authority.
-            if (vectorIndex.EmbeddingName != null)
+            var boundRefusal = RefuseWriteToBoundIndex(vectorIndex, indexId, "write", "adding to");
+            if (boundRefusal != null)
             {
-                return ProblemResults.BadRequest(String.Format(
-                    "Index '{0}' is bound to embedding '{1}' and maintains itself; write the element embedding instead of adding to the index.",
-                    indexId, vectorIndex.EmbeddingName));
+                return boundRefusal;
             }
 
             if (!_fallen8.TryGetGraphElement(out var element, definition.GraphElementId))
@@ -242,17 +238,23 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     }
         /// </remarks>
         /// <response code="200">Returns true if the key was removed; false if the index does not exist (a miss is reported as 200 with a false body)</response>
-        /// <response code="400">The property specification was missing or malformed</response>
+        /// <response code="400">The property specification was missing or malformed, or the index is a vector index bound to an embedding (it maintains its own content)</response>
         [HttpDelete("/index/{indexId}/propertyValue")]
         [Consumes("application/json")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public bool RemoveKeyFromIndex([FromRoute] String indexId, [FromBody] PropertySpecification property)
+        public ActionResult<bool> RemoveKeyFromIndex([FromRoute] String indexId, [FromBody] PropertySpecification property)
         {
             IIndex idx;
             if (_fallen8.IndexFactory.TryGetIndex(out idx, indexId))
             {
+                var boundRefusal = RefuseWriteToBoundIndex(idx, indexId, "remove", "removing a key from");
+                if (boundRefusal != null)
+                {
+                    return boundRefusal;
+                }
+
                 return idx.TryRemoveKey(ServiceHelper.CreateObject(property));
             }
             _logger.LogError("Could not find index {IndexId}.", indexId);
@@ -271,14 +273,22 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     DELETE /index/nameIndex/123
         /// </remarks>
         /// <response code="200">Returns true if the element was removed; false if the index or the graph element does not exist (a miss is reported as 200 with a false body, not a 404)</response>
+        /// <response code="400">The index is a vector index bound to an embedding (it maintains its own content; remove the element embedding instead)</response>
         [HttpDelete("/index/{indexId}/{graphElementId}")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
-        public bool RemoveGraphElementFromIndex([FromRoute] String indexId, [FromRoute] Int32 graphElementId)
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public ActionResult<bool> RemoveGraphElementFromIndex([FromRoute] String indexId, [FromRoute] Int32 graphElementId)
         {
             IIndex idx;
             if (_fallen8.IndexFactory.TryGetIndex(out idx, indexId))
             {
+                var boundRefusal = RefuseWriteToBoundIndex(idx, indexId, "remove", "removing from");
+                if (boundRefusal != null)
+                {
+                    return boundRefusal;
+                }
+
                 AGraphElementModel graphElement;
                 if (_fallen8.TryGetGraphElement(out graphElement, graphElementId))
                 {
@@ -310,6 +320,33 @@ namespace NoSQL.GraphDB.App.Controllers
         public bool DeleteIndex([FromRoute] String indexId)
         {
             return _fallen8.IndexFactory.TryDeleteIndex(indexId);
+        }
+
+        /// <summary>
+        ///   The ONE home of the bound-index write refusal shared by every explicit content write
+        ///   on <c>/index/…</c> (add a vector, remove a key, remove an element). A BOUND vector
+        ///   index is a derived projection of the named element embedding (feature
+        ///   element-embeddings): membership is declared at creation and maintained by the writer
+        ///   thread, so an explicit add or remove would be a second membership authority and would
+        ///   leave the projection silently out of step with the elements that still carry the
+        ///   embedding. Returns the 400 to hand back, or <c>null</c> when the index owns its own
+        ///   content and the write may proceed.
+        /// </summary>
+        /// <param name="index">The index the route resolved; any family, only a bound vector index refuses.</param>
+        /// <param name="indexId">The index name, for the message.</param>
+        /// <param name="embeddingAction">What to do to the element embedding instead: "write" or "remove".</param>
+        /// <param name="indexAction">The refused index operation, e.g. "adding to", "removing from".</param>
+        private static ObjectResult RefuseWriteToBoundIndex(IIndex index, String indexId,
+            String embeddingAction, String indexAction)
+        {
+            if (!(index is IVectorIndex vectorIndex) || vectorIndex.EmbeddingName == null)
+            {
+                return null;
+            }
+
+            return ProblemResults.BadRequest(String.Format(
+                "Index '{0}' is bound to embedding '{1}' and maintains itself; {2} the element embedding instead of {3} the index.",
+                indexId, vectorIndex.EmbeddingName, embeddingAction, indexAction));
         }
     }
 }

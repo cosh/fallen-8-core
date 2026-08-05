@@ -33,7 +33,7 @@ import { expect, test, type Page } from "@playwright/test";
  *
  *   F8_SCREENSHOT=1 npx playwright test e2e/screenshot-canvas-style.spec.ts
  *
- * Output: docs/images/screen-canvas-style.png.
+ * Output: docs/src/assets/images/screen-canvas-style.png.
  */
 
 const API_KEY = process.env.F8_E2E_API_KEY ?? "e2e-key";

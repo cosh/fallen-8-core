@@ -65,7 +65,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        /// <summary>The entity type (the NLP label, e.g. PER/ORG/LOC).</summary>
+        /// <summary>The entity type: the label the NLP sidecar emitted, e.g. PERSON, ORG or GPE.</summary>
         public String Type
         {
             get; set;

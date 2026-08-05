@@ -35,7 +35,7 @@ import path from "node:path";
  *
  *   F8_SCREENSHOT=1 F8_UI_URL=http://127.0.0.1:5000 npx playwright test e2e/screenshot-savegames.spec.ts
  *
- * Output: docs/images/screen-savegames.png. Needs a DURABLE apiApp (not volatile — volatile
+ * Output: docs/src/assets/images/screen-savegames.png. Needs a DURABLE apiApp (not volatile — volatile
  * catalogs nothing, so the registry would stay empty); point its storage at a throwaway dir.
  */
 

@@ -164,8 +164,8 @@ namespace NoSQL.GraphDB.App.Controllers
                     {
                         Name = pair.Key,
                         Type = pair.Value.PluginName,
-                        Keys = pair.Value.CountOfKeys(),
-                        Values = pair.Value.CountOfValues()
+                        Keys = IndexStatsREST.NonNegativeCount(pair.Value.CountOfKeys()),
+                        Values = IndexStatsREST.NonNegativeCount(pair.Value.CountOfValues())
                     });
                 }
             }

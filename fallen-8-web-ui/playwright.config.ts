@@ -30,9 +30,24 @@ import { defineConfig } from "@playwright/test";
  *
  * Default mode: builds the SPA into ../fallen-8-core-apiApp/wwwroot and launches the
  * apiApp with volatile durability and an API key ("e2e-key"). Dynamic code execution is
- * always on, so the delegate-editor scenarios need no extra flag. Set F8_UI_URL to target
- * an already-running instance instead.
+ * always on, so the delegate-editor scenarios need no extra flag.
+ *
+ * ISOLATION INVARIANT (why the port and the two flags below are what they are): the functional
+ * specs erase the `default` namespace, so a run must never be able to land on a hand-started
+ * development instance. Two things enforce that instead of trusting a convention:
+ *   1. the suite owns E2E_PORT, deliberately NOT the :5000 that the dev API / Studio launch
+ *      configs bind, and
+ *   2. `reuseExistingServer: false`, so playwright always starts its OWN apiApp (volatile
+ *      durability) and can never adopt one it did not configure.
+ * A port clash is therefore a hard, immediate failure rather than a silently wiped graph.
+ *
+ * The only way out is explicit and hand-typed: F8_UI_URL targets an already-running instance
+ * and launches nothing (that is how the F8_SCREENSHOT=1 screenshot specs capture against a
+ * purpose-built app). Whoever sets it owns the target's durability: point it at a throwaway.
  */
+const E2E_PORT = process.env.F8_E2E_PORT ?? "5099";
+const E2E_URL = `http://localhost:${E2E_PORT}`;
+
 export default defineConfig({
   testDir: "./e2e",
   // Per-test ceiling. Kept modest so a misconfigured/unreachable backend fails fast
@@ -45,7 +60,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   use: {
-    baseURL: process.env.F8_UI_URL ?? "http://localhost:5000",
+    baseURL: process.env.F8_UI_URL ?? E2E_URL,
     navigationTimeout: 15_000,
     actionTimeout: 15_000,
     screenshot: "only-on-failure",
@@ -53,9 +68,11 @@ export default defineConfig({
   webServer: process.env.F8_UI_URL
     ? undefined
     : {
-        command: "npm run build:apiapp && dotnet run --project ../fallen-8-core-apiApp",
-        url: "http://localhost:5000/",
-        reuseExistingServer: true,
+        // `-- --urls` beats the launch profile's ASPNETCORE_URLS (:5000): command-line
+        // configuration wins over environment variables, so the app really binds E2E_PORT.
+        command: `npm run build:apiapp && dotnet run --project ../fallen-8-core-apiApp -- --urls ${E2E_URL}`,
+        url: `${E2E_URL}/`,
+        reuseExistingServer: false,
         timeout: 240_000,
         env: {
           Fallen8__Durability__Volatile: "true",

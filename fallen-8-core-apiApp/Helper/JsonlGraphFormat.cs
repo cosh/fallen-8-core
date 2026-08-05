@@ -163,17 +163,32 @@ namespace NoSQL.GraphDB.App.Helper
         }
 
         /// <summary>
-        ///   Formats a property value as its pinned invariant round-trip string. Returns false
-        ///   for a null value or a runtime type outside the allow-list - the export rejects those
-        ///   up front (422) rather than degrading silently.
+        ///   Formats a property value as its pinned invariant round-trip string. Returns false for
+        ///   a null value, a runtime type outside the allow-list, or an allow-listed String/Char
+        ///   carrying an unpaired surrogate - the export rejects those up front (422) rather than
+        ///   degrading silently. Use the four-argument overload when the caller must name which of
+        ///   the three refused.
         /// </summary>
         public static bool TryFormatValue(Object value, out String typeName, out String formatted)
         {
+            return TryFormatValue(value, out typeName, out formatted, out _);
+        }
+
+        /// <summary>
+        ///   The formatting rules of the three-argument overload, plus - on false - the ONE cause
+        ///   in <paramref name="rejection"/>, phrased to complete "property 'x' cannot be
+        ///   exported: ...". Null on success. This is the only place the three causes are told
+        ///   apart, so a caller's message can never drift from the check.
+        /// </summary>
+        public static bool TryFormatValue(Object value, out String typeName, out String formatted, out String rejection)
+        {
             typeName = null;
             formatted = null;
+            rejection = null;
 
             if (value == null)
             {
+                rejection = "its value is null";
                 return false;
             }
 
@@ -190,17 +205,21 @@ namespace NoSQL.GraphDB.App.Helper
             var type = value.GetType();
             if (!AllowedLiteralTypes.TryResolve(type.FullName, out var resolved) || resolved != type)
             {
+                rejection = String.Format("its runtime type '{0}' is outside the exportable allow-list", type.FullName);
                 return false;
             }
 
             // Unpaired surrogates are invalid UTF-16: the JSON writer would substitute U+FFFD,
             // silently breaking the round-trip. Reject them up front (422 at export) instead.
+            // The type IS allow-listed here, so the cause must not be attributed to the type.
             if (value is Char ch && Char.IsSurrogate(ch))
             {
+                rejection = "its Char value is an unpaired surrogate (invalid UTF-16)";
                 return false;
             }
             if (value is String str && !IsWellFormedUtf16(str))
             {
+                rejection = "its String value contains an unpaired surrogate (invalid UTF-16)";
                 return false;
             }
 

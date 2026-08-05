@@ -107,9 +107,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </remarks>
         /// <response code="200">The NDJSON stream (application/x-ndjson)</response>
         /// <response code="401">No valid credential was supplied</response>
-        /// <response code="422">An element carries a property outside the exportable type
-        /// allow-list (or a null value); the body names the element and property. Sent BEFORE any
-        /// streaming, so a failed export is never a half-written file</response>
+        /// <response code="422">An element carries a property that cannot be exported: a null
+        /// value, a runtime type outside the exportable allow-list, or a String/Char holding an
+        /// unpaired surrogate (invalid UTF-16). The body names the element, the property and which
+        /// of the three it was. Sent BEFORE any streaming, so a failed export is never a
+        /// half-written file</response>
         [HttpGet("/bulk/export")]
         [Produces("application/x-ndjson")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -150,10 +152,10 @@ namespace NoSQL.GraphDB.App.Controllers
             // the endpoint-filtered edges so the meta counts are exact.
             foreach (var vertex in vertices)
             {
-                var invalid = FindNonExportableProperty(vertex);
+                var invalid = FindNonExportableProperty(vertex, out var rejection);
                 if (invalid != null)
                 {
-                    return UnprocessableProperty(vertex.Id, invalid);
+                    return UnprocessableProperty(vertex.Id, invalid, rejection);
                 }
             }
 
@@ -165,10 +167,10 @@ namespace NoSQL.GraphDB.App.Controllers
                     continue;
                 }
 
-                var invalid = FindNonExportableProperty(edge);
+                var invalid = FindNonExportableProperty(edge, out var rejection);
                 if (invalid != null)
                 {
-                    return UnprocessableProperty(edge.Id, invalid);
+                    return UnprocessableProperty(edge.Id, invalid, rejection);
                 }
                 exportedEdgeCount++;
             }
@@ -221,9 +223,15 @@ namespace NoSQL.GraphDB.App.Controllers
             }
         }
 
-        /// <summary>Returns the key of the first non-exportable property, or null when clean.</summary>
-        private static String FindNonExportableProperty(AGraphElementModel element)
+        /// <summary>
+        ///   Returns the key of the first non-exportable property plus the reason the format
+        ///   refused it (the format classifies; this method never re-derives the cause), or null
+        ///   when the element is clean.
+        /// </summary>
+        private static String FindNonExportableProperty(AGraphElementModel element, out String rejection)
         {
+            rejection = null;
+
             var properties = element.GetAllProperties();
             if (properties == null)
             {
@@ -232,22 +240,23 @@ namespace NoSQL.GraphDB.App.Controllers
 
             foreach (var property in properties)
             {
-                if (!JsonlGraphFormat.TryFormatValue(property.Value, out _, out _))
+                if (!JsonlGraphFormat.TryFormatValue(property.Value, out _, out _, out rejection))
                 {
                     return property.Key;
                 }
             }
 
+            rejection = null;
             return null;
         }
 
-        private static IActionResult UnprocessableProperty(Int32 elementId, String propertyKey)
+        private static IActionResult UnprocessableProperty(Int32 elementId, String propertyKey, String rejection)
         {
             return ProblemResults.Create(StatusCodes.Status422UnprocessableEntity,
                 "Graph not exportable",
                 String.Format(
-                    "Element {0} carries property '{1}' whose value is null or of a type outside the exportable allow-list; nothing was streamed.",
-                    elementId, propertyKey),
+                    "Element {0} carries property '{1}' that cannot be exported: {2}. Nothing was streamed.",
+                    elementId, propertyKey, rejection),
                 problem =>
                 {
                     problem.Extensions["elementId"] = elementId;

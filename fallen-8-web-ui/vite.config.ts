@@ -36,8 +36,23 @@ const rootDir = dirname(fileURLToPath(import.meta.url));
 // served by Vite, so requests against the same-origin "local" instance (baseUrl "") are
 // proxied to a locally running fallen-8-core-apiApp. In production the SPA is served by the
 // apiApp itself (see Program.cs, gap G-1) and no proxy is involved.
+//
+// EVERY root path the API client can emit must be listed, "/ns" above all: it prefixes every
+// namespace-scoped call (client.ts scopedPath). An unlisted route is not merely unproxied - it
+// falls through to Vite's SPA fallback, which answers the index.html shell with 200, so the
+// client fails on JSON.parse instead of seeing a clean 404. tests/dev-proxy-prefixes.test.ts
+// pins the list against the client's own route literals.
+//
+// Two forms per Vite: a bare string matches by prefix, a string starting with "^" is a RegExp.
+// Use the RegExp form where a family name also prefixes a dev-server asset - "/index" would
+// swallow /index.html and "/config" the public/config.js the shell loads - and let it accept a
+// subpath or a query string, which every route may carry.
 const API_PREFIXES = [
   "/status",
+  "/statistics",
+  "^/config(/|\\?|$)",
+  "/chat",
+  "/ns",
   "/graph",
   "/vertex",
   "/edge",
@@ -45,7 +60,12 @@ const API_PREFIXES = [
   "/scan",
   "/path",
   "/subgraph",
-  "/index",
+  "/analytics",
+  "/storedquery",
+  "^/index(/|\\?|$)",
+  "/embedding",
+  "/document",
+  "/bulk",
   "/delegates",
   "/save",
   "/load",

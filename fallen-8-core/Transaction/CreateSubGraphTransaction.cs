@@ -59,6 +59,20 @@ namespace NoSQL.GraphDB.Core.Transaction
         }
 
         /// <summary>
+        /// Optional name of the subgraph algorithm plugin to extract with (as reported by the
+        /// plugin's <c>PluginName</c>; a built-in or a plugin registered in this graph's
+        /// <see cref="Fallen8.Plugins"/> registry). Null/empty selects the built-in
+        /// <see cref="BreadthFirstSearchSubgraphAlgorithm"/>, so a transaction that does not set it
+        /// behaves exactly as before. The resolved name is stored on
+        /// <see cref="SubGraphCreated"/> and drives recalculation and recipe rehydration.
+        /// </summary>
+        public String AlgorithmPluginName
+        {
+            get;
+            set;
+        }
+
+        /// <summary>
         /// Optional opaque specification text this subgraph is built from, set by the producer
         /// (for example the REST API's serialized subgraph specification) before the transaction is
         /// enqueued. When non-empty, a <see cref="SubGraphRecipe"/> is attached to
@@ -82,6 +96,7 @@ namespace NoSQL.GraphDB.Core.Transaction
             Definition = null;
             SubGraphCreated = null;
             SpecificationJson = null;
+            AlgorithmPluginName = null;
         }
 
         /// <summary>
@@ -116,6 +131,13 @@ namespace NoSQL.GraphDB.Core.Transaction
                 return false;
             }
 
+            // The selector is resolved to a concrete plugin name HERE, so both branches below (and
+            // any future one) run the same algorithm and the built-in stays the default for a
+            // transaction that leaves it unset.
+            var algorithm = String.IsNullOrWhiteSpace(AlgorithmPluginName)
+                ? BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName
+                : AlgorithmPluginName;
+
             // Nested subgraph: source is another registered subgraph.
             if (!String.IsNullOrWhiteSpace(SourceSubGraphName))
             {
@@ -130,7 +152,8 @@ namespace NoSQL.GraphDB.Core.Transaction
                         Definition.Name,
                         Definition,
                         sourceResult.SubGraph,
-                        out var nestedReason))
+                        out var nestedReason,
+                        algorithm))
                 {
                     FailureReason = nestedReason;
                     return false;
@@ -145,7 +168,8 @@ namespace NoSQL.GraphDB.Core.Transaction
                     out SubGraphCreated,
                     Definition.Name,
                     Definition,
-                    out var rootReason))
+                    out var rootReason,
+                    algorithm))
             {
                 FailureReason = rootReason;
                 return false;

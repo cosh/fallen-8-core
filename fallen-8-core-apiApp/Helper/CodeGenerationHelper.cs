@@ -80,6 +80,12 @@ namespace NoSQL.GraphDB.Core.App.Helper
         ///   large/pathological fragment cannot burn arbitrary compile-time CPU/memory. The length cap
         ///   is the load-bearing guard (Roslyn's own cancellation is only cooperative). Generous
         ///   defaults: they bound abuse, not real fragments.
+        ///
+        ///   <para>Both bounds apply on BOTH generators - the <c>/path</c> one
+        ///   (<see cref="CheckPathFragmentLengths"/> + <see cref="GeneratePathTraverser"/>) and the
+        ///   <c>/subgraph</c> one (<see cref="RegisterSlot"/> + <see cref="CompileDelegates"/>) - so
+        ///   every fragment surface, including a stored query and a persisted-recipe recompile,
+        ///   shares one cap.</para>
         /// </summary>
         internal const int MaxFilterFragmentLength = 100_000;
         private const int MaxGeneratedSourceLength = 1_000_000;
@@ -98,6 +104,17 @@ namespace NoSQL.GraphDB.Core.App.Helper
             {
                 traverser = null;
                 return fragmentError;
+            }
+
+            // Nothing to compile (audit-defects B24): with no filter and no cost fragment, every
+            // generated factory body would be `return null;` (see GenerateMethodSyntax), which is
+            // exactly what the shared no-op traverser returns - so Roslyn, the Emit and the
+            // collectible load context are all skipped. The subgraph generator short-circuits the
+            // same case in CompileDelegates.
+            if (!CarriesFragment(definition))
+            {
+                traverser = NoOpPathTraverser.Instance;
+                return null;
             }
 
             var sourceCode = CreateSource(definition);
@@ -200,6 +217,49 @@ namespace NoSQL.GraphDB.Core.App.Helper
             }
 
             return null;
+        }
+
+        /// <summary>
+        ///   Whether the specification carries any fragment worth compiling. A blank fragment is
+        ///   emitted as <c>return null;</c> by <see cref="GenerateMethodSyntax"/>, so an all-blank
+        ///   specification leaves Roslyn nothing to do.
+        /// </summary>
+        private static bool CarriesFragment(PathSpecification definition)
+        {
+            return (definition.Filter != null &&
+                    (!String.IsNullOrWhiteSpace(definition.Filter.Vertex) ||
+                     !String.IsNullOrWhiteSpace(definition.Filter.Edge) ||
+                     !String.IsNullOrWhiteSpace(definition.Filter.EdgeProperty)))
+                || (definition.Cost != null &&
+                    (!String.IsNullOrWhiteSpace(definition.Cost.Vertex) ||
+                     !String.IsNullOrWhiteSpace(definition.Cost.Edge)));
+        }
+
+        /// <summary>
+        ///   The traverser handed back for a specification with no fragment at all: every factory
+        ///   returns <c>null</c>, which <see cref="IPathTraverser"/> defines as match-everything /
+        ///   default cost. That is what a provider generated from five blank fragments does, so
+        ///   substituting this instance is behaviour-identical for every caller (the controller's
+        ///   semantic-slot-ownership checks included) while skipping the compile. Stateless - the
+        ///   per-request state lives in the context parameter - so one instance serves every request.
+        /// </summary>
+        private sealed class NoOpPathTraverser : IPathTraverser
+        {
+            internal static readonly IPathTraverser Instance = new NoOpPathTraverser();
+
+            private NoOpPathTraverser()
+            {
+            }
+
+            public Delegates.EdgePropertyFilter EdgePropertyFilter(TraversalContext context) => null;
+
+            public Delegates.VertexFilter VertexFilter(TraversalContext context) => null;
+
+            public Delegates.EdgeFilter EdgeFilter(TraversalContext context) => null;
+
+            public Delegates.EdgeCost EdgeCost(TraversalContext context) => null;
+
+            public Delegates.VertexCost VertexCost(TraversalContext context) => null;
         }
 
         private static string CheckFragment(string name, string fragment)
@@ -529,7 +589,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
         /// <param name="definition">The resulting definition, or null on failure.</param>
         /// <returns>
         /// <c>null</c> on success; otherwise a human-readable error message (invalid
-        /// specification or compiler diagnostics).
+        /// specification, a fragment or generated source over the compile bounds, or compiler
+        /// diagnostics).
         /// </returns>
         /// <remarks>
         /// The specification's semantic block (feature element-embeddings) is handled here, so
@@ -575,12 +636,20 @@ namespace NoSQL.GraphDB.Core.App.Helper
             };
 
             // Optional vertex pre-filter.
-            RegisterSlot(slots, "Delegates.VertexFilter", specification.VertexFilter,
+            var slotError = RegisterSlot(slots, "vertexFilter", "Delegates.VertexFilter", specification.VertexFilter,
                 d => def.VertexFilter = (Delegates.VertexFilter)d);
+            if (slotError != null)
+            {
+                return slotError;
+            }
 
             // Optional edge pre-filter.
-            RegisterSlot(slots, "Delegates.EdgeFilter", specification.EdgeFilter,
+            slotError = RegisterSlot(slots, "edgeFilter", "Delegates.EdgeFilter", specification.EdgeFilter,
                 d => def.EdgeFilter = (Delegates.EdgeFilter)d);
+            if (slotError != null)
+            {
+                return slotError;
+            }
 
             // Pattern sequence.
             if (specification.Patterns != null && specification.Patterns.Count > 0)
@@ -660,8 +729,14 @@ namespace NoSQL.GraphDB.Core.App.Helper
                         }
                         else
                         {
-                            RegisterSlot(slots, "Delegates.VertexFilter", patternSpec.VertexFilter,
+                            var slotError = RegisterSlot(slots,
+                                String.Format("patterns[{0}].vertexFilter", index),
+                                "Delegates.VertexFilter", patternSpec.VertexFilter,
                                 d => vertexPattern.Vertex = (Delegates.VertexFilter)d);
+                            if (slotError != null)
+                            {
+                                return slotError;
+                            }
                         }
 
                         patterns.Add(vertexPattern);
@@ -680,7 +755,12 @@ namespace NoSQL.GraphDB.Core.App.Helper
                             PatternName = patternSpec.PatternName,
                             Direction = edgeDirection
                         };
-                        RegisterEdgeSlots(edgePattern, patternSpec, slots);
+                        var edgeSlotError = RegisterEdgeSlots(edgePattern, patternSpec, index, slots);
+                        if (edgeSlotError != null)
+                        {
+                            return edgeSlotError;
+                        }
+
                         patterns.Add(edgePattern);
                         return null;
                     }
@@ -713,7 +793,12 @@ namespace NoSQL.GraphDB.Core.App.Helper
                             MinLength = patternSpec.MinLength,
                             MaxLength = patternSpec.MaxLength
                         };
-                        RegisterEdgeSlots(variablePattern, patternSpec, slots);
+                        var variableSlotError = RegisterEdgeSlots(variablePattern, patternSpec, index, slots);
+                        if (variableSlotError != null)
+                        {
+                            return variableSlotError;
+                        }
+
                         patterns.Add(variablePattern);
                         return null;
                     }
@@ -725,20 +810,48 @@ namespace NoSQL.GraphDB.Core.App.Helper
             }
         }
 
-        private static void RegisterEdgeSlots(EdgePattern edgePattern, PatternSpecification patternSpec, List<GeneratedDelegateSlot> slots)
+        /// <summary>
+        ///   Registers an edge pattern's two optional fragments. Returns <c>null</c> on success, or
+        ///   the first refusal (the second slot is then not registered).
+        /// </summary>
+        private static String RegisterEdgeSlots(EdgePattern edgePattern, PatternSpecification patternSpec,
+            Int32 index, List<GeneratedDelegateSlot> slots)
         {
-            RegisterSlot(slots, "Delegates.EdgePropertyFilter", patternSpec.EdgePropertyFilter,
-                d => edgePattern.EdgeProperty = (Delegates.EdgePropertyFilter)d);
-            RegisterSlot(slots, "Delegates.EdgeFilter", patternSpec.EdgeFilter,
-                d => edgePattern.Edge = (Delegates.EdgeFilter)d);
+            return RegisterSlot(slots, String.Format("patterns[{0}].edgePropertyFilter", index),
+                       "Delegates.EdgePropertyFilter", patternSpec.EdgePropertyFilter,
+                       d => edgePattern.EdgeProperty = (Delegates.EdgePropertyFilter)d)
+                ?? RegisterSlot(slots, String.Format("patterns[{0}].edgeFilter", index),
+                       "Delegates.EdgeFilter", patternSpec.EdgeFilter,
+                       d => edgePattern.Edge = (Delegates.EdgeFilter)d);
         }
 
-        private static void RegisterSlot(List<GeneratedDelegateSlot> slots, String returnType, String code, Action<Object> assign)
+        /// <summary>
+        ///   Registers one fragment as a slot to compile. Returns <c>null</c> on success, or the
+        ///   human-readable reason the fragment was refused - which the callers propagate to a 400.
+        /// </summary>
+        /// <param name="slots">The slot list being built.</param>
+        /// <param name="origin">Where the fragment came from (<c>vertexFilter</c>,
+        /// <c>patterns[2].edgeFilter</c>, ...), so a refusal names the offending field.</param>
+        /// <param name="returnType">The generated factory method's return type.</param>
+        /// <param name="code">The user fragment; blank means "match everything".</param>
+        /// <param name="assign">Assigns the compiled delegate onto the element it belongs to.</param>
+        private static String RegisterSlot(List<GeneratedDelegateSlot> slots, String origin, String returnType, String code, Action<Object> assign)
         {
+            // Compile bounds (feature dynamic-code-resource-limits R2): the SAME cap the /path
+            // generator applies, enforced here so every subgraph fragment surface - PUT /subgraph, a
+            // SubGraph stored query, a persisted-recipe recompile - shares one guard. Checked before
+            // the blank skip, so an oversize whitespace-only fragment is refused rather than silently
+            // dropped (exactly how CheckPathFragmentLengths treats one).
+            var lengthError = CheckFragment(origin, code);
+            if (lengthError != null)
+            {
+                return lengthError;
+            }
+
             // A null/empty fragment means "match everything" - leave the delegate null.
             if (String.IsNullOrWhiteSpace(code))
             {
-                return;
+                return null;
             }
 
             slots.Add(new GeneratedDelegateSlot
@@ -748,6 +861,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 Code = code,
                 Assign = assign
             });
+
+            return null;
         }
 
         private static bool TryParseDirection(String value, out Direction direction)
@@ -795,6 +910,15 @@ namespace NoSQL.GraphDB.Core.App.Helper
             }
 
             var sourceCode = BuildProviderSource(slots);
+
+            // Compile bounds (feature dynamic-code-resource-limits R2), the subgraph twin of the
+            // check in GeneratePathTraverser. Enforced BEFORE the cache lookup so an oversize source
+            // never becomes a cache key either (the key IS the source).
+            if (sourceCode.Length > MaxGeneratedSourceLength)
+            {
+                return String.Format("The generated subgraph filter source ({0} chars) exceeds the maximum of {1}.",
+                    sourceCode.Length, MaxGeneratedSourceLength);
+            }
 
             // Reuse a previously compiled provider for an identical filter set: avoids
             // re-running Roslyn for the same code.

@@ -88,9 +88,14 @@ export const DEFAULT_SEMANTIC_DRAFT: SemanticDraft = {
   costBySimilarity: false,
 };
 
-/** The block owns the vertex-FILTER slot when its minScore filter is active. */
+/**
+ * The block owns the vertex-FILTER slot whenever the server installs a filter closure into
+ * it: for the minScore threshold, and ALSO for costBySimilarity alone, which carries an
+ * implied "has the named embedding" filter (a cost is only defined over embedded vertices).
+ * See SemanticTraversalHelper.TryBuild's `if (MinScore) … else if (CostBySimilarity)`.
+ */
 export function semanticOwnsVertexFilter(draft: SemanticDraft): boolean {
-  return draft.enabled && draft.minScoreEnabled;
+  return draft.enabled && (draft.minScoreEnabled || draft.costBySimilarity);
 }
 
 /** The block owns the vertex-COST slot when costBySimilarity is active (path only). */

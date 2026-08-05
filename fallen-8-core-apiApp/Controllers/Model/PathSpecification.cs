@@ -53,6 +53,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// </example>
     public sealed class PathSpecification : IEquatable<PathSpecification>
     {
+        /// <summary>The ceiling on <see cref="TimeBudgetSeconds"/> (one hour): a request naming a
+        /// larger budget is a 400, since anything beyond it is indistinguishable from unbounded.</summary>
+        public const Double MaxTimeBudgetSeconds = 3_600d;
+
         /// <summary>
         ///   The algorithm to use for path finding.
         /// </summary>
@@ -119,16 +123,43 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   The maximum allowed weight for a path to be included in results
         /// </summary>
         /// <remarks>
-        ///   The bound is inclusive: a path whose cumulative weight equals <c>maxPathWeight</c> is
-        ///   allowed. Honoured by weighted algorithms (<c>DIJKSTRA</c>); <c>BLS</c> ignores it.
+        ///   Omitted means UNBOUNDED: the runtime default is <c>Double.MaxValue</c>, so no weight
+        ///   ceiling is applied. That is why this knob deliberately publishes NO schema default -
+        ///   a published <c>100</c> would make a generated client that materialises schema defaults
+        ///   prune every heavier path the server would have returned. The bound is inclusive: a path
+        ///   whose cumulative weight equals <c>maxPathWeight</c> is allowed. Honoured by weighted
+        ///   algorithms (<c>DIJKSTRA</c>); <c>BLS</c> ignores it.
         /// </remarks>
         /// <example>100.0</example>
-        [DefaultValue(100.0)]
         [JsonPropertyName("maxPathWeight")]
         public Double MaxPathWeight
         {
             get; set;
         } = Double.MaxValue;
+
+        /// <summary>
+        ///   Optional wall-clock budget for the traversal, in seconds.
+        /// </summary>
+        /// <remarks>
+        ///   Omitted (the default) means UNBOUNDED, the historical behaviour. When present it must
+        ///   be greater than 0 and at most <see cref="MaxTimeBudgetSeconds"/> (400 otherwise), and a
+        ///   traversal that outlives it answers <c>408</c> - never an empty <c>200</c>, which would
+        ///   read as "no path exists". Regardless of this value the traversal is always bound to the
+        ///   request abort, so a client that gives up stops the work.
+        ///
+        ///   HONEST LIMIT: the budget is cooperative and is checked BETWEEN filter/cost delegate
+        ///   invocations. It bounds an algorithmic blow-up (a huge <c>maxDepth</c> in a dense
+        ///   component, an expensive fragment invoked a great many times) but cannot interrupt a
+        ///   single fragment call that never returns - such a fragment still holds its thread. The
+        ///   one home for that contract is the engine's
+        ///   <c>ShortestPathDefinition.TimeBudget</c>.
+        /// </remarks>
+        /// <example>5.0</example>
+        [JsonPropertyName("timeBudgetSeconds")]
+        public Double? TimeBudgetSeconds
+        {
+            get; set;
+        }
 
         /// <summary>
         ///   Filtering criteria for elements to include in path calculations
@@ -186,6 +217,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                    MaxDepth == other.MaxDepth &&
                    MaxResults == other.MaxResults &&
                    MaxPathWeight == other.MaxPathWeight &&
+                   TimeBudgetSeconds == other.TimeBudgetSeconds &&
                    EqualityComparer<PathFilterSpecification>.Default.Equals(Filter, other.Filter) &&
                    EqualityComparer<PathCostSpecification>.Default.Equals(Cost, other.Cost) &&
                    StoredQuery == other.StoredQuery &&
@@ -194,7 +226,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         public override Int32 GetHashCode()
         {
-            return HashCode.Combine(PathAlgorithmName, MaxDepth, MaxResults, MaxPathWeight, Filter, Cost, StoredQuery, Semantic);
+            // HashCode.Combine takes at most eight components, so the last two are folded first.
+            return HashCode.Combine(PathAlgorithmName, MaxDepth, MaxResults, MaxPathWeight, TimeBudgetSeconds,
+                Filter, Cost, HashCode.Combine(StoredQuery, Semantic));
         }
     }
 }

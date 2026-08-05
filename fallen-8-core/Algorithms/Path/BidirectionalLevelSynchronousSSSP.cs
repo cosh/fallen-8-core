@@ -61,9 +61,12 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             out List<Path> result,
             ShortestPathDefinition definition)
         {
+            var budget = PathBudget.Create(definition);
+
             var calculatedResult = Calculate(
                 definition.SourceVertexId,
                 definition.DestinationVertexId,
+                budget,
                 definition.MaxDepth,
                 definition.MaxPathWeight,
                 definition.MaxResults,
@@ -72,6 +75,15 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
                 definition.EdgeFilter,
                 definition.EdgeCost,
                 definition.VertexCost);
+
+            // An exhausted budget leaves a PARTIAL frontier behind, so nothing built from it may be
+            // reported as a finished search: the caller sees "no paths" plus
+            // ShortestPathDefinition.BudgetExhausted and can tell a timeout from a genuine no-path.
+            if (budget.IsExhausted)
+            {
+                result = new List<Path>();
+                return false;
+            }
 
             if (calculatedResult != null && calculatedResult.Count > 0)
             {
@@ -86,6 +98,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         private List<Path> Calculate(
             Int32 sourceVertexId,
             Int32 destinationVertexId,
+            PathBudget budget,
             Int32 maxDepth = 1,
             Double maxPathWeight = Double.MaxValue,
             Int32 maxResults = 1,
@@ -96,6 +109,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             Delegates.VertexCost vertexCost = null)
         {
             #region initial checks
+
+            // A caller that already gave up (an aborted request, an expired deadline) must not
+            // start a traversal at all.
+            if (budget.IsExhaustedNow())
+            {
+                return null;
+            }
 
             VertexModel sourceVertex;
             VertexModel targetVertex;
@@ -136,7 +156,13 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
             {
                 #region maxdepth == 1
 
-                var depthOneFrontier = GetGlobalFrontier(new List<VertexModel> { sourceVertex }, sourceVisitedVertices, edgePropertyFilter, edgeFilter, vertexFilter);
+                var depthOneFrontier = GetGlobalFrontier(new List<VertexModel> { sourceVertex }, sourceVisitedVertices, edgePropertyFilter, edgeFilter, vertexFilter, budget);
+
+                if (budget.IsExhausted)
+                {
+                    //the single level is incomplete - no result may be derived from it
+                    return null;
+                }
 
                 if (depthOneFrontier != null && depthOneFrontier.Count > 0 && depthOneFrontier.ContainsKey(targetVertex))
                 {
@@ -171,11 +197,26 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                 do
                 {
+                    // One full budget check per frontier level: levels are few and each is
+                    // expensive, so the clock read is free here, and this is the deterministic stop
+                    // for a deadline or a client abort that arrived while a level was building.
+                    if (budget.IsExhaustedNow())
+                    {
+                        return null;
+                    }
+
                     #region calculate frontier
 
                     #region source --> target
 
-                    currentSourceFrontier = GetGlobalFrontier(currentSourceVertices, sourceVisitedVertices, edgePropertyFilter, edgeFilter, vertexFilter);
+                    currentSourceFrontier = GetGlobalFrontier(currentSourceVertices, sourceVisitedVertices, edgePropertyFilter, edgeFilter, vertexFilter, budget);
+
+                    if (budget.IsExhausted)
+                    {
+                        //the level is incomplete - see TryCalculateShortestPath
+                        return null;
+                    }
+
                     sourceFrontiers.Add(currentSourceFrontier);
                     currentSourceVertices = sourceFrontiers[sourceLevel].Keys;
                     sourceLevel++;
@@ -199,7 +240,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     #region target --> source
 
-                    currentTargetFrontier = GetGlobalFrontier(currentTargetVertices, targetVisitedVertices, edgePropertyFilter, edgeFilter, vertexFilter);
+                    currentTargetFrontier = GetGlobalFrontier(currentTargetVertices, targetVisitedVertices, edgePropertyFilter, edgeFilter, vertexFilter, budget);
+
+                    if (budget.IsExhausted)
+                    {
+                        //the level is incomplete - see TryCalculateShortestPath
+                        return null;
+                    }
+
                     targetFrontiers.Add(currentTargetFrontier);
                     currentTargetVertices = targetFrontiers[targetLevel].Keys;
                     targetLevel++;
@@ -567,17 +615,27 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="edgepropertyFilter">The edge property filter</param>
         /// <param name="edgeFilter">The edge filter</param>
         /// <param name="vertexFilter">The vertex filter</param>
-        /// <returns>The frontier vertices and their predecessors</returns>
+        /// <param name="budget">The cooperative run budget</param>
+        /// <returns>The frontier vertices and their predecessors; PARTIAL when the budget was
+        /// exhausted while it was built, which the caller detects and discards</returns>
         private static Dictionary<VertexModel, VertexPredecessor> GetGlobalFrontier(IEnumerable<VertexModel> startingVertices, HashSet<VertexModel> visitedVertices,
             Delegates.EdgePropertyFilter edgepropertyFilter,
             Delegates.EdgeFilter edgeFilter,
-            Delegates.VertexFilter vertexFilter)
+            Delegates.VertexFilter vertexFilter,
+            PathBudget budget)
         {
             var frontier = new Dictionary<VertexModel, VertexPredecessor>();
 
             foreach (var aKv in startingVertices)
             {
-                foreach (var aFrontierElement in GetLocalFrontier(aKv, visitedVertices, edgepropertyFilter, edgeFilter, vertexFilter))
+                // The budget died inside a previous vertex's edge walk: stop building this level
+                // (a sticky field read, so an unbudgeted run pays nothing).
+                if (budget.IsExhausted)
+                {
+                    break;
+                }
+
+                foreach (var aFrontierElement in GetLocalFrontier(aKv, visitedVertices, edgepropertyFilter, edgeFilter, vertexFilter, budget))
                 {
                     VertexPredecessor pred;
                     if (frontier.TryGetValue(aFrontierElement.FrontierVertex, out pred))
@@ -640,14 +698,16 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="edgeFilter">The edge filter</param>
         /// <param name="vertexFilter">The vertex filter</param>
         /// <param name="alreadyVisited">The vertices that have been visited already</param>
-        /// <returns>A number of frontier elements</returns>
+        /// <param name="budget">The cooperative run budget, counted one step per examined edge</param>
+        /// <returns>A number of frontier elements; PARTIAL when the budget was exhausted mid-walk</returns>
         private static IEnumerable<FrontierElement> GetValidEdges(
             VertexModel vertex,
             Direction direction,
             Delegates.EdgePropertyFilter edgepropertyFilter,
             Delegates.EdgeFilter edgeFilter,
             Delegates.VertexFilter vertexFilter,
-            HashSet<VertexModel> alreadyVisited)
+            HashSet<VertexModel> alreadyVisited,
+            PathBudget budget)
         {
             var incoming = direction == Direction.IncomingEdge;
             var edgeProperties = incoming ? vertex.GetRawInEdges() : vertex.GetRawOutEdges();
@@ -664,6 +724,14 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
                     for (var i = 0; i < edgeContainer.Value.Count; i++)
                     {
+                        // One budget step per examined edge: this is the granularity at which the
+                        // compiled edge/vertex filters are invoked, so it is where an algorithmic
+                        // blow-up is bounded. The partial result is discarded by the caller.
+                        if (budget.IsExhaustedAtStep())
+                        {
+                            return result;
+                        }
+
                         var aEdge = edgeContainer.Value[i];
                         if (edgeFilter != null && !edgeFilter(aEdge))
                         {
@@ -706,16 +774,18 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
         /// <param name="edgepropertyFilter">The edge property filter</param>
         /// <param name="edgeFilter">The edge filter</param>
         /// <param name="vertexFilter">The vertex filter</param>
+        /// <param name="budget">The cooperative run budget</param>
         /// <returns>The local frontier</returns>
         private static IEnumerable<FrontierElement> GetLocalFrontier(VertexModel vertex, HashSet<VertexModel> alreadyVisitedVertices,
             Delegates.EdgePropertyFilter edgepropertyFilter,
             Delegates.EdgeFilter edgeFilter,
-            Delegates.VertexFilter vertexFilter)
+            Delegates.VertexFilter vertexFilter,
+            PathBudget budget)
         {
             var result = new List<FrontierElement>();
 
-            result.AddRange(GetValidEdges(vertex, Direction.IncomingEdge, edgepropertyFilter, edgeFilter, vertexFilter, alreadyVisitedVertices));
-            result.AddRange(GetValidEdges(vertex, Direction.OutgoingEdge, edgepropertyFilter, edgeFilter, vertexFilter, alreadyVisitedVertices));
+            result.AddRange(GetValidEdges(vertex, Direction.IncomingEdge, edgepropertyFilter, edgeFilter, vertexFilter, alreadyVisitedVertices, budget));
+            result.AddRange(GetValidEdges(vertex, Direction.OutgoingEdge, edgepropertyFilter, edgeFilter, vertexFilter, alreadyVisitedVertices, budget));
 
             return result;
         }

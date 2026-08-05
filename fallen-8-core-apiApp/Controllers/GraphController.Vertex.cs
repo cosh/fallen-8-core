@@ -39,6 +39,60 @@ namespace NoSQL.GraphDB.App.Controllers
     public partial class GraphController
     {
         /// <summary>
+        ///   Converts a create route's property list into the values to store, answering
+        ///   <c>false</c> with a client-facing <paramref name="error"/> for a null property entry,
+        ///   an unknown type name or an unconvertible value, instead of throwing into a 500
+        ///   (feature api-error-contract E3, whose original scope was the scans plus
+        ///   <see cref="AddProperty"/>, so the create routes were a remaining gap). Per-property
+        ///   conversion is <see cref="TryConvertLiteral"/>, the very guard the scan routes use, so
+        ///   the allow-list resolve and the invariant parse have no second copy here. Shared by
+        ///   the four element-create routes (<see cref="AddVertex"/>, <see cref="AddVertices"/>,
+        ///   <see cref="AddEdge"/>, <see cref="AddEdges"/>); a rejection happens before any
+        ///   transaction is enqueued, so a rejected batch writes nothing.
+        /// </summary>
+        private static bool TryGenerateProperties(List<PropertySpecification> specification,
+            out Dictionary<String, Object> properties, out String error)
+        {
+            properties = null;
+            error = null;
+
+            if (specification == null)
+            {
+                return true;
+            }
+
+            var converted = new Dictionary<String, Object>(specification.Count);
+
+            foreach (var property in specification)
+            {
+                if (property == null)
+                {
+                    error = "A property specification may not be null.";
+                    return false;
+                }
+
+                IComparable value;
+                String literalError;
+                if (!TryConvertLiteral(
+                        new LiteralSpecification
+                        {
+                            Value = property.PropertyValue,
+                            FullQualifiedTypeName = property.FullQualifiedTypeName
+                        },
+                        out value, out literalError))
+                {
+                    error = String.Format("Property '{0}': {1}", property.PropertyId, literalError);
+                    return false;
+                }
+
+                converted.Add(property.PropertyId, value);
+            }
+
+            properties = converted;
+            return true;
+        }
+
+        /// <summary>
         /// Creates a new vertex in the graph
         /// </summary>
         /// <param name="definition">The vertex specification containing label and property information</param>
@@ -49,13 +103,14 @@ namespace NoSQL.GraphDB.App.Controllers
         ///     PUT /vertex
         ///     {
         ///        "label": "person",
-        ///        "creationDate": "2025-04-22T00:00:00",
-        ///        "properties": {
-        ///          "name": {
+        ///        "creationDate": 1713862800,
+        ///        "properties": [
+        ///          {
+        ///            "propertyId": "name",
         ///            "propertyValue": "John Doe",
         ///            "fullQualifiedTypeName": "System.String"
         ///          }
-        ///        }
+        ///        ]
         ///     }
         /// </remarks>
         /// <response code="202">Vertex creation accepted (and committed when waitForCompletion is true)</response>
@@ -75,6 +130,11 @@ namespace NoSQL.GraphDB.App.Controllers
                 return ProblemResults.BadRequest("A vertex specification is required.");
             }
 
+            if (!TryGenerateProperties(definition.Properties, out var properties, out var propertyError))
+            {
+                return ProblemResults.BadRequest(propertyError);
+            }
+
             #endregion
 
             var tx = new CreateVertexTransaction()
@@ -83,7 +143,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 {
                     CreationDate = definition.CreationDate,
                     Label = definition.Label,
-                    Properties = ServiceHelper.GenerateProperties(definition.Properties)
+                    Properties = properties
                 }
             };
 
@@ -126,11 +186,16 @@ namespace NoSQL.GraphDB.App.Controllers
                     return ProblemResults.BadRequest("A vertex specification may not be null.");
                 }
 
+                if (!TryGenerateProperties(definition.Properties, out var properties, out var propertyError))
+                {
+                    return ProblemResults.BadRequest(propertyError);
+                }
+
                 tx.AddVertex(new VertexDefinition()
                 {
                     CreationDate = definition.CreationDate,
                     Label = definition.Label,
-                    Properties = ServiceHelper.GenerateProperties(definition.Properties)
+                    Properties = properties
                 });
             }
 

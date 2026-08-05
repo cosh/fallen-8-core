@@ -90,8 +90,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <returns>Plugin name -> description</returns>
         /// <remarks>
         /// The five built-ins are PAGERANK, WCC, LABELPROPAGATION, DEGREE and TRIANGLECOUNT;
-        /// third-party IGraphAnalyticsAlgorithm plugins from assimilated assemblies appear here
-        /// too (the same discovery as path and subgraph algorithms).
+        /// IGraphAnalyticsAlgorithm plugins compiled into the shipped assemblies appear here too
+        /// (the same discovery as path and subgraph algorithms), as do the addressed namespace's
+        /// runtime-registered analytics plugins (POST /plugins/algorithm). Every name listed here
+        /// is invocable through POST /analytics/{algorithmName}.
         /// </remarks>
         /// <response code="200">The available algorithms with their descriptions</response>
         [HttpGet("/analytics/algorithms")]
@@ -99,28 +101,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(typeof(Dictionary<String, String>), StatusCodes.Status200OK)]
         public IActionResult GetAvailableAlgorithms()
         {
-            PluginFactory.TryGetAvailablePluginsWithDescriptions<IGraphAnalyticsAlgorithm>(out var algorithms);
-            var result = algorithms ?? new Dictionary<String, String>();
-
-            // Union the addressed namespace's runtime-registered analytics plugins (feature
-            // plugin-registration §4.4): a registered analytics plugin resolves by name through
-            // POST /analytics/{name}, so it must appear in the list a picker binds to.
-            var registry = _fallen8.Plugins;
-            if (registry != null)
-            {
-                // The compiled analytics entries come from the shared filter (consolidation-audit
-                // CA-9), so this picker's set can never diverge from /status or /subgraph; a
-                // built-in of the same name already present wins (the ContainsKey guard).
-                foreach (var entry in registry.EntriesForContract(NoSQL.GraphDB.Core.Plugins.PluginContract.Analytics))
-                {
-                    if (!result.ContainsKey(entry.Definition.Name))
-                    {
-                        result[entry.Definition.Name] = entry.Definition.Description ?? String.Empty;
-                    }
-                }
-            }
-
-            return Ok(result);
+            return Ok(AvailableAlgorithms());
         }
 
         /// <summary>
@@ -194,8 +175,9 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 if (!_fallen8.TryRunAnalytics(out var result, algorithmName, engineDefinition))
                 {
-                    // The definition was validated above, so a false here is the budget dying
-                    // before any usable result (or client cancellation, which no longer cares).
+                    // The definition was validated and the name resolved above, so a false here is
+                    // the budget dying before any usable result (or client cancellation, which no
+                    // longer cares; or a registered plugin that failed to activate this call).
                     return Problem408();
                 }
 
@@ -334,10 +316,45 @@ namespace NoSQL.GraphDB.App.Controllers
 
         #region validation & projection
 
-        private static Boolean AlgorithmExists(String algorithmName)
+        /// <summary>
+        ///   THE analytics algorithm set this controller answers for: the built-ins discovered by
+        ///   <see cref="PluginFactory"/> unioned with the addressed namespace's runtime-registered
+        ///   analytics plugins (feature plugin-registration §4.4), a built-in of the same name
+        ///   winning. It is the ONE home for that set, so the picker
+        ///   (<see cref="GetAvailableAlgorithms"/>) and the run/partition pre-check
+        ///   (<see cref="AlgorithmExists"/>) can never disagree about what is invocable, and it
+        ///   mirrors the engine's own resolution order (registry first, then built-ins - see
+        ///   Fallen8.TryRunAnalytics). Both parts key on ordinal name comparison, so the pre-check
+        ///   stays as case-sensitive as the resolution it guards.
+        /// </summary>
+        private Dictionary<String, String> AvailableAlgorithms()
         {
-            return PluginFactory.TryGetAvailablePlugins<IGraphAnalyticsAlgorithm>(out var names) &&
-                   names.Contains(algorithmName);
+            PluginFactory.TryGetAvailablePluginsWithDescriptions<IGraphAnalyticsAlgorithm>(out var algorithms);
+            var result = algorithms ?? new Dictionary<String, String>();
+
+            // Capture the registry once: Dispose nulls the Plugins field while request threads may
+            // still be reading, so a re-read between the null check and the call could dereference
+            // null. The compiled analytics entries come from the shared filter (consolidation-audit
+            // CA-9), so this set can never diverge from /status or /subgraph; a built-in of the same
+            // name already present wins (the ContainsKey guard).
+            var registry = _fallen8.Plugins;
+            if (registry != null)
+            {
+                foreach (var entry in registry.EntriesForContract(NoSQL.GraphDB.Core.Plugins.PluginContract.Analytics))
+                {
+                    if (!result.ContainsKey(entry.Definition.Name))
+                    {
+                        result[entry.Definition.Name] = entry.Definition.Description ?? String.Empty;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private Boolean AlgorithmExists(String algorithmName)
+        {
+            return algorithmName != null && AvailableAlgorithms().ContainsKey(algorithmName);
         }
 
         /// <summary>Validates the REST specification and builds the engine definition; null on
