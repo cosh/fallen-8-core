@@ -225,6 +225,15 @@ namespace NoSQL.GraphDB.Bench
         /// </summary>
         internal static TraversalMetric Traversal(Shape shape, Int32 iterations)
         {
+            // Traversal is heap-layout sensitive: inside a full run this scenario's graph lands in a
+            // heap shaped by every scenario before it, which measured 312M against 380M edges/s for
+            // the same code and shape (feature traversal-sweep-partitioning, finding 3). Compact
+            // everything first, so the published number describes the engine rather than the
+            // allocator's history.
+            System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
+                System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+            GraphBuilder.RetainedBytes();
+
             var engine = GraphBuilder.NewEngine();
             try
             {

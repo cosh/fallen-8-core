@@ -59,14 +59,20 @@ namespace NoSQL.GraphDB.Core.Algorithms.Traversal
         private static Int64 _sink;
 
         /// <summary>
-        ///   The default partition size: enough ranges to keep every core busy without paying
-        ///   per-range overhead on a tiny graph. Clamped to at least one, because
-        ///   <see cref="Partitioner" /> rejects a zero range and a graph can have fewer vertices than
-        ///   the host has cores.
+        ///   The default partition size: sixteen ranges per logical processor, with a 256-vertex
+        ///   floor.
+        ///
+        ///   <para>Sixteen per core sits on the measured throughput plateau (feature
+        ///   traversal-sweep-partitioning: at 100M edges the rate is flat from eight ranges per core
+        ///   upward, and 11% above a range count below the core count), and a surplus of ranges gives
+        ///   the dynamic partitioner room to balance degree skew, so a supernode-heavy range does not
+        ///   serialize a whole core's share. The floor bounds per-range dispatch overhead on a graph
+        ///   so small the sweep is microseconds anyway, and keeps the size at least one, which
+        ///   <see cref="Partitioner" /> requires.</para>
         /// </summary>
         /// <param name="vertexCount">Number of vertices to be partitioned.</param>
         public static Int32 DefaultPartitionSize(Int32 vertexCount)
-            => Math.Max(1, ((vertexCount / Environment.ProcessorCount) * 3) / 2);
+            => Math.Max(256, vertexCount / (Environment.ProcessorCount * 16));
 
         /// <summary>
         ///   Follows every out-edge of every vertex in <paramref name="vertices" /> and returns the
