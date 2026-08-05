@@ -52,6 +52,7 @@ export default defineConfig({
 					label: 'Getting Started',
 					items: [
 						{ label: 'Running', slug: 'running' },
+						{ label: 'Use as a library', slug: 'library' },
 						{ label: 'Security', slug: 'security' },
 					],
 				},
@@ -91,7 +92,10 @@ export default defineConfig({
 				},
 				{
 					label: 'AI agents',
-					items: [{ label: 'MCP server', slug: 'mcp-server' }],
+					items: [
+						{ label: 'MCP server', slug: 'mcp-server' },
+						{ label: 'NL assist and fine-tuning', slug: 'nl-assist' },
+					],
 				},
 				{
 					label: 'Reference',
@@ -99,6 +103,7 @@ export default defineConfig({
 						{ label: 'API Reference', slug: 'api-reference' },
 						{ label: 'REST API', slug: 'rest-api' },
 						{ label: 'Architecture', slug: 'architecture' },
+						{ label: 'Capacity and performance', slug: 'capacity-and-performance' },
 					],
 				},
 				{

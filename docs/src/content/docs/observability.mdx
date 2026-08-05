@@ -7,7 +7,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Observability in Fallen-8 has two sides, and this page covers both. The **producer side** makes one process observable: the engine and app emit metrics and traces, expose a graph-shape snapshot and health probes, and can push everything over OTLP. The **[fleet side](#fleet-observability)** (further down) is the consumer that collects what many instances push into a single Grafana pane.
 
-Fallen-8 emits metrics and traces through BCL instruments (`System.Diagnostics.Metrics` meters and an `ActivitySource`), so the engine carries **no OpenTelemetry dependency**. The server wires OpenTelemetry only when you configure an exporter: a default configuration runs **zero OTel code paths**, and with no listener attached every hot-path clock read and `StartActivity` call is skipped. Three surfaces are always available regardless of that wiring: `GET /statistics` (a graph-shape snapshot), `GET /status` (a cheap discovery probe), and the `GET /healthz` / `GET /readyz` health probes. Two more are opt-in: the Prometheus scrape endpoint `GET /metrics` and OTLP export of metrics plus traces. [F8 Studio](/fallen-8-core/studio/) surfaces the configured posture read-only in its Connect **Configuration** section: whether OTLP/Prometheus are on and the OTLP endpoint telemetry is pushed to (sourced from `GET /config`).
+Fallen-8 emits metrics and traces through BCL instruments (`System.Diagnostics.Metrics` meters and an `ActivitySource`), so the engine carries **no OpenTelemetry dependency**. The server wires OpenTelemetry only when you configure an exporter: a default configuration runs **zero OTel code paths**, and with no listener attached every hot-path clock read and `StartActivity` call is skipped. Three surfaces are always available regardless of that wiring: `GET /statistics` (a graph-shape snapshot), `GET /status` (a cheap discovery probe), and the `GET /healthz` / `GET /readyz` health probes. Two more are opt-in: the Prometheus scrape endpoint `GET /metrics` and OTLP export of metrics, traces and logs. [F8 Studio](/fallen-8-core/studio/) surfaces the configured posture read-only in its Connect **Configuration** section: whether OTLP/Prometheus are on and the OTLP endpoint telemetry is pushed to (sourced from `GET /config`).
 
 ## Turning it on
 
@@ -17,16 +17,18 @@ All keys live under the `Fallen8:Observability` section (override via environmen
 |---|---|---|---|
 | `Prometheus:Enabled` | bool | `false` | Maps `GET /metrics` (Prometheus exposition format). |
 | `Prometheus:RequireApiKey` | bool | `false` | Require the API key on `/metrics` instead of the anonymous default. |
-| `Otlp:Endpoint` | string | `null` | OTLP endpoint (e.g. `http://localhost:4317`). When set, adds an OTLP exporter for **metrics *and* traces**: point-to-point, no collector required. |
+| `Otlp:Endpoint` | string | `null` | OTLP endpoint (e.g. `http://localhost:4317`). When set, adds an OTLP exporter for **metrics, traces *and* logs**: point-to-point, no collector required. |
 | `TracingSamplingRatio` | double | `1.0` | Root sampling ratio (parent-based sampler); clamped to `[0, 1]`. |
 | `StatisticsElementBudget` | int | `1000000` | `GET /statistics` sampling threshold (see below). |
 | `StatisticsTopN` | int | `20` | Top-N size for label / property-key cardinality lists. |
 
-An OTel pipeline is registered only when `Prometheus:Enabled` is true **or** `Otlp:Endpoint` is set. Prometheus is metrics-only; traces export exclusively via OTLP. Each enabled exporter logs one posture line at startup.
+An OTel pipeline is registered only when `Prometheus:Enabled` is true **or** `Otlp:Endpoint` is set. Prometheus is metrics-only; traces and logs export exclusively via OTLP, on the same endpoint and with the same resource identity as the metrics. Exported log records keep their scopes (`IncludeScopes`), which is what carries the per-request namespace onto every line a consumer stores. Each enabled exporter logs one posture line at startup.
+
+`GET /config` reads the effective posture back over REST as its `observability` block: `otlpEnabled`, `otlpEndpoint`, `prometheusEnabled`, `prometheusRequireApiKey`, `tracingSamplingRatio`, `statisticsElementBudget`, `statisticsTopN`. It is Fallen-8-level (no `/ns/{ns}` twin), requires the API key when one is configured (`401` otherwise), and is display-only: these keys are startup-bound, so there is nothing to write back.
 
 ## GET /metrics (Prometheus)
 
-Mapped only when `Prometheus:Enabled=true`. **Anonymous by default**: the inventory carries aggregate operational numbers only (no user-supplied strings), the same sensitivity as `/status`. Set `Prometheus:RequireApiKey=true` to gate it with the API key; note that requirement only bites when `Fallen8:Security:ApiKey` is actually configured (see [security](/fallen-8-core/security/)). The exporter mangles instrument names to Prometheus conventions: dots become underscores and counters gain a `_total` suffix.
+Mapped only when `Prometheus:Enabled=true`. **Anonymous by default**: the inventory carries aggregate operational numbers only (no user-supplied strings), the same sensitivity as `/status`. Set `Prometheus:RequireApiKey=true` to gate it with the API key; note that requirement only bites when `Fallen8:Security:ApiKey` is actually configured (see [security](/fallen-8-core/security/)). The exporter mangles instrument names to Prometheus conventions: dots become underscores, the instrument's unit is appended (`s` becomes `_seconds`, `By` becomes `_bytes`; a brace annotation such as `{transaction}` is not a real unit and adds nothing), and counters gain `_total`. So `fallen8.transaction.commit.duration` is scraped as `fallen8_transaction_commit_duration_seconds`, `fallen8.wal.size` as `fallen8_wal_size_bytes`, and `fallen8.transaction.rollbacks` as `fallen8_transaction_rollbacks_total`. The [fleet](#fleet-observability) collector deliberately switches the suffixes off (`add_metric_suffixes: false`), so PromQL against the fleet Prometheus, including the provisioned dashboards, uses the unsuffixed names instead.
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -72,6 +74,7 @@ Invoke-RestMethod -Uri http://localhost:8080/metrics
 | `fallen8.codegen.compile.duration` | Histogram | Roslyn compile duration, tagged `artifact`, `success`. |
 | `fallen8.codegen.compile.failures` | Counter | Failed compiles, tagged `artifact`. |
 | `fallen8.delegate.validate` | Counter | Delegate-fragment validations, tagged `kind`, `result` (aggregate first-pass compile signal). |
+| `fallen8.namespace.info` | Gauge (1) | One measurement per namespace carrying its id and name: the id-to-name join described under [fleet observability](#the-identity-model). |
 
 **Built-in meters** enabled alongside (native to .NET, no instrumentation packages): `Microsoft.AspNetCore.Hosting`, `Microsoft.AspNetCore.Server.Kestrel`, `System.Runtime`.
 
@@ -88,7 +91,7 @@ scrape_configs:
     #   X-Api-Key: { values: ["<your key>"] }
 ```
 
-Example PromQL: `histogram_quantile(0.99, rate(fallen8_transaction_commit_duration_bucket[5m]))` (commit p99); `fallen8_wal_degraded == 1` (alert: durability degraded).
+Example PromQL against a direct scrape: `histogram_quantile(0.99, rate(fallen8_transaction_commit_duration_seconds_bucket[5m]))` (commit p99); `fallen8_wal_degraded == 1` (alert: durability degraded, unitless so the name is the same on both paths).
 
 ## Traces
 
@@ -101,12 +104,15 @@ Spans exist only when `Otlp:Endpoint` is set: with no endpoint no sampler listen
 | `Microsoft.AspNetCore` | server request span | Built-in root span per request. |
 | `NoSQL.GraphDB.Core` | `fallen8.transaction.execute` | Parented to the enqueuing request (above); tags `transaction.type`, `transaction.state`, `transaction.durable` (committed only). |
 | `NoSQL.GraphDB.Core` | `fallen8.checkpoint.save` / `.load` | Checkpoint operations. |
+| `NoSQL.GraphDB.Core` | `fallen8.subgraph.run` | Subgraph recalculation inside the engine (the same span name the App source uses for a request-driven run). |
 | `NoSQL.GraphDB.App` | `fallen8.codegen.compile` | Roslyn compile of a filter/cost fragment. |
-| `NoSQL.GraphDB.App` | `fallen8.path.search` / `fallen8.subgraph.run` | Algorithm runs. |
+| `NoSQL.GraphDB.App` | `fallen8.path.search` / `fallen8.subgraph.run` / `fallen8.analytics.run` | Algorithm runs. |
 
 ## GET /statistics
 
 An **advisory**, lock-free graph-shape snapshot: reads run concurrent with the writer, so it is not transactionally consistent. Always available (no OTel wiring required). Requires the API key when one is configured (it exposes schema-shaped names) and sits under the sensitive fixed-window rate limiter so a runaway scrape loop cannot turn an O(V+E) pass into a DoS.
+
+It describes the addressed namespace and also answers under `/ns/{ns}/statistics` ([namespaces](/fallen-8-core/namespaces/)), so the bare URL below is the reserved `default` graph. Counts, cardinalities and the index inventory are per-namespace; the `memory` block is process-wide.
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -128,25 +134,27 @@ Invoke-RestMethod -Uri http://localhost:8080/statistics -Headers @{ "X-Api-Key" 
 | Field | Meaning |
 |---|---|
 | `vertexCount` / `edgeCount` | Exact live counts (O(1)). |
-| `vertexLabels` / `edgeLabels` / `propertyKeys` | `{ top: [{ name, count }], distinctTotal }`: top-N by element count plus distinct total. |
+| `vertexLabels` / `edgeLabels` / `propertyKeys` | `{ top: [{ name, count }], distinctTotal }`: top-N by element count plus distinct total. Elements carrying no label are tallied under the empty-string name `""` (Studio renders that bucket as `<no label>`), and it counts toward `distinctTotal`. |
 | `inDegree` / `outDegree` / `totalDegree` | `{ min, max, mean, p50, p90, p99 }` over the sampled vertices. |
-| `indices` | Registered indices: `{ name, type, keys, values }`. |
+| `indices` | Registered indices: `{ name, type, keys, values }`. An index that cannot count its keys reports `keys: null` (the spatial R-Tree does), the same way `/status` reports it. |
 | `memory` | `processWorkingSetBytes`, `gcHeapBytes`, `gcLastHeapSizeBytes`, `gcFragmentedBytes`: free reads, **never a forced GC**. |
 | `computedInMs` | Wall-clock cost of the snapshot. |
 | `sampled` / `sampleStride` | See budget below. |
 | `embedding` | The embedding provider block (see `/status` below). |
+| `ingestion` / `nlp` | The document-ingestion and NLP-enrichment capability blocks, identical to the ones on `/status`, so either discovery surface answers capability questions. |
 
 **Budget behavior.** Exact when `V+E ≤ StatisticsElementBudget` (default 1M). Above it the pass touches at most the budget with a uniform stride and flags it: `sampled: true`, `sampleStride: N`. Per-name counts are then as counted **in the sample** (multiply by the stride to extrapolate); `distinctTotal` is distinct-within-the-sample (sampling honestly undercounts distinct values). Degree percentiles from a strided sample remain statistically sound.
 
 ## GET /status
 
-The cheap discovery probe: config and O(1) count reads only, no graph pass. Anonymous even when an API key is set, so it doubles as the connection check. Reports:
+The cheap discovery probe: config and O(1) count reads plus, only when the ingestion / NLP capabilities are on, a `GET /health` probe of each sidecar (cached for 30s, 5s budget). Never a graph pass. Anonymous even when an API key is set, so it doubles as the connection check. Like `/statistics` it describes the addressed namespace and answers under `/ns/{ns}/status` too ([namespaces](/fallen-8-core/namespaces/)): the counts and the index inventory are per-namespace, `usedMemory` is the whole process's working set. Reports:
 
 - `usedMemory`, `vertexCount`, `edgeCount`.
-- `indices`: the live index inventory (id, plugin type, capabilities, key/value counts).
-- `availableIndexPlugins`, `availablePathPlugins`, `availableAnalyticsPlugins`, `availableServicePlugins`: the discovered [plugins](/fallen-8-core/plugins/).
+- `indices`: the live index inventory (id, plugin type, capabilities, key/value counts; a count is `null` when the index does not support counting).
+- `availableIndexPlugins`, `availablePathPlugins`, `availableSubGraphPlugins`, `availableAnalyticsPlugins`, `availableServicePlugins`: the discovered [plugins](/fallen-8-core/plugins/). The path, subgraph and analytics lists also carry this namespace's runtime-registered plugins, so a registered algorithm is discoverable here even where it is not invocable: what each contract can actually be called with is in [plugin registration](/fallen-8-core/plugin-registration/).
 - `apiKeyRequired` (server config) and `authenticated` (this request): a client is authorized iff `!apiKeyRequired || authenticated` (see [security](/fallen-8-core/security/)).
-- `embedding`: the embedding provider state; reading it never triggers the lazy model load. See [semantic traversal](/fallen-8-core/semantic-traversal/).
+- `embedding`: the embedding provider state; reading it never triggers the lazy model load. `chat` is the chat gateway's state. Both: see [semantic traversal](/fallen-8-core/semantic-traversal/).
+- `ingestion` and `nlp`: the document-ingestion and entity-enrichment capability state (flags, accepted formats, sidecar reachability, enforced limits), the block Studio gates its upload UI on. Field by field in [unstructured ingestion](/fallen-8-core/unstructured-ingestion/).
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -167,7 +175,7 @@ Invoke-RestMethod -Uri http://localhost:8080/status
 
 ## Health probes
 
-Both are anonymous and status-only (no body), always mapped.
+Both are anonymous and always mapped. The body is just the status word as `text/plain` (`Healthy` / `Unhealthy`), so an orchestrator should key on the status code.
 
 | Probe | Healthy (200) when |
 |---|---|
@@ -229,7 +237,7 @@ npm run env:up
 
 | Service | URL | What it is |
 |---|---|---|
-| Grafana | http://localhost:3000 | The single pane (open on the trusted network; `F8_GRAFANA_PORT` overrides) |
+| Grafana | http://localhost:3000 | The single pane (no login: anonymous access with the Editor role; `F8_GRAFANA_PORT` overrides the port, `F8_GRAFANA_PASSWORD` the admin password) |
 | OTLP ingest | localhost:4317 (gRPC) / :4318 (HTTP) | Where Fallen-8 instances push |
 
 Prometheus, Tempo, and Loki are internal to the compose network. The whole environment is managed as one unit: never start or stop individual containers. The bundled Fallen-8 and MCP are wired to push automatically, under tenant `local`, instance `f8-local` (override with `F8_TENANT_ID`, `F8_INSTANCE_ID`, `F8_TENANT_NAME`, `F8_INSTANCE_NAME`).
@@ -258,11 +266,11 @@ Reconfiguration is environment config applied on `env:up` (the pipeline wires at
 
 - **Tenant labels are self-declared.** An instance asserts its own identity from its config and the Collector believes it. A misconfigured or hostile instance can claim another tenant's label. There is no enforcement in v1. Hard isolation would require the Collector to derive the label from a per-tenant ingest token and ignore the producer's claim (the revisit trigger: an untrusted or internet-exposed tenant).
 - **Ingest is trusted-network only.** The Collector's OTLP port is open with no auth and no TLS. The Fallen-8 OTLP exporter has no in-config auth or TLS: it can send a bearer token only via the standard `OTEL_EXPORTER_OTLP_HEADERS` environment variable, and TLS is only whatever an `https://` endpoint plus the default trust store give. Authenticated remote ingest is therefore possible but env-var-driven and out of scope for v1.
-- **Grafana** has only its login (open on the trusted network by default).
+- **Grafana is open by default.** Anonymous access is on with the **Editor** role, so anyone who reaches the port can view and edit dashboards without logging in, and the admin account is `admin` / `admin` until you set `F8_GRAFANA_PASSWORD`.
 
 ## See also
 
-- [Security](/fallen-8-core/security/): whether `/metrics` and `/statistics` require the API key, the tag-hygiene invariant, and the trust posture
+- [Security](/fallen-8-core/security/): whether `/metrics` and `/statistics` require the API key, the rate limiter that guards `/statistics`, and the deployment postures
 - [Save games](/fallen-8-core/save-games/): what the WAL / checkpoint / degraded-durability metrics mean
 - [Delegates](/fallen-8-core/delegates/): the codegen cache the `fallen8.codegen.*` metrics track
 - [Semantic traversal](/fallen-8-core/semantic-traversal/): the `embedding` block on `/status` and `/statistics`

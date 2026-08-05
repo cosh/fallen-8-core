@@ -47,8 +47,11 @@ curl -sf -X POST http://localhost:8080/document/text \
      -H "Content-Type: application/json" \
      -d '{ "name": "edge-notes.md", "text": "# Edge\n\nEDGE_TLS_01 terminates tls." }'
 
-# Binary formats convert in the docling sidecar first:
-curl -sf -X POST http://localhost:8080/document -F "file=@handbook.pdf"
+# Binary formats convert in the docling sidecar first; the options are form fields:
+curl -sf -X POST http://localhost:8080/document \
+     -F "file=@handbook.pdf" \
+     -F "sourceUri=https://wiki.example/handbook" \
+     -F 'propertiesJson={"team":"platform"}'
 
 # Manage:
 curl -sf http://localhost:8080/document            # list + chunk budget
@@ -58,9 +61,34 @@ curl -sf -X DELETE "http://localhost:8080/document/3?waitForCompletion=true"
 ```
 
 A bare `dotnet run` has ingestion off (`Fallen8:Ingestion:Enabled`, default `false`); every
-`/document` route answers 403 until it is enabled. `GET /status` carries the whole capability
-state (`ingestion`: enabled flag, accepted formats, sidecar reachability, enforced limits;
-`nlp`: enabled/configured/reachable), which is exactly what the Studio gates its UI on.
+`/document` route answers 403 until it is enabled. Outside compose the two sidecar endpoints are
+empty by default and have to be named too: `Fallen8:Ingestion:Docling:Endpoint` (without it every
+binary format answers 503) and `Fallen8:Nlp:Enabled` plus `Fallen8:Nlp:Endpoint` (without both,
+no entity network). `GET /status` carries the whole capability state (`ingestion`: enabled flag,
+accepted formats, sidecar reachability, enforced limits; `nlp`: enabled/configured/reachable),
+which is exactly what the Studio gates its UI on. Both ingest routes and `/document/search` sit
+behind the sensitive-endpoint rate limiter, so a burst answers 429
+(see [security](/fallen-8-core/security/)).
+
+### Ingest options
+
+Both routes take the same options. On `POST /document` they are **form fields** alongside the
+`file` part, and the two structured ones are JSON *strings*:
+
+| Option | `POST /document/text` (JSON) | `POST /document` (form field) |
+| --- | --- | --- |
+| Document name | `name` (required) | `name` (defaults to the file name) |
+| Content | `text`, plus `format`: `markdown` (default) or `plain` | the `file` part; the format follows its extension |
+| Embed the chunks | `embed` (default `true`) | `embed` |
+| Source pointer stored on the Document vertex | `sourceUri` | `sourceUri` |
+| User tags | `properties` (object of string values) | `propertiesJson` (that object as a JSON string) |
+| Replace another document on success | `replaceDocumentId` | `replaceDocumentId` |
+| [Structural linking](#linking-chunks-to-your-graph) | `link` | `linkJson` (that object as a JSON string) |
+
+User tags are copied onto the Document vertex **and onto every chunk**, so they are the handle
+for "everything that came from this source". A tag key that would shadow a key of the document
+graph model (`name`, `status`, `text`, `order`, `identifiers`, `keyTerms`, `enriched`, …) is
+refused with 400 rather than silently renamed.
 
 ## The pipeline, end to end
 
@@ -101,18 +129,28 @@ Step by step, and the order matters:
 1. **The Document vertex is created first** with `status: processing`, then the job is
    enqueued and `202` returned. Status transitions are ordinary committed property writes, so
    progress rides the change feed with no special machinery. A worker that dies mid-flight
-   leaves a `processing` row; the next startup sweeps it to `failed:interrupted`.
+   leaves a `processing` row; the next startup removes its chunks and sweeps it to `failed` with
+   `interrupted` as the reason.
 2. **Parse.** Binary formats convert in the [docling-serve](https://github.com/docling-project/docling-serve)
    sidecar (MIT) over its async task API, which returns structured output: heading hierarchy,
    intact tables and page numbers survive. OCR is **off by default** (born-digital PDFs need
    none, and it is the dominant cost on scanned documents); turn it on with
-   `Docling:DoOcr=true`. Markdown and plain text skip this step entirely, so text ingestion
-   works with the sidecar down (binary formats answer 503 with a reason).
+   `Docling:DoOcr=true`. Figures are **not** chunked, and neither are the captions docling
+   attaches to them (page headers and footers are dropped by design too), so meaning that lives
+   only in a caption is not retrievable: repeat it in the body prose. Markdown and plain text
+   skip this step entirely, so text ingestion needs no sidecar. A binary upload is refused up
+   front with 503 only when no endpoint is configured; with an endpoint set but the sidecar
+   unreachable the upload is still accepted (202) and the Document row ends `failed`, carrying
+   the docling reason in its `error`.
 3. **Chunk.** Sections split along headings, merge below `ChunkMinChars` (default 800), split
    above `ChunkMaxChars` (default 4,000) at paragraph boundaries. Tables stay intact as their
    own `kind: table` chunks; oversize tables split into row windows that repeat the header.
    Identifier-shaped tokens (`RETRY_BUDGET_MS`, `CheckoutService`, `0x1A2B`) are extracted per
-   chunk into its `identifiers` property.
+   chunk into its `identifiers` property. The shapes are exact: an underscore token that starts
+   with an uppercase letter and is at least 4 characters, CamelCase with at least two humps and
+   6 characters, or `0x…` hex. Lowercase (`edge_tls_01`), hyphenated (`edge-tls-01`) and short
+   tokens never extract, and `MaxIdentifiersPerChunk` bounds how many a chunk keeps (first
+   occurrence wins).
 4. **Embed.** Chunk texts embed through the [embedding provider](/fallen-8-core/vector-search/)
    in batches. With the provider off, pass `"embed": false` to ingest text-only; ingestion
    never silently skips embedding.
@@ -125,7 +163,9 @@ Step by step, and the order matters:
    already-written chunks are sent to it and the result folds into the graph as an
    [entity network](#the-entity-network): Entity vertices and `mentions` edges in their own
    pass. Enrichment is **additive** - if NLP is off, unreachable, or errors, the document still
-   reaches `indexed` with `enriched: false` and its chunks intact. It never fails an ingest.
+   reaches `indexed` with its chunks intact and `enriched: false`. It never fails an ingest.
+   `enriched` is a property of the Document *vertex* (`GET /graphelement/{documentId}`), not a
+   field of the `/document` responses.
 
 ## Binding the semantic layer
 
@@ -170,7 +210,9 @@ The output is identical in both tiers; only accuracy differs. Override the model
 - **Entity vertices** (label `Entity`) are **deduplicated per namespace** on `(type,
   normalized text)`, so the same organisation mentioned across ten chunks and three documents
   is one vertex. It carries `text` (the first surface form seen), `type` (the spaCy label, e.g.
-  `PERSON`/`ORG`/`GPE`) and `normalized`.
+  `PERSON`/`ORG`/`GPE`) and `normalized`. `type` is a general English model's guess, and
+  identifier-shaped tokens are frequently mistyped (`WTG_A17` comes back as `GPE`), so treat
+  `?type=` as a convenience filter, not a schema.
 - **`mentions` edges** run chunk -> entity, capped per chunk (`Nlp:MaxEntitiesPerChunk`).
 - **Key terms** land on the chunk as a newline-joined `keyTerms` property.
 
@@ -200,10 +242,16 @@ curl -sf -X POST http://localhost:8080/document/search \
 ```
 
 - `mode`: `fused` (default), `dense`, or `lexical`. When one side is unavailable (the provider
-  is off, an index is absent) a fused request degrades and the response says so in `modeUsed`;
-  nothing pretends.
-- `window`: up to 5 sibling chunks each side of a hit over `next` edges, so a hit comes with
-  its surrounding context in one call.
+  is off, an index is absent) only a **fused** request degrades, and the response says so in
+  `modeUsed`; nothing pretends. Asking for `dense` or `lexical` explicitly and getting an
+  unavailable side is a 400 instead.
+- `queryVector`: a client-side dense query vector instead of embedding `queryText` server-side,
+  so the dense side works with the embedding provider off. It must match the vector index's
+  dimension (400 otherwise). `queryText` still drives the lexical side, so supplying both is the
+  way to keep a fused search fused without the provider.
+- `k`: results to return, default 10, max 100 (400 outside).
+- `window`: sibling chunks each side of a hit over `next` edges, default 0, max 5, so a hit
+  comes with its surrounding context in one call.
 - `groupByDocument`: groups hits per document (documents by best hit, chunks in document
   order) with the document summary attached.
 - Scores are mode-dependent: RRF when fused, raw kNN when dense, match counts when lexical.
@@ -238,9 +286,20 @@ curl -sf -X POST http://localhost:8080/document/text \
            "link": { "indexIds": ["server-names"], "maxLinksPerChunk": 8 } }'
 ```
 
+On `POST /document` the same block goes in as the `linkJson` form field, JSON-encoded as a
+string.
+
 Linking finds a domain vertex only when an extracted token equals its indexed value exactly, so
 this loop wants **identifier-shaped names** (`EDGE_TLS_01`, `CheckoutSvc`) on the vertices you
-link against; prose names with spaces do not extract.
+link against; prose names with spaces do not extract, and neither do lowercase or hyphenated
+tags (see the extraction shapes in step 3 above).
+
+Two things bite here. An allowlisted index that does not exist, or that cannot do equality
+lookups, is rejected with 400 before anything is written. But an index that exists and is simply
+**empty** is not: indices are created empty and filled one element at a time with
+`PUT /index/{indexId}` ([indexes](/fallen-8-core/indexes/)), so linking against an index created
+after the domain data was imported silently produces no edges and reports no error. Seed the
+index first, then ingest.
 
 ## Limits and the memory ceiling
 
@@ -256,9 +315,19 @@ an OOM. Everything lives under `Fallen8:Ingestion` (and `Fallen8:Nlp` for enrich
 | `MaxChunksPerNamespace` | 100,000 | The namespace ceiling: further ingestion answers 507 |
 | `MaxQueueLength` | 256 | Depth of the global ingestion queue: enqueue beyond it answers 503 |
 | `ChunkMinChars` / `ChunkMaxChars` | 800 / 4,000 | Chunk size bounds |
+| `MaxIdentifiersPerChunk` | 64 | Identifier tokens a chunk keeps, so also how many can link |
 | `MaxLinksPerChunk` | 16 | Hard cap for linked `mentions` edges per chunk |
+| `Docling:Endpoint` | *empty* | The docling sidecar; unset means binary formats answer 503 |
 | `Docling:DoOcr` / `Docling:TimeoutSeconds` | `false` / 600 | OCR (off), overall async convert budget |
-| `Nlp:Enabled` / `Nlp:MaxEntitiesPerChunk` | `false` / 32 | NLP enrichment, `mentions` cap per chunk |
+| `Docling:TableMode` | `fast` | Table structure detection (`fast` or `accurate`) |
+| `Nlp:Enabled` / `Nlp:Endpoint` | `false` / *empty* | NLP enrichment; both are needed for an entity network |
+| `Nlp:MaxEntitiesPerChunk` / `Nlp:MaxKeyTermsPerChunk` | 32 / 32 | `mentions` cap and `keyTerms` cap per chunk |
+
+Which limit answers when follows the async split: upload size, the duplicate hash and an
+already-full namespace are known on the request thread, so they answer 413, 409 and 507 to the
+caller. Page count and the per-document chunk cap are only knowable after conversion, so
+crossing one fails the queued document (status `failed`, the reason in its `error`) rather than
+the HTTP call, which already returned 202.
 
 A chunk costs roughly 25 to 30 kB resident (UTF-16 text, the vector on the element and again in
 the bound index, the fulltext mirror), so the default ceiling is about 3 GB of document state

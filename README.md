@@ -71,6 +71,13 @@ Each feature has a deep-dive doc — follow the link.
 - **[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
   writes and three auth modes up to OAuth 2.1.
+- **[NL assist and fine-tuning](https://cosh.github.io/fallen-8-core/nl-assist/)**: draft C# fragments from a
+  sentence, and an offline pipeline (compile-gated dataset, QLoRA training, held-out eval,
+  feedback loop) to train, evaluate and publish your own model.
+- **[Use as a library](https://cosh.github.io/fallen-8-core/library/)**: reference the engine in-process via the
+  `Fallen-8` NuGet package, with no HTTP and no server to operate.
+- **[Capacity and performance](https://cosh.github.io/fallen-8-core/capacity-and-performance/)**: measured bytes per
+  vertex and edge, write throughput, and what a save game costs the writer.
 - **[Security](https://cosh.github.io/fallen-8-core/security/)** — optional all-or-nothing API key; dynamic code execution is
   always on (queries are C#), so set a key before exposing the service off-box.
 

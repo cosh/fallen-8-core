@@ -1,11 +1,20 @@
 ---
 title: API Reference
-description: The full Fallen-8 REST API, rendered interactively with Scalar from the live OpenAPI document.
+description: Every operation the Fallen-8 controllers expose, rendered interactively with Scalar from the exported OpenAPI document.
 ---
 
 import ScalarApiReference from '../../components/ScalarApiReference.astro';
 
-The complete REST surface, rendered from Fallen-8's OpenAPI document. For the versioning
-scheme, authentication, and an endpoint map with prose, see [REST API](/fallen-8-core/rest-api/).
+Every operation Fallen-8's controllers expose, rendered from its OpenAPI document. The health
+probes and the Prometheus scrape endpoint (`GET /healthz`, `GET /readyz`, `GET /metrics`) are
+mapped outside MVC and so never enter that document; they are documented on
+[Observability](/fallen-8-core/observability/). For the versioning scheme, authentication, and an
+endpoint map with prose, see [REST API](/fallen-8-core/rest-api/).
+
+The document is exported while this site is built, so it describes the contract rather than a
+reachable instance: its server list records the export host, and the default deny-all CORS policy blocks a browser call
+from this site to your own server ([Security](/fallen-8-core/security/)). To send real requests,
+run the app and use its bundled Scalar UI at `/scalar/v0.1` (Development only). The raw document
+is published at [openapi/v0.1.json](https://cosh.github.io/fallen-8-core/openapi/v0.1.json).
 
 <ScalarApiReference />

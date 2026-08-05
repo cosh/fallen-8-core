@@ -22,7 +22,7 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 Queries are C#: small [delegate fragments](/fallen-8-core/delegates/) compiled at runtime, or
 precompiled stored queries. That is a deliberate choice for the era of code-generating agents:
@@ -52,7 +52,11 @@ query-language layer in between.
 	<LinkCard title="Plugin registration" href="/fallen-8-core/plugin-registration/" description="Add runtime algorithm and graph-function plugins by authoring C# source instead of uploading a DLL." />
 	<LinkCard title="F8 Studio" href="/fallen-8-core/studio/" description="A browser UI to browse, query, visualize, and author the C# delegates, with a natural-language assist." />
 	<LinkCard title="Standalone F8 Studio" href="/fallen-8-core/standalone-ui/" description="Deploy the browser UI as its own container, decoupled from the data plane and pointed at any Fallen-8 REST endpoint at container start." />
+	<LinkCard title="Benchmark" href="/fallen-8-core/benchmark/" description="Measure raw edge-traversal throughput over whatever graph is loaded: generate a graph or point it at a sample, then run timed passes that follow every out-edge." />
 	<LinkCard title="MCP server" href="/fallen-8-core/mcp-server/" description="A Model Context Protocol surface so AI agents call Fallen-8 as typed tools; read-only by default, tiered writes, three auth modes." />
+	<LinkCard title="NL assist and fine-tuning" href="/fallen-8-core/nl-assist/" description="Draft C# fragments from a sentence, and an offline pipeline to train, evaluate and publish your own model." />
+	<LinkCard title="Use as a library" href="/fallen-8-core/library/" description="Reference the engine in-process via the Fallen-8 NuGet package, with no HTTP and no server to operate." />
+	<LinkCard title="Capacity and performance" href="/fallen-8-core/capacity-and-performance/" description="Measured bytes per vertex and edge, write throughput, and what a save game costs the writer." />
 	<LinkCard title="Security" href="/fallen-8-core/security/" description="Optional all-or-nothing API key; dynamic code execution is always on, so set a key before exposing the service off-box." />
 </CardGrid>
 

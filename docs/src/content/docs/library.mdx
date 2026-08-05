@@ -1,0 +1,216 @@
+---
+title: "Use as a library"
+description: "Consume the engine in-process: install the Fallen-8 NuGet package, build a graph with transactions, read it back, and understand what the package does and does not include."
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+There are two ways to use Fallen-8. Most of this site describes the first: run it as a service and talk
+to it over [REST](/fallen-8-core/rest-api/). The second is to reference the engine as a .NET library and
+hold the graph inside your own process, with no HTTP, no serialization, and no server to operate. That
+is what this page covers.
+
+The library is the same engine the service runs. Everything in
+[graph model](/fallen-8-core/graph-model/), [path finding](/fallen-8-core/path-finding/),
+[subgraphs](/fallen-8-core/subgraphs/), [indexes](/fallen-8-core/indexes/),
+[analytics](/fallen-8-core/graph-analytics/) and [save games](/fallen-8-core/save-games/) is reachable
+in-process; the REST layer is a thin projection on top of it.
+
+## Install
+
+The engine is published as the **`Fallen-8`** package on
+[nuget.org](https://www.nuget.org/packages/Fallen-8) and to GitHub Packages, from
+[`.github/workflows/release.yml`](https://github.com/cosh/fallen-8-core/blob/main/.github/workflows/release.yml)
+on every `v*.*.*` tag:
+
+<Tabs syncKey="shell">
+<TabItem label="Bash">
+
+```bash
+dotnet add package Fallen-8
+```
+
+</TabItem>
+<TabItem label="PowerShell">
+
+```powershell
+dotnet add package Fallen-8
+```
+
+</TabItem>
+</Tabs>
+
+It targets `net10.0`, is MIT-licensed, and takes four dependencies: `Microsoft.Extensions.Logging`,
+`Microsoft.Extensions.Caching.Memory`, `System.IO.Hashing` and `System.Numerics.Tensors`. The root
+namespace is `NoSQL.GraphDB.Core`; the types you touch most live in `NoSQL.GraphDB.Core`,
+`NoSQL.GraphDB.Core.Model` and `NoSQL.GraphDB.Core.Transaction`.
+
+The package declares **Server GC with concurrent collection**, because a resident graph is exactly the
+workload Server GC is built for. A non-web host would otherwise default to Workstation GC.
+
+## What is in the package, and what is not
+
+| In the engine (this package)                                                        | Not in the engine                                                                      |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Graph model, transactions, indexes, path and subgraph algorithms, analytics          | The REST API, its versioning, and the OpenAPI document                                 |
+| Persistence: checkpoints, the write-ahead log, save games                            | The API key and every other perimeter control ([security](/fallen-8-core/security/))   |
+| Element embeddings and the vector index                                              | The text-in embedding provider and the chat gateway, which are apiApp-only              |
+| The change feed                                                                      | Document ingestion and the NLP sidecar                                                 |
+| Plugin discovery and the `IPlugin` contracts                                         | The Roslyn compilers behind dynamic fragments (see below)                               |
+| One graph per `Fallen8` instance                                                     | [Namespaces](/fallen-8-core/namespaces/), which are an apiApp-level collection          |
+
+Dynamic C# is a good illustration of the split. The engine declares the abstractions
+`ISubGraphRecipeCompiler`, `IStoredQueryCompiler` and `IPluginCompiler`, and takes them as constructor
+arguments; the Roslyn implementations live in the apiApp (`Helper/PluginCompiler.cs` and friends). A
+library host that never needs compiled-at-runtime fragments passes nothing and simply calls the
+strongly typed algorithms directly.
+
+Because a `Fallen8` object **is** one graph, the library equivalent of several namespaces is several
+`Fallen8` instances. The apiApp's collection, its catalog and its `/ns/{ns}` routing are not part of the
+package.
+
+## Your first graph
+
+The pattern is always the same: build a transaction, enqueue it, wait for it, then read.
+
+```csharp
+using Microsoft.Extensions.Logging;
+using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Transaction;
+
+var loggerFactory = LoggerFactory.Create(b => b.AddConsole());
+var fallen8 = new Fallen8(loggerFactory);
+var creationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds());
+
+// A -> B -> C, created in one atomic transaction.
+var verticesTx = new CreateVerticesTransaction();
+verticesTx.AddVertex(creationDate, "node", new Dictionary<string, object> { { "name", "A" } });
+verticesTx.AddVertex(creationDate, "node", new Dictionary<string, object> { { "name", "B" } });
+verticesTx.AddVertex(creationDate, "node", new Dictionary<string, object> { { "name", "C" } });
+fallen8.EnqueueTransaction(verticesTx).WaitUntilFinished();
+
+var vertices = verticesTx.GetCreatedVertices();
+
+var edgesTx = new CreateEdgesTransaction();
+edgesTx.AddEdge(vertices[0].Id, "connects", vertices[1].Id, creationDate, "link");
+edgesTx.AddEdge(vertices[1].Id, "connects", vertices[2].Id, creationDate, "link");
+fallen8.EnqueueTransaction(edgesTx).WaitUntilFinished();
+
+Console.WriteLine($"{fallen8.VertexCount} vertices, {fallen8.EdgeCount} edges");
+```
+
+`AddEdge` takes the edge **type** (`"connects"`) before the target and the **label** (`"link"`) after
+the creation date. They are different things and the argument order does not warn you:
+[edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label).
+
+Note that the created vertices come back from the **transaction object**
+(`verticesTx.GetCreatedVertices()`), not from the engine. The transaction is the record of what it did.
+
+## Reading
+
+Reads go straight at the engine through `IFallen8Read`. They need no transaction and no lock: the
+graph is published copy-on-write, so a reader always sees a consistent snapshot.
+
+| Member                                                        | Returns                                                          |
+| ------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `VertexCount`, `EdgeCount`                                    | Live element counts                                              |
+| `TryGetVertex`, `TryGetEdge`, `TryGetGraphElement`             | One element by id, `false` when absent or removed                |
+| `GetAllVertices`, `GetAllEdges`, `GetAllGraphElements`         | Every element, optionally filtered to one label                  |
+| `GraphScan`                                                   | Elements whose named property satisfies a typed comparison       |
+| `GraphScanAllProperties`                                      | Elements where **any** property value contains a search term     |
+| `IndexScan`, `RangeIndexScan`                                 | Point and range lookups against a named index                    |
+| `FulltextIndexScan`, `VectorIndexScan`                        | Fulltext hits with scores, and nearest-neighbour vector hits     |
+
+These follow the repository-wide `Try*(out result, ...) : bool` convention: an absent element or an
+unknown index is `false`, not an exception.
+
+## Writing
+
+Every mutation is a transaction. `EnqueueTransaction` hands it to the single writer thread and returns a
+`TransactionInformation`; `WaitUntilFinished()` blocks until it commits or rolls back, and
+`GetTransactionState(txId)` polls instead.
+
+The built-in transactions live in `NoSQL.GraphDB.Core.Transaction`:
+
+| Purpose            | Transactions                                                                                       |
+| ------------------ | -------------------------------------------------------------------------------------------------- |
+| Create             | `CreateVertexTransaction`, `CreateVerticesTransaction`, `CreateEdgeTransaction`, `CreateEdgesTransaction` |
+| Properties         | `AddPropertyTransaction`, `AddPropertiesTransaction`, `RemovePropertyTransaction`                   |
+| Remove             | `RemoveGraphElementTransaction`, `RemoveGraphElementsTransaction`, `TabulaRasaTransaction`, `TrimTransaction` |
+| Subgraphs          | `CreateSubGraphTransaction`, `RemoveSubGraphTransaction`                                            |
+| Registration       | `RegisterPluginTransaction`, `RemovePluginTransaction`, `RegisterStoredQueryTransaction`, `RemoveStoredQueryTransaction` |
+| Embeddings         | `SetEmbeddingsTransaction`                                                                         |
+| Persistence        | `SaveTransaction`, `LoadTransaction`                                                               |
+| Your own           | `DelegateTransaction` (below)                                                                      |
+
+A batch transaction is **all or nothing**: `CreateVerticesTransaction` with 10,000 vertices either
+commits every one or leaves the graph untouched. On a rollback the engine records why, as
+`TransactionFailureReason`:
+
+| Reason           | Means                                                                     |
+| ---------------- | ------------------------------------------------------------------------- |
+| `None`           | The default, and the value on a committed transaction                     |
+| `InvalidInput`   | Structurally invalid, for example a malformed subgraph pattern            |
+| `NotFound`       | A referenced element did not exist, for example a missing edge endpoint   |
+| `Conflict`       | Conflicts with current state, for example a name already in use           |
+| `QuotaExceeded`  | A count or materialized-element ceiling was hit                           |
+| `InternalError`  | An unexpected fault, including an exception that escaped execution        |
+
+The REST layer maps these onto `400`, `404`, `409` and `500`; in-process you read the reason directly.
+
+Terminal transaction state is retained for the most recent **100,000** transactions. Past that, the
+oldest ids are dropped and `GetTransactionState` reports them as not existing. Long-lived hosts should
+therefore not treat a transaction id as a permanent handle.
+
+### Multi-step writes with `DelegateTransaction`
+
+When a write needs logic that no built-in transaction expresses, `DelegateTransaction` runs your body on
+the writer thread against an `IFallen8WriterContext`. That context is the sanctioned mutation surface:
+`CreateVertex`, `CreateVertices`, `TryCreateEdge`, `SetProperty` and `RemoveProperty`, all reversible if
+the body throws.
+
+One asymmetry matters. **A removal performed inside the body is not undone by a rollback**, because the
+soft-delete model has no generic un-remove. A body that only creates and sets properties is fully
+reversible; a body that also removes elements has a weaker guarantee. Split the removal into its own
+transaction when that matters.
+
+## Durability and options
+
+The constructor you pick decides what the instance carries:
+
+| Constructor                                                            | Gives you                                                                     |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `new Fallen8(loggerFactory)`                                           | A pure in-memory graph: no WAL, no change feed, nothing on disk               |
+| `new Fallen8(path, loggerFactory)`                                     | An instance loaded from an existing checkpoint at `path`                       |
+| `new Fallen8(loggerFactory, changeFeedOptions)`                        | The [change feed](/fallen-8-core/change-feed/) as an in-order event stream     |
+| `new Fallen8(loggerFactory, writeAheadLogOptions, ...)`                | A [write-ahead log](/fallen-8-core/save-games/) plus the optional compilers    |
+
+The widest overload also takes `ISubGraphRecipeCompiler`, `IStoredQueryCompiler`, `IPluginCompiler`, a
+`ChangeFeedOptions` and a metrics scope id, so a host can opt into exactly the capabilities it wants.
+Snapshots are written and read with `SaveTransaction` and `LoadTransaction`, in the same on-disk format
+the service uses, which means a graph saved in-process can be loaded by the service and the other way
+round.
+
+## The public surface is versioned
+
+The package version is not decorative: it tracks breaking changes to the engine's public types, which
+are recorded in
+[`fallen-8-core.csproj`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/fallen-8-core.csproj).
+The REST contract was unchanged by all of them.
+
+| Version | Breaking change                                                                                                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0.1.0` | `VertexModel.OutEdges`/`InEdges` became read-only views, and `TryGetOutEdge`/`TryGetInEdge` return `IReadOnlyList<EdgeModel>` instead of immutable collections |
+| `0.2.0` | `GetAllVertices`/`GetAllEdges`/`GetAllGraphElements` and the index scans return `IReadOnlyList<T>` instead of `ImmutableList<T>`, dropping the per-call AVL tree |
+| `0.3.0` | `IIndex` gained a required `Boolean SupportsPointEqualityLookup`; every built-in index implements it, an external implementation must add it                  |
+
+In each case the common members (`.Count`, the indexer, `foreach`, LINQ) were unaffected: only members
+specific to the immutable collections were lost.
+
+## See also
+
+- [Graph model](/fallen-8-core/graph-model/): the vertex, edge, property and label semantics the API exposes
+- [Capacity and performance](/fallen-8-core/capacity-and-performance/): what a graph costs in memory and how fast writes go
+- [Plugin registration](/fallen-8-core/plugin-registration/): the `IPlugin` contracts you implement in-process
+- [Save games](/fallen-8-core/save-games/): the checkpoint format, the WAL, and what survives a crash
+- [Architecture](/fallen-8-core/architecture/): where the engine sits relative to the REST API and the UI

@@ -5,11 +5,13 @@ description: "Every way to launch it: the one-command default, a bare dotnet run
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-One command brings up the whole thing — engine, REST API, [F8 Studio](/fallen-8-core/studio/), and the
-model sidecar that powers [semantic traversal](/fallen-8-core/semantic-traversal/) and Studio's
-natural-language assist — with every feature on and no authentication in the way. That is
-the default and it just works. This doc then covers every other way to run it and every
-knob you can turn.
+One command brings up the whole thing: engine, REST API, [F8 Studio](/fallen-8-core/studio/), the model
+sidecar behind [semantic traversal](/fallen-8-core/semantic-traversal/) and Studio's natural-language
+assist, the document and NLP sidecars behind the [semantic layer](/fallen-8-core/unstructured-ingestion/),
+the [MCP server](/fallen-8-core/mcp-server/) that AI agents connect to, and the full
+[observability](/fallen-8-core/observability/) stack. Every feature is on and nothing asks for
+authentication. That is the default and it just works. This doc then covers every other way to run it
+and every knob you can turn.
 
 ## The one command
 
@@ -30,15 +32,26 @@ npm run env:up
 </TabItem>
 </Tabs>
 
-This runs `docker compose up` for the full environment and prints where everything is:
+This runs `docker compose up` for the whole environment: the base compose file plus the
+observability and split-topology overlays, the `ingestion` and `nlp` profiles, and the GPU
+overlay when a GPU is detected. Eight containers publish a host port:
 
-| Service                | URL                    | What it is                                                         |
-| ---------------------- | ---------------------- | ------------------------------------------------------------------ |
-| F8 Studio (UI)         | http://localhost:8081  | The browser UI, its own container (override with `F8_UI_PORT`)      |
-| F8 REST API            | http://localhost:8080  | The engine + REST surface, the data plane                           |
-| Model sidecar (Ollama) | http://localhost:11434 | Serves the embedding model and the delegate-assist models          |
+| Service                       | URL                                   | What it is                                                                                                                          |
+| ----------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| F8 Studio (UI)                | http://localhost:8081                 | The browser UI, in its own container (`F8_UI_PORT`)                                                                                 |
+| F8 REST API                   | http://localhost:8080                 | The engine plus the REST surface: the data plane (`F8_PORT`)                                                                        |
+| Model sidecar (Ollama)        | http://localhost:11434                | Serves `bge-m3` for embeddings and the assist models for NL assist                                                                  |
+| MCP server                    | http://localhost:8090                 | The [AI-agent surface](/fallen-8-core/mcp-server/), anonymous and read-only in this environment (`F8_MCP_PORT`)                     |
+| Document conversion (docling) | http://localhost:5001                 | Converts PDF, Office and HTML uploads for [ingestion](/fallen-8-core/unstructured-ingestion/) (`F8_DOCLING_PORT`)                   |
+| NLP enrichment (spaCy)        | http://localhost:8100                 | Named entities and key terms per chunk, folded into the entity graph (`F8_NLP_PORT`)                                                |
+| Observability (Grafana)       | http://localhost:3000                 | The single pane for [metrics, traces and logs](/fallen-8-core/observability/) (`F8_GRAFANA_PORT`)                                   |
+| OTLP ingest                   | localhost:4317 (gRPC) / :4318 (HTTP)  | Where Fallen-8 instances outside this compose push telemetry                                                                        |
 
-Stop and inspect it as one unit — never start/stop individual containers:
+Prometheus, Tempo and Loki run too, reachable only inside the `f8-net` network; Grafana is the way
+in. The engine is the only caller of docling and the NLP sidecar, so their ports are published for
+inspection, not for you to call. `env:up` prints the first three plus Grafana and the OTLP endpoint.
+
+Stop and inspect it as one unit, never individual containers:
 
 ```bash
 npm run env:down     # stop everything; the data + model volumes persist
@@ -46,27 +59,34 @@ npm run env:logs     # follow all logs
 npm run env:status   # health of the whole environment
 ```
 
-The environment is **open** (no API key) and has **text-in embeddings on** (semantic search
-and GraphRAG work out of the box). It does **not** enable dynamic C# code execution — that
-is a separate switch, off by default (see [Security](/fallen-8-core/security/) and the table below).
+The environment is **open** (no API key) and has **text-in embeddings on** (semantic search and
+GraphRAG work out of the box). Dynamic C# code execution is **always on**: there is no switch for
+it, because compiled filter and cost fragments are Fallen-8's query model. They run in-process with
+full trust, so the API key is the only boundary. Set one before exposing the service off-box, and
+harden the MCP server separately (see [Security](/fallen-8-core/security/)).
 
 ### First start pulls models
 
 On the first `env:up` the sidecar pulls its models into the `f8-ollama-models` volume:
 `bge-m3` (embeddings), `phi4-mini` (base), `phi4-f8-mini` (the delegate-assist fine-tune,
-Studio's default), and `phi4-f8` (the larger GPU-only fine-tune, ~9 GB — set
+Studio's default), and `phi4-f8` (the larger GPU-only fine-tune, ~9 GB: set
 `F8_PULL_PHI4F8=0` to skip it on a CPU-only or disk-constrained host). That is over 10 GB
-with `phi4-f8`, so first start can take a while — the API and Studio are up immediately, and
+with `phi4-f8`, so first start can take a while: the API and Studio are up immediately, and
 assist starts answering once the mini pull finishes (the bigger model finishes later in the
 background). Later starts reuse the cached volume and need no network. Watch progress with
-`npm run env:logs`.
+`npm run env:logs`. The docling image is a separate ~4.4 GB pull on that same first start
+(`F8_INGESTION=false` skips it).
 
-Offline or want to skip the wait? Pre-seed the volume once from a machine with internet —
-this needs only Docker, no host Ollama:
+Offline or want to skip the wait? Pre-seed the volume once from a machine with internet, which
+needs only Docker and no host Ollama:
 
 ```bash
-bash scripts/ensure-models.sh        # pulls into the f8-ollama-models volume
+bash scripts/ensure-models.sh        # assist models into the f8-ollama-models volume
 ```
+
+The pre-seed covers the same set the container would pull: `phi4-mini`, `phi4-f8-mini`, `phi4-f8`
+unless `F8_PULL_PHI4F8=0`, and `bge-m3` unless `F8_EMBEDDINGS=false`. So an environment seeded here
+and started offline has a model behind every capability it advertises.
 
 If a pull fails the sidecar still comes up with whatever is present (it does not
 crash-loop); fix the network and re-run. The 404-in-Studio case is in
@@ -77,16 +97,27 @@ crash-loop); fix the network and re-run. The 404-in-Studio case is in
 Set these before `npm run env:up`. In PowerShell use `$env:NAME = "value"; …` (it stays set
 for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 
-| Variable           | Default                          | Effect                                                                                                                                                    |
-| ------------------ | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `F8_PORT`          | `8080`                           | Host port for Studio + API (container always listens on 8080)                                                                                             |
-| `F8_API_KEY`       | _(unset)_                        | Set it and the **entire** service requires the key; unset = open ([Security](/fallen-8-core/security/))                                                   |
-| `F8_EMBEDDINGS`    | `true`                           | Text-in embeddings via the sidecar's `bge-m3`; `false` disables the provider (bring-your-own-vector still works)                                          |
-| `F8_CHAT`          | `true`                           | The chat gateway (`POST /chat` → the sidecar's assist model); the default NL-assist path. `false` answers 403 (custom browser-direct backends still work) |
-| `F8_GPU`           | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
-| `F8_PULL_PHI4F8`   | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |
-| `F8_DELEGATE_REPO` | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`)                                                                                |
-| `F8_UI_PORT`       | `8081`                           | Host port for the F8 Studio UI container (`env:up` runs the UI decoupled by default); the data plane allow-lists this origin |
+| Variable                                                   | Default                          | Effect                                                                                                                                                    |
+| ---------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `F8_PORT`                                                  | `8080`                           | Host port for the REST API, the data plane (the container always listens on 8080)                                                                          |
+| `F8_UI_PORT`                                               | `8081`                           | Host port for the F8 Studio container; the data plane allow-lists exactly this origin for CORS                                                             |
+| `F8_API_KEY`                                               | _(unset)_                        | Set it and the **entire data plane** requires the key; unset = open. The MCP bridge receives it for its own downstream calls but keeps its own caller auth (`F8_MCP_AUTH_MODE`) ([Security](/fallen-8-core/security/)) |
+| `F8_EMBEDDINGS`                                            | `true`                           | Text-in embeddings via the sidecar's `bge-m3`; `false` disables the provider (bring-your-own-vector still works)                                          |
+| `F8_CHAT`                                                  | `true`                           | The chat gateway (`POST /chat` to the sidecar's assist model), the default NL-assist path. `false` answers 403 (custom browser-direct backends still work) |
+| `F8_INGESTION`                                             | `true`                           | [Document ingestion](/fallen-8-core/unstructured-ingestion/). `false` skips the docling sidecar (a ~4.4 GB image) **and** answers 403 on the document endpoints, including txt/md |
+| `F8_NLP`                                                   | `true`                           | NLP enrichment. `false` skips the spaCy sidecar; ingestion still writes Document and Chunk vertices, just without the entity graph                         |
+| `F8_GPU`                                                   | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
+| `F8_PULL_PHI4F8`                                           | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |
+| `F8_DELEGATE_REPO`                                         | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`); `F8_PHI4F8_REPO` is the same for `phi4-f8`                                     |
+| `F8_MCP_AUTH_MODE`                                         | `None`                           | Caller auth for the [MCP server](/fallen-8-core/mcp-server/). Anything reachable off-box wants `StaticToken` plus `F8_MCP_TOKEN`                           |
+| `F8_MCP_ENABLE_WRITE` / `F8_MCP_ENABLE_ADMIN` / `F8_MCP_ENABLE_CODE` | `false`                | Opt individual MCP tool tiers in; agents get read-only tools by default                                                                                   |
+| `F8_TENANT_ID` / `F8_INSTANCE_ID`                          | `local` / `f8-local`             | This instance's [fleet identity](/fallen-8-core/observability/) in the dashboards (`F8_TENANT_NAME` and `F8_INSTANCE_NAME` set the display names)           |
+| `F8_GRAFANA_PASSWORD`                                      | `admin`                          | Locks the Grafana admin account; anonymous editor access is on by default for the trusted network                                                          |
+
+Every published port has an override: `F8_PORT` (8080), `F8_UI_PORT` (8081), `F8_MCP_PORT` (8090),
+`F8_GRAFANA_PORT` (3000), `F8_DOCLING_PORT` (5001), `F8_NLP_PORT` (8100), `F8_OTLP_GRPC_PORT` (4317)
+and `F8_OTLP_HTTP_PORT` (4318). Ollama's 11434 is fixed. `F8_DOCLING_IMAGE` pins the docling image,
+which is deliberately not `:latest` so its document schema cannot drift under you.
 
 Examples:
 
@@ -95,7 +126,8 @@ Examples:
 
 ```bash
 F8_API_KEY=change-me npm run env:up   # secured (every request needs the key)
-F8_PORT=9090 npm run env:up           # Studio on :9090
+F8_PORT=9090 npm run env:up           # REST API on :9090
+F8_INGESTION=false npm run env:up     # skip the docling + NLP sidecars entirely
 ```
 
 </TabItem>
@@ -104,6 +136,7 @@ F8_PORT=9090 npm run env:up           # Studio on :9090
 ```powershell
 $env:F8_API_KEY = "change-me"; npm run env:up
 $env:F8_PORT = "9090"; npm run env:up
+$env:F8_INGESTION = "false"; npm run env:up
 ```
 
 </TabItem>
@@ -119,8 +152,19 @@ REST only, wires the UI origin into `Fallen8__Security__AllowedCorsOrigins`, and
 service.
 
 The **all-in-one** (UI baked into the API container, both on `:8080`) still ships as one image and
-runs with a bare `docker compose up` (no overlay). The runtime `config.js` seam, the image, and the
-CORS rules are in [Standalone F8 Studio](/fallen-8-core/standalone-ui/).
+runs from the base compose file with no overlay. Pass the two profiles yourself, because a bare
+`docker compose up` starts neither sidecar while the base file still declares both capabilities on
+(document uploads would be limited to txt/md and no entity graph would be built):
+
+```bash
+docker compose --profile ingestion --profile nlp up -d --build
+```
+
+Without the observability overlay there is also nothing behind the base file's
+`Fallen8__Observability__Otlp__Endpoint`, so the exporter has no collector to push to: add
+`-f docker-compose.observability.yml` (what `env:up` does) or set that variable to empty. The
+runtime `config.js` seam, the image, and the CORS rules are in
+[Standalone F8 Studio](/fallen-8-core/standalone-ui/).
 
 ## Running the engine + API without Docker
 
@@ -145,9 +189,13 @@ dotnet run --project fallen-8-core-apiApp
 </TabItem>
 </Tabs>
 
-This is engine + REST only. There is no model sidecar, so the embedding provider is off and
-Studio's NL assist has no local backend — bring-your-own-vector, analytics, paths, and every
-non-embedding feature work regardless.
+This is engine plus REST only. None of the sidecars are there, so the capabilities that depend on
+them default to off: the embedding provider, the chat gateway behind Studio's NL assist, document
+ingestion, and NLP enrichment all answer 403 until you enable them and point them at a backend of
+your own (txt/md ingestion needs only the flag, since docling converts binary formats only).
+Bring-your-own-vector, analytics, paths, indexes and every other feature work regardless. The MCP
+server is its own deployable and is likewise absent from a bare run
+([how to run it](/fallen-8-core/mcp-server/)).
 
 ### With F8 Studio built in
 
@@ -175,22 +223,39 @@ form, or the command line). The defaults:
 | `Fallen8:Durability:StorageDirectory`         | app base dir (`/data` in the container) | [Save games](/fallen-8-core/save-games/)                   |
 | `Fallen8:Durability:Volatile`                 | `false`                                 | [Save games](/fallen-8-core/save-games/)                   |
 | `Fallen8:Durability:SaveOnShutdown`           | `true`                                  | [Save games](/fallen-8-core/save-games/)                   |
-| `Fallen8:Metadata:Directory`                  | storage dir                             | [Save games](/fallen-8-core/save-games/)                   |
+| `Fallen8:Metadata:Directory`                  | `<app base>/metadata`                   | [Save games](/fallen-8-core/save-games/)                   |
 | `Fallen8:Namespaces:MaxNamespaces`            | `10000`                                 | [Namespaces](/fallen-8-core/namespaces/)                   |
 | `Fallen8:Security:ApiKey`                     | `null` (open)                           | [Security](/fallen-8-core/security/)                       |
 | `Fallen8:Security:EnableDynamicPluginLoading` | `true` (per-namespace overridable)      | [Plugin registration](/fallen-8-core/plugin-registration/) |
+| `Fallen8:Security:AllowedCorsOrigins`         | `[]` (deny all cross-origin)            | [Standalone F8 Studio](/fallen-8-core/standalone-ui/)      |
+| `Fallen8:Security:BenchmarkMaxIterations`     | `10000`                                 | [Benchmark](/fallen-8-core/benchmark/)                     |
 | `Fallen8:Embedding:Enabled`                   | `false` (bare run)                      | [Semantic traversal](/fallen-8-core/semantic-traversal/)   |
+| `Fallen8:Chat:Enabled`                        | `false` (bare run)                      | [F8 Studio](/fallen-8-core/studio/)                        |
+| `Fallen8:Ingestion:Enabled`                   | `false` (bare run)                      | [Semantic layer](/fallen-8-core/unstructured-ingestion/)   |
+| `Fallen8:Nlp:Enabled`                         | `false` (bare run)                      | [Semantic layer](/fallen-8-core/unstructured-ingestion/)   |
 | `Fallen8:ChangeFeed:Enabled`                  | `true`                                  | [Change feed](/fallen-8-core/change-feed/)                 |
-| `Fallen8:Analytics:DefaultTimeBudgetSeconds`  | `30`                                    | [Graph analytics](/fallen-8-core/graph-analytics/)         |
+| `Fallen8:BulkIO:ImportBatchSize`              | `10000`                                 | [Bulk import/export](/fallen-8-core/bulk-import-export/)   |
+| `Fallen8:Analytics:DefaultTimeBudgetSeconds`  | `30` (max `300`)                        | [Graph analytics](/fallen-8-core/graph-analytics/)         |
 | `Fallen8:Observability:Prometheus:Enabled`    | `false`                                 | [Observability](/fallen-8-core/observability/)             |
+| `Fallen8:Observability:Otlp:Endpoint`         | `null` (no push)                        | [Observability](/fallen-8-core/observability/)             |
 
-`Volatile=true` disables all disk writes (no WAL, no checkpoints) — the fastest way to run a
+`Volatile=true` disables all disk writes (no WAL, no checkpoints): the fastest way to run a
 throwaway instance for a demo or a test.
+
+These are the defaults a bare run gets. The compose environment overrides several of them:
+`Metadata:Directory` becomes `/data/metadata` (it does not follow `StorageDirectory`, so both are
+set explicitly to keep graph data and the save-game registry on one volume), and `Otlp:Endpoint`
+points at the in-network collector, so metrics, traces and logs export from the first boot without
+you enabling anything.
 
 ## GPU acceleration
 
-`npm run env:up` auto-detects an NVIDIA GPU (`nvidia-smi` present) and gives the sidecar the
-GPU; otherwise it runs CPU-only. Force it with `F8_GPU`:
+`npm run env:up` auto-detects an NVIDIA GPU (`nvidia-smi` present) and hands it to the two
+containers that can use one: Ollama runs assist inference accelerated, and the NLP sidecar swaps to
+the `en_core_web_trf` transformer model on the device instead of `en_core_web_lg` on the CPU.
+Otherwise everything runs CPU-only. That model is baked in at build time, so flipping `F8_GPU`
+rebuilds the `nlp` image (transformer weights plus the CUDA extras): the first `env:up` after the
+switch is slow. Force it with `F8_GPU`:
 
 ```bash
 F8_GPU=0 npm run env:up   # CPU-only even if a GPU is present
@@ -199,7 +264,7 @@ F8_GPU=1 npm run env:up   # require the GPU (fails to create the container if un
 
 The GPU reaches the container through the NVIDIA Container Toolkit, installed where the
 Docker engine runs. On **Docker Desktop (WSL2 backend)** install the current NVIDIA driver on
-Windows and confirm `nvidia-smi` works inside WSL — the backend then exposes the GPU
+Windows and confirm `nvidia-smi` works inside WSL: the backend then exposes the GPU
 automatically. For **Docker running natively in a Linux distro** install
 `nvidia-container-toolkit` and `sudo nvidia-ctk runtime configure --runtime=docker`. Verify
 the GPU reaches a container before `env:up`:
@@ -209,13 +274,17 @@ docker run --rm --gpus all --entrypoint nvidia-smi ollama/ollama:latest   # shou
 ```
 
 If that fails the GPU is not exposed to Docker; the stack still runs CPU-only with `F8_GPU=0`.
-AMD GPUs need the `ollama/ollama:rocm` image and are not covered by this compose.
+AMD GPUs are not covered by this compose: Ollama would need the `ollama/ollama:rocm` image, and the
+NLP sidecar's transformer tier assumes CUDA, so an AMD host also stays on the CPU `en_core_web_lg`
+model.
 
 ## See also
 
-- [Architecture](/fallen-8-core/architecture/) — how the container, engine, and sidecar fit together
-- [Security](/fallen-8-core/security/) — the API key you set at launch
-- [Studio](/fallen-8-core/studio/) — the browser UI this serves
-- [Save games](/fallen-8-core/save-games/) — where durable data lives and how startup loads it
-- [REST API](/fallen-8-core/rest-api/) — OpenAPI/Scalar (Development only) and the endpoint map
-- [Troubleshooting](/fallen-8-core/troubleshooting/) — first-start model pulls, GPU, and other snags
+- [Architecture](/fallen-8-core/architecture/): how the containers, engine and sidecars fit together
+- [Security](/fallen-8-core/security/): the API key you set at launch
+- [Studio](/fallen-8-core/studio/): the browser UI this serves
+- [MCP server](/fallen-8-core/mcp-server/): the agent surface on `:8090` and how to secure it
+- [Observability](/fallen-8-core/observability/): the Grafana pane and the fleet identity knobs
+- [Save games](/fallen-8-core/save-games/): where durable data lives and how startup loads it
+- [REST API](/fallen-8-core/rest-api/): OpenAPI/Scalar (Development only) and the endpoint map
+- [Troubleshooting](/fallen-8-core/troubleshooting/): first-start model pulls, GPU, and other snags
