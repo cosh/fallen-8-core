@@ -35,8 +35,8 @@ const SRC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 /**
  * The bearer auth arm (feature studio-embeddable): the token comes from a host-supplied
  * async provider and resolves per request at the transport choke points. The sync
- * authHeaders deliberately yields nothing for it, so a future sync call site cannot leak
- * an unauthenticated request path silently succeeding with the wrong credential shape.
+ * authHeaders THROWS for it, so a call site that forgets resolveAuthHeaders fails loudly
+ * instead of silently sending an unauthenticated request.
  */
 
 function bearerInstance(getToken: () => Promise<string>): InstanceConfig {

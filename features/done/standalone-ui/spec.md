@@ -126,11 +126,14 @@ design; the reconciler is the `merge`):
   resolving to null and breaking the app. The merge is the mechanism that makes "always present" and
   "re-synced every load" true; `partialize` alone does not.
 - **A runtime (in-memory) delete-guard on the managed default is required.** The managed default lives
-  in the in-memory `instances` array, so `removeInstance` (`registry.ts:105-111`) can delete it
-  regardless of what is persisted. Guard it at the store level, AND disable Remove for the managed
-  record specifically in the UI (`disabled={instance.id === SAME_ORIGIN_INSTANCE.id || instances.length === 1}`,
-  extending the existing `length===1` guard at `ConnectScreen.tsx:193`) so the button is not an
-  actionable-looking no-op once a personal instance exists.
+  in the in-memory `instances` array, so `removeInstance` can delete it regardless of what is
+  persisted. Guard it at the store level, AND disable Remove for the managed record specifically in
+  the UI (extending the existing `length===1` guard on the Connect screen) so the button is not an
+  actionable-looking no-op once a personal instance exists. (Both guards now key on
+  `isManagedInstance` rather than a literal `id === "local"` test: feature
+  [studio-embeddable](../../open/studio-embeddable/) generalized the single managed default into
+  host-suppliable managed instances, keeping `"local"` reserved. `registry.ts` carries the living
+  explanation.)
 - **Legacy blobs upgrade transparently, no `version`/`migrate` needed.** The custom `merge` filters
   any persisted managed (`local`) record and re-injects the synthesized one, and `partialize` stops
   persisting it on the next write, so a returning user's stale `local` record is dropped without a

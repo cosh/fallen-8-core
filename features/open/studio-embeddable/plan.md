@@ -4,7 +4,7 @@ Phased so each step is independently shippable and keeps the standalone app beha
 (default `StudioConfig` == today). Phases 1-5 are pure front-end seams; Phase 6 is packaging and only
 lands when a host consumer exists. No engine or API changes are required.
 
-## Phase 1 - Mount seam & config boundary
+## Phase 1 - Mount seam & config boundary (landed)
 
 - Add `src/app/mount.tsx` exporting `mountStudio(el, config?)` and `<F8Studio config?>`. Move the
   provider tree (QueryClient + RouterProvider) here.
@@ -15,7 +15,7 @@ lands when a host consumer exists. No engine or API changes are required.
 - **Verify:** existing tests green; add a test that `mountStudio(el)` renders the shell and seeds
   `SAME_ORIGIN_INSTANCE` exactly as `main.tsx` did.
 
-## Phase 2 - Instance, credential & namespace injection
+## Phase 2 - Instance, credential & namespace injection (landed)
 
 - Registry (`src/instances/registry.ts`) initializes from `StudioConfig.instances ?? [SAME_ORIGIN_INSTANCE]`
   and `activeInstanceId`. `lockInstances` hides the add/remove/connect affordances **and** the
@@ -43,7 +43,7 @@ lands when a host consumer exists. No engine or API changes are required.
   isolation across sequential mounts (workspace drafts, NL-assist config incl. its api key,
   first-run dismissals, active namespace).
 
-## Phase 3 - Router basepath
+## Phase 3 - Router basepath (landed)
 
 - Thread `config.basepath` into `createRouter` (`src/app/routes.tsx`); default `""` (root, as today).
 - Support `history: "memory"` when the host owns the address bar.
@@ -51,7 +51,7 @@ lands when a host consumer exists. No engine or API changes are required.
   basepath, that a navigation resolves under it (prefix applied at the history layer, route matched
   back, host address bar untouched), and that a legacy-path redirect stays inside it.
 
-## Phase 4 - CSS scoping & theming
+## Phase 4 - CSS scoping & theming (landed)
 
 - Wrap Studio content in a `.f8-studio` root container; scope the generic-named
   `.panel/.btn/.input/...` primitives under it with `:where(.f8-studio)` (zero specificity
@@ -73,7 +73,7 @@ lands when a host consumer exists. No engine or API changes are required.
   committed baseline - identical but for the rendered "created" date, so the standalone rendering is
   unchanged and the committed screenshots stand.
 
-## Phase 5 - Canvas component export
+## Phase 5 - Canvas component export (landed)
 
 - Freeze the `GraphCanvas` prop contract (`CanvasNode`, `CanvasEdge`, `StyleConfig`, `ElementRef`)
   as public API and export it as `F8GraphCanvas`; the component already has no store or query
@@ -92,8 +92,15 @@ lands when a host consumer exists. No engine or API changes are required.
   global preflight; see Phase 4).
 - Add the `nlAssist` StudioConfig field and its transport wiring so the host can proxy or
   disable LLM calls.
+- **The discoverability and architecture gates fire with this phase, not before.** Packaging is the
+  point at which there is something a reader can consume, so it carries: a docs-site page under
+  `docs/src/content/docs/` registered in the astro sidebar, a one-line entry in the root README
+  "Key features" list linking its published page, and a pass over both architecture diagrams (root
+  README + `docs/src/content/docs/architecture.md`) to add the "Studio embedded in a host portal"
+  client shape. Until then there is deliberately no page and no README entry (see the sweep in the
+  spec).
 - **Verify:** standalone `build:apiapp` output unchanged; a smoke test mounts the library build into a
-  bare host page.
+  bare host page; docs site builds with no broken internal link.
 
 ## Test strategy
 

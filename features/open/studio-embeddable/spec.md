@@ -92,7 +92,9 @@ interface StudioConfig {
   storageNamespace?: string;           // prefix for localStorage keys (default "")
   theme?: Partial<ThemeTokens>;        // override surfaces, semantic accents, type (defaults: today's)
   queryClient?: QueryClient;           // reuse the host's client (default: Studio's own)
-  nlAssist?: "disabled" | "direct" | { transport: NlTransport };  // default "direct"
+  // NOT YET IMPLEMENTED - lands with packaging (see plan phase 6); today NL-assist is always
+  // the standalone "direct" behavior:
+  nlAssist?: "disabled" | "direct" | { transport: NlTransport };
 }
 
 export function mountStudio(el: HTMLElement, config?: StudioConfig): { unmount(): void };
@@ -201,6 +203,83 @@ from an instance) without mounting all of Studio.
 - **No new build artifact until needed.** The vite library-mode build (packaging phase) ships only
   when a host actually consumes the package; until then the mount API exists but the standalone
   build is the only artifact produced by CI.
+
+## Impact on existing features
+
+The change set is confined to `fallen-8-web-ui/` plus this feature's own spec and plan
+(`git diff main...HEAD --name-only`), and every seam is inert under the default config, so what
+siblings see is a code-contract change, not a behavior change in the standalone app.
+
+- **[standalone-ui](../../done/standalone-ui/)** - its config.js seam generalizes: `managedInstances()`
+  returns the host's `StudioConfig.instances` when there are any and the `configuredApiUrl()`-seeded
+  same-origin default otherwise, and `isManagedInstance()` replaces the `id === "local"` test in the
+  store's delete guard and in the Connect screen's Remove button. `"local"` stays reserved
+  unconditionally, so a legacy whole-state blob cannot resurrect it as a personal instance under a host
+  config. The partialize/merge contract is preserved (managed never persisted, personal instances and
+  `activeNamespaces` untouched, `namespaceSupport` still dropped) with two additions: the persisted key
+  runs through `storageKey()`, and `merge` derives every persisted field from storage plus config alone,
+  because the store now skips its import-time hydration. Doc: the user-facing
+  `docs/src/content/docs/standalone-ui.mdx` stays true (the managed default is still synthesized per
+  load, un-removable and credential-free), so no edit there; the Remove-guard snippet quoted in
+  `standalone-ui/spec.md` section 3 was corrected to the `isManagedInstance` form, with `registry.ts`
+  carrying the living explanation.
+- **[graph-namespaces](../../done/graph-namespaces/)** - the registry `merge` gains namespace precedence
+  for managed instances (the `namespace` pin seeds an instance nothing is remembered for, a remembered
+  choice wins otherwise, `lockNamespace` forces the pin), and the 404 recover state in `NamespaceScope`
+  hides its switch-to-default button under `lockNamespace` while Recreate stays. Workspace store keys
+  keep their `<instanceId>/<ns>` shape and only gain the prefix; the event-feed buffers are in-memory and
+  untouched. Doc: its README's F8 Studio section describes the unlocked UI, which is unchanged, and the
+  locks are explained once here, so no edit.
+- **[web-ui](../../done/web-ui/)** - `InstanceAuth` gains the `bearer` arm; `authHeaders` throws for it
+  and `resolveAuthHeaders` is the one function transport sites call (`apiRequest`, `apiForm`, the bulk
+  export/import raw fetches of [bulk-import-export](../../done/bulk-import-export/), and the change-feed
+  stream), with byte-identical headers for `none`/`apiKey`. `AppShell` renders a static label instead of
+  the instance or namespace switcher under the locks; the Connect screen hides register/edit/remove,
+  disables the activation radios and lists only managed instances under `lockInstances`, and stays
+  reachable. The per-instance workspace stores take the storage prefix and are dropped from the memo map
+  on every mount. Doc: `docs/src/content/docs/studio.md` describes the standalone Connect screen and top
+  bar, both unchanged, so no edit. Screenshots: none affected, the phase 4 check recaptured
+  `docs/src/assets/images/screen-connect.png` against a live apiApp and it matched the committed baseline
+  except for the rendered date.
+- **[change-feed](../../done/change-feed/)** - `streamChanges` resolves the credential before the connect
+  attempt and closes `fatal` when a host token provider rejects, instead of retrying with backoff
+  forever. `none`/`apiKey` never reach that path and `fatal` already meant "a non-retryable client error
+  (400 bad filter, 401/403 auth)", so the standalone reconnect behavior is unchanged. Doc: no edit (its
+  README owns the wire contract and the client recipe, not the SPA's close reasons).
+- **[studio-first-run](../../done/studio-first-run/), [nl-assist-ux](../../done/nl-assist-ux/) and
+  [instance-config](../../done/instance-config/)** - `f8.first-run` and `f8.nl-assist` route through
+  `storageKey()`, skip their import-time hydration and gain a merge that derives their persisted fields
+  from storage alone. The dismissal-per-`<instanceId>/<ns>` shape and the version-2 `builtin` to
+  `instance` migration are untouched and the default prefix is empty, so the standalone stores behave
+  exactly as before. The consequence a host must know: an embed with its own `storageNamespace` starts
+  from the default NL-assist config (the browser-held `apiKey` included) and no dismissals, and neither
+  inherits nor overwrites the standalone user's. Docs: no edit (all three describe what persists, not the
+  key name).
+- **Radix overlays across features** - the delegate editor, the Events panel
+  ([studio-event-feed](../../done/studio-event-feed/)), the stored-query save dialog, the shared
+  typed-name `ConfirmDialog`, the observability overlay and the first-run overlay now portal into the
+  Studio root when a mount supplies one. Without a provider Radix still falls back to `document.body`, so
+  standalone stacking and the single-home modal z-order in `index.css` are unchanged. Docs: no edit.
+
+Explicitly **not** affected, verified against the diff:
+
+- **Engine (`fallen-8-core`), the REST contract and the OpenAPI snapshot
+  (`features/done/web-ui/openapi-v0.1.json`)**: no .NET file and no route changes, so the snapshot is not
+  regenerated and the OpenAPI snapshot test stays green.
+- **MCP (`fallen-8-mcp`)**: no new or changed REST operation, so the engine to REST to MCP propagation
+  rule is not triggered and `McpRestCoverageTest`/`McpContractTest` stay green.
+- **NL-assist fine-tune dataset and eval (`nl-assist-finetune/`)**: no `RETRAIN-LOG.md` entry. That log
+  keys on the delegate-fragment surface the model drafts against, and no delegate kind, `type-model.json`
+  entry, snippet or prompt changes here: `delegate/nl/prompt.ts` and `NlAssistPanel.tsx` are untouched and
+  only `nl/config.ts`'s persistence plumbing moves.
+- **Samples, stored queries and persisted recipes**: `samples/` is untouched, stored queries live
+  server-side, and no persisted client payload shape changes, only the key name an embed writes under.
+- **CI, compose and the deployables**: no workflow, Dockerfile or compose change, because the library
+  artifact is the packaging phase and the standalone SPA build stays the only CI output.
+- **Architecture diagrams (root `README.md` and
+  [`architecture.md`](../../../docs/src/content/docs/architecture.md))**: no new channel, deployable or
+  layer ships while packaging is deferred, so both stay current. The docs-site page and the README key
+  features entry for the embed surface land with that phase, when there is something a reader can consume.
 
 ## Behavior-preservation contract
 
