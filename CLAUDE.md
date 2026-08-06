@@ -151,6 +151,9 @@ dotnet run --project fallen-8-core-apiApp
 Feature docs are split by status: `features/open/<name>/` for work not yet implemented
 (spec/plan only), `features/done/<name>/` once it is implemented and merged. A new feature
 starts under `features/open/`; move its directory to `features/done/` when it lands.
+`features/open/` means **pending work only** — a feature that gets superseded or abandoned
+also moves to `features/done/`, with its spec's status line saying so and stating that nothing
+was implemented (see [features/done/multi-instance-host/](features/done/multi-instance-host/)).
 
 Every non-trivial feature follows the same lifecycle so work is visible and reviewable:
 

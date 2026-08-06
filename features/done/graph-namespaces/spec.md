@@ -2,7 +2,7 @@
 
 Status: implemented (2026-07-23; historical design record — the living doc is
 [README.md](./README.md)). Supersedes
-[multi-instance-host](../../open/multi-instance-host/) (decided 2026-07-23). Related:
+[multi-instance-host](../multi-instance-host/) (decided 2026-07-23). Related:
 [save-games](../save-games/), [hosted-durability-lifecycle](../hosted-durability-lifecycle/),
 [crash-durability-hardening](../crash-durability-hardening/), [web-ui](../web-ui/),
 [api-error-envelope](../../open/api-error-envelope/), [studio-embeddable](../../open/studio-embeddable/).
@@ -269,7 +269,7 @@ All Studio work lives in `fallen-8-web-ui/` (in-repo).
 
 | Feature / asset | Impact |
 |---|---|
-| [multi-instance-host](../../open/multi-instance-host/) (open) | **Superseded** — status updated in its spec; auth would be re-specced from scratch (revisit trigger: untrusted caller). |
+| [multi-instance-host](../multi-instance-host/) | **Superseded** — status updated in its spec; auth would be re-specced from scratch (revisit trigger: untrusted caller). |
 | [save-games](../save-games/) | Registry schema v2 (per-namespace manifest, 1..n members), per-namespace + all saves, entry-driven and single-namespace restore, v1 entries read as default-only. save-games has no README; the registry semantics live in this feature's README (the living doc). |
 | [hosted-durability-lifecycle](../hosted-durability-lifecycle/), [crash-durability-hardening](../crash-durability-hardening/) | Lifecycle service generalizes to the catalog (per-namespace newest-entry boot, `/save/all` on shutdown); per-namespace WAL dirs; `default` keeps legacy paths (zero-migration upgrade). |
 | OpenAPI snapshot (`features/done/web-ui/openapi-v0.1.json`) | ~2× paths (twins) + `/ns` CRUD + `…/all` endpoints; regenerate + review. Consumed by the web-ui contract test and the [mcp-server](../../open/mcp-server/) spec — both flagged. |

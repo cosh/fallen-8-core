@@ -113,6 +113,6 @@ rename, switch, typed-name drop); Save games and Benchmark stay Fallen-8-level a
 Each namespace owns a dedicated writer thread, an open WAL (durable mode), and metric
 instruments — the 10,000 quota is a cap, not a target; realistic fleets are dozens to
 hundreds (engine-side pooling is the revisit trigger for more). No auth (superseded
-[multi-instance-host](../../open/multi-instance-host/) territory; re-spec on an untrusted caller),
+[multi-instance-host](../multi-instance-host/) territory; re-spec on an untrusted caller),
 no cross-namespace queries, no lazy engine loading, no async provisioning (`state` is always
 `ready` in v1).

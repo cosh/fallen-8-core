@@ -1,13 +1,15 @@
 # Multi-instance host — one HTTP endpoint, many F8 instances, per-instance auth
 
-Status: **superseded** (2026-07-23) by [graph-namespaces](../../done/graph-namespaces/). Namespaces deliver
+Status: **superseded** (2026-07-23) by [graph-namespaces](../graph-namespaces/); **none of it was
+ever implemented**. It lives under `features/done/` because it is no longer pending work, not
+because it shipped. Namespaces deliver
 the hosting seam this spec designed — an engine registry, request-scoped `IFallen8` resolution, and
 namespace-addressed routes — keyed by **name** instead of GUID and without the auth layer. The OIDC /
 grant-store design below is kept as a historical reference only; if per-caller authorization is ever
 needed it will be re-specced from scratch on top of namespaces (revisit trigger: an untrusted caller
-or tenant appears). Original relations: [api-security-boundary](../../done/api-security-boundary/),
-[hosted-durability-lifecycle](../../done/hosted-durability-lifecycle/), [studio-embeddable](../studio-embeddable/),
-[agent-host](../agent-host/), [mcp-server](../mcp-server/).
+or tenant appears). Original relations: [api-security-boundary](../api-security-boundary/),
+[hosted-durability-lifecycle](../hosted-durability-lifecycle/), [studio-embeddable](../../open/studio-embeddable/),
+[agent-host](../../open/agent-host/), [mcp-server](../mcp-server/).
 
 ## Vision
 
@@ -287,7 +289,7 @@ flowchart LR
 - **Single-instance mode stays the default deployment**: with multi-tenancy off, the host runs exactly
   one instance and requires no prefix (a "default instance" the middleware supplies when the prefix is
   absent), so the current self-hosted server and its URLs keep working byte-for-byte.
-- [studio-embeddable](../studio-embeddable/) already models the client side: its `InstanceConfig`
+- [studio-embeddable](../../open/studio-embeddable/) already models the client side: its `InstanceConfig`
   carries a per-instance base URL + auth. In SaaS mode a Studio embed points at
   `https://host/i/{guid}` with the tenant's token — the UI is already instance-shaped.
 

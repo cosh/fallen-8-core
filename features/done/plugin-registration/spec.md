@@ -454,7 +454,7 @@ Arrange/act/assert, `TestLoggerFactory.Create()`, behaviour-pinning over happy p
   unchanged (§8.8). `SaveGameRegistry`'s "available plugins" lists union registered plugins (§4.4).
 - **`graph-analytics` / `subgraph` / path.** Their resolution now consults the registry first; the
   `algorithm`/`pathAlgorithmName` fields accept a registered name transparently. Docs note it.
-- **`multi-instance-host` (open).** Its "shared plugin directory" sharp edge dissolves — the DLL path
+- **`multi-instance-host` (since superseded).** Its "shared plugin directory" sharp edge dissolves — the DLL path
   and shared upload directory are gone; registered plugins are per-namespace registry state. Note the
   interaction in that spec.
 
