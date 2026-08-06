@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { apiForm, apiRequest, authHeaders, buildUrl, scopedPath, throwIfNotOk } from "./client";
+import { apiForm, apiRequest, buildUrl, resolveAuthHeaders, scopedPath, throwIfNotOk } from "./client";
 import type { InstanceConfig } from "../instances/types";
 import type {
   AnalyticsResultREST,
@@ -238,7 +238,7 @@ export async function exportBulk(
     edgeLabel: filters?.edgeLabel,
     edgePropertyId: filters?.edgePropertyId,
   });
-  const response = await fetch(url, { headers: authHeaders(i), signal });
+  const response = await fetch(url, { headers: await resolveAuthHeaders(i), signal });
   await throwIfNotOk(response, url);
   return await response.blob();
 }
@@ -251,7 +251,7 @@ export async function importBulk(
   const url = buildUrl(i.baseUrl, scopedPath(i, "/bulk/import"), undefined);
   const response = await fetch(url, {
     method: "POST",
-    headers: { ...authHeaders(i), "Content-Type": "application/x-ndjson" },
+    headers: { ...(await resolveAuthHeaders(i)), "Content-Type": "application/x-ndjson" },
     body: file,
   });
   await throwIfNotOk(response, url);

@@ -30,6 +30,7 @@ import { useRegistry, useActiveInstance, DEFAULT_NAMESPACE } from "../instances/
 import { listNamespaces, createNamespace } from "../api/endpoints";
 import { purgeInstanceStore } from "../state/instanceStore";
 import { bumpFeedGeneration } from "../state/liveFeed";
+import { useStudioConfig } from "./studioConfig";
 
 /**
  * Layout under /q/$ns/… (feature graph-namespaces): keeps the registry's active namespace
@@ -43,6 +44,7 @@ export function NamespaceScope() {
   const setActiveNamespace = useRegistry((s) => s.setActiveNamespace);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { lockNamespace } = useStudioConfig();
 
   useEffect(() => {
     if (instance) setActiveNamespace(instance.id, ns);
@@ -89,16 +91,20 @@ export function NamespaceScope() {
           >
             Recreate “{ns}” (empty)
           </button>
-          <button
-            type="button"
-            data-testid="namespace-recover-switch"
-            className="btn"
-            onClick={() =>
-              navigate({ to: "/q/$ns/dashboard", params: { ns: DEFAULT_NAMESPACE } })
-            }
-          >
-            Switch to “{DEFAULT_NAMESPACE}”
-          </button>
+          {/* Not offered when the embed is pinned to one namespace (feature
+              studio-embeddable): switching away is exactly what lockNamespace hides. */}
+          {!lockNamespace && (
+            <button
+              type="button"
+              data-testid="namespace-recover-switch"
+              className="btn"
+              onClick={() =>
+                navigate({ to: "/q/$ns/dashboard", params: { ns: DEFAULT_NAMESPACE } })
+              }
+            >
+              Switch to “{DEFAULT_NAMESPACE}”
+            </button>
+          )}
         </div>
       </div>
     );

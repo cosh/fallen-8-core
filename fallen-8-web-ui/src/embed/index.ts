@@ -1,6 +1,6 @@
 // MIT License
 //
-// main.tsx
+// index.ts
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -23,8 +23,20 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// The standalone entry: mountStudio with no config IS today's bootstrap (feature
-// studio-embeddable); the provider tree lives in app/mount.tsx.
-import { mountStudio } from "./app/mount";
+/**
+ * The host-facing export surface (feature studio-embeddable). What a host may import is
+ * exactly what is re-exported here - the packaging phase turns this module into the library
+ * entry point, so anything not on this list is internal. Spec:
+ * features/open/studio-embeddable/spec.md.
+ */
 
-mountStudio(document.getElementById("root")!);
+export { mountStudio, F8Studio } from "../app/mount";
+export type { StudioConfig, ThemeTokens } from "../app/studioConfig";
+export type { InstanceAuth, InstanceConfig } from "../instances/types";
+
+export { F8GraphCanvas, type F8GraphCanvasProps } from "./F8GraphCanvas";
+export type { ElementRef } from "../canvas/GraphCanvas";
+export { DEFAULT_STYLE_CONFIG } from "../canvas/styleConfig";
+export type { StyleConfig } from "../canvas/styleConfig";
+export type { CanvasEdge, CanvasNode } from "../state/instanceStore";
+export type { PathREST } from "../api/types";

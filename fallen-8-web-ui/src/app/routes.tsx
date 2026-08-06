@@ -24,12 +24,14 @@
 // SOFTWARE.
 
 import {
+  createMemoryHistory,
   createRootRoute,
   createRoute,
   createRouter,
   redirect,
   Outlet,
 } from "@tanstack/react-router";
+import type { StudioConfig } from "./studioConfig";
 import { AppShell } from "./AppShell";
 import { NamespaceScope } from "./NamespaceScope";
 import { useRegistry, DEFAULT_NAMESPACE } from "../instances/registry";
@@ -231,7 +233,23 @@ const routeTree = rootRoute.addChildren([
   ...legacyRedirectRoutes,
 ]);
 
-export const router = createRouter({ routeTree });
+/**
+ * The router, parameterized by the embed seams (feature studio-embeddable): `basepath`
+ * mounts every route under the host's prefix (default "": root, as standalone), and
+ * `history: "memory"` keeps Studio out of the address bar when the host owns the URL.
+ */
+export function createStudioRouter(
+  config: Pick<StudioConfig, "basepath" | "history"> = {},
+) {
+  return createRouter({
+    routeTree,
+    basepath: config.basepath ?? "",
+    history: config.history === "memory" ? createMemoryHistory() : undefined,
+  });
+}
+
+/** The standalone router: root basepath, browser history - exactly the pre-seam behavior. */
+export const router = createStudioRouter();
 
 declare module "@tanstack/react-router" {
   interface Register {

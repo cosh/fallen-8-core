@@ -38,6 +38,7 @@ import type { DelegateDiagnostic, DelegateKind, DelegateValidationResult } from 
 import type { InstanceConfig } from "../instances/types";
 import { Truncated } from "../components/Truncated";
 import { NlAssistPanel } from "./nl/NlAssistPanel";
+import { usePortalContainer } from "../app/studioConfig";
 
 setupMonaco();
 
@@ -75,6 +76,7 @@ export function DelegateEditor({
     initialFragment.trim() === "" ? info.openingSnippet : initialFragment,
   );
   const [validation, setValidation] = useState<ValidationState>({ phase: "idle" });
+  const portalContainer = usePortalContainer();
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
   const disposeProviders = useRef<(() => void) | null>(null);
@@ -175,7 +177,7 @@ export function DelegateEditor({
 
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onCancel()}>
-      <Dialog.Portal>
+      <Dialog.Portal container={portalContainer}>
         <Dialog.Overlay className="modal-overlay" />
         {/* Centered via inset+m-auto, NOT translate: a transform here would become the
             containing block for Monaco's fixedOverflowWidgets (suggest/hover), shifting

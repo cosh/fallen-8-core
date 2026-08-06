@@ -52,20 +52,36 @@ body,
   height: 100%;
 }
 
+/* Standalone page chrome only (paints the overscroll area). Every other visual default
+   lives on .f8-studio, the scope root the mount seam wraps the app in (feature
+   studio-embeddable) - so an embedded Studio styles its own subtree, never the host page. */
 body {
-  @apply bg-ink text-fg font-mono text-[13px] antialiased;
+  @apply bg-ink;
 }
 
-::selection {
+/* The Studio scope root: what `body` used to carry. The standalone mount wraps #root's
+   content in it, so the rendering is unchanged; theme token overrides land here as inline
+   CSS variables (see app/studioConfig.ts themeStyle). */
+.f8-studio {
+  @apply bg-ink text-fg font-mono text-[13px] antialiased;
+  height: 100%;
+}
+
+.f8-studio ::selection {
   background: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
-/* Shared primitives used across screens */
-.panel {
+/* Shared primitives used across screens. Scoped under .f8-studio because their names are
+   generic enough to collide with a host page's classes when embedded; :where() keeps the
+   specificity identical to the bare class, so the cascade is unchanged standalone. The
+   first-run (.f8fr-*) and .eclipse-highlight families below are already namespaced by
+   name and stay unscoped. Radix portals render INTO the scope root (PortalContainerContext),
+   so modal content keeps matching these. */
+:where(.f8-studio) .panel {
   @apply border-line bg-panel rounded-md border;
 }
 
-.panel-title {
+:where(.f8-studio) .panel-title {
   @apply text-fg-dim border-line flex items-center gap-2 border-b px-3 py-2 text-[11px] font-semibold tracking-widest uppercase;
 }
 
@@ -73,44 +89,44 @@ body {
    (`.scroll-list thead th`, z-index 1) that otherwise bleed through the panel. This is the one
    home for the modal stacking order: scrim at z-40, panel at z-50. Every `Dialog.Overlay` uses
    `.modal-overlay`; a centered dialog adds `.modal-center` alongside `.panel` on its content. */
-.modal-overlay {
+:where(.f8-studio) .modal-overlay {
   @apply fixed inset-0 z-40 bg-black/60;
 }
-.modal-center {
+:where(.f8-studio) .modal-center {
   @apply fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2;
 }
 /* A dialog docked to the right edge (the Events panel): same scrim and z-order, the
    panel's rounding/border flattened where it meets the viewport edge. */
-.modal-right {
+:where(.f8-studio) .modal-right {
   @apply fixed inset-y-0 right-0 z-50 w-[min(420px,92vw)] rounded-none border-y-0 border-r-0;
 }
 
-.btn {
+:where(.f8-studio) .btn {
   @apply border-line bg-panel-2 text-fg hover:border-fg-faint inline-flex cursor-pointer items-center gap-1.5 rounded border px-2.5 py-1 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-40;
 }
 
-.btn-accent {
+:where(.f8-studio) .btn-accent {
   @apply border-accent/40 text-accent hover:border-accent;
 }
 
-.btn-danger {
+:where(.f8-studio) .btn-danger {
   @apply border-danger/40 text-danger hover:border-danger;
 }
 
-.input {
+:where(.f8-studio) .input {
   @apply border-line bg-ink text-fg placeholder:text-fg-faint focus:border-accent-2 w-full rounded border px-2 py-1 text-[12px] outline-none;
 }
 
-.label {
+:where(.f8-studio) .label {
   @apply text-fg-dim mb-1 block text-[11px] tracking-wider uppercase;
 }
 
 /* Hover-help affordance on field labels: the explanation is in the wrapper's title. */
-.label-help {
+:where(.f8-studio) .label-help {
   @apply cursor-help underline decoration-fg-faint/60 decoration-dotted underline-offset-4;
 }
 
-.table-cell {
+:where(.f8-studio) .table-cell {
   @apply border-line border-b px-2.5 py-1.5 text-left align-top;
 }
 
@@ -123,11 +139,11 @@ body {
    Because it is a max-height, a list SHORTER than N rows shrinks to fit and shows no scrollbar;
    only a longer one caps here and scrolls. No rows are hidden (the only ceiling is LIST_MAX_ROWS).
    The `+ 1` leaves room for the sticky header so about N DATA rows show before scrolling. */
-.scroll-list {
+:where(.f8-studio) .scroll-list {
   @apply overflow-auto;
   max-height: calc((var(--scroll-rows, 12) + 1) * var(--scroll-row-h, 2.5rem));
 }
-.scroll-list thead th {
+:where(.f8-studio) .scroll-list thead th {
   position: sticky;
   top: 0;
   z-index: 1;

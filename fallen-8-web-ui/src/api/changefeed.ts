@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { ApiError, authHeaders, buildUrl, scopedPath } from "./client";
+import { ApiError, buildUrl, resolveAuthHeaders, scopedPath } from "./client";
 import type { InstanceConfig } from "../instances/types";
 
 /**
@@ -279,12 +279,21 @@ export async function streamChanges(
       buildChangeFeedQuery(options.filter, lastId),
     );
 
+    // Resolved OUTSIDE the connect try: a host token provider that rejects (expired
+    // session, revoked grant) will not fix itself, so it must not become a retried
+    // connection error - that would re-invoke the host callback every backoff round forever.
+    let headers: Record<string, string>;
+    try {
+      headers = { ...(await resolveAuthHeaders(instance)), Accept: "text/event-stream" };
+    } catch (error) {
+      if (signal.aborted) return close("aborted");
+      options.onError?.(error);
+      return close("fatal");
+    }
+
     let response: Response | null = null;
     try {
-      response = await fetch(url, {
-        headers: { ...authHeaders(instance), Accept: "text/event-stream" },
-        signal,
-      });
+      response = await fetch(url, { headers, signal });
     } catch (error) {
       if (signal.aborted) return close("aborted");
       options.onError?.(error); // network failure: retry with backoff below

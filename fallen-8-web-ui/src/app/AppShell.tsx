@@ -46,6 +46,7 @@ import { useFirstRun } from "../firstrun/firstRunStore";
 import { help } from "../lib/fieldHelp";
 import { DOCS_BASE } from "../lib/sectionHelp";
 import { NAV, type NavItem } from "./nav";
+import { useStudioConfig } from "./studioConfig";
 
 /**
  * Connection state of the ACTIVE instance, shared by the health chip and the nav gate.
@@ -128,6 +129,9 @@ function LiveChip({ status }: { status: LiveFeedStatus }) {
  * never mistaken for local and namespaces are never implicit.
  */
 export function AppShell({ children }: { children: ReactNode }) {
+  // Host-embed knobs (feature studio-embeddable): a host that owns the instance/namespace
+  // replaces the switchers with static labels. Standalone config: both false, as today.
+  const { lockInstances, lockNamespace } = useStudioConfig();
   const instances = useRegistry((s) => s.instances);
   const activeId = useRegistry((s) => s.activeId);
   const setActive = useRegistry((s) => s.setActive);
@@ -301,21 +305,30 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               instance
             </label>
-            {/* flex-1 makes the select fill the rest of the left half (.input is w-full, which
-                flex-1's basis overrides for the flex main size). */}
-            <select
-              id="instance-switcher"
-              data-testid="instance-switcher"
-              className="input min-w-0 flex-1"
-              value={activeId ?? ""}
-              onChange={(e) => switchInstance(e.target.value)}
-            >
-              {instances.map((instance) => (
-                <option key={instance.id} value={instance.id}>
-                  {instance.name}
-                </option>
-              ))}
-            </select>
+            {lockInstances ? (
+              <span
+                data-testid="instance-locked"
+                className="text-fg min-w-0 flex-1 truncate text-[12px]"
+              >
+                {active?.name ?? ""}
+              </span>
+            ) : (
+              /* flex-1 makes the select fill the rest of the left half (.input is w-full, which
+                 flex-1's basis overrides for the flex main size). */
+              <select
+                id="instance-switcher"
+                data-testid="instance-switcher"
+                className="input min-w-0 flex-1"
+                value={activeId ?? ""}
+                onChange={(e) => switchInstance(e.target.value)}
+              >
+                {instances.map((instance) => (
+                  <option key={instance.id} value={instance.id}>
+                    {instance.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="flex min-w-0 items-center gap-3">
@@ -332,13 +345,19 @@ export function AppShell({ children }: { children: ReactNode }) {
                 >
                   namespace
                 </span>
-                <NamespaceSwitcher
-                  instance={active}
-                  entries={namespaceEntries}
-                  maxNamespaces={namespaces.data?.maxNamespaces ?? null}
-                  activeNamespace={ns}
-                  onSwitch={switchNamespace}
-                />
+                {lockNamespace ? (
+                  <span data-testid="namespace-locked" className="text-fg shrink-0 text-[12px]">
+                    {ns}
+                  </span>
+                ) : (
+                  <NamespaceSwitcher
+                    instance={active}
+                    entries={namespaceEntries}
+                    maxNamespaces={namespaces.data?.maxNamespaces ?? null}
+                    activeNamespace={ns}
+                    onSwitch={switchNamespace}
+                  />
+                )}
                 <span data-testid="active-endpoint" className="text-fg-dim min-w-0 truncate text-[12px]">
                   {describeEndpoint(active)} → /ns/{ns}/*
                 </span>

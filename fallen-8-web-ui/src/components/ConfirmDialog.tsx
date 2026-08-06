@@ -26,6 +26,7 @@
 import { useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Field } from "./Field";
+import { usePortalContainer } from "../app/studioConfig";
 
 /**
  * Typed confirmation for destructive actions (FR-1d, FR-3): the dialog names the target
@@ -55,6 +56,7 @@ export function ConfirmDialog({
   extra?: ReactNode;
 }) {
   const [typed, setTyped] = useState("");
+  const portalContainer = usePortalContainer();
   // Case-insensitive, trimmed: the typed-name gate is deliberate friction, not a
   // credential, and the prompt renders the name uppercased (the .label style) — matching
   // exactly would reject the "LOCAL" a user types after reading "TYPE 'LOCAL'".
@@ -70,7 +72,7 @@ export function ConfirmDialog({
         }
       }}
     >
-      <Dialog.Portal>
+      <Dialog.Portal container={portalContainer}>
         <Dialog.Overlay className="modal-overlay" />
         <Dialog.Content className="panel modal-center w-[28rem] max-w-[90vw] p-4">
           <Dialog.Title className="text-danger wrap-break-word text-sm font-bold">{title}</Dialog.Title>
