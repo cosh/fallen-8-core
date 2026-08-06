@@ -46,6 +46,12 @@ import type { IndexCapability } from "../lib/indexCapabilities";
 import { DEFAULT_FEED_FILTER, type FeedFilterDraft } from "./feedFilter";
 import { migrateEventFeed, purgeAllEventFeeds, purgeEventFeed } from "./eventFeed";
 import { scopeKey } from "./scopeKey";
+import { storageKey } from "../app/studioConfig";
+
+/** The one place a workspace scope key becomes a persisted localStorage name. */
+function workspaceStorageName(key: string): string {
+  return storageKey(`f8.workspace.${key}`);
+}
 
 /**
  * Per-instance workspace state (FR-1c), via a memoized store factory. Each instance id
@@ -549,7 +555,7 @@ function createWorkspaceStore(instanceId: string) {
         setInspectPrefill: (inspectPrefill) => set({ inspectPrefill }),
       }),
       {
-        name: `f8.workspace.${instanceId}`,
+        name: workspaceStorageName(instanceId),
         // One-shot navigation intents are session state: persisted, a never-consumed
         // one would fire a surprise lookup on a later session's first visit.
         partialize: ({ scanPrefill: _scan, inspectPrefill: _inspect, ...rest }) => rest,
@@ -630,7 +636,7 @@ export function getInstanceStore(instanceId: string, namespace?: string): Worksp
 export function purgeInstanceStore(instanceId: string, namespace?: string): void {
   const key = scopeKey(instanceId, namespace);
   stores.delete(key);
-  localStorage.removeItem(`f8.workspace.${key}`);
+  localStorage.removeItem(workspaceStorageName(key));
   // The session-only event feed shares the workspace's blast radius: its buffered events
   // (and catch-up position) describe the graph that just went away.
   purgeEventFeed(instanceId, namespace);
@@ -644,8 +650,8 @@ export function purgeAllInstanceStores(instanceId: string): void {
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const name = localStorage.key(i);
     if (
-      name === `f8.workspace.${instanceId}` ||
-      name?.startsWith(`f8.workspace.${instanceId}/`)
+      name === workspaceStorageName(instanceId) ||
+      name?.startsWith(workspaceStorageName(`${instanceId}/`))
     ) {
       localStorage.removeItem(name);
     }
@@ -662,10 +668,10 @@ export function migrateInstanceStore(instanceId: string, from: string, to: strin
   const fromKey = scopeKey(instanceId, from);
   const toKey = scopeKey(instanceId, to);
   if (fromKey === toKey) return;
-  const persisted = localStorage.getItem(`f8.workspace.${fromKey}`);
+  const persisted = localStorage.getItem(workspaceStorageName(fromKey));
   if (persisted !== null) {
-    localStorage.setItem(`f8.workspace.${toKey}`, persisted);
-    localStorage.removeItem(`f8.workspace.${fromKey}`);
+    localStorage.setItem(workspaceStorageName(toKey), persisted);
+    localStorage.removeItem(workspaceStorageName(fromKey));
   }
   stores.delete(fromKey);
   stores.delete(toKey);

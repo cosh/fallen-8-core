@@ -122,6 +122,12 @@ export function buildUrl(
   return url;
 }
 
+/**
+ * Credential headers for the SYNCHRONOUS auth kinds (none/apiKey). A `bearer` instance
+ * (feature studio-embeddable: host-supplied async token provider) yields nothing here BY
+ * DESIGN - its token only resolves in {@link resolveAuthHeaders}, which every transport
+ * call site goes through. Do not fetch with this directly.
+ */
 export function authHeaders(instance: InstanceConfig): Record<string, string> {
   const auth = instance.auth;
   if (auth.kind === "apiKey" && auth.key) {
@@ -131,6 +137,21 @@ export function authHeaders(instance: InstanceConfig): Record<string, string> {
     return { Authorization: `Bearer ${auth.key}` };
   }
   return {};
+}
+
+/**
+ * Credential headers for ALL auth kinds - the one function transport call sites use. For
+ * `bearer` it awaits the host's token provider per request (the host caches/refreshes as it
+ * sees fit); the standalone kinds pass through {@link authHeaders} synchronously.
+ */
+export async function resolveAuthHeaders(
+  instance: InstanceConfig,
+): Promise<Record<string, string>> {
+  const auth = instance.auth;
+  if (auth.kind === "bearer") {
+    return { Authorization: `Bearer ${await auth.getToken()}` };
+  }
+  return authHeaders(instance);
 }
 
 /**
@@ -173,7 +194,7 @@ export async function apiRequest<T>(
 ): Promise<T | null> {
   const effectivePath = options.scope === "fallen8" ? path : scopedPath(instance, path);
   const url = buildUrl(instance.baseUrl, effectivePath, options.query);
-  const headers: Record<string, string> = { ...authHeaders(instance) };
+  const headers: Record<string, string> = { ...(await resolveAuthHeaders(instance)) };
   const init: RequestInit = {
     method: options.method ?? "GET",
     headers,
@@ -210,7 +231,7 @@ export async function apiForm<T>(
   const url = buildUrl(instance.baseUrl, effectivePath);
   const response = await fetch(url, {
     method: "POST",
-    headers: { ...authHeaders(instance) },
+    headers: { ...(await resolveAuthHeaders(instance)) },
     body: form,
     signal: options.signal,
   });

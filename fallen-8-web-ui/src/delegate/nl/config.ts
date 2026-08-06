@@ -25,6 +25,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { storageKey } from "../../app/studioConfig";
 
 /**
  * NL-assist model backend config (nl-assist spec FR-26.4, nl-assist-ux spec §2, feature
@@ -138,7 +139,7 @@ export const useNlAssist = create<NlAssistState>()(
       acceptLeaveNotice: () => set({ leaveNoticeAccepted: true }),
     }),
     {
-      name: "f8.nl-assist",
+      name: storageKey("f8.nl-assist"),
       version: 2,
       migrate: (persisted) => migrateNlState(persisted) as NlAssistState,
     },

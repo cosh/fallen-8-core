@@ -26,6 +26,7 @@
 import { useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useActiveInstance } from "../instances/registry";
+import { usePortalContainer } from "../app/studioConfig";
 import { useConfig } from "../state/status";
 import type {
   ChatProviderStatsREST,
@@ -273,9 +274,10 @@ function ObservabilityOverlay({
   observability: ObservabilityConfigREST;
   onClose: () => void;
 }) {
+  const portalContainer = usePortalContainer();
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
+      <Dialog.Portal container={portalContainer}>
         <Dialog.Overlay className="modal-overlay" />
         <Dialog.Content className="panel modal-center flex max-h-[90vh] w-[34rem] max-w-[92vw] flex-col p-4">
           <Dialog.Title className="text-fg text-sm font-bold">Observability</Dialog.Title>

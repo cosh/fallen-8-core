@@ -25,6 +25,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { storageKey } from "../app/studioConfig";
 
 /**
  * First-run show state (feature studio-first-run).
@@ -69,7 +70,7 @@ export const useFirstRun = create<FirstRunState>()(
       closeReplay: () => set({ replayOpen: false }),
     }),
     {
-      name: "f8.first-run",
+      name: storageKey("f8.first-run"),
       // Persist only the dismissal memory; the overlay flag is per-session UI state.
       partialize: (s) => ({ dismissed: s.dismissed }),
     },

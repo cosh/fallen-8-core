@@ -40,10 +40,13 @@ lands when a host consumer exists. No engine or API changes are required.
 
 ## Phase 4 - CSS scoping & theming
 
-- Wrap Studio content in a `.f8-studio` root container; scope the Tailwind preflight and the
-  `.panel/.btn/.input/...` primitives under it (Tailwind v4 `@layer` / `:where(.f8-studio)`), so they
-  neither leak into nor get reset by the host DOM. Standalone wraps its `#root` in `.f8-studio`,
-  pixel-identical.
+- Wrap Studio content in a `.f8-studio` root container; scope the generic-named
+  `.panel/.btn/.input/...` primitives under it with `:where(.f8-studio)` (zero specificity
+  change), so they neither leak into nor collide with the host DOM. The name-namespaced
+  families (`.f8fr-*`, `.eclipse-highlight`) stay unscoped. Standalone wraps its `#root` in
+  `.f8-studio`, pixel-identical. Tailwind's preflight stays global here: it cannot be
+  import-scoped in plain CSS, and only the packaged library artifact (Phase 6) ever meets a
+  host DOM - the scoped preflight is a packaging concern and moved there.
 - Convert the `@theme` tokens (colors **and** the `--font-*` type stack) to CSS custom properties on
   `.f8-studio`, defaulting to today's values; `config.theme` overrides them. Drop the hard `html.dark`
   dependency (keep the dark defaults).
@@ -63,10 +66,13 @@ lands when a host consumer exists. No engine or API changes are required.
 
 ## Phase 6 - Packaging (only when a host consumes it)
 
-- Add a vite **library-mode** build target exposing `mountStudio` / `F8Studio` / `F8GraphCanvas`,
-  React as a peer dep, alongside the existing SPA build. CI keeps building the standalone SPA; the
-  lib build is opt-in.
-- Add `nlAssist` transport wiring (Phase 2 config) so the host can proxy or disable LLM calls.
+- Add a vite **library-mode** build target exposing `mountStudio` / `F8Studio` / `F8GraphCanvas`
+  (the `src/embed/index.ts` surface), React as a peer dep, alongside the existing SPA build. CI
+  keeps building the standalone SPA; the lib build is opt-in.
+- Ship a scoped preflight with the library artifact (the standalone build keeps Tailwind's
+  global preflight; see Phase 4).
+- Add the `nlAssist` StudioConfig field and its transport wiring so the host can proxy or
+  disable LLM calls.
 - **Verify:** standalone `build:apiapp` output unchanged; a smoke test mounts the library build into a
   bare host page.
 

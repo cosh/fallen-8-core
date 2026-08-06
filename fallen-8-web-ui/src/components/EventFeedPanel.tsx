@@ -46,6 +46,7 @@ import type { LiveFeedStatus } from "../state/liveFeed";
 import { Field } from "./Field";
 import { help } from "../lib/fieldHelp";
 import { InspectLink } from "./InspectLink";
+import { usePortalContainer } from "../app/studioConfig";
 
 /**
  * The Events panel (feature studio-event-feed): a right slide-over on the house Radix
@@ -334,6 +335,7 @@ export function EventFeedPanel({
   const toggle = <T,>(values: T[], value: T): T[] =>
     values.includes(value) ? values.filter((v) => v !== value) : [...values, value];
 
+  const portalContainer = usePortalContainer();
   const stateLine =
     status === "live"
       ? "Streaming committed changes from this namespace."
@@ -345,7 +347,7 @@ export function EventFeedPanel({
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal>
+      <Dialog.Portal container={portalContainer}>
         <Dialog.Overlay className="modal-overlay" />
         <Dialog.Content
           data-testid="event-feed-panel"

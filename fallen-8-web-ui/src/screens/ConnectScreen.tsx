@@ -25,7 +25,8 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { SAME_ORIGIN_INSTANCE, useRegistry } from "../instances/registry";
+import { isManagedInstance, useRegistry } from "../instances/registry";
+import { useStudioConfig } from "../app/studioConfig";
 import type { InstanceConfig } from "../instances/types";
 import { describeEndpoint, isCrossOriginInstance } from "../instances/types";
 import { getStatus, isAuthorized } from "../api/endpoints";
@@ -147,6 +148,10 @@ function InstanceForm({
 export function ConnectScreen() {
   const { instances, activeId, addInstance, updateInstance, removeInstance, setActive } =
     useRegistry();
+  // Host-embed knobs (feature studio-embeddable): when the host owns the instance list the
+  // register/edit/remove affordances disappear; when the embed is pinned to one namespace
+  // the namespace management goes with the switcher. Standalone: both false, as today.
+  const { lockInstances, lockNamespace } = useStudioConfig();
   const [editing, setEditing] = useState<string | "new" | null>(null);
   // Cap + scroll the registry so it can never grow the panel without bound.
   const shownInstances = capList(instances);
@@ -186,25 +191,38 @@ export function ConnectScreen() {
                   <Truncated text={describeEndpoint(instance)} max={DISPLAY_CAP.path} middle />
                 </td>
                 <td className="table-cell text-fg-dim">
-                  {instance.auth.kind === "apiKey" ? "api key" : "none"}
+                  {instance.auth.kind === "apiKey"
+                    ? "api key"
+                    : instance.auth.kind === "bearer"
+                      ? "bearer (host)"
+                      : "none"}
                 </td>
                 <td className="table-cell">
                   <InstanceHealth instance={instance} />
                 </td>
                 <td className="table-cell">
-                  <div className="flex gap-1">
-                    <button type="button" className="btn" onClick={() => setEditing(instance.id)}>
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-danger"
-                      disabled={instance.id === SAME_ORIGIN_INSTANCE.id || instances.length === 1}
-                      onClick={() => removeInstance(instance.id)}
-                    >
-                      Remove
-                    </button>
-                  </div>
+                  {!lockInstances && (
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        className="btn"
+                        // A bearer credential is a host-supplied callback the form cannot
+                        // represent; editing would silently convert it to apiKey/none.
+                        disabled={instance.auth.kind === "bearer"}
+                        onClick={() => setEditing(instance.id)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        disabled={isManagedInstance(instance.id) || instances.length === 1}
+                        onClick={() => removeInstance(instance.id)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -213,7 +231,7 @@ export function ConnectScreen() {
         </div>
         <ListCapNote shown={shownInstances.shown.length} total={shownInstances.total} />
         <div className="p-3">
-          {editing === null && (
+          {editing === null && !lockInstances && (
             <button
               type="button"
               className="btn btn-accent"
@@ -247,7 +265,7 @@ export function ConnectScreen() {
 
       <ConfigurationPanel />
 
-      <NamespacesPanel />
+      {!lockNamespace && <NamespacesPanel />}
 
       <p className="text-fg-faint text-[11px]">
         Fallen-8 instances are developer/operator tools for trusted networks. An instance

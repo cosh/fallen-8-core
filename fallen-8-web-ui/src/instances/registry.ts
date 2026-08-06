@@ -28,6 +28,7 @@ import { persist } from "zustand/middleware";
 import type { InstanceConfig } from "./types";
 import { normalizeBaseUrl } from "./types";
 import { getInstanceStore } from "../state/instanceStore";
+import { getStudioConfig, storageKey } from "../app/studioConfig";
 
 /**
  * Global instance registry (FR-1a) + the single active instance (FR-1b).
@@ -81,11 +82,36 @@ export const SAME_ORIGIN_INSTANCE: InstanceConfig = {
   auth: { kind: "none" },
 };
 
+/**
+ * The MANAGED instances: supplied from outside the registry, synthesized fresh on every
+ * (re)hydration, never persisted. Two producers feed this one seam (feature studio-embeddable
+ * on top of standalone-ui): the config.js-seeded same-origin default (standalone, the
+ * fallback), or the host's StudioConfig.instances (embed). Personal instances the user
+ * registers on the Connect screen are everything managed is not: persisted, editable,
+ * removable.
+ */
+function managedInstances(): InstanceConfig[] {
+  const configured = getStudioConfig().instances;
+  if (configured && configured.length > 0) {
+    return configured.map((instance) => ({
+      ...instance,
+      baseUrl: normalizeBaseUrl(instance.baseUrl),
+    }));
+  }
+  return [{ ...SAME_ORIGIN_INSTANCE, baseUrl: configuredApiUrl() }];
+}
+
+export function isManagedInstance(id: string): boolean {
+  const configured = getStudioConfig().instances;
+  if (configured && configured.length > 0) return configured.some((i) => i.id === id);
+  return id === SAME_ORIGIN_INSTANCE.id;
+}
+
 export const useRegistry = create<RegistryState>()(
   persist(
     (set) => ({
-      instances: [SAME_ORIGIN_INSTANCE],
-      activeId: SAME_ORIGIN_INSTANCE.id,
+      instances: managedInstances(),
+      activeId: managedInstances()[0].id,
       activeNamespaces: {},
       namespaceSupport: {},
 
@@ -115,11 +141,12 @@ export const useRegistry = create<RegistryState>()(
           ),
         })),
 
-      // The managed default (config.js-seeded, feature standalone-ui) is never removable: it is
-      // synthesized rather than persisted, and the connection gate assumes a default is present.
+      // A managed instance (config.js-seeded default or a host-supplied one, see
+      // managedInstances) is never removable: it is synthesized rather than persisted, and
+      // the connection gate assumes a default is present.
       removeInstance: (id) =>
         set((s) => {
-          if (id === SAME_ORIGIN_INSTANCE.id) return s;
+          if (isManagedInstance(id)) return s;
           const instances = s.instances.filter((instance) => instance.id !== id);
           const activeId =
             s.activeId === id ? (instances[0]?.id ?? null) : s.activeId;
@@ -142,38 +169,68 @@ export const useRegistry = create<RegistryState>()(
         ),
     }),
     {
-      name: "f8.instances",
-      // The managed default instance is config.js-seeded (feature standalone-ui) and is NEVER
-      // persisted: only personal (user-added) instances, the active id, and the per-instance
-      // active namespace are stored. namespaceSupport is deliberately dropped (a re-probeable /ns
-      // cache). See features/open/standalone-ui/.
+      name: storageKey("f8.instances"),
+      // Managed instances (config.js-seeded default or host-supplied, see managedInstances)
+      // are NEVER persisted: only personal (user-added) instances, the active id, and the
+      // per-instance active namespace are stored. namespaceSupport is deliberately dropped
+      // (a re-probeable /ns cache). See features/done/standalone-ui/.
       partialize: (s) => ({
-        instances: s.instances.filter((i) => i.id !== SAME_ORIGIN_INSTANCE.id),
+        instances: s.instances.filter((i) => !isManagedInstance(i.id)),
         activeId: s.activeId,
         activeNamespaces: s.activeNamespaces,
       }),
-      // Re-inject the freshly synthesized managed default (baseUrl re-read from config.js via
-      // configuredApiUrl) ahead of the persisted personal instances on every load, so it is always
-      // present and re-synced. zustand's default shallow merge would otherwise let the persisted
-      // (personal-only) instances array drop it, leaving a persisted activeId==="local" resolving
-      // to null. This also transparently upgrades a legacy blob that persisted the whole state (its
-      // stale "local" record is filtered out), so no version bump / migrate is needed.
+      // Re-inject the freshly synthesized managed instances (config.js baseUrl re-read, host
+      // StudioConfig re-read) ahead of the persisted personal instances on every load, so they
+      // are always present and re-synced. zustand's default shallow merge would otherwise let
+      // the persisted (personal-only) instances array drop them, leaving a persisted managed
+      // activeId resolving to null. This also transparently upgrades a legacy blob that
+      // persisted the whole state (its stale managed records are filtered out), so no version
+      // bump / migrate is needed. The host-embed knobs live here too, so they apply on every
+      // (re)hydration: activeInstanceId wins over a persisted choice, an activeId pointing at
+      // an instance that no longer exists falls back to the first managed one, and
+      // config.namespace seeds each managed instance's active namespace (a persisted choice
+      // wins unless lockNamespace pins it).
       merge: (persisted, current) => {
+        const config = getStudioConfig();
         const p = (persisted ?? {}) as Partial<RegistryState>;
-        const personal = (p.instances ?? []).filter((i) => i.id !== SAME_ORIGIN_INSTANCE.id);
-        const managed: InstanceConfig = { ...SAME_ORIGIN_INSTANCE, baseUrl: configuredApiUrl() };
+        const personal = (p.instances ?? []).filter((i) => !isManagedInstance(i.id));
+        const managed = managedInstances();
+        const instances = [...managed, ...personal];
+        const requestedActive = config.activeInstanceId ?? p.activeId ?? current.activeId;
+        const activeNamespaces = { ...(p.activeNamespaces ?? current.activeNamespaces) };
+        if (config.namespace) {
+          for (const instance of managed) {
+            if (config.lockNamespace || !activeNamespaces[instance.id]) {
+              activeNamespaces[instance.id] = config.namespace;
+            }
+          }
+        }
         return {
           ...current,
           ...p,
-          instances: [managed, ...personal],
-          activeId: p.activeId ?? current.activeId,
-          activeNamespaces: p.activeNamespaces ?? current.activeNamespaces,
+          instances,
+          activeId: instances.some((i) => i.id === requestedActive)
+            ? requestedActive
+            : managed[0].id,
+          activeNamespaces,
           namespaceSupport: current.namespaceSupport,
         };
       },
     },
   ),
 );
+
+/**
+ * Re-point and re-hydrate the registry after a mount set its StudioConfig (feature
+ * studio-embeddable). The store is created at module import, before any config exists, so a
+ * host mount re-runs persistence against the (possibly prefixed) storage key; `merge` above
+ * then injects the host's managed instances and applies its activeInstanceId/namespace knobs.
+ * The standalone mount runs this too, with the default config it is a no-op re-hydration.
+ */
+export async function applyStudioConfigToRegistry(): Promise<void> {
+  useRegistry.persist.setOptions({ name: storageKey("f8.instances") });
+  await useRegistry.persist.rehydrate();
+}
 
 /** The active instance's active namespace (feature graph-namespaces); "default" until set. */
 export function useActiveNamespace(): string {

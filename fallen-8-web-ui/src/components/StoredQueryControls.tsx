@@ -39,6 +39,7 @@ import type { FilterSource } from "../state/instanceStore";
 import { describeStoredSpecification, STORED_QUERY_NAME } from "../lib/storedQueries";
 import { ErrorBox } from "./ErrorBox";
 import { Field } from "./Field";
+import { usePortalContainer } from "../app/studioConfig";
 
 /**
  * Stored-query surfaces shared by Path and Subgraph (concept spec §5.1/5.2): the
@@ -198,6 +199,7 @@ export function SaveAsStoredQuery({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const queryClient = useQueryClient();
+  const portalContainer = usePortalContainer();
 
   const save = useMutation({
     mutationFn: () => {
@@ -259,7 +261,7 @@ export function SaveAsStoredQuery({
           }
         }}
       >
-        <Dialog.Portal>
+        <Dialog.Portal container={portalContainer}>
           <Dialog.Overlay className="modal-overlay" />
           <Dialog.Content className="panel modal-center w-[28rem] max-w-[90vw] p-4">
             <Dialog.Title className="text-fg text-sm font-bold">

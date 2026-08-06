@@ -28,13 +28,19 @@
  *
  * Auth is intentionally a discriminated union (feature web-ui, lightweight auth): the
  * Fallen-8 apiApp accepts its static API key either in a header (default X-Api-Key) or as
- * an RFC 6750-shaped `Authorization: Bearer <key>`. The bearer form is the seam where a
- * token-based scheme (OIDC/JWT, e.g. AWS Cognito) plugs in later as a new `kind` without
- * touching the client call sites.
+ * an RFC 6750-shaped `Authorization: Bearer <key>`.
+ *
+ * `bearer` is the host-embed arm (feature studio-embeddable): the token comes from a
+ * host-supplied provider callback, so lifetime and refresh stay the host's job and no
+ * long-lived secret ever reaches Studio. The callback makes it non-serializable BY DESIGN -
+ * bearer instances arrive via StudioConfig as managed instances and are never persisted.
+ * Being async, it resolves only at the transport choke points (client.ts
+ * resolveAuthHeaders); the sync authHeaders keeps serving the standalone kinds.
  */
 export type InstanceAuth =
   | { kind: "none" }
-  | { kind: "apiKey"; key: string; useBearer?: boolean; header?: string };
+  | { kind: "apiKey"; key: string; useBearer?: boolean; header?: string }
+  | { kind: "bearer"; getToken: () => Promise<string> };
 
 export interface InstanceConfig {
   id: string;

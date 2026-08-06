@@ -28,6 +28,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useActiveNamespace } from "../instances/registry";
 import { FirstRunShow } from "./FirstRunShow";
 import { useFirstRun } from "./firstRunStore";
+import { usePortalContainer } from "../app/studioConfig";
 
 /**
  * Manual-replay overlay (feature studio-first-run). Renders the SAME <FirstRunShow> the
@@ -43,6 +44,7 @@ export function FirstRunOverlay() {
   const closeReplay = useFirstRun((s) => s.closeReplay);
   const namespace = useActiveNamespace();
   const navigate = useNavigate();
+  const portalContainer = usePortalContainer();
 
   const onBrowseSamples = () => {
     closeReplay();
@@ -56,7 +58,7 @@ export function FirstRunOverlay() {
 
   return (
     <Dialog.Root open={replayOpen} onOpenChange={(o) => !o && closeReplay()}>
-      <Dialog.Portal>
+      <Dialog.Portal container={portalContainer}>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/70" />
         <Dialog.Content
           data-testid="first-run-overlay"
