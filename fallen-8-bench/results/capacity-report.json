@@ -1,25 +1,25 @@
 {
   "schemaVersion": "1",
-  "generatedAtUtc": "2026-08-05T19:33:01.874246+00:00",
+  "generatedAtUtc": "2026-08-05T20:00:28.7526625+00:00",
   "tool": {
     "name": "fallen-8-bench",
     "version": "1.0.0.0"
   },
   "source": {
     "engineVersion": "0.3.0.0",
-    "commit": "5f5dfb6a414f3d031549c6677e46444150688b46",
+    "commit": "01416961f1b15c3e1d8b7a6713b9c97b1203b877",
     "dirtyWorkingTree": false
   },
   "environment": {
     "operatingSystem": "Microsoft Windows 10.0.26200",
     "architecture": "X64",
     "runtime": ".NET 10.0.10",
-    "processorCount": 16,
-    "processorName": "Intel(R) Core(TM) Ultra 9 285H",
-    "totalPhysicalMemoryMb": 97717,
+    "processorCount": 32,
+    "processorName": "AMD RYZEN AI MAX\u002B PRO 395 w/ Radeon 8060S",
+    "totalPhysicalMemoryMb": 98074,
     "serverGarbageCollection": true,
     "concurrentGarbageCollection": true,
-    "runnerLabel": "RENK"
+    "runnerLabel": "RYZEN AI MAX"
   },
   "profile": "full",
   "metrics": {
@@ -56,15 +56,15 @@
       {
         "label": "serial (1 producer)",
         "producers": 1,
-        "writes": 25280,
-        "writesPerSecond": 841,
+        "writes": 37888,
+        "writesPerSecond": 1263,
         "walEnabled": true
       },
       {
         "label": "32 concurrent producers",
         "producers": 32,
         "writes": 200000,
-        "writesPerSecond": 21058,
+        "writesPerSecond": 25193,
         "walEnabled": true
       }
     ],
@@ -73,19 +73,19 @@
         "elements": 1002000,
         "vertices": 334000,
         "edges": 668000,
-        "writerHoldMs": 434.9
+        "writerHoldMs": 110.8
       },
       {
         "elements": 4002000,
         "vertices": 1334000,
         "edges": 2668000,
-        "writerHoldMs": 247.1
+        "writerHoldMs": 352.1
       },
       {
         "elements": 20001000,
         "vertices": 6667000,
         "edges": 13334000,
-        "writerHoldMs": 1432
+        "writerHoldMs": 1046.3
       }
     ],
     "traversal": [
@@ -94,21 +94,21 @@
         "vertices": 500000,
         "edges": 5000000,
         "iterations": 5,
-        "edgesPerSecond": 446420600
+        "edgesPerSecond": 807258872
       },
       {
         "label": "20M edges",
         "vertices": 2000000,
         "edges": 20000000,
         "iterations": 5,
-        "edgesPerSecond": 447941373
+        "edgesPerSecond": 710287809
       },
       {
         "label": "100M edges",
         "vertices": 10000000,
         "edges": 100000000,
         "iterations": 5,
-        "edgesPerSecond": 373686073
+        "edgesPerSecond": 655166743
       }
     ]
   }
