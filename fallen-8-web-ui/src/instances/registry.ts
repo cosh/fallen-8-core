@@ -107,6 +107,18 @@ export function isManagedInstance(id: string): boolean {
   return id === SAME_ORIGIN_INSTANCE.id;
 }
 
+/**
+ * Ids that may never be treated as a personal (persisted, removable) instance. The managed
+ * ids of the CURRENT config, plus "local" unconditionally: it is the reserved id of the
+ * same-origin default, so a legacy blob that persisted the whole state (pre-standalone-ui)
+ * must keep being filtered out even while a host config owns the registry - otherwise its
+ * stale "local" record would resurrect as a personal instance, and a persisted
+ * activeId: "local" would resolve to it instead of the host's instance.
+ */
+function isReservedInstanceId(id: string): boolean {
+  return id === SAME_ORIGIN_INSTANCE.id || isManagedInstance(id);
+}
+
 export const useRegistry = create<RegistryState>()(
   persist(
     (set) => ({
@@ -170,12 +182,18 @@ export const useRegistry = create<RegistryState>()(
     }),
     {
       name: storageKey("f8.instances"),
+      // This store is created at module import, BEFORE any mount has set a StudioConfig, so
+      // it must not hydrate from the bare `f8.instances` key on the way past: a prefixed
+      // embed would inherit that state (zustand's hydrate merges `undefined` over the
+      // CURRENT state when its key is empty, keeping whatever the import-time read left).
+      // Every mount path calls applyStudioConfig -> rehydrate against the resolved key.
+      skipHydration: true,
       // Managed instances (config.js-seeded default or host-supplied, see managedInstances)
       // are NEVER persisted: only personal (user-added) instances, the active id, and the
       // per-instance active namespace are stored. namespaceSupport is deliberately dropped
       // (a re-probeable /ns cache). See features/done/standalone-ui/.
       partialize: (s) => ({
-        instances: s.instances.filter((i) => !isManagedInstance(i.id)),
+        instances: s.instances.filter((i) => !isReservedInstanceId(i.id)),
         activeId: s.activeId,
         activeNamespaces: s.activeNamespaces,
       }),
@@ -190,14 +208,20 @@ export const useRegistry = create<RegistryState>()(
       // an instance that no longer exists falls back to the first managed one, and
       // config.namespace seeds each managed instance's active namespace (a persisted choice
       // wins unless lockNamespace pins it).
+      //
+      // Every persisted field is derived from STORAGE + CONFIG ONLY, never from `current`:
+      // hydrating against an empty key (a mount that switched storageNamespace) calls
+      // merge(undefined, current), so a `current` fallback would carry the previous mount's
+      // state into the new tenant's universe and persist it there on the next write. Only
+      // the action functions come from `current`.
       merge: (persisted, current) => {
         const config = getStudioConfig();
         const p = (persisted ?? {}) as Partial<RegistryState>;
-        const personal = (p.instances ?? []).filter((i) => !isManagedInstance(i.id));
+        const personal = (p.instances ?? []).filter((i) => !isReservedInstanceId(i.id));
         const managed = managedInstances();
         const instances = [...managed, ...personal];
-        const requestedActive = config.activeInstanceId ?? p.activeId ?? current.activeId;
-        const activeNamespaces = { ...(p.activeNamespaces ?? current.activeNamespaces) };
+        const requestedActive = config.activeInstanceId ?? p.activeId ?? null;
+        const activeNamespaces = { ...(p.activeNamespaces ?? {}) };
         if (config.namespace) {
           for (const instance of managed) {
             if (config.lockNamespace || !activeNamespaces[instance.id]) {
@@ -213,7 +237,8 @@ export const useRegistry = create<RegistryState>()(
             ? requestedActive
             : managed[0].id,
           activeNamespaces,
-          namespaceSupport: current.namespaceSupport,
+          // A re-probeable /ns cache: never persisted, and never carried across a mount.
+          namespaceSupport: {},
         };
       },
     },

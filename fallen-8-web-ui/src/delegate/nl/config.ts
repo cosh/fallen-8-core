@@ -140,8 +140,24 @@ export const useNlAssist = create<NlAssistState>()(
     }),
     {
       name: storageKey("f8.nl-assist"),
+      // Created at module import, before any StudioConfig exists: hydrating past the bare
+      // key here would let a prefixed embed inherit (and then persist under the tenant
+      // prefix) the standalone user's config, apiKey included. Every mount path calls
+      // applyStudioConfig -> rehydrate against the resolved key. See app/studioConfig.ts.
+      skipHydration: true,
       version: 2,
       migrate: (persisted) => migrateNlState(persisted) as NlAssistState,
+      // Derived from STORAGE ONLY, never from `current`: hydrating against an empty key (a
+      // mount that switched storageNamespace) would otherwise keep the previous mount's
+      // config - the browser-held LLM apiKey included - and persist it into the new tenant's
+      // universe on the next write. migrateNlState defaults every field, so an absent or
+      // partial blob lands on DEFAULT_NL_CONFIG.
+      merge: (persisted, current) => ({
+        ...current,
+        ...migrateNlState(persisted),
+        leaveNoticeAccepted:
+          (persisted as Partial<NlAssistState> | undefined)?.leaveNoticeAccepted ?? false,
+      }),
     },
   ),
 );

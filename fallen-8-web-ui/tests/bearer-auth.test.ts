@@ -24,8 +24,13 @@
 // SOFTWARE.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { apiRequest, authHeaders, resolveAuthHeaders } from "../src/api/client";
 import type { InstanceConfig } from "../src/instances/types";
+
+const SRC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 
 /**
  * The bearer auth arm (feature studio-embeddable): the token comes from a host-supplied
@@ -71,8 +76,8 @@ describe("resolveAuthHeaders", () => {
 });
 
 describe("authHeaders with a bearer instance", () => {
-  it("yields nothing - the token only resolves through resolveAuthHeaders", () => {
-    expect(authHeaders(bearerInstance(async () => "tok"))).toEqual({});
+  it("throws rather than returning empty headers, so a sync call site cannot send unauthenticated", () => {
+    expect(() => authHeaders(bearerInstance(async () => "tok"))).toThrow(/resolveAuthHeaders/);
   });
 });
 
@@ -90,5 +95,34 @@ describe("apiRequest with a bearer instance", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const init = fetchMock.mock.calls[0][1];
     expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer tok-999");
+  });
+
+  it("rejects without sending the request when the host token provider fails", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, text: async () => "null" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const instance = bearerInstance(async () => {
+      throw new Error("session expired");
+    });
+
+    await expect(apiRequest(instance, "/status", { scope: "fallen8" })).rejects.toThrow(
+      "session expired",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("transport call sites", () => {
+  it("never build instance-authenticated requests with the sync authHeaders", () => {
+    // A bearer token only resolves in resolveAuthHeaders, so a call site reaching for the
+    // sync helper is the one way to reintroduce an unauthenticated request path (it now
+    // throws for bearer, but failing the build beats failing at runtime). client.ts declares
+    // both, so it is the only file allowed to name it.
+    const offenders = readdirSync(SRC_DIR, { recursive: true, encoding: "utf8" })
+      .filter((entry) => /\.tsx?$/.test(entry))
+      .map((entry) => entry.replace(/\\/g, "/"))
+      .filter((entry) => entry !== "api/client.ts")
+      .filter((entry) => /\bauthHeaders\s*\(/.test(readFileSync(join(SRC_DIR, entry), "utf8")));
+
+    expect(offenders).toEqual([]);
   });
 });

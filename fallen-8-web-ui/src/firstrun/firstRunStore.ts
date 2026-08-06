@@ -71,8 +71,18 @@ export const useFirstRun = create<FirstRunState>()(
     }),
     {
       name: storageKey("f8.first-run"),
+      // Created at module import, before any StudioConfig exists: see the same note on the
+      // instance registry - a prefixed embed must not inherit the bare key's state.
+      skipHydration: true,
       // Persist only the dismissal memory; the overlay flag is per-session UI state.
       partialize: (s) => ({ dismissed: s.dismissed }),
+      // Derived from STORAGE ONLY, never from `current`: hydrating against an empty key (a
+      // mount that switched storageNamespace) would otherwise keep the previous mount's
+      // dismissals and persist them into the new tenant's universe.
+      merge: (persisted, current) => ({
+        ...current,
+        dismissed: (persisted as Partial<FirstRunState> | undefined)?.dismissed ?? {},
+      }),
     },
   ),
 );

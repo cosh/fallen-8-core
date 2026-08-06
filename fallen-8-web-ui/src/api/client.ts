@@ -124,12 +124,18 @@ export function buildUrl(
 
 /**
  * Credential headers for the SYNCHRONOUS auth kinds (none/apiKey). A `bearer` instance
- * (feature studio-embeddable: host-supplied async token provider) yields nothing here BY
- * DESIGN - its token only resolves in {@link resolveAuthHeaders}, which every transport
- * call site goes through. Do not fetch with this directly.
+ * (feature studio-embeddable: host-supplied async token provider) cannot be served here -
+ * its token only resolves in {@link resolveAuthHeaders}, which every transport call site
+ * goes through - so it THROWS rather than returning empty headers: a new sync call site
+ * must fail loudly instead of silently sending the request unauthenticated.
  */
 export function authHeaders(instance: InstanceConfig): Record<string, string> {
   const auth = instance.auth;
+  if (auth.kind === "bearer") {
+    throw new Error(
+      "authHeaders cannot resolve a host-supplied bearer token; use resolveAuthHeaders.",
+    );
+  }
   if (auth.kind === "apiKey" && auth.key) {
     if (auth.header && auth.useBearer !== true) {
       return { [auth.header]: auth.key };

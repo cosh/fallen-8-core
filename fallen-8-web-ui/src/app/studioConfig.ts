@@ -28,12 +28,11 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { InstanceConfig } from "../instances/types";
 
 /**
- * The host-facing embed contract (feature studio-embeddable). Every field is optional and
- * omitting it reproduces the standalone app's behavior exactly; `mountStudio(el)` with no
- * config IS the standalone bootstrap. The full story lives in
- * features/open/studio-embeddable/spec.md - this file is the one home for the contract's
- * runtime side: the current config (set once per mount, before anything renders) and the
- * `storageKey` prefix every persisted key goes through.
+ * The host-facing embed contract (feature studio-embeddable) and its runtime state: the
+ * active config, the live-mount count, and the `storageKey` prefix every persisted key goes
+ * through. Every field is optional and omitting it reproduces the standalone app's behavior.
+ * How to mount is documented on ./mount.tsx; the feature's story is in
+ * features/open/studio-embeddable/spec.md.
  */
 
 /**
@@ -101,18 +100,47 @@ export interface StudioConfig {
  */
 let current: StudioConfig = {};
 
+/**
+ * How many Studio trees are currently mounted. Two SIMULTANEOUS embeds are an explicit
+ * non-goal (see the spec): they would share this module's config, the instance registry
+ * singleton and the persisted keys, so the second mount would silently rebind the first to
+ * its own instances and credentials. Counting them lets that fail LOUDLY instead.
+ */
+let liveMounts = 0;
+
 export function getStudioConfig(): StudioConfig {
   return current;
 }
 
 export function setStudioConfig(config: StudioConfig): void {
+  if (liveMounts > 0 && config !== current) {
+    throw new Error(
+      "F8 Studio is already mounted. Two simultaneous Studio embeds are not supported " +
+        "(they share one instance registry and one set of persisted keys); unmount the " +
+        "first, or run the second in its own realm (iframe/worker).",
+    );
+  }
   current = config;
+}
+
+/** Registers a mounted tree; the returned callback releases it on unmount. */
+export function registerStudioMount(): () => void {
+  liveMounts += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    liveMounts -= 1;
+  };
 }
 
 /**
  * Every persisted localStorage key goes through here (registry, workspace stores, NL-assist,
- * first-run), so a host embed with `storageNamespace` cannot collide with a standalone Studio
- * on the same origin. Default prefix is empty: existing users' f8.* keys are untouched.
+ * first-run), so a host embed with `storageNamespace` keeps its state separate from a
+ * standalone Studio on the same origin. Default prefix is empty: existing users' f8.* keys
+ * are untouched. Separation holds for what is WRITTEN under the prefix; the module-level
+ * stores additionally skip their import-time hydration so bare-key state cannot bleed in
+ * (see the persist options in instances/registry.ts).
  */
 export function storageKey(name: string): string {
   return `${current.storageNamespace ?? ""}${name}`;

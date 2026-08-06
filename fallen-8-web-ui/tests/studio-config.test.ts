@@ -24,7 +24,8 @@
 // SOFTWARE.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { setStudioConfig, storageKey, themeStyle } from "../src/app/studioConfig";
+import { setStudioConfig, storageKey, themeStyle, type StudioConfig } from "../src/app/studioConfig";
+import { applyStudioConfig } from "../src/app/applyStudioConfig";
 import {
   applyStudioConfigToRegistry,
   isManagedInstance,
@@ -32,6 +33,8 @@ import {
   useRegistry,
 } from "../src/instances/registry";
 import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/instanceStore";
+import { useNlAssist } from "../src/delegate/nl/config";
+import { useFirstRun } from "../src/firstrun/firstRunStore";
 import type { InstanceConfig } from "../src/instances/types";
 
 /**
@@ -52,7 +55,8 @@ const tenant = (n: number): InstanceConfig => ({
   auth: { kind: "bearer", getToken: async () => `token-${n}` },
 });
 
-async function applyConfig(config: Parameters<typeof setStudioConfig>[0]): Promise<void> {
+/** Registry-only application (the seam most assertions here are about). */
+async function applyConfig(config: StudioConfig): Promise<void> {
   setStudioConfig(config);
   await applyStudioConfigToRegistry();
 }
@@ -82,6 +86,13 @@ describe("default config == standalone", () => {
 });
 
 describe("host-supplied instances", () => {
+  it("treats an empty instances array as the standalone default", async () => {
+    await applyConfig({ instances: [] });
+
+    expect(useRegistry.getState().instances.map((i) => i.id)).toEqual([SAME_ORIGIN_INSTANCE.id]);
+    expect(isManagedInstance(SAME_ORIGIN_INSTANCE.id)).toBe(true);
+  });
+
   it("replace the managed default, normalize the baseUrl, and become the active instance", async () => {
     await applyConfig({ instances: [tenant(1)] });
 
@@ -131,6 +142,37 @@ describe("host-supplied instances", () => {
     await applyConfig({ instances: [tenant(1)] });
 
     expect(useRegistry.getState().activeId).toBe("tenant-1");
+  });
+
+  it("never resurrect a legacy blob's same-origin record as a personal instance", async () => {
+    // Pre-standalone-ui Studio persisted the WHOLE state, "local" record included. "local"
+    // is a reserved id, so a host embed on that origin must not adopt it as a personal
+    // instance (nor let its persisted activeId point the embed at the host's own origin).
+    localStorage.setItem(
+      KEY,
+      store({
+        instances: [
+          { id: "local", name: "local", baseUrl: "", auth: { kind: "none" } },
+          { id: "i-x", name: "prod", baseUrl: "https://p.example.com", auth: { kind: "none" } },
+        ],
+        activeId: "local",
+        activeNamespaces: {},
+      }),
+    );
+    await applyConfig({ instances: [tenant(1)] });
+
+    const s = useRegistry.getState();
+    expect(s.instances.map((i) => i.id)).toEqual(["tenant-1", "i-x"]);
+    expect(s.activeId).toBe("tenant-1");
+  });
+
+  it("restores the standalone default when a later mount applies the default config", async () => {
+    await applyConfig({ instances: [tenant(1)] });
+    await applyConfig({});
+
+    const s = useRegistry.getState();
+    expect(s.instances.map((i) => i.id)).toEqual([SAME_ORIGIN_INSTANCE.id]);
+    expect(s.activeId).toBe(SAME_ORIGIN_INSTANCE.id);
   });
 });
 
@@ -182,6 +224,53 @@ describe("storageNamespace", () => {
 
     expect(localStorage.getItem("acme.f8.workspace.tenant-1")).not.toBeNull();
     expect(localStorage.getItem("f8.workspace.tenant-1")).toBeNull();
+  });
+});
+
+/**
+ * The isolation the prefix is FOR. Two tenants, sequential mounts in one realm (the
+ * documented way to reconfigure): neither the module-level stores' state nor the memoized
+ * workspace stores may carry across, because both would then be written into the next
+ * tenant's storage universe.
+ */
+describe("cross-tenant isolation between sequential mounts", () => {
+  it("does not carry a tenant's workspace store into the next tenant's mount", async () => {
+    await applyStudioConfig({ storageNamespace: "a.", instances: [tenant(1)] });
+    getInstanceStore("tenant-1").getState().setBrowserDraft({ bulkFilter: "tenant-a-secret" });
+    await Promise.resolve();
+
+    await applyStudioConfig({ storageNamespace: "b.", instances: [tenant(1)] });
+    const draft = getInstanceStore("tenant-1").getState().browserDraft;
+
+    expect(draft.bulkFilter).not.toBe("tenant-a-secret");
+    expect(localStorage.getItem("a.f8.workspace.tenant-1")).not.toBeNull();
+  });
+
+  it("does not carry NL-assist config (including its api key) into the next tenant's mount", async () => {
+    await applyStudioConfig({ storageNamespace: "a.", instances: [tenant(1)] });
+    useNlAssist.getState().setConfig({ mode: "custom", endpoint: "https://a.example.com", apiKey: "sk-tenant-a" });
+    await Promise.resolve();
+
+    await applyStudioConfig({ storageNamespace: "b.", instances: [tenant(1)] });
+
+    expect(useNlAssist.getState().config.apiKey).toBeUndefined();
+    expect(useNlAssist.getState().config.endpoint).toBe("");
+    // ...and the next write cannot smuggle it into tenant B's universe.
+    useNlAssist.getState().setConfig({ model: "phi4-f8-mini" });
+    await Promise.resolve();
+    expect(localStorage.getItem("b.f8.nl-assist")).not.toContain("sk-tenant-a");
+  });
+
+  it("does not carry first-run dismissals or the active namespace into the next tenant's mount", async () => {
+    await applyStudioConfig({ storageNamespace: "a.", instances: [tenant(1)] });
+    useFirstRun.getState().dismiss("tenant-1/ops");
+    useRegistry.getState().setActiveNamespace("tenant-1", "tenant-a-ns");
+    await Promise.resolve();
+
+    await applyStudioConfig({ storageNamespace: "b.", instances: [tenant(1)] });
+
+    expect(useFirstRun.getState().dismissed).toEqual({});
+    expect(useRegistry.getState().activeNamespaces["tenant-1"]).toBeUndefined();
   });
 });
 

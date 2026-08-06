@@ -679,7 +679,17 @@ export function migrateInstanceStore(instanceId: string, from: string, to: strin
   migrateEventFeed(instanceId, from, to);
 }
 
-/** Test hook: drop all memoized stores (does not clear persisted state). */
-export function resetInstanceStoresForTests(): void {
+/**
+ * Drops every memoized store (persisted state untouched), so the next access recreates it
+ * against the CURRENT storage prefix. A store bakes its persist key in at creation
+ * (`workspaceStorageName`), and the memo map is keyed by scope alone, so a mount that
+ * changes `storageNamespace` (feature studio-embeddable) must clear the map or a colliding
+ * instance id + namespace would hand the new mount the previous one's live store - reading
+ * its graph data and writing to its key. Called from applyStudioConfig on every mount.
+ */
+export function dropMemoizedWorkspaceStores(): void {
   stores.clear();
 }
+
+/** Test hook: same drop, named for its use at test setup. */
+export const resetInstanceStoresForTests = dropMemoizedWorkspaceStores;

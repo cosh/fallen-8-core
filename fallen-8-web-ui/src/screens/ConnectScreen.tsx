@@ -65,7 +65,13 @@ function InstanceHealth({ instance }: { instance: InstanceConfig }) {
       </span>
     );
   if (!isAuthorized(health.data))
-    return <span className="text-danger">unauthorized — check the API key</span>;
+    return (
+      <span className="text-danger">
+        {instance.auth.kind === "bearer"
+          ? "unauthorized: the host session token was rejected"
+          : "unauthorized — check the API key"}
+      </span>
+    );
   return (
     <span className="text-accent">
       {health.data.vertexCount.toLocaleString()} v · {health.data.edgeCount.toLocaleString()} e
@@ -153,8 +159,12 @@ export function ConnectScreen() {
   // the namespace management goes with the switcher. Standalone: both false, as today.
   const { lockInstances, lockNamespace } = useStudioConfig();
   const [editing, setEditing] = useState<string | "new" | null>(null);
+  // Under lockInstances the host owns the instance: only ITS instances are listed, so a
+  // personal instance persisted by an earlier session on this origin cannot be activated
+  // here (the shell's switcher is a static label, and this screen stays reachable).
+  const listed = lockInstances ? instances.filter((i) => isManagedInstance(i.id)) : instances;
   // Cap + scroll the registry so it can never grow the panel without bound.
-  const shownInstances = capList(instances);
+  const shownInstances = capList(listed);
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
@@ -181,6 +191,7 @@ export function ConnectScreen() {
                     name="active-instance"
                     aria-label={`activate ${instance.name}`}
                     checked={activeId === instance.id}
+                    disabled={lockInstances}
                     onChange={() => setActive(instance.id)}
                   />
                 </td>
@@ -216,7 +227,7 @@ export function ConnectScreen() {
                       <button
                         type="button"
                         className="btn btn-danger"
-                        disabled={isManagedInstance(instance.id) || instances.length === 1}
+                        disabled={isManagedInstance(instance.id) || listed.length === 1}
                         onClick={() => removeInstance(instance.id)}
                       >
                         Remove

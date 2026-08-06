@@ -60,6 +60,18 @@ vi.mock("../src/delegate/monacoSetup", () => ({
 import { mountStudio } from "../src/app/mount";
 import { setStudioConfig, type StudioConfig } from "../src/app/studioConfig";
 import { applyStudioConfigToRegistry, SAME_ORIGIN_INSTANCE, useRegistry } from "../src/instances/registry";
+import { useFirstRun } from "../src/firstrun/firstRunStore";
+import { useNlAssist } from "../src/delegate/nl/config";
+import { resetInstanceStoresForTests } from "../src/state/instanceStore";
+import type { InstanceConfig } from "../src/instances/types";
+
+/** A host-supplied instance with the bearer credential shape (never persisted). */
+const HOST_INSTANCE: InstanceConfig = {
+  id: "host",
+  name: "host",
+  baseUrl: "https://api.example.com/i/1",
+  auth: { kind: "bearer", getToken: async () => "tok" },
+};
 
 /**
  * The mount seam (feature studio-embeddable): mountStudio(el) with NO config must be the
@@ -94,8 +106,10 @@ afterEach(async () => {
     act(() => handle.unmount());
     el.remove();
   }
+  resetInstanceStoresForTests();
   setStudioConfig({});
   await applyStudioConfigToRegistry();
+  useFirstRun.setState({ dismissed: {}, replayOpen: false });
 });
 
 describe("mountStudio with no config (standalone contract)", () => {
@@ -145,14 +159,101 @@ describe("host knobs", () => {
     });
     expect(el.querySelector('[data-testid="instance-switcher"]')).toBeNull();
     expect(el.querySelector('[data-testid="instance-add"]')).toBeNull();
+    // The Connect screen (route "/") is always reachable, so its own affordances have to be
+    // locked too: no row actions, no namespace management, and activation disabled - the
+    // switcher's absence would otherwise be bypassable right here.
+    expect(el.querySelector('[data-testid="namespaces-panel"]')).toBeNull();
+    expect([...el.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Edit");
+    const radio = el.querySelector<HTMLInputElement>('input[type="radio"][name="active-instance"]');
+    expect(radio).not.toBeNull();
+    expect(radio!.disabled).toBe(true);
   });
 
-  it("keeps the address bar untouched with memory history", async () => {
-    const el = mount({ history: "memory" });
+  it("lists only the host's instances under lockInstances, never a personal one from this origin", async () => {
+    localStorage.setItem(
+      "f8.instances",
+      JSON.stringify({
+        state: {
+          instances: [
+            { id: "i-x", name: "someone-elses", baseUrl: "https://p.example.com", auth: { kind: "none" } },
+          ],
+          activeId: "i-x",
+          activeNamespaces: {},
+        },
+        version: 0,
+      }),
+    );
+    const el = mount({ lockInstances: true, instances: [HOST_INSTANCE] });
 
     await waitFor(() => {
-      expect(el.querySelector('[data-testid="instance-switcher"]')).not.toBeNull();
+      expect(el.querySelector('[data-testid="instance-row-host"]')).not.toBeNull();
     });
-    expect(window.location.pathname).toBe("/");
+    expect(el.querySelector('[data-testid="instance-row-someone-elses"]')).toBeNull();
+  });
+
+  it("disables Edit for a host bearer instance so the form cannot convert the credential", async () => {
+    const el = mount({ instances: [HOST_INSTANCE] });
+
+    await waitFor(() => {
+      expect(el.querySelector('[data-testid="instance-row-host"]')).not.toBeNull();
+    });
+    const buttons = [
+      ...el.querySelectorAll<HTMLButtonElement>('[data-testid="instance-row-host"] button'),
+    ];
+    const edit = buttons.find((b) => b.textContent === "Edit");
+    const remove = buttons.find((b) => b.textContent === "Remove");
+    expect(edit?.disabled).toBe(true);
+    expect(remove?.disabled).toBe(true);
+  });
+
+  it("keeps portalled overlays inside the .f8-studio root", async () => {
+    const el = mount();
+    await waitFor(() => {
+      expect(el.querySelector('[data-testid="f8-studio-root"]')).not.toBeNull();
+    });
+
+    act(() => useFirstRun.getState().openReplay());
+
+    // Inside the scope root, not document.body: the modal primitives are scoped to it now,
+    // so a portal escaping the root loses all its styling (invisible to jsdom assertions).
+    await waitFor(() => {
+      expect(
+        el.querySelector('[data-testid="f8-studio-root"] [data-testid="first-run-overlay"]'),
+      ).not.toBeNull();
+    });
+  });
+
+  it("routes nl-assist and first-run persistence through storageNamespace", async () => {
+    mount({ storageNamespace: "acme." });
+
+    act(() => useFirstRun.getState().dismiss("local/default"));
+    act(() => useNlAssist.getState().setConfig({ model: "phi4-f8-mini" }));
+
+    expect(localStorage.getItem("acme.f8.first-run")).not.toBeNull();
+    expect(localStorage.getItem("f8.first-run")).toBeNull();
+    expect(localStorage.getItem("acme.f8.nl-assist")).not.toBeNull();
+    expect(localStorage.getItem("f8.nl-assist")).toBeNull();
+  });
+});
+
+describe("two simultaneous mounts", () => {
+  it("fail loudly instead of silently rebinding the first mount to the second config", () => {
+    mount({ instances: [HOST_INSTANCE] });
+
+    expect(() => mount({ instances: [{ ...HOST_INSTANCE, id: "other" }] })).toThrow(
+      /already mounted/,
+    );
+  });
+
+  it("allow a sequential remount once the first is unmounted", async () => {
+    const first = mount({ instances: [HOST_INSTANCE] });
+    await waitFor(() => {
+      expect(first.querySelector('[data-testid="f8-studio-root"]')).not.toBeNull();
+    });
+    const { handle } = mounted.pop()!;
+    act(() => handle.unmount());
+    first.remove();
+
+    expect(() => mount({ instances: [{ ...HOST_INSTANCE, id: "other", name: "other" }] })).not.toThrow();
   });
 });

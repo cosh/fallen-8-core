@@ -18,25 +18,38 @@ lands when a host consumer exists. No engine or API changes are required.
 ## Phase 2 - Instance, credential & namespace injection
 
 - Registry (`src/instances/registry.ts`) initializes from `StudioConfig.instances ?? [SAME_ORIGIN_INSTANCE]`
-  and `activeInstanceId`. `lockInstances` hides the add/remove/connect affordances. Host-supplied
-  instances are managed (never persisted), reusing the existing partialize/merge filter that already
-  keeps the config.js-seeded default out of `localStorage`.
+  and `activeInstanceId`. `lockInstances` hides the add/remove/connect affordances **and** the
+  Connect screen's activation radios, listing only the host's instances there (the shell's switcher
+  is a static label, and Connect stays reachable). Host-supplied instances are managed (never
+  persisted), reusing the existing partialize/merge filter that already keeps the config.js-seeded
+  default out of `localStorage`; `"local"` stays a reserved id under a host config so a legacy
+  whole-state blob cannot resurrect it as a personal instance.
 - Add the `bearer` auth arm (`{ kind: "bearer"; getToken(): Promise<string> }`). The token resolves
-  at the transport choke points; the standalone kinds keep their synchronous fast path.
+  at the transport choke points; the standalone kinds keep their synchronous fast path, and the sync
+  `authHeaders` throws for bearer so a forgotten call site cannot send an unauthenticated request.
 - Seed the per-instance active namespace from `StudioConfig.namespace`; `lockNamespace` hides the
-  namespace switcher. The `GET /ns` support probe and pre-namespace degradation are unchanged.
+  namespace switcher, the namespace management panel and the recover-state switch. The `GET /ns`
+  support probe and pre-namespace degradation are unchanged.
 - Namespace every `localStorage` key through a `storageKey(name)` helper that prepends
-  `config.storageNamespace` (default `""`, so keys stay `f8.instances` etc.).
+  `config.storageNamespace` (default `""`, so keys stay `f8.instances` etc.). The module-level
+  stores skip their import-time hydration and each merge derives persisted state from storage plus
+  config alone, so a prefixed embed neither inherits bare-key state nor the previous mount's; the
+  memoized workspace stores are dropped per mount for the same reason (they bake their key in at
+  creation). Config application lives in `src/app/applyStudioConfig.ts` so it is testable without
+  the React shell.
 - **Verify:** instance-isolation + auth-header tests still green; add tests for a host-supplied
-  instance, a bearer instance (token resolved, never persisted), a pinned/locked namespace, and a
-  non-empty storage namespace.
+  instance, a bearer instance (token resolved, never persisted, rejection fails the request), a
+  pinned/locked namespace, a non-empty storage namespace, the reserved-id case, and cross-tenant
+  isolation across sequential mounts (workspace drafts, NL-assist config incl. its api key,
+  first-run dismissals, active namespace).
 
 ## Phase 3 - Router basepath
 
 - Thread `config.basepath` into `createRouter` (`src/app/routes.tsx`); default `""` (root, as today).
-- Optionally support `history: createMemoryHistory()` when the host owns the address bar.
-- **Verify:** routing tests green at default basepath; add a test that routes resolve under a non-empty
-  basepath.
+- Support `history: "memory"` when the host owns the address bar.
+- **Verify:** routing tests green at default basepath; add tests that hrefs carry a non-empty
+  basepath, that a navigation resolves under it (prefix applied at the history layer, route matched
+  back, host address bar untouched), and that a legacy-path redirect stays inside it.
 
 ## Phase 4 - CSS scoping & theming
 
@@ -47,12 +60,18 @@ lands when a host consumer exists. No engine or API changes are required.
   `.f8-studio`, pixel-identical. Tailwind's preflight stays global here: it cannot be
   import-scoped in plain CSS, and only the packaged library artifact (Phase 6) ever meets a
   host DOM - the scoped preflight is a packaging concern and moved there.
-- Convert the `@theme` tokens (colors **and** the `--font-*` type stack) to CSS custom properties on
-  `.f8-studio`, defaulting to today's values; `config.theme` overrides them. Drop the hard `html.dark`
-  dependency (keep the dark defaults).
+- Keep today's token values where Tailwind emits them and let `config.theme` override them as inline
+  custom properties on `.f8-studio` (colors **and** the `--font-*` type stack). Drop the hard
+  `html.dark` dependency (keep the dark defaults). Emitting the defaults on the scope root rather
+  than `:root` only matters for the library artifact, so it rides with packaging.
 - Give `Dialog.Portal` a `container` = the Studio root so modals stay inside an embedded region.
-- **Verify:** style-engine tests green; visual check that standalone is unchanged; add a test that a
-  `config.theme` override reaches the tokens.
+  This is load-bearing for the scoping above, not just for embedding: the modal primitives are
+  scoped to the root, so a portal that escapes it renders unstyled.
+- **Verify:** style-engine tests green; a test that a `config.theme` override reaches the tokens;
+  a test that a portalled overlay lands inside the scope root. Visual check (done 2026-08-06):
+  recaptured `screen-connect.png` against a real apiApp via the e2e harness and compared it to the
+  committed baseline - identical but for the rendered "created" date, so the standalone rendering is
+  unchanged and the committed screenshots stand.
 
 ## Phase 5 - Canvas component export
 
@@ -89,8 +108,15 @@ lands when a host consumer exists. No engine or API changes are required.
   standalone screens; scope with `:where()` (zero specificity bump) to avoid cascade surprises.
 - **Async auth ripple** (Phase 2): `authHeaders` is synchronous today and is called from `apiRequest`,
   the change feed, and the export endpoints. A bearer provider is inherently async (tokens expire).
-  Mitigation: resolve the token once per request at those choke points (or an async `authHeaders`
-  with a sync fast path for `none`/`apiKey`); do not fan the async change out into screens.
+  Mitigation: resolve the token once per request at those choke points (`resolveAuthHeaders`), keep a
+  sync path for `none`/`apiKey`, and do not fan the async change out into screens. The sync helper
+  throws for bearer and a convention test keeps it out of every other module, so a new call site
+  cannot silently reintroduce an unauthenticated path.
+- **Config-scoped module state** (Phase 2): the config, the instance registry and the persisted keys
+  are module-level, so a second SIMULTANEOUS mount would cross-bind two embeds. Mitigation: count
+  live mounts and throw on the second (the non-goal, enforced rather than documented); sequential
+  mounts are isolated by dropping per-mount memoized state and deriving persisted state from storage
+  plus config alone.
 - **Storage-key migration**: default namespace is empty, so existing users' `f8.*` keys are untouched;
   only host embeds with an explicit namespace get prefixed keys.
 - **Router basepath** interacting with the canvas deep-links: covered by the Phase 3 basepath test.

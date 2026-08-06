@@ -78,4 +78,30 @@ describe("createStudioRouter basepath", () => {
       hosted.buildLocation({ to: "/q/$ns/dashboard", params: { ns: "ops" } }).href,
     ).toBe("/studio/q/ops/dashboard");
   });
+
+  it("resolves a navigation under the basepath and leaves the host's address bar alone", async () => {
+    // Building an href and RESOLVING one are different paths. The prefix is applied at the
+    // history layer while router state stays basepath-relative, so a navigation is a full
+    // round-trip: prefixed URL out, matched route back. Memory history keeps the host's own
+    // address bar untouched throughout.
+    const hosted = createStudioRouter({ basepath: "/studio", history: "memory" });
+    await hosted.load();
+    await hosted.navigate({ to: "/q/$ns/browser", params: { ns: "ops" } });
+
+    expect(hosted.history.location.pathname).toBe("/studio/q/ops/browser");
+    expect(hosted.state.location.pathname).toBe("/q/ops/browser");
+    expect(hosted.state.matches.at(-1)?.routeId).toBe("/q/$ns/browser");
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("keeps a legacy-path redirect inside the basepath", async () => {
+    // The pre-namespace bookmarks redirect through `throw redirect(...)`; a redirect that
+    // skipped the basepath would send an embedded Studio out of its host mount point.
+    const hosted = createStudioRouter({ basepath: "/studio", history: "memory" });
+    await hosted.load();
+    await hosted.navigate({ to: "/canvas" });
+
+    expect(hosted.history.location.pathname).toMatch(/^\/studio\/q\/[^/]+\/canvas$/);
+    expect(hosted.state.matches.at(-1)?.routeId).toBe("/q/$ns/canvas");
+  });
 });
