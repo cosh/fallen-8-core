@@ -4,6 +4,7 @@
 # Manage the environment as a whole - not individual containers:
 #
 #   npm run env:up                   # start everything (detects NVIDIA GPU automatically)
+#   npm run env:up:published         # same, but from the published GHCR images (no builds)
 #   F8_GPU=0 npm run env:up          # force CPU-only mode (no GPU acceleration)
 #   F8_GPU=1 npm run env:up          # force GPU mode (fails if no NVIDIA GPU + toolkit)
 #   npm run env:down                 # stop everything; named volumes persist
@@ -31,8 +32,14 @@
 #               box - the same Ollama sidecar serves bge-m3 (MIT). Opt out with
 #               F8_EMBEDDINGS=false. Docs: features/done/embedding-provider/README.md.
 
+# First-party services declare BOTH image: (the GHCR name release.yml publishes on every
+# vX.Y.Z tag; F8_IMAGE_TAG pins a version, default latest) AND build: (the dev fallback -
+# `npm run env:up` builds locally, `npm run env:up:published` runs purely from the
+# published images). Third-party images are pinned to exact versions.
+
 services:
   fallen8:
+    image: ghcr.io/cosh/fallen-8-core:${F8_IMAGE_TAG:-latest}
     build: .
     restart: unless-stopped
     # Give the clean-shutdown checkpoint time to write + register before SIGKILL (compose's
@@ -103,6 +110,7 @@ services:
       - f8-net
 
   ollama:
+    image: ghcr.io/cosh/fallen-8-core-ollama:${F8_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile.ollama
@@ -160,6 +168,9 @@ services:
   # /health itself (cached; surfaced on /status as nlp.reachable). Override the model via the
   # F8_NLP_MODEL build ARG (kept in lockstep with the runtime env of the same name).
   nlp:
+    # The published image is the CPU tier (linux/amd64 only); the GPU overlay swaps to a
+    # local build with the transformer model baked in (docker-compose.gpu.yml).
+    image: ghcr.io/cosh/fallen-8-core-nlp:${F8_IMAGE_TAG:-latest}
     build:
       context: ./fallen-8-nlp
       dockerfile: Dockerfile
@@ -178,6 +189,7 @@ services:
   # NOT reuse this: set F8_MCP_AUTH_MODE=StaticToken + F8_MCP_TOKEN (or OAuth) and enable only
   # the tiers you need — see docs/mcp-server.md.
   f8-mcp:
+    image: ghcr.io/cosh/fallen-8-core-mcp:${F8_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: fallen-8-mcp/Dockerfile
