@@ -1,39 +1,236 @@
+﻿# Tag-driven publishing: pushing a git tag vX.Y.Z is the ONLY trigger and the only manual
+# step of a release. The tag is the single source of truth for every version (MinVer derives
+# assembly/file/package versions; docker/metadata-action derives the image tags).
+#
+# DO NOT RENAME THIS FILE. The nuget.org Trusted Publishing policy is bound to the workflow
+# filename (release.yml); a rename breaks the OIDC exchange and every push answers 401.
+#
+# Publish targets, all gated on the full test suite:
+#   - GHCR images (GITHUB_TOKEN):  ghcr.io/cosh/fallen-8-core (+ -api, -studio, -mcp,
+#     -ollama, -nlp), multi-arch except -nlp (see the matrix note).
+#   - nuget.org (Trusted Publishing via OIDC - NO stored API key, no fallback):  Fallen-8.
+#   - GitHub Packages NuGet feed (GITHUB_TOKEN):  continuity mirror, best-effort.
+#   - A GitHub release with generated notes and the package attached.
+#
+# Everything is idempotent: a re-run overwrites image tags, skips already-pushed package
+# versions (--skip-duplicate), and updates an existing GitHub release.
+
 name: release
 
 on:
   push:
     tags:
-    - "v[0-9]+.[0-9]+.[0-9]+"
+      # Stable versions only: exactly vX.Y.Z. Pre-release tags would publish a floating
+      # `dotnet add package` version, so they deliberately do not trigger this.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+# Least privilege: no default token scopes; every job declares exactly what it needs.
+# id-token: write exists ONLY on the nuget job.
+permissions: {}
 
 jobs:
-  build:
-
+  test:
+    name: engine + API (restore, build, test)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        dotnet-version: ['10.0.x']
-
+    permissions:
+      contents: read
     steps:
-    - uses: actions/checkout@v3
-    - name: Setup .NET SDK ${{ matrix.dotnet-version }}
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: ${{ matrix.dotnet-version }}
-    - name: Set VERSION variable from tag
-      run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_ENV
-    - name: Restore dependencies
-      run: dotnet restore
-    - name: Build
-      run: dotnet build --configuration Release /p:Version=${VERSION}
-    - name: Test
-      run: dotnet test --configuration Release /p:Version=${VERSION} --no-build --verbosity normal
-    - name: Pack
-      run: dotnet pack --configuration Release /p:Version=${VERSION} --no-build --output .
-    - name: Push package to github
-      run: dotnet nuget push Fallen-8.${VERSION}.nupkg --source https://nuget.pkg.github.com/cosh/index.json --api-key ${PAT}
-      env:
-        PAT: ${{ secrets.PAT }}
-    - name: Push package to nuget
-      run: dotnet nuget push Fallen-8.${VERSION}.nupkg --source https://api.nuget.org/v3/index.json --api-key ${NUGET_TOKEN}
-      env:
-        NUGET_TOKEN: ${{ secrets.NUGET_API_KEY }}
+      - uses: actions/checkout@v5
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore dependencies
+        run: dotnet restore
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+      - name: Test
+        run: dotnet test --configuration Release --no-build --verbosity normal
+
+  test-ui:
+    name: F8 Studio (typecheck, unit, build)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: fallen-8-web-ui
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: fallen-8-web-ui/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-fund --no-audit
+      - name: Typecheck
+        run: npx tsc -b
+      - name: Unit and component tests
+        run: npm test
+      - name: Production build
+        run: npm run build
+
+  docker:
+    name: "image: ${{ matrix.image }}"
+    runs-on: ubuntu-latest
+    needs: [test, test-ui]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One leg per first-party image the compose environment runs. The dotnet images
+          # take the VERSION build arg (MinVer override - no .git in the build context).
+          - image: fallen-8-core
+            dockerfile: Dockerfile
+            context: .
+            platforms: linux/amd64,linux/arm64
+            build_args: version
+            description: "Fallen-8 all-in-one: in-memory graph engine + REST API + F8 Studio"
+          - image: fallen-8-core-api
+            dockerfile: fallen-8-core-apiApp/Dockerfile
+            context: .
+            platforms: linux/amd64,linux/arm64
+            build_args: version
+            description: "Fallen-8 data plane: in-memory graph engine + REST API, UI-less (split topology)"
+          - image: fallen-8-core-studio
+            dockerfile: fallen-8-web-ui/Dockerfile
+            context: .
+            platforms: linux/amd64,linux/arm64
+            build_args: none
+            description: "F8 Studio standalone: the browser UI served by nginx, pointed at any Fallen-8 REST endpoint via F8_API_URL"
+          - image: fallen-8-core-mcp
+            dockerfile: fallen-8-mcp/Dockerfile
+            context: .
+            platforms: linux/amd64,linux/arm64
+            build_args: version
+            description: "Fallen-8 MCP server: Model Context Protocol bridge to the Fallen-8 REST API"
+          - image: fallen-8-core-ollama
+            dockerfile: Dockerfile.ollama
+            context: .
+            platforms: linux/amd64,linux/arm64
+            build_args: none
+            description: "Ollama sidecar with Fallen-8 model auto-pull (NL assist, chat, embeddings)"
+          # amd64 only: the spaCy/pip dependency chain has no reliable aarch64 wheel story,
+          # and emulating pip + the model download under QEMU is slow and flaky. The GPU
+          # (en_core_web_trf) tier is likewise NOT published - it stays a local build
+          # (docker-compose.gpu.yml bakes the model at build time).
+          - image: fallen-8-core-nlp
+            dockerfile: fallen-8-nlp/Dockerfile
+            context: fallen-8-nlp
+            platforms: linux/amd64
+            build_args: none
+            description: "Fallen-8 NLP sidecar: FastAPI + spaCy entity and key-term enrichment (CPU tier, linux/amd64 only)"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image tags and OCI labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          # X.Y.Z, X.Y, X, latest (flavor default adds it on semver tags), sha. Note:
+          # metadata-action deliberately emits no bare major tag while the major version is
+          # 0 (semver declares 0.y.z unstable), so the X tag first appears at v1.0.0.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+          # source/url/version/revision/created labels are auto-generated from the repo;
+          # description and licenses are pinned per image so GHCR links back correctly.
+          labels: |
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=MIT
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.build_args == 'version' && format('VERSION={0}', steps.meta.outputs.version) || '' }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  nuget:
+    name: NuGet package (nuget.org + GitHub Packages)
+    runs-on: ubuntu-latest
+    needs: [test, test-ui]
+    # The ONLY job with id-token: write - the nuget.org Trusted Publishing policy exchanges
+    # this workflow's OIDC token for a short-lived push key, validated against THIS workflow
+    # in THIS repo (which is why the login step must not move into a reusable workflow).
+    # packages: write covers the GitHub Packages continuity push.
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # MinVer walks the commit history to the version tag.
+          fetch-depth: 0
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Pack (version from the git tag via MinVer)
+        run: dotnet pack fallen-8-core/fallen-8-core.csproj --configuration Release -p:ContinuousIntegrationBuild=true --output packages
+      # The OIDC exchange happens immediately before the pushes: the token is single-use and
+      # the returned key expires after one hour, so it is never fetched early or shared
+      # across jobs. If the exchange fails, this step fails the release loudly - there is
+      # deliberately NO stored-API-key fallback.
+      - name: NuGet login (OIDC Trusted Publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Push package to nuget.org
+        run: dotnet nuget push packages/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate --no-symbols
+      - name: Push symbols to nuget.org
+        run: dotnet nuget push packages/*.snupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: Push package to GitHub Packages (continuity feed)
+        # Best-effort mirror for continuity with the pre-0.0.28 releases on this feed; a
+        # hiccup here must not fail a release whose nuget.org push succeeded.
+        continue-on-error: true
+        run: dotnet nuget push packages/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }} --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json --skip-duplicate
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nuget-package
+          path: packages/
+
+  github-release:
+    name: GitHub release
+    runs-on: ubuntu-latest
+    needs: [docker, nuget]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-package
+          path: packages
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        # Idempotent: create the release with generated notes only if it does not exist yet,
+        # then (re-)attach the package artifacts.
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          fi
+          gh release upload "$TAG" packages/*.nupkg packages/*.snupkg --repo "$GITHUB_REPOSITORY" --clobber
