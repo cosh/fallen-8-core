@@ -5,6 +5,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>NoSQL.GraphDB.Bench</RootNamespace>
     <AssemblyName>fallen-8-bench</AssemblyName>
+    <!-- Only the engine (fallen-8-core) ships as a NuGet package; the bench is a local tool. -->
+    <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>

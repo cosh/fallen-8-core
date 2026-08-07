@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>NoSQL.GraphDB.Core.App</RootNamespace>
+    <!-- Only the engine (fallen-8-core) ships as a NuGet package; the app is a deployable. -->
+    <IsPackable>false</IsPackable>
     <UserSecretsId>15e5bd97-6dbd-4639-ada0-0dd67a68510e</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
