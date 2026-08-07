@@ -12,7 +12,9 @@
 # stripped by .dockerignore (**/dist).
 
 # ---- UI build (mirrors the all-in-one ui-build stage) ----
-FROM node:22-alpine AS ui-build
+# Runs on the BUILD host's architecture (the output is static JS), so a multi-arch image
+# build compiles once; only the nginx runtime stage is per-architecture.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui-build
 WORKDIR /src/fallen-8-web-ui
 COPY fallen-8-web-ui/package.json fallen-8-web-ui/package-lock.json ./
 RUN npm ci --no-fund --no-audit

@@ -1,4 +1,6 @@
 [![.NET](https://github.com/cosh/fallen-8-core/actions/workflows/buildAndTest.yml/badge.svg?branch=main)](https://github.com/cosh/fallen-8-core/actions/workflows/buildAndTest.yml)
+[![NuGet](https://img.shields.io/nuget/v/Fallen-8?logo=nuget&label=nuget)](https://www.nuget.org/packages/Fallen-8)
+[![GHCR](https://img.shields.io/github/v/release/cosh/fallen-8-core?logo=docker&label=ghcr.io%2Fcosh%2Ffallen-8-core)](https://github.com/cosh/fallen-8-core/pkgs/container/fallen-8-core)
 
 ## Welcome to Fallen-8
 
@@ -155,6 +157,42 @@ http://localhost:8090** for AI-agent clients (read-only by default).
 Every other way to run it — a bare `dotnet run`, the configuration keys, the security
 switches, GPU acceleration, offline model pre-seeding — is in
 [docs/running.md](https://cosh.github.io/fallen-8-core/running/).
+
+### Run from the published image
+
+Every release tag publishes versioned images to GHCR, so nothing needs to be built locally.
+The all-in-one image (engine + REST API + F8 Studio) runs with plain Docker:
+
+```bash
+docker run -d --name fallen8 -p 8080:8080 -v f8-data:/data ghcr.io/cosh/fallen-8-core:latest
+```
+
+The full environment (Studio, sidecars, observability, MCP server) also runs purely from the
+published images:
+
+```bash
+npm run env:up:published
+```
+
+`latest` and the newest NuGet version both correspond to the newest release tag. For a
+reproducible deployment pin the version, which mirrors the git tag:
+
+```bash
+docker run -d --name fallen8 -p 8080:8080 -v f8-data:/data ghcr.io/cosh/fallen-8-core:0.0.28
+F8_IMAGE_TAG=0.0.28 npm run env:up:published
+```
+
+### Use the engine as a library
+
+The engine ships as the [`Fallen-8`](https://www.nuget.org/packages/Fallen-8) package on
+nuget.org. Stable versions are published only from release tags, so installing without a
+version always gets the newest release; pin `--version X.Y.Z` for reproducible builds.
+
+```bash
+dotnet add package Fallen-8
+```
+
+The in-process guide is in [docs/library.md](https://cosh.github.io/fallen-8-core/library/).
 
 ## Samples
 

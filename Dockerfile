@@ -6,8 +6,12 @@
 # weights/runtime) - docker-compose.yml wires the official Ollama image + the MIT
 # default model next to this container.
 
+# Build stages run on the BUILD host's architecture (both outputs are architecture-neutral:
+# static JS and .NET IL), so a multi-arch image build compiles once instead of emulating the
+# toolchain per target platform; only the runtime stage is per-architecture.
+
 # ---- UI build ----
-FROM node:22-alpine AS ui-build
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui-build
 WORKDIR /src/fallen-8-web-ui
 COPY fallen-8-web-ui/package.json fallen-8-web-ui/package-lock.json ./
 RUN npm ci --no-fund --no-audit
@@ -20,11 +24,15 @@ COPY samples/ /src/samples/
 RUN npm run build
 
 # ---- API build ----
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS api-build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS api-build
 WORKDIR /src
+# No .git in the build context, so MinVer (Directory.Build.props) cannot derive the tag
+# version; the release workflow passes it in, local builds keep the honest dev default.
+ARG VERSION=0.0.0-dev
+COPY Directory.Build.props ./
 COPY fallen-8-core/ fallen-8-core/
 COPY fallen-8-core-apiApp/ fallen-8-core-apiApp/
-RUN dotnet publish fallen-8-core-apiApp -c Release -o /app
+RUN dotnet publish fallen-8-core-apiApp -c Release -o /app -p:MinVerVersionOverride=${VERSION}
 
 # ---- runtime ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

@@ -20,6 +20,16 @@
          is a per-rule decision recorded in the code-quality feature docs, not a default. -->
     <AnalysisLevel>latest</AnalysisLevel>
 
+    <!-- Tag-driven versioning: the git tag vX.Y.Z is the single source of truth for assembly,
+         file, and package versions; MinVer derives them at build time. No csproj carries a
+         hardcoded version. Docker builds have no .git, so every Dockerfile passes
+         -p:MinVerVersionOverride (build ARG VERSION) instead of probing the repository. -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer" Version="7.0.0" PrivateAssets="all" />
+  </ItemGroup>
 
 </Project>

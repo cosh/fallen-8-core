@@ -4,10 +4,16 @@
 # service (profile: mcp). Run it against any Fallen-8, local or cross-host.
 
 # ---- build ----
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# Runs on the BUILD host's architecture and emits architecture-neutral IL, so a multi-arch
+# image build compiles once; only the runtime stage is per-architecture.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
+# No .git in the build context, so MinVer (Directory.Build.props) cannot derive the tag
+# version; the release workflow passes it in, local builds keep the honest dev default.
+ARG VERSION=0.0.0-dev
+COPY Directory.Build.props ./
 COPY fallen-8-mcp/ fallen-8-mcp/
-RUN dotnet publish fallen-8-mcp -c Release -o /app
+RUN dotnet publish fallen-8-mcp -c Release -o /app -p:MinVerVersionOverride=${VERSION}
 
 # ---- runtime ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

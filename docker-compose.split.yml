@@ -18,6 +18,9 @@ services:
     # Override the BUILD to the UI-less apiApp Dockerfile: the base uses `build: .`, the all-in-one
     # image that bakes the SPA into wwwroot. The apiApp image installs curl, so the base /status
     # healthcheck applies unchanged here (and f8-mcp's service_healthy dependency stays satisfied).
+    # The IMAGE is overridden too: without it, a local build of this UI-less variant would be
+    # tagged with the base's all-in-one GHCR name.
+    image: ghcr.io/cosh/fallen-8-core-api:${F8_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: fallen-8-core-apiApp/Dockerfile
@@ -37,6 +40,7 @@ services:
   # is overridable; 8081 avoids the API (8080) and Grafana (3000), so this can run alongside the
   # observability stack in the default env:up.
   f8-studio:
+    image: ghcr.io/cosh/fallen-8-core-studio:${F8_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: fallen-8-web-ui/Dockerfile

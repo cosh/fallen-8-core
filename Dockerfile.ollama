@@ -4,7 +4,9 @@
 # Custom Ollama image that auto-pulls models on startup, ensuring a ready-to-use
 # environment without manual intervention.
 
-FROM ollama/ollama:latest
+# Pinned (not :latest) so the model-serving behaviour cannot drift under the environment
+# without a deliberate bump, and so the published wrapper image is reproducible.
+FROM ollama/ollama:0.32.6
 
 # Copy the startup script that waits for Ollama to be healthy, then pulls models.
 COPY scripts/ollama-init.sh /usr/local/bin/ollama-init.sh

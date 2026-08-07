@@ -32,6 +32,9 @@ services:
   # args bake the trf model into the image; the runtime env makes enrich.py load that model and
   # call spacy.prefer_gpu(). Kept in lockstep: F8_NLP_MODEL is set for BOTH build and run.
   nlp:
+    # A LOCAL image name: the GPU (trf) tier bakes torch + the transformer model at build
+    # time and is never published, so it must not shadow the published CPU image's GHCR tag.
+    image: fallen-8-nlp:gpu
     build:
       args:
         F8_NLP_MODEL: en_core_web_trf

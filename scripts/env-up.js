@@ -48,14 +48,28 @@ function hostHasNvidiaGpu() {
 }
 
 function main() {
-  const gpu = hostHasNvidiaGpu();
-  console.log(
-    gpu
-      ? 'NVIDIA GPU detected - applying docker-compose.gpu.yml (Ollama on the GPU; the NLP sidecar\n' +
-        'uses the en_core_web_trf transformer on the GPU).'
-      : 'No NVIDIA GPU detected - starting CPU-only, the NLP sidecar on en_core_web_lg\n' +
-        '(F8_GPU=1 forces the GPU override).'
-  );
+  // --published (npm run env:up:published): run purely from the published GHCR images -
+  // no local builds, nothing needed beyond the compose files. F8_IMAGE_TAG pins a version
+  // (default latest). The GPU overlay is skipped: its NLP tier is a build-time variant
+  // (transformer model baked in) that is deliberately not published.
+  const published = process.argv.includes('--published');
+  const gpu = !published && hostHasNvidiaGpu();
+  if (published) {
+    console.log(
+      'Published-image mode: pulling ghcr.io/cosh/fallen-8-core* (' +
+        `tag ${process.env.F8_IMAGE_TAG || 'latest'}) instead of building; the GPU overlay is\n` +
+        'skipped (its NLP transformer tier only exists as a local build - use npm run env:up).'
+    );
+  }
+  if (!published) {
+    console.log(
+      gpu
+        ? 'NVIDIA GPU detected - applying docker-compose.gpu.yml (Ollama on the GPU; the NLP sidecar\n' +
+          'uses the en_core_web_trf transformer on the GPU).'
+        : 'No NVIDIA GPU detected - starting CPU-only, the NLP sidecar on en_core_web_lg\n' +
+          '(F8_GPU=1 forces the GPU override).'
+    );
+  }
   console.log(
     'On first start the Ollama container pulls phi4-mini + phi4-f8-mini (a few GB); the F8\n' +
       'API is up immediately, and NL assist works once the pull finishes. Watch it with\n' +
@@ -113,7 +127,10 @@ function main() {
   // --remove-orphans: if a previous run used a different set of compose files, drop any
   // container no longer in this configuration, so a recreated f8-net never strands a stale
   // container on an old network id ("network ... not found").
-  const result = spawnSync('docker', ['compose', ...files, ...profiles, 'up', '-d', '--build', '--remove-orphans'], {
+  // Published mode swaps --build for --no-build: compose pulls any image it does not have
+  // locally from GHCR (refresh an already-pulled tag with `docker compose pull`).
+  const buildFlag = published ? '--no-build' : '--build';
+  const result = spawnSync('docker', ['compose', ...files, ...profiles, 'up', '-d', buildFlag, '--remove-orphans'], {
     cwd: path.join(__dirname, '..'),
     stdio: 'inherit',
   });

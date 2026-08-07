@@ -4,7 +4,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>NoSQL.GraphDB.Core</RootNamespace>
     <PackageId>Fallen-8</PackageId>
-    <!-- 0.0.x -> 0.1.0: breaking change to the public engine model surface. VertexModel.OutEdges/
+    <!-- Versions derive from the git tag vX.Y.Z (MinVer, wired in Directory.Build.props);
+         nothing is hardcoded here. Historical record of breaking engine-surface changes:
+         0.0.x -> 0.1.0: breaking change to the public engine model surface. VertexModel.OutEdges/
          InEdges are now read-only views (IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>>) and
          TryGetOutEdge/TryGetInEdge return IReadOnlyList<EdgeModel> instead of the mutable
          ImmutableDictionary/ImmutableList (adjacency-flattening). The REST api/v{version} contract is
@@ -20,24 +22,27 @@
          exact key" (equality capability), replacing the type-switches that had drifted between the
          /status inventory and the semantic layer (consolidation-audit CA-1). Every built-in index
          implements it; an external IIndex implementer must add it. No REST api/v{version} change. -->
-    <Version>0.3.0</Version>
-    <AssemblyVersion>0.3.0.0</AssemblyVersion>
-    <FileVersion>0.3.0.0</FileVersion>
     <Authors>Henning Rauch</Authors>
     <Company>RauchEntwicklung</Company>
     <Copyright>Copyright (c) 2011-2026 Henning Rauch</Copyright>
     <Description>Fallen-8 is an in-memory graph database implemented in C#. Its focus is to provide raw speed for heavy graph algorithms.</Description>
-    <license>MIT</license>
     <PackageIcon>iconwhite.png</PackageIcon>
-    <Repository>https://github.com/cosh/fallen-8-core</Repository>
     <PackageProjectUrl>https://www.fallen-8.com</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryType>git</RepositoryType>
     <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <DebugType>embedded</DebugType>
     <RepositoryUrl>https://github.com/cosh/fallen-8-core</RepositoryUrl>
     <PackageTags>graph;database;inmemory</PackageTags>
+    <!-- Debuggable releases: portable PDBs in a .snupkg symbols package, source link into the
+         GitHub repo (the SDK's built-in source link support picks up RepositoryUrl), untracked
+         (generated) sources embedded. Deterministic build is the SDK default; the release
+         workflow adds -p:ContinuousIntegrationBuild=true so paths normalize in CI. -->
+    <DebugType>portable</DebugType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
   <!-- Explicit garbage collector configuration (N5). The engine keeps a large resident graph

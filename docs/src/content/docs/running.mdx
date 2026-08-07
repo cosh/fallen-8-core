@@ -59,6 +59,26 @@ npm run env:logs     # follow all logs
 npm run env:status   # health of the whole environment
 ```
 
+### From the published images
+
+`env:up` builds the first-party images locally. Every release tag also publishes them to
+GHCR (`ghcr.io/cosh/fallen-8-core` plus `-api`, `-studio`, `-mcp`, `-ollama`, `-nlp`), so the
+same environment runs without building anything:
+
+```bash
+npm run env:up:published              # newest release (latest)
+F8_IMAGE_TAG=0.0.28 npm run env:up:published   # pin a release for reproducible deployments
+```
+
+Image tags mirror the git release tags; `latest` always points at the newest release. The one
+difference to `env:up`: the GPU overlay is skipped, because the NLP transformer tier only
+exists as a local build (the published NLP image is the CPU tier, linux/amd64). And for just
+Fallen-8 itself (engine + REST API + F8 Studio in one container), no sidecars:
+
+```bash
+docker run -d --name fallen8 -p 8080:8080 -v f8-data:/data ghcr.io/cosh/fallen-8-core:latest
+```
+
 The environment is **open** (no API key) and has **text-in embeddings on** (semantic search and
 GraphRAG work out of the box). Dynamic C# code execution is **always on**: there is no switch for
 it, because compiled filter and cost fragments are Fallen-8's query model. They run in-process with
@@ -107,6 +127,7 @@ for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 | `F8_INGESTION`                                             | `true`                           | [Document ingestion](/fallen-8-core/unstructured-ingestion/). `false` skips the docling sidecar (a ~4.4 GB image) **and** answers 403 on the document endpoints, including txt/md |
 | `F8_NLP`                                                   | `true`                           | NLP enrichment. `false` skips the spaCy sidecar; ingestion still writes Document and Chunk vertices, just without the entity graph                         |
 | `F8_GPU`                                                   | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
+| `F8_IMAGE_TAG`                                             | `latest`                         | Which published image version `env:up:published` runs (mirrors the release tags, e.g. `0.0.28`); ignored by the building `env:up`                          |
 | `F8_PULL_PHI4F8`                                           | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |
 | `F8_DELEGATE_REPO`                                         | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`); `F8_PHI4F8_REPO` is the same for `phi4-f8`                                     |
 | `F8_MCP_AUTH_MODE`                                         | `None`                           | Caller auth for the [MCP server](/fallen-8-core/mcp-server/). Anything reachable off-box wants `StaticToken` plus `F8_MCP_TOKEN`                           |
