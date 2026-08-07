@@ -1,9 +1,9 @@
-# GPU override: hands the host's NVIDIA GPU(s) to the containers that can use one. Ollama runs
-# NL-assist inference accelerated; the NLP sidecar (feature nlp-gpu-tier) swaps to the
-# en_core_web_trf transformer model and runs it on the GPU (on a CPU-only host it stays on
-# en_core_web_lg). It is a separate file because a device reservation hard-fails container
-# creation on hosts without an NVIDIA GPU + container toolkit - `npm run env:up` detects the GPU
-# (scripts/env-up.js) and applies this file automatically.
+# GPU override: hands the host's NVIDIA GPU(s) to the Ollama sidecar, so NL-assist and
+# embedding inference run accelerated. Runtime-only (no image rebuild), which is why it works
+# for BOTH the locally built and the published-image environments - `npm run env:up` and
+# `npm run env:up:published` (scripts/env-up.js) apply it automatically when a GPU is
+# detected. It is a separate file because a device reservation hard-fails container creation
+# on hosts without an NVIDIA GPU + container toolkit.
 #
 # GPU control: set F8_GPU to override automatic detection:
 #   F8_GPU=0 npm run env:up          # disable GPU (force CPU-only, even if GPU exists)
@@ -11,37 +11,16 @@
 #   npm run env:up                   # auto-detect (default, recommended)
 #
 # To apply this file by hand:
-#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 #
-# AMD GPUs are not covered: Ollama needs the ollama/ollama:rocm image for ROCm, and the NLP
-# transformer tier assumes CUDA (cupy-cuda12x).
+# The NLP sidecar's GPU tier (the en_core_web_trf transformer) is a BUILD-time variant and
+# lives in its own overlay, docker-compose.gpu-nlp.yml: env:up adds it on a GPU host;
+# env:up:published cannot (that image is deliberately not published).
+#
+# AMD GPUs are not covered: Ollama needs the ollama/ollama:rocm image for ROCm.
 
 services:
   ollama:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
-  # NLP sidecar on the GPU (feature nlp-gpu-tier): rebuild the image on the transformer tier
-  # (en_core_web_trf, whose wheel pulls spacy-curated-transformers + torch, plus the spacy[cuda12x]
-  # cupy extra) and run it on the reserved device. The build
-  # args bake the trf model into the image; the runtime env makes enrich.py load that model and
-  # call spacy.prefer_gpu(). Kept in lockstep: F8_NLP_MODEL is set for BOTH build and run.
-  nlp:
-    # A LOCAL image name: the GPU (trf) tier bakes torch + the transformer model at build
-    # time and is never published, so it must not shadow the published CPU image's GHCR tag.
-    image: fallen-8-nlp:gpu
-    build:
-      args:
-        F8_NLP_MODEL: en_core_web_trf
-        F8_NLP_GPU: "1"
-    environment:
-      - F8_NLP_MODEL=en_core_web_trf
-      - F8_NLP_PREFER_GPU=1
     deploy:
       resources:
         reservations:

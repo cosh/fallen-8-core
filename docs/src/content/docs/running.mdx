@@ -70,10 +70,11 @@ npm run env:up:published              # newest release (latest)
 F8_IMAGE_TAG=0.0.28 npm run env:up:published   # pin a release for reproducible deployments
 ```
 
-Image tags mirror the git release tags; `latest` always points at the newest release. The one
-difference to `env:up`: the GPU overlay is skipped, because the NLP transformer tier only
-exists as a local build (the published NLP image is the CPU tier, linux/amd64). And for just
-Fallen-8 itself (engine + REST API + F8 Studio in one container), no sidecars:
+Image tags mirror the git release tags; `latest` always points at the newest release. GPU
+auto-detection works exactly like `env:up` (Ollama gets the device, a runtime-only handoff);
+the one difference is the NLP sidecar, which stays on the published CPU tier because its
+transformer tier only exists as a local build. And for just Fallen-8 itself (engine + REST
+API + F8 Studio in one container), no sidecars:
 
 ```bash
 docker run -d --name fallen8 -p 8080:8080 -v f8-data:/data ghcr.io/cosh/fallen-8-core:latest
@@ -271,12 +272,15 @@ you enabling anything.
 
 ## GPU acceleration
 
-`npm run env:up` auto-detects an NVIDIA GPU (`nvidia-smi` present) and hands it to the two
-containers that can use one: Ollama runs assist inference accelerated, and the NLP sidecar swaps to
-the `en_core_web_trf` transformer model on the device instead of `en_core_web_lg` on the CPU.
-Otherwise everything runs CPU-only. That model is baked in at build time, so flipping `F8_GPU`
-rebuilds the `nlp` image (transformer weights plus the CUDA extras): the first `env:up` after the
-switch is slow. Force it with `F8_GPU`:
+`npm run env:up` and `npm run env:up:published` auto-detect an NVIDIA GPU (`nvidia-smi`
+present) and hand it to the containers that can use one. Ollama runs assist and embedding
+inference accelerated in both modes (a runtime-only handoff, `docker-compose.gpu.yml`). When
+building locally, the NLP sidecar additionally swaps to the `en_core_web_trf` transformer
+model on the device instead of `en_core_web_lg` on the CPU (`docker-compose.gpu-nlp.yml`).
+Otherwise everything runs CPU-only. The transformer model is baked in at build time, so
+flipping `F8_GPU` rebuilds the `nlp` image (transformer weights plus the CUDA extras): the
+first `env:up` after the switch is slow, and `env:up:published` always stays on the CPU NLP
+tier. Force detection with `F8_GPU`:
 
 ```bash
 F8_GPU=0 npm run env:up   # CPU-only even if a GPU is present
