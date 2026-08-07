@@ -51,9 +51,11 @@ apiApp has NLP off and ingestion simply produces no entities.
 ### The GPU tier (accuracy on an NVIDIA host)
 
 `npm run env:up` detects an NVIDIA GPU (`scripts/env-up.js`, `nvidia-smi`) and applies
-`docker-compose.gpu.yml`, which rebuilds this sidecar on the transformer tier and runs it on the
-device. `F8_GPU=0` forces CPU-only, `F8_GPU=1` forces the GPU override. There is no code change
-between tiers: it is all env + build args.
+`docker-compose.gpu-nlp.yml`, which rebuilds this sidecar on the transformer tier and runs it on
+the device. `F8_GPU=0` forces CPU-only, `F8_GPU=1` forces the GPU override. There is no code
+change between tiers: it is all env + build args. The transformer image only exists as a local
+build (it is not published to GHCR), so the published-image `npm run env:up:published` always
+runs the CPU tier.
 
 To build the GPU image by hand:
 

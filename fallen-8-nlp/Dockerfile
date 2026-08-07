@@ -7,7 +7,7 @@
 #   - GPU (F8_NLP_GPU=1): en_core_web_trf (MIT) - its wheel pulls its own backend
 #     (spacy-curated-transformers) + torch - plus the spacy[cuda12x] extra (cupy) so
 #     spacy.prefer_gpu() can move the transformer onto the reserved device at runtime.
-# The compose GPU overlay (docker-compose.gpu.yml, applied automatically by `npm run env:up` when
+# The compose GPU overlay (docker-compose.gpu-nlp.yml, applied automatically by `npm run env:up` when
 # an NVIDIA GPU is detected) sets both build args below plus F8_NLP_PREFER_GPU and the device.
 FROM python:3.12-slim
 

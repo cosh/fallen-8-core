@@ -24,10 +24,11 @@
 // SOFTWARE.
 
 // Starts the F8 environment (docker compose up). Two jobs:
-//  1. GPU: add docker-compose.gpu.yml when the host has an NVIDIA GPU so Ollama runs
-//     accelerated AND the NLP sidecar swaps to its transformer model on the device (why a
-//     separate file: see its header). Detection is "nvidia-smi works"; F8_GPU=1 / F8_GPU=0
-//     forces it either way.
+//  1. GPU: when the host has an NVIDIA GPU, add docker-compose.gpu.yml (Ollama on the
+//     device; runtime-only, so it applies in BOTH modes) and, when building locally, also
+//     docker-compose.gpu-nlp.yml (the NLP transformer tier, a build-time variant - why the
+//     two files are separate: see their headers). Detection is "nvidia-smi works";
+//     F8_GPU=1 / F8_GPU=0 forces it either way.
 //  2. Nothing else. The Ollama container pulls the models itself on first start (see
 //     scripts/ollama-init.sh) - this script does NOT gate startup on a host Ollama or a
 //     pre-populated volume. To pre-seed the volume for an offline/faster first start, run
@@ -50,26 +51,25 @@ function hostHasNvidiaGpu() {
 function main() {
   // --published (npm run env:up:published): run purely from the published GHCR images -
   // no local builds, nothing needed beyond the compose files. F8_IMAGE_TAG pins a version
-  // (default latest). The GPU overlay is skipped: its NLP tier is a build-time variant
-  // (transformer model baked in) that is deliberately not published.
+  // (default latest). GPU detection works exactly like the building mode; only the NLP
+  // transformer tier stays out (a build-time variant, deliberately not published).
   const published = process.argv.includes('--published');
-  const gpu = !published && hostHasNvidiaGpu();
+  const gpu = hostHasNvidiaGpu();
   if (published) {
     console.log(
       'Published-image mode: pulling ghcr.io/cosh/fallen-8-core* (' +
-        `tag ${process.env.F8_IMAGE_TAG || 'latest'}) instead of building; the GPU overlay is\n` +
-        'skipped (its NLP transformer tier only exists as a local build - use npm run env:up).'
+        `tag ${process.env.F8_IMAGE_TAG || 'latest'}) instead of building.`
     );
   }
-  if (!published) {
-    console.log(
-      gpu
-        ? 'NVIDIA GPU detected - applying docker-compose.gpu.yml (Ollama on the GPU; the NLP sidecar\n' +
-          'uses the en_core_web_trf transformer on the GPU).'
-        : 'No NVIDIA GPU detected - starting CPU-only, the NLP sidecar on en_core_web_lg\n' +
-          '(F8_GPU=1 forces the GPU override).'
-    );
-  }
+  console.log(
+    gpu
+      ? 'NVIDIA GPU detected - applying docker-compose.gpu.yml (Ollama on the GPU' +
+        (published
+          ? '; the NLP sidecar\nstays on the published CPU image - its transformer tier needs a local build, npm run env:up).'
+          : ') and\ndocker-compose.gpu-nlp.yml (the NLP sidecar on the en_core_web_trf transformer).')
+      : 'No NVIDIA GPU detected - starting CPU-only, the NLP sidecar on en_core_web_lg\n' +
+        '(F8_GPU=1 forces the GPU override).'
+  );
   console.log(
     'On first start the Ollama container pulls phi4-mini + phi4-f8-mini (a few GB); the F8\n' +
       'API is up immediately, and NL assist works once the pull finishes. Watch it with\n' +
@@ -82,7 +82,11 @@ function main() {
   // separate file for readability, included unconditionally here (unlike the GPU override, which
   // is conditional because a device reservation hard-fails on hosts without an NVIDIA GPU).
   files.push('-f', 'docker-compose.observability.yml');
-  if (gpu) files.push('-f', 'docker-compose.gpu.yml');
+  if (gpu) {
+    files.push('-f', 'docker-compose.gpu.yml');
+    // The transformer tier only exists as a local build, so it never joins a published run.
+    if (!published) files.push('-f', 'docker-compose.gpu-nlp.yml');
+  }
   // Split topology is the default dev environment (feature standalone-ui): the data plane serves
   // REST only and F8 Studio runs as its own f8-studio container. Applied LAST so its overrides
   // (UI-less build, CORS allow-list, Ollama origins, the f8-studio service) win. The all-in-one

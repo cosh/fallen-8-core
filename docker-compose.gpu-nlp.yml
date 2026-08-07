@@ -1,0 +1,29 @@
+# NLP transformer tier (feature nlp-gpu-tier): rebuild the NLP sidecar on en_core_web_trf
+# (whose wheel pulls spacy-curated-transformers + torch, plus the spacy[cuda12x] cupy extra)
+# and run it on the reserved device. Applied ON TOP of docker-compose.gpu.yml by
+# `npm run env:up` on a GPU host. LOCAL BUILD ONLY: the image bakes the model in at build
+# time and is deliberately not published, so `npm run env:up:published` skips this overlay
+# and stays on the published CPU-tier NLP image (en_core_web_lg).
+#
+# The build args bake the trf model into the image; the runtime env makes enrich.py load that
+# model and call spacy.prefer_gpu(). Kept in lockstep: F8_NLP_MODEL is set for BOTH build and
+# run. The image name is local-only so this build never shadows the published CPU image's
+# GHCR tag. The transformer tier assumes CUDA (cupy-cuda12x).
+
+services:
+  nlp:
+    image: fallen-8-nlp:gpu
+    build:
+      args:
+        F8_NLP_MODEL: en_core_web_trf
+        F8_NLP_GPU: "1"
+    environment:
+      - F8_NLP_MODEL=en_core_web_trf
+      - F8_NLP_PREFER_GPU=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

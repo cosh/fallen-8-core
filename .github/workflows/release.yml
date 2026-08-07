@@ -118,7 +118,7 @@ jobs:
           # amd64 only: the spaCy/pip dependency chain has no reliable aarch64 wheel story,
           # and emulating pip + the model download under QEMU is slow and flaky. The GPU
           # (en_core_web_trf) tier is likewise NOT published - it stays a local build
-          # (docker-compose.gpu.yml bakes the model at build time).
+          # (docker-compose.gpu-nlp.yml bakes the model at build time).
           - image: fallen-8-core-nlp
             dockerfile: fallen-8-nlp/Dockerfile
             context: fallen-8-nlp

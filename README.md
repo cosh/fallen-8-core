@@ -142,45 +142,49 @@ Full details — the writer thread, plugin system, durability, and the model sid
 
 ## Running it
 
-One command brings up everything — engine, REST API, F8 Studio, the MCP server for agents, and
-the model sidecar — with every feature on and no authentication in the way (same on macOS,
+One command brings up the whole environment from the published images of the
+[latest release](https://github.com/cosh/fallen-8-core/releases/latest): engine, REST API,
+F8 Studio, the MCP server for agents, the model sidecar, and the observability stack, with
+every feature on, no authentication in the way, and nothing to build. An NVIDIA GPU is
+detected and used automatically; without one everything runs on the CPU (same on macOS,
 Linux, and Windows PowerShell):
 
 ```bash
-npm run env:up
+git clone https://github.com/cosh/fallen-8-core.git && cd fallen-8-core
+npm run env:up:published
 ```
 
 Then open **F8 Studio at http://localhost:8081** (its own container) — the **REST API is at
 http://localhost:8080** — and load a sample graph from the Samples screen. The **MCP server is on
 http://localhost:8090** for AI-agent clients (read-only by default).
 
-Every other way to run it — a bare `dotnet run`, the configuration keys, the security
-switches, GPU acceleration, offline model pre-seeding — is in
-[docs/running.md](https://cosh.github.io/fallen-8-core/running/).
+`latest` and the newest NuGet version always correspond to the newest release tag. For a
+reproducible deployment pin the version, which mirrors the git tag:
 
-### Run from the published image
+```bash
+F8_IMAGE_TAG=0.0.28 npm run env:up:published
+```
 
-Every release tag publishes versioned images to GHCR, so nothing needs to be built locally.
-The all-in-one image (engine + REST API + F8 Studio) runs with plain Docker:
+And for just Fallen-8 itself (engine + REST API + F8 Studio in one container, no sidecars),
+plain Docker is enough:
 
 ```bash
 docker run -d --name fallen8 -p 8080:8080 -v f8-data:/data ghcr.io/cosh/fallen-8-core:latest
 ```
 
-The full environment (Studio, sidecars, observability, MCP server) also runs purely from the
-published images:
+### Building from source
+
+The same environment, built locally from the working tree instead of pulled:
 
 ```bash
-npm run env:up:published
+npm run env:up
 ```
 
-`latest` and the newest NuGet version both correspond to the newest release tag. For a
-reproducible deployment pin the version, which mirrors the git tag:
-
-```bash
-docker run -d --name fallen8 -p 8080:8080 -v f8-data:/data ghcr.io/cosh/fallen-8-core:0.0.28
-F8_IMAGE_TAG=0.0.28 npm run env:up:published
-```
+This is the developer path: it builds the first-party images from source, and on an NVIDIA
+host it also upgrades the NLP sidecar to its transformer tier, a build-only variant that the
+published images deliberately leave out. Every other way to run it (a bare `dotnet run`, the
+configuration keys, the security switches, GPU acceleration, offline model pre-seeding) is
+in [docs/running.md](https://cosh.github.io/fallen-8-core/running/).
 
 ### Use the engine as a library
 

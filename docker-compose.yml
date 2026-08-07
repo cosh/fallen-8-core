@@ -161,7 +161,7 @@ services:
 
   # NLP enrichment for the semantic layer (feature nlp-gpu-tier): a small FastAPI + spaCy sidecar,
   # English-only, with the MIT en_core_web_lg model baked in at build so it starts offline. On a
-  # GPU host docker-compose.gpu.yml swaps it to the en_core_web_trf transformer on the device.
+  # GPU host docker-compose.gpu-nlp.yml swaps it to the en_core_web_trf transformer on the device.
   # Extracts named entities and key terms per chunk; the apiApp is the ONLY caller (the browser
   # never talks to it). Rides the "nlp" profile: env:up starts it when ingestion is on AND
   # F8_NLP != false, so F8_NLP=false is a true opt-out. No container healthcheck: F8 probes GET
@@ -169,7 +169,7 @@ services:
   # F8_NLP_MODEL build ARG (kept in lockstep with the runtime env of the same name).
   nlp:
     # The published image is the CPU tier (linux/amd64 only); the GPU overlay swaps to a
-    # local build with the transformer model baked in (docker-compose.gpu.yml).
+    # local build with the transformer model baked in (docker-compose.gpu-nlp.yml).
     image: ghcr.io/cosh/fallen-8-core-nlp:${F8_IMAGE_TAG:-latest}
     build:
       context: ./fallen-8-nlp

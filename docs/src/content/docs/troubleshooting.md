@@ -180,9 +180,10 @@ the Scalar reference are served **only** in Development.
 Two containers can use a GPU: Ollama (assist and embedding inference speed) and the NLP sidecar,
 which swaps `en_core_web_lg` for the `en_core_web_trf` transformer on the device (extraction
 quality, not speed). `npm run env:up` prints which tier it picked; `/status` does not report it,
-so that line and the sidecar log are how you tell. The NLP model is baked in at build time, so
-applying `docker-compose.gpu.yml` by hand needs `--build` (which `env:up` always passes) or the
-CPU image keeps running.
+so that line and the sidecar log are how you tell. Ollama's GPU handoff is runtime-only
+(`docker-compose.gpu.yml`) and works in the published-image mode too; the NLP transformer model
+is baked in at build time, so applying `docker-compose.gpu-nlp.yml` by hand needs `--build`
+(which `env:up` always passes), and `env:up:published` stays on the CPU-tier NLP image.
 
 The GPU reaches the container through the NVIDIA Container Toolkit. Verify and force behavior
 with `F8_GPU`; the full setup (Docker Desktop vs. native Linux, the verification command, the
