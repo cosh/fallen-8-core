@@ -272,10 +272,29 @@ The gate is one predicate, *TryGetEmbeddingName(propertyId)*. Widening it from "
 embedding name" to "bound to a property key" gives a property-bound dictionary index that
 maintains itself, backfills itself, and survives a crash, with **zero new on-disk ordinals**.
 
-**Fix:** a rebuild-from-element-state primitive, writer-ordered, exposed once (so an
-out-of-process owner can invoke it on the resync signal from W3), plus the property-bound index
-mode. All four architects independently endorsed this shape and independently rejected the
-alternative (see section 4).
+**Fix, split during implementation.** All four architects independently endorsed this shape and
+independently rejected the alternative (section 4). It landed in two halves, and the split was a
+deliberate call under this feature's own stop-and-review trigger rather than an overrun:
+
+1. **The repair half: DONE.** `IndexRepair.TryRepairFromProperty` plus
+   `POST /index/backfill/{indexId}`, with add-only repair as the default and an exact replace mode.
+   This is the half that makes a lost index **recoverable**, which is the correctness property the
+   identity model rests on, and it is the half an out-of-process owner needs on the resync signal.
+   It subsumes the document-ingestion sweep, which is the duplication removal that proves the shape.
+2. **The self-maintenance half: DEFERRED to its own change.** Generalizing the three writer-side
+   projection hooks from an embedding-name predicate to a key-bound one. This removes the *need* to
+   call repair, so it is an optimisation on top of a correct system rather than part of making it
+   correct, and it modifies engine hooks that the shipped embedding behaviour depends on. Riding it
+   along in a commit whose value does not depend on it would have made the review harder for no gain.
+
+**One placement correction from implementation.** The primitive lives in the **apiApp**, not the
+engine. "Which property backs which index" is a caller concern by
+[index-lifecycle](../../done/index-lifecycle/)'s explicit non-goal, so putting the mapping in the
+engine would import a schema concept the engine deliberately does not carry. Everything it needs is
+already public engine surface, and the in-process caller it subsumes lives in the apiApp too, so no
+engine interface grew a member and no delegating wrapper or test fake changed. An earlier draft put
+it on *Fallen8* and required an *IFallen8Admin* member plus changes to *AddressedFallen8* and two
+test fakes; hitting that plumbing is what surfaced the better home.
 
 #### W5. Durability and recovery-integrity signal on the REST surface [M]
 

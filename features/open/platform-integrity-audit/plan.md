@@ -87,20 +87,35 @@ Intent: nothing that lost state reports success.
   *Durable* signal on write responses.
 - [ ] Phase 0's W3, W5 and W8 tests invert.
 
-## Phase 4 - W4: rebuild from element state [M]
+## Phase 4 - W4: rebuild from element state [M] (REPAIR HALF DONE)
 
 Intent: a derived index has a repair path, and it is the one the engine already ships.
 
-- [ ] Generalize the bound-projection gate from *TryGetEmbeddingName(propertyId)* to a
-  key-bound predicate, reusing the three existing writer-side hooks unchanged in shape.
-- [ ] A property-bound dictionary index mode: backfill on create, writer-maintained, header-only
-  persistence, rebuild from element state on load.
-- [ ] One rebuild primitive an out-of-process owner can invoke on the resync signal.
-- [ ] Retire the hand-rolled entity-index sweep in *DocumentIngestionService* (the second
-  duplication removal, and the second proof).
-- [ ] Assert the bound vector index's existing invariant over the new mode: a rebuilt index equals
-  an incrementally maintained one across creation, property write, removal and reload.
-- [ ] Verify no embedding behaviour changed.
+**Split, per this plan's own stop-and-review trigger.** The repair half landed; the
+self-maintenance half did not, and that was a deliberate call rather than running out of road. The
+repair primitive is what makes a lost index RECOVERABLE, which is the correctness property the
+identity model rests on. Self-maintenance is an optimisation on top of it (it removes the need to
+call repair), and it changes the engine's three writer-side projection hooks, which is exactly the
+kind of change that should not ride along in a commit whose value does not depend on it.
+
+- [x] One rebuild primitive an out-of-process owner can invoke on the resync signal:
+  `IndexRepair.TryRepairFromProperty` plus `POST /index/backfill/{indexId}` (literal-first). Two
+  modes: add-only repair (default, idempotent, safe on every start) and exact replace.
+- [x] Retire the hand-rolled entity-index sweep in *DocumentIngestionService* (the duplication
+  removal, and the proof the primitive is the right shape).
+- [x] It lives in the apiApp rather than the engine. "Which property backs which index" is a caller
+  concern by index-lifecycle's explicit non-goal, everything it needs is already public engine
+  surface, and the caller it subsumes is in the same project - so no engine interface grew a member
+  and no delegating wrapper or test fake changed. An earlier draft put it on *Fallen8* and needed an
+  *IFallen8Admin* member; hitting that plumbing is what surfaced the better home.
+- [ ] **DEFERRED to its own change:** generalize the bound-projection gate from
+  *TryGetEmbeddingName(propertyId)* to a key-bound predicate, reusing the three existing
+  writer-side hooks unchanged in shape.
+- [ ] **DEFERRED with it:** a property-bound dictionary index mode (backfill on create,
+  writer-maintained, header-only persistence, rebuild on load), and the assertion that a rebuilt
+  index equals an incrementally maintained one across creation, property write, removal and reload.
+- [ ] **DEFERRED with it:** verify no embedding behaviour changed (nothing touched those hooks yet,
+  so there is nothing to verify in this half).
 
 ## Phase 5 - W6: the zero-mutation invariant [M]
 
