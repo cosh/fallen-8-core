@@ -3402,8 +3402,8 @@
         "tags": [
           "Graph"
         ],
-        "summary": "Adds or updates a property on a graph element (vertex or edge)",
-        "description": "Sample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
+        "summary": "Sets a property on a graph element (vertex or edge), adding it or replacing its value",
+        "description": "REPLACE semantics (feature platform-integrity-audit W2): writing a key that already exists\r\noverwrites it. Until W2 this route ran on the add path, which is \"insert, or verify the\r\nexisting value is equal\" and rolls back a value CHANGE - so this route, documented as\r\n\"adds or updates\", could not update: it answered 500 when waited and, at the default\r\nwaitForCompletion=false, 202 Accepted while discarding the write. Re-writing the value the\r\nelement already holds is a TRUE no-op (no modification-date bump, no change-feed event), so\r\nre-asserting unchanged state costs nothing observable. To change several properties\r\natomically, use PUT /graphelements/properties.\r\n\r\nSample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
         "parameters": [
           {
             "name": "graphElementIdentifier",
@@ -3470,7 +3470,7 @@
         },
         "responses": {
           "202": {
-            "description": "Property addition accepted (and committed when waitForCompletion is true)"
+            "description": "Property write accepted (and committed when waitForCompletion is true)"
           },
           "400": {
             "description": "Malformed request body / invalid property specification. (A non-existent graph element is NOT a 400: an out-of-range id rolls back with an internal error → 500, and an in-range/absent id is a no-op → 202.)",
@@ -3577,6 +3577,184 @@
           },
           "500": {
             "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/graphelements": {
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes many graph elements in ONE atomic transaction (feature platform-integrity-audit)",
+        "description": "The batch removal path. The whole batch is range-checked before anything is removed, so an\r\nout-of-range id removes nothing; an in-range but already-removed id is a committed no-op,\r\nmatching the single-element route. Removing a vertex cascades to its edges exactly as the\r\nsingle route does.\r\n\r\nSample request:\r\n\r\n    DELETE /graphelements\r\n    [1, 2, 3]",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The ids to remove",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Batch accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "A null list",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)"
+          }
+        }
+      }
+    },
+    "/graphelements/properties": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Sets and/or removes many properties across many elements in ONE atomic transaction (feature platform-integrity-audit)",
+        "description": "The batch write path for properties, and the only ATOMIC way to change a value: the\r\nsingle-element routes are one transaction each, so a reconciliation spanning several\r\nproperties could previously be interrupted half-applied, leaving the element in a state no\r\nsource describes. REPLACE semantics: an existing key is overwritten, and the last write for\r\nan (element, key) pair in one batch wins.\r\n\r\nA semantically empty write is a TRUE no-op - setting a key to the value it already holds, or\r\nremoving one that is already absent, bumps no modification date and publishes no change-feed\r\nevent - so re-asserting unchanged state produces no observable mutation and a replayed batch\r\nis idempotent.\r\n\r\nSample request:\r\n\r\n    PUT /graphelements/properties\r\n    [\r\n      { \"graphElementId\": 42, \"propertyId\": \"ip\", \"fullQualifiedTypeName\": \"System.String\", \"propertyValue\": \"10.0.0.9\" },\r\n      { \"graphElementId\": 42, \"propertyId\": \"stale\", \"remove\": true }\r\n    ]",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The property writes. Each is a set, or a removal when `remove` is true.",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PropertyWriteSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PropertyWriteSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Batch accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "A null list, a null write, an unknown type name, or an unconvertible value. Nothing is enqueued.",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)"
           }
         }
       }
@@ -7875,8 +8053,8 @@
         "tags": [
           "Graph"
         ],
-        "summary": "Adds or updates a property on a graph element (vertex or edge)",
-        "description": "Sample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
+        "summary": "Sets a property on a graph element (vertex or edge), adding it or replacing its value",
+        "description": "REPLACE semantics (feature platform-integrity-audit W2): writing a key that already exists\r\noverwrites it. Until W2 this route ran on the add path, which is \"insert, or verify the\r\nexisting value is equal\" and rolls back a value CHANGE - so this route, documented as\r\n\"adds or updates\", could not update: it answered 500 when waited and, at the default\r\nwaitForCompletion=false, 202 Accepted while discarding the write. Re-writing the value the\r\nelement already holds is a TRUE no-op (no modification-date bump, no change-feed event), so\r\nre-asserting unchanged state costs nothing observable. To change several properties\r\natomically, use PUT /graphelements/properties.\r\n\r\nSample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
         "parameters": [
           {
             "name": "graphElementIdentifier",
@@ -7951,7 +8129,7 @@
         },
         "responses": {
           "202": {
-            "description": "Property addition accepted (and committed when waitForCompletion is true)"
+            "description": "Property write accepted (and committed when waitForCompletion is true)"
           },
           "400": {
             "description": "Malformed request body / invalid property specification. (A non-existent graph element is NOT a 400: an out-of-range id rolls back with an internal error → 500, and an in-range/absent id is a no-op → 202.)",
@@ -8066,6 +8244,200 @@
           },
           "500": {
             "description": "The transaction was rolled back with an internal error (only when waitForCompletion is true)"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/graphelements": {
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes many graph elements in ONE atomic transaction (feature platform-integrity-audit)",
+        "description": "The batch removal path. The whole batch is range-checked before anything is removed, so an\r\nout-of-range id removes nothing; an in-range but already-removed id is a committed no-op,\r\nmatching the single-element route. Removing a vertex cascades to its edges exactly as the\r\nsingle route does.\r\n\r\nSample request:\r\n\r\n    DELETE /graphelements\r\n    [1, 2, 3]",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The ids to remove",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Batch accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "A null list",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/graphelements/properties": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Sets and/or removes many properties across many elements in ONE atomic transaction (feature platform-integrity-audit)",
+        "description": "The batch write path for properties, and the only ATOMIC way to change a value: the\r\nsingle-element routes are one transaction each, so a reconciliation spanning several\r\nproperties could previously be interrupted half-applied, leaving the element in a state no\r\nsource describes. REPLACE semantics: an existing key is overwritten, and the last write for\r\nan (element, key) pair in one batch wins.\r\n\r\nA semantically empty write is a TRUE no-op - setting a key to the value it already holds, or\r\nremoving one that is already absent, bumps no modification date and publishes no change-feed\r\nevent - so re-asserting unchanged state produces no observable mutation and a replayed batch\r\nis idempotent.\r\n\r\nSample request:\r\n\r\n    PUT /graphelements/properties\r\n    [\r\n      { \"graphElementId\": 42, \"propertyId\": \"ip\", \"fullQualifiedTypeName\": \"System.String\", \"propertyValue\": \"10.0.0.9\" },\r\n      { \"graphElementId\": 42, \"propertyId\": \"stale\", \"remove\": true }\r\n    ]",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The property writes. Each is a set, or a removal when `remove` is true.",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PropertyWriteSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PropertyWriteSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Batch accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "A null list, a null write, an unknown type name, or an unconvertible value. Nothing is enqueued.",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)"
           }
         }
       }
@@ -19687,6 +20059,68 @@
           "propertyId": "cacheSize",
           "fullQualifiedTypeName": "System.Int32",
           "propertyValue": "1000"
+        }
+      },
+      "PropertyWriteSpecification": {
+        "required": [
+          "graphElementId",
+          "propertyId",
+          "fullQualifiedTypeName",
+          "propertyValue"
+        ],
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The element to write to. An in-range but absent id is a committed no-op (matching the\r\nsingle-element routes); an out-of-range id rolls the WHOLE batch back.",
+            "format": "int32",
+            "default": 0,
+            "example": 42
+          },
+          "remove": {
+            "type": "boolean",
+            "description": "When `true` the property is REMOVED and the value fields are ignored. Removing an\r\nabsent property succeeds and changes nothing, which makes a replayed batch safe.",
+            "default": false,
+            "example": false
+          },
+          "propertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The identifier name of the property",
+            "default": "cacheSize",
+            "example": "cacheSize"
+          },
+          "fullQualifiedTypeName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The fully qualified .NET type name of the property",
+            "default": "System.Int32",
+            "example": "System.Int32"
+          },
+          "propertyValue": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The string representation of the property value",
+            "default": "1000",
+            "example": 1000
+          }
+        },
+        "description": "One write in a `PUT /graphelements/properties` batch (feature\r\nplatform-integrity-audit W2): set string PropertySpecification.PropertyId on\r\nint PropertyWriteSpecification.GraphElementId to the given value, or REMOVE it when bool PropertyWriteSpecification.Remove\r\nis `true`.\r\n\r\nWrites have REPLACE semantics, so a key that already exists is overwritten. Setting a\r\nkey to the value it already holds, or removing one that is already absent, is a TRUE no-op:\r\nit bumps no modification date and publishes no change-feed event. That is what lets a caller\r\nre-assert the state an external source describes without producing mutations.",
+        "example": {
+          "graphElementId": 42,
+          "propertyId": "ip",
+          "fullQualifiedTypeName": "System.String",
+          "propertyValue": "10.0.0.9"
         }
       },
       "RangeIndexScanSpecification": {

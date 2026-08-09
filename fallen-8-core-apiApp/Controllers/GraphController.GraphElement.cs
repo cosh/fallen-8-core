@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Microsoft.AspNetCore.Mvc;
@@ -267,13 +268,22 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        /// Adds or updates a property on a graph element (vertex or edge)
+        /// Sets a property on a graph element (vertex or edge), adding it or replacing its value
         /// </summary>
         /// <param name="graphElementIdentifier">The ID of the graph element</param>
         /// <param name="propertyIdString">The ID/key of the property</param>
         /// <param name="definition">Property value specification</param>
         /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
         /// <remarks>
+        /// REPLACE semantics (feature platform-integrity-audit W2): writing a key that already exists
+        /// overwrites it. Until W2 this route ran on the add path, which is "insert, or verify the
+        /// existing value is equal" and rolls back a value CHANGE - so this route, documented as
+        /// "adds or updates", could not update: it answered 500 when waited and, at the default
+        /// waitForCompletion=false, 202 Accepted while discarding the write. Re-writing the value the
+        /// element already holds is a TRUE no-op (no modification-date bump, no change-feed event), so
+        /// re-asserting unchanged state costs nothing observable. To change several properties
+        /// atomically, use PUT /graphelements/properties.
+        ///
         /// Sample request:
         ///
         ///     PUT /graphelement/123/age
@@ -282,7 +292,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///        "fullQualifiedTypeName": "System.Int32"
         ///     }
         /// </remarks>
-        /// <response code="202">Property addition accepted (and committed when waitForCompletion is true)</response>
+        /// <response code="202">Property write accepted (and committed when waitForCompletion is true)</response>
         /// <response code="400">Malformed request body / invalid property specification. (A non-existent graph element is NOT a 400: an out-of-range id rolls back with an internal error → 500, and an in-range/absent id is a no-op → 202.)</response>
         /// <response code="500">The transaction was rolled back with an internal error (only when waitForCompletion is true)</response>
         [HttpPut("/graphelement/{graphElementIdentifier}/{propertyIdString}")]
@@ -323,17 +333,9 @@ namespace NoSQL.GraphDB.App.Controllers
                     definition.FullQualifiedTypeName, ex.Message));
             }
 
-            // Definition must be constructed here: the nested-initializer form assigns into
-            // the property's default value, which is null -> NullReferenceException.
-            AddPropertyTransaction tx = new AddPropertyTransaction()
-            {
-                Definition = new PropertyAddDefinition()
-                {
-                    GraphElementId = graphElementId,
-                    PropertyId = propertyId,
-                    Property = property
-                }
-            };
+            // REPLACE, not add-or-must-equal (feature platform-integrity-audit W2): this route is
+            // documented as "adds or updates", and on AddPropertyTransaction it could only add.
+            var tx = new SetPropertiesTransaction().SetProperty(graphElementId, propertyId, property);
 
             return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
 
@@ -371,6 +373,124 @@ namespace NoSQL.GraphDB.App.Controllers
 
             return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
 
+        }
+
+        /// <summary>
+        /// Sets and/or removes many properties across many elements in ONE atomic transaction (feature platform-integrity-audit)
+        /// </summary>
+        /// <param name="writes">The property writes. Each is a set, or a removal when <c>remove</c> is true.</param>
+        /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
+        /// <remarks>
+        /// The batch write path for properties, and the only ATOMIC way to change a value: the
+        /// single-element routes are one transaction each, so a reconciliation spanning several
+        /// properties could previously be interrupted half-applied, leaving the element in a state no
+        /// source describes. REPLACE semantics: an existing key is overwritten, and the last write for
+        /// an (element, key) pair in one batch wins.
+        ///
+        /// A semantically empty write is a TRUE no-op - setting a key to the value it already holds, or
+        /// removing one that is already absent, bumps no modification date and publishes no change-feed
+        /// event - so re-asserting unchanged state produces no observable mutation and a replayed batch
+        /// is idempotent.
+        ///
+        /// Sample request:
+        ///
+        ///     PUT /graphelements/properties
+        ///     [
+        ///       { "graphElementId": 42, "propertyId": "ip", "fullQualifiedTypeName": "System.String", "propertyValue": "10.0.0.9" },
+        ///       { "graphElementId": 42, "propertyId": "stale", "remove": true }
+        ///     ]
+        /// </remarks>
+        /// <response code="202">Batch accepted (and committed when waitForCompletion is true)</response>
+        /// <response code="400">A null list, a null write, an unknown type name, or an unconvertible value. Nothing is enqueued.</response>
+        /// <response code="500">The transaction was rolled back with an internal error (only when waited)</response>
+        [HttpPut("/graphelements/properties")]
+        [Consumes("application/json")]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> SetProperties([FromBody] List<PropertyWriteSpecification> writes,
+            [FromQuery] bool waitForCompletion = false)
+        {
+            if (writes == null)
+            {
+                return ProblemResults.BadRequest("A list of property writes is required.");
+            }
+
+            var tx = new SetPropertiesTransaction();
+            foreach (var write in writes)
+            {
+                if (write == null)
+                {
+                    return ProblemResults.BadRequest("A property write may not be null.");
+                }
+
+                if (String.IsNullOrEmpty(write.PropertyId))
+                {
+                    return ProblemResults.BadRequest("Every property write needs a propertyId.");
+                }
+
+                if (write.Remove)
+                {
+                    tx.RemoveProperty(write.GraphElementId, write.PropertyId);
+                    continue;
+                }
+
+                // Same guarded literal conversion the single route and the scans use, so the allow-list
+                // resolve and the invariant parse have no second copy here. A rejection happens before
+                // any transaction is enqueued, so a rejected batch writes nothing.
+                if (!TryConvertLiteral(
+                        new LiteralSpecification
+                        {
+                            Value = write.PropertyValue,
+                            FullQualifiedTypeName = write.FullQualifiedTypeName
+                        },
+                        out var value, out var literalError))
+                {
+                    return ProblemResults.BadRequest(String.Format("Property '{0}' on element {1}: {2}",
+                        write.PropertyId, write.GraphElementId, literalError));
+                }
+
+                tx.SetProperty(write.GraphElementId, write.PropertyId, value);
+            }
+
+            return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
+        }
+
+        /// <summary>
+        /// Removes many graph elements in ONE atomic transaction (feature platform-integrity-audit)
+        /// </summary>
+        /// <param name="graphElementIdentifiers">The ids to remove</param>
+        /// <param name="waitForCompletion">When true, waits for the transaction to complete before responding</param>
+        /// <remarks>
+        /// The batch removal path. The whole batch is range-checked before anything is removed, so an
+        /// out-of-range id removes nothing; an in-range but already-removed id is a committed no-op,
+        /// matching the single-element route. Removing a vertex cascades to its edges exactly as the
+        /// single route does.
+        ///
+        /// Sample request:
+        ///
+        ///     DELETE /graphelements
+        ///     [1, 2, 3]
+        /// </remarks>
+        /// <response code="202">Batch accepted (and committed when waitForCompletion is true)</response>
+        /// <response code="400">A null list</response>
+        /// <response code="500">The transaction was rolled back with an internal error (only when waited)</response>
+        [HttpDelete("/graphelements")]
+        [Consumes("application/json")]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+        public async Task<IActionResult> RemoveGraphElements([FromBody] List<Int32> graphElementIdentifiers,
+            [FromQuery] bool waitForCompletion = false)
+        {
+            if (graphElementIdentifiers == null)
+            {
+                return ProblemResults.BadRequest("A list of graph element ids is required.");
+            }
+
+            var tx = new RemoveGraphElementsTransaction { GraphElementIds = graphElementIdentifiers };
+
+            return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
         }
 
         /// <summary>

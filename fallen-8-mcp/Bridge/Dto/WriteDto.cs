@@ -40,6 +40,25 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
         public String PropertyValue { get; set; } = String.Empty;
     }
 
+    /// <summary>
+    ///   One write in a <c>PUT /graphelements/properties</c> batch (feature
+    ///   platform-integrity-audit W2): a typed property on an element, or its REMOVAL when
+    ///   <see cref="Remove"/> is true. Writes REPLACE, and re-writing an equal value is a true
+    ///   no-op server-side, so a replayed batch is idempotent.
+    /// </summary>
+    public sealed class PropertyWriteDto
+    {
+        public Int32 GraphElementId { get; set; }
+
+        public String PropertyId { get; set; } = String.Empty;
+
+        public String FullQualifiedTypeName { get; set; } = "System.String";
+
+        public String PropertyValue { get; set; } = String.Empty;
+
+        public Boolean Remove { get; set; }
+    }
+
     /// <summary>Body of <c>PUT /vertex</c>. <c>creationDate</c> is a Unix-timestamp number.</summary>
     public sealed class VertexSpecDto
     {

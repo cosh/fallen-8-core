@@ -69,6 +69,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 case CreateEdgesTransaction _: type = WalEntryType.CreateEdges; return true;
                 case AddPropertyTransaction _: type = WalEntryType.AddProperty; return true;
                 case AddPropertiesTransaction _: type = WalEntryType.AddProperties; return true;
+                case SetPropertiesTransaction _: type = WalEntryType.SetProperties; return true;
                 case RemovePropertyTransaction _: type = WalEntryType.RemoveProperty; return true;
                 case RemoveGraphElementTransaction _: type = WalEntryType.RemoveGraphElement; return true;
                 case RemoveGraphElementsTransaction _: type = WalEntryType.RemoveGraphElements; return true;
@@ -155,6 +156,17 @@ namespace NoSQL.GraphDB.Core.Persistency
                             foreach (var def in list)
                             {
                                 WritePropertyAddDefinition(writer, def);
+                            }
+                            break;
+                        }
+
+                    case WalEntryType.SetProperties:
+                        {
+                            var list = ((SetPropertiesTransaction)tx).Properties ?? new List<PropertySetDefinition>();
+                            writer.WriteVarInt32(list.Count);
+                            foreach (var def in list)
+                            {
+                                WritePropertySetDefinition(writer, def);
                             }
                             break;
                         }
@@ -323,6 +335,19 @@ namespace NoSQL.GraphDB.Core.Persistency
                         for (var i = 0; i < count; i++)
                         {
                             list.Add(ReadPropertyAddDefinition(reader));
+                        }
+                        tx.Properties = list;
+                        return tx;
+                    }
+
+                case WalEntryType.SetProperties:
+                    {
+                        var tx = new SetPropertiesTransaction();
+                        var count = reader.ReadOptimizedInt32Checked("wal property set definitions");
+                        var list = new List<PropertySetDefinition>(count);
+                        for (var i = 0; i < count; i++)
+                        {
+                            list.Add(ReadPropertySetDefinition(reader));
                         }
                         tx.Properties = list;
                         return tx;
@@ -563,6 +588,35 @@ namespace NoSQL.GraphDB.Core.Persistency
             var propertyId = reader.ReadOptimizedString();
             var property = reader.ReadObject();
             return new PropertyAddDefinition { GraphElementId = id, PropertyId = propertyId, Property = property };
+        }
+
+        /// <summary>
+        ///   A set-or-remove write (feature platform-integrity-audit W2). The removal flag is written
+        ///   BEFORE the value so a removal's value slot is still present and skippable in one shape -
+        ///   the reader reads all four fields unconditionally, keeping the frame fixed-shape like every
+        ///   sibling rather than conditionally sized.
+        /// </summary>
+        private static void WritePropertySetDefinition(SerializationWriter writer, PropertySetDefinition def)
+        {
+            writer.WriteVarInt32(def.GraphElementId);
+            writer.WriteOptimized(def.PropertyId);
+            writer.Write(def.Remove);
+            writer.WriteObject(def.Remove ? null : def.Property);
+        }
+
+        private static PropertySetDefinition ReadPropertySetDefinition(SerializationReader reader)
+        {
+            var id = reader.ReadOptimizedInt32();
+            var propertyId = reader.ReadOptimizedString();
+            var remove = reader.ReadBoolean();
+            var property = reader.ReadObject();
+            return new PropertySetDefinition
+            {
+                GraphElementId = id,
+                PropertyId = propertyId,
+                Remove = remove,
+                Property = property
+            };
         }
 
         /// <summary>

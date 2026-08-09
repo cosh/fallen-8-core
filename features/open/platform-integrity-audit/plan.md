@@ -19,8 +19,11 @@ cannot be argued about later.
 
 - [x] W1: a zero-length registry is silently empty (asserted, then inverted). See the spec's W1
   correction: the boot path is NOT changed, because save-games FR-8 specifies it.
-- [ ] W2: `PUT /graphelement/{id}/{key}` returns 202 and discards an update; an equal-value write
-  bumps modificationDate, emits a change event and appends a WAL frame.
+- [x] W2: `PUT /graphelement/{id}/{key}` returns 202 and discards an update; an equal-value write
+  bumps modificationDate and emits a change event. (The WAL-frame half is NOT asserted: a frame is
+  written per transaction after the codec classifies it, and suppressing it for an all-no-op batch is
+  a separate change. The invariant that matters is asserted on the modification-date and change-feed
+  channels, and the runtime asserts zero write CALLS.)
 - [ ] W3: `/tabularasa`, a save-game load, and a dropped index manifest entry each leave writes
   answering `200 false` and lookups answering `200 []`.
 - [ ] W5: a write into a degraded WAL is indistinguishable from a durable one.

@@ -81,6 +81,11 @@ namespace NoSQL.GraphDB.Tests
             ("PUT", "/graphelement/{graphElementIdentifier}/{propertyIdString}"),
             ("DELETE", "/graphelement/{graphElementIdentifier}/{propertyIdString}"),
             ("DELETE", "/graphelement/{graphElementIdentifier}"),
+            // The batch write path (feature platform-integrity-audit W2), bridged as OPS on the
+            // existing f8_mutate (set_properties / remove_elements) rather than new tools - every
+            // tool's schema is paid for in every agent's context on every call.
+            ("PUT", "/graphelements/properties"),
+            ("DELETE", "/graphelements"),
             ("PUT", "/graphelement/{graphElementIdentifier}/embedding/{embeddingName}"),
             ("PUT", "/subgraph"),
             ("PUT", "/ns/{name}"),

@@ -59,6 +59,10 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(VertexSpecification))]
     [JsonSerializable(typeof(EdgeSpecification))]
     [JsonSerializable(typeof(PropertySpecification))]
+    // The batch property-write body (feature platform-integrity-audit W2). The element type is
+    // enough: the generator derives the List<T> converter from it, and naming the closed generic
+    // here needs a using this file deliberately does not carry.
+    [JsonSerializable(typeof(PropertyWriteSpecification))]
     [JsonSerializable(typeof(StatusREST))]
     [JsonSerializable(typeof(SampleStats))]
     [JsonSerializable(typeof(SubGraphSpecification))]

@@ -448,6 +448,16 @@ namespace NoSQL.GraphDB.Tests
                     }
                 }, "EdgeSpecification"),
                 (new PropertySpecification { PropertyId = "age", PropertyValue = "42", FullQualifiedTypeName = "System.Int32" }, "PropertySpecification"),
+                // The batch property-write element (feature platform-integrity-audit W2). Remove=true is
+                // the interesting shape: the value fields are still serialized and must round-trip.
+                (new PropertyWriteSpecification
+                {
+                    GraphElementId = 42,
+                    PropertyId = "stale",
+                    PropertyValue = "yes",
+                    FullQualifiedTypeName = "System.String",
+                    Remove = true
+                }, "PropertyWriteSpecification"),
                 (new StatusREST
                 {
                     UsedMemory = 1073741824L,

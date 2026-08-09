@@ -24,8 +24,10 @@ evidence and rejected alternatives; this is the sequencing only.
 
 - [x] W1 registry and catalog write durability, plus a loud corrupt pointer. The boot path is
   unchanged: save-games FR-8 specifies the empty-registry behaviour (see the audit's W1 correction).
-- [ ] W2 property replace and remove: one WAL ordinal, both batch routes, equal-value as a true
-  no-op, the two wrong doc comments fixed.
+- [x] W2 property replace and remove: `SetPropertiesTransaction` (replace, set-or-remove),
+  `WalEntryType.SetProperties = 19`, `PUT /graphelements/properties`, `DELETE /graphelements`,
+  the singular route moved to replace semantics, equal-value as a true no-op, both wrong doc
+  comments fixed, bridged as f8_mutate ops `set_properties` / `remove_elements`.
 - [ ] W3 claim-index integrity: idempotent add, loud missing index, loud manifest drop, literal-first
   route shape, resync contract documented.
 - [ ] W4 rebuild from element state, plus the prefix-bound index mode.
