@@ -209,14 +209,38 @@ The only in-band signal is the change feed's resync event (*ResyncReasonTabulaRa
 *ResyncReasonLoad*). That makes an open SSE subscription on `GET /changefeed` a **hard design
 constraint** on any client that owns a derived index, not an optimization.
 
-**Fix:** make *AddOrUpdate* idempotent for an identical (key, element) pair so a backfill is not
-a bucket-doubling machine whose output is then persisted into the next snapshot; make a missing
-index a distinguishable failure on both the write and the read side rather than `200 false` and
-`200 []`; make the *SaveIndex* null-drop loud; document the resync-equals-rebuild contract. Route
-shape must be **literal-first** (`PUT /index/entries/{indexId}`), because
-`PUT /index/vector/{indexId}` already occupies three segments and an index legitimately named
-*vector* would otherwise be silently unreachable on the new routes (index names are unvalidated
-caller strings).
+**Fix, corrected during implementation.** Three of the four proposed changes turned out to target
+deliberate, documented decisions. The rule that resolved each one: **make the implementation match
+the contract the route already publishes, rather than making every route behave alike.**
+
+1. **Idempotent *AddOrUpdate*: implemented.** The real bug, with no contract conflict. The guard
+   reads the existing reverse map, so it is O(1) rather than a bucket scan.
+2. **Loud missing index on the READ side: implemented for `/scan/index/all` and
+   `/scan/index/range` only.** Both already document "400 Invalid specification **or index not
+   found**", so the implementation was contradicting its own published contract, and
+   [api-error-contract](../../done/api-error-contract/)'s governing principle is exactly that (E3
+   refuses "an empty 200 masquerading as searched"; E7 refuses "an ambiguous 0 that also means zero
+   edges"). **`/scan/index/fulltext` is deliberately left alone**: its doc explicitly says "a miss
+   yields 204 No Content, not a 404", which is a justified decision rather than an unfixed
+   ambiguity. Vector and spatial likewise keep their own documented shapes.
+3. **Loud missing index on the WRITE side: NOT implemented.** *AddToIndex*'s doc states the choice
+   and its reason verbatim: "false if the index or the graph element does not exist (a miss is
+   reported as 200 with a false body, not a 404)". It returns a real signal; a caller must check the
+   boolean. Changing it would break a documented contract to fix a caller's discipline problem.
+4. **Loud *SaveIndex* null-drop: NOT implemented, and moved to W5.** That code's comment states the
+   reason it swallows: "a persistable index that nonetheless fails to serialize ... must not abort
+   the whole checkpoint", and it already logs at Error. Aborting the checkpoint would trade a lost
+   index for a lost checkpoint, which is strictly worse. What was actually missing is a **signal**,
+   so "the last checkpoint dropped an index" belongs in W5's durability block, not here.
+
+**Route shape** stays a live constraint for W4: use **literal-first**
+(`POST /index/backfill/{indexId}`), because `PUT /index/vector/{indexId}` already occupies three
+segments and an index legitimately named *vector* would otherwise be silently unreachable (index
+names are unvalidated caller strings). W3 adds no `/index/...` route, so it creates no collision.
+
+**One deliberate behaviour change to flag:** `/scan/index/all` and `/scan/index/range` now answer
+400 where they previously answered an empty 200. A smoke-test assertion pinned the old behaviour
+with no rationale and has been inverted with the reasoning recorded in place.
 
 **W3 is a hard prerequisite of W4.** A backfill over a non-idempotent add corrupts the index it
 was meant to repair.
@@ -469,6 +493,12 @@ Recorded so the audit's own errors do not propagate.
 - **Two claims were understated.** Element ids are not stable across `HEAD /trim`, and the
   property surface is scalar-only with no CAS. Both change a consumer's data model, not just its
   call pattern.
+- **Three of W3's four proposed changes targeted deliberate, documented decisions**, found while
+  implementing them (see W3). The pattern is the same as W1's: a reviewer read a behaviour as an
+  accident without checking whether the route or the code stated a reason for it. Net effect on the
+  audit's credibility: of the seven P0 items, W1 and W3 both shrank substantially on contact with the
+  code, and both shrank in the same direction. **Treat any remaining "make X loud" item as unproven
+  until its owning contract has been read.**
 - **W1's proposed boot-path change was wrong**, found while implementing it: the empty-registry
   behaviour is [save-games](../../done/save-games/spec.md) FR-8, specified and test-pinned, and the
   code the review read as a misplaced rescue path is the FR-11 migration hint. Four reviewers and both

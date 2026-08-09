@@ -126,6 +126,24 @@ namespace NoSQL.GraphDB.Core.Index
             {
                 try
                 {
+                    // IDEMPOTENT (feature platform-integrity-audit W3): adding the same
+                    // (key, element) pair twice must not duplicate the bucket entry. The bucket append
+                    // below is unconditional, so without this guard a re-add doubles the posting list,
+                    // a second re-add triples it, and the inflated bucket is then PERSISTED into the
+                    // next checkpoint - which makes any rebuild-from-element-state or replayed
+                    // population a silent bucket-multiplication machine.
+                    //
+                    // The reverse map answers "is this pair already present" in O(1); scanning the
+                    // bucket would be O(bucket) on the write hot path. It is kept in lockstep with the
+                    // forward map here and rebuilt from the buckets on load, so it is authoritative.
+                    // (A bucket that already carries duplicates from a pre-fix checkpoint keeps them
+                    // until it is rebuilt; this guard prevents new ones rather than repairing old.)
+                    var keysForElementPresent = _reverse.TryGetValue(graphElement, out var keysForElement);
+                    if (keysForElementPresent && keysForElement.Contains(key))
+                    {
+                        return;
+                    }
+
                     ImmutableList<AGraphElementModel> values;
                     if (_idx.TryGetValue(key, out values))
                     {
@@ -139,7 +157,7 @@ namespace NoSQL.GraphDB.Core.Index
                     }
 
                     // Maintain the reverse map so RemoveValue is O(affected keys) (index-lifecycle 3.4).
-                    if (_reverse.TryGetValue(graphElement, out var keysForElement))
+                    if (keysForElementPresent)
                     {
                         keysForElement.Add(key);
                     }

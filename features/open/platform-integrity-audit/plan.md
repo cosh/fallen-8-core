@@ -24,8 +24,9 @@ cannot be argued about later.
   written per transaction after the codec classifies it, and suppressing it for an all-no-op batch is
   a separate change. The invariant that matters is asserted on the modification-date and change-feed
   channels, and the runtime asserts zero write CALLS.)
-- [ ] W3: `/tabularasa`, a save-game load, and a dropped index manifest entry each leave writes
-  answering `200 false` and lookups answering `200 []`.
+- [x] W3: a lookup against a deleted index answers `200 []` (asserted, then inverted to 400 for the
+  two routes whose own docs promise it). The WRITE side and the manifest drop are NOT changed - both
+  are documented decisions; see the spec's W3 correction.
 - [ ] W5: a write into a degraded WAL is indistinguishable from a durable one.
 - [ ] W6: a DateTime property does not round-trip under a non-UTC host timezone (the test sets
   the timezone, since CI and the container are both UTC).

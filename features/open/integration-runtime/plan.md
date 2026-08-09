@@ -28,8 +28,10 @@ evidence and rejected alternatives; this is the sequencing only.
   `WalEntryType.SetProperties = 19`, `PUT /graphelements/properties`, `DELETE /graphelements`,
   the singular route moved to replace semantics, equal-value as a true no-op, both wrong doc
   comments fixed, bridged as f8_mutate ops `set_properties` / `remove_elements`.
-- [ ] W3 claim-index integrity: idempotent add, loud missing index, loud manifest drop, literal-first
-  route shape, resync contract documented.
+- [x] W3 claim-index integrity: `AddOrUpdate` idempotent per (key, element) via the existing reverse
+  map; `/scan/index/all` and `/scan/index/range` answer 400 for a missing index, matching their own
+  published contracts. The write side (documented `200 false`) and the checkpoint manifest drop
+  (documented as deliberately non-fatal) are unchanged; the manifest signal moved to W5.
 - [ ] W4 rebuild from element state, plus the prefix-bound index mode.
 - [ ] W5 durability and recovery-integrity signal.
 - [ ] W6 batch element read, DateTime round-trip, and the claim-set shape written down.
