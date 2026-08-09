@@ -22,7 +22,8 @@ Executes the P0 items of [platform-integrity-audit](../platform-integrity-audit/
 branch, per your decision that they land as part of this feature. That document owns their design,
 evidence and rejected alternatives; this is the sequencing only.
 
-- [ ] W1 registry and catalog write durability, honest empty boot.
+- [x] W1 registry and catalog write durability, plus a loud corrupt pointer. The boot path is
+  unchanged: save-games FR-8 specifies the empty-registry behaviour (see the audit's W1 correction).
 - [ ] W2 property replace and remove: one WAL ordinal, both batch routes, equal-value as a true
   no-op, the two wrong doc comments fixed.
 - [ ] W3 claim-index integrity: idempotent add, loud missing index, loud manifest drop, literal-first

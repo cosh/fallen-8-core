@@ -17,7 +17,8 @@ Split the branch there if the two halves want different review cadences.
 Intent: every P0 has a test that fails on `main` before any fix exists, so the fix is proven and
 cannot be argued about later.
 
-- [ ] W1: zero-length registry boots empty (assert the current bad behaviour, then invert).
+- [x] W1: a zero-length registry is silently empty (asserted, then inverted). See the spec's W1
+  correction: the boot path is NOT changed, because save-games FR-8 specifies it.
 - [ ] W2: `PUT /graphelement/{id}/{key}` returns 202 and discards an update; an equal-value write
   bumps modificationDate, emits a change event and appends a WAL frame.
 - [ ] W3: `/tabularasa`, a save-game load, and a dropped index manifest entry each leave writes
@@ -28,18 +29,22 @@ cannot be argued about later.
 - [ ] W8: a throw inside a *SingleValueIndex* guarded region leaks the lock.
 - [ ] Record each as a named test so the phase-by-phase inversions are traceable.
 
-## Phase 1 - W1: the boot path [S]
+## Phase 1 - W1: the pointer files [S] (DONE)
 
 Intent: the pointer to all the durable data is as durable as the data.
 
-- [ ] Route *SaveGameRegistry.Persist* and the namespace-catalog write through *DurableFileIo*.
-- [ ] Move the FR-10 orphan-adoption check outside the `member != null` branch so a registry-less
-  boot with a discoverable checkpoint adopts it.
-- [ ] Make a present-but-empty registry loud instead of an empty document.
+- [x] Route *SaveGameRegistry.Persist* and the namespace-catalog write through *DurableFileIo*, via a
+  new public `ReplaceAllTextDurably` (the one home for the whole solution, not a third private copy).
+- [x] ~~Move the orphan-adoption check outside the `member != null` branch~~ **DROPPED as incorrect**:
+  save-games FR-8 specifies that an empty registry starts empty and a checkpoint is not loaded just
+  because it exists; FR-11 makes adoption an explicit one-time `PUT /load`, and a test pins it. The
+  boot path is unchanged.
+- [x] Make a present-but-empty registry **and catalog** loud instead of an empty document, with a
+  message that says to delete the file to start genuinely empty.
 - [ ] Explicitly note in the code that this is **not**
   [crash-durability-hardening](../../done/crash-durability-hardening/) D5, so the two are never
   conflated again.
-- [ ] Phase 0's W1 tests invert.
+- [x] Phase 0's W1 tests invert.
 
 ## Phase 2 - W2: property replace and remove [L]
 
@@ -154,7 +159,7 @@ the spec with their triggers; W17 belongs to
 ## Progress
 
 - [ ] Phase 0 - failing tests for every P0
-- [ ] Phase 1 - W1 boot path
+- [x] Phase 1 - W1 pointer-file durability + loud corrupt pointer
 - [ ] Phase 2 - W2 property replace and remove
 - [ ] Phase 3 - W3, W8, W5 make the rest loud
 - [ ] Phase 4 - W4 rebuild from element state

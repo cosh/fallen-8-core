@@ -91,9 +91,35 @@ A truncated-but-non-empty registry is the *loud* path (it throws on invalid JSON
 zero-length case is silent, and zero-length is exactly what an unflushed create-then-rename
 produces.
 
-**Fix:** route both writes through *DurableFileIo*; move the orphan-adoption check outside the
-`member != null` branch so a registry-less boot with a discoverable checkpoint adopts it instead
-of warning; make a present-but-empty registry loud rather than an empty document.
+**Fix, corrected during implementation.** The original proposal was to route both writes through
+*DurableFileIo*, **move the orphan-adoption check outside the `member != null` branch**, and make a
+present-but-empty registry loud. The middle item is **wrong and was not implemented**:
+
+> **[save-games](../../done/save-games/spec.md) FR-8 specifies the empty-registry behaviour
+> deliberately**, verbatim: "No `metadata/savegames.json`, or an empty registry → **start empty**. A
+> checkpoint sitting in the storage directory is NOT loaded just because it exists." FR-11 makes the
+> adoption an explicit one-time `PUT /load` and says the startup log must state that plainly. The code
+> the review called an unreachable rescue path is the **FR-11 migration hint doing its specified job**,
+> and *SaveGamesEndpointTest.Startup_EmptyRegistry_StartsEmpty* pins it. Auto-adopting would resurrect
+> unregistered data unnoticed, which is the same hazard FR-9 refuses for a missing file.
+
+So the defect is narrower than the review stated, and the narrower statement is the accurate one:
+**a destroyed registry was indistinguishable from a legitimately empty one.** An absent file
+honestly means "nothing was ever saved"; a present zero-length file means the pointer was
+destroyed while the checkpoint it named may still be on disk. The registry's own read path already
+treats invalid JSON as loud ("never silently overwritten"), so zero-length being silent was an
+inconsistency inside its own contract rather than a violation of FR-8.
+
+**What was implemented:**
+
+1. Both writes go through a new *DurableFileIo.ReplaceAllTextDurably* (write to a GUID-unique temp,
+   fsync, atomic rename), which also promoted *DurableFileIo* to public as the one home for the
+   whole solution rather than letting the apiApp carry a third private copy of the discipline. The
+   engine declares no *InternalsVisibleTo* by decision, so public was the available way to share it.
+2. A present-but-empty registry **and** a present-but-empty namespace catalog are loud, with messages
+   that say to delete the file to start genuinely empty. The catalog case is the worse of the two:
+   losing it strands every non-default namespace's data directory and WAL.
+3. The boot path is **unchanged**. FR-8 governs.
 
 **Do not conflate this with [crash-durability-hardening](../../done/crash-durability-hardening/)
 D5** (write-through rename via P/Invoke, WAL header identity pairing). That deferral is correct
@@ -443,6 +469,12 @@ Recorded so the audit's own errors do not propagate.
 - **Two claims were understated.** Element ids are not stable across `HEAD /trim`, and the
   property surface is scalar-only with no CAS. Both change a consumer's data model, not just its
   call pattern.
+- **W1's proposed boot-path change was wrong**, found while implementing it: the empty-registry
+  behaviour is [save-games](../../done/save-games/spec.md) FR-8, specified and test-pinned, and the
+  code the review read as a misplaced rescue path is the FR-11 migration hint. Four reviewers and both
+  PMs missed it because none read the governing feature's requirements before proposing a fix to its
+  boot path. The durability half was correct; see W1 for the corrected, narrower statement. **Lesson
+  for the remaining items: check the owning feature's FRs before calling a behaviour a bug.**
 
 ## 6. Impact on existing features (cross-feature sweep)
 
