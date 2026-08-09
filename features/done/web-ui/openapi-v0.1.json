@@ -3824,6 +3824,80 @@
         }
       }
     },
+    "/index/backfill/{indexId}": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Repopulates an index from a property's values across the live elements (feature platform-integrity-audit)",
+        "description": "Index content is DERIVED state with no durability of its own: index writes are neither\r\nsingle-writer transactions nor WAL-logged, so index state is snapshot-only. After a hard crash\r\nthe elements replay from the WAL but every index key added since the last checkpoint is gone,\r\nand three ORDINARY operations drop an index while a client is running - a tabula rasa, loading\r\na save game, and a per-index serialization failure that drops it from the checkpoint manifest.\r\nThis is the repair path, and it is the only one available to a client that is not in-process.\r\n\r\nDefault mode is a REPAIR: add-only and idempotent, so it is safe to run on every start and\r\nnothing is ever briefly missing. It does not remove keys that element state no longer\r\njustifies. Pass \"replace\": true for an EXACT rebuild, which wipes the index first and\r\ntherefore has a window in which a concurrent scan sees nothing.\r\n\r\nThe route is literal-first (/index/backfill/{indexId}, not /index/{indexId}/backfill) because\r\nPUT /index/vector/{indexId} already occupies three segments and index names are unvalidated\r\ncaller strings: an index legitimately named \"vector\" would otherwise be unreachable here.\r\n\r\nSample request:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity\",\r\n       \"replace\": false\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The registered index to repopulate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Which property supplies the keys, and whether to rebuild exactly",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexBackfillSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexBackfillSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The outcome: how many live elements were scanned and indexed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexRebuildREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "No such index, a missing property id, or an index that cannot take arbitrary keys (vector, spatial, or a bound vector index that maintains itself)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/index/vector/{indexId}": {
       "put": {
         "tags": [
@@ -8503,6 +8577,88 @@
           },
           "400": {
             "description": "The request body was missing or malformed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/index/backfill/{indexId}": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Repopulates an index from a property's values across the live elements (feature platform-integrity-audit)",
+        "description": "Index content is DERIVED state with no durability of its own: index writes are neither\r\nsingle-writer transactions nor WAL-logged, so index state is snapshot-only. After a hard crash\r\nthe elements replay from the WAL but every index key added since the last checkpoint is gone,\r\nand three ORDINARY operations drop an index while a client is running - a tabula rasa, loading\r\na save game, and a per-index serialization failure that drops it from the checkpoint manifest.\r\nThis is the repair path, and it is the only one available to a client that is not in-process.\r\n\r\nDefault mode is a REPAIR: add-only and idempotent, so it is safe to run on every start and\r\nnothing is ever briefly missing. It does not remove keys that element state no longer\r\njustifies. Pass \"replace\": true for an EXACT rebuild, which wipes the index first and\r\ntherefore has a window in which a concurrent scan sees nothing.\r\n\r\nThe route is literal-first (/index/backfill/{indexId}, not /index/{indexId}/backfill) because\r\nPUT /index/vector/{indexId} already occupies three segments and index names are unvalidated\r\ncaller strings: an index legitimately named \"vector\" would otherwise be unreachable here.\r\n\r\nSample request:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity\",\r\n       \"replace\": false\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The registered index to repopulate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Which property supplies the keys, and whether to rebuild exactly",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexBackfillSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexBackfillSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The outcome: how many live elements were scanned and indexed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexRebuildREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "No such index, a missing property id, or an index that cannot take arbitrary keys (vector, spatial, or a bound vector index that maintains itself)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -18606,6 +18762,42 @@
           }
         }
       },
+      "IndexBackfillSpecification": {
+        "required": [
+          "propertyId"
+        ],
+        "type": "object",
+        "properties": {
+          "propertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The property key whose VALUE becomes the index key. Elements not carrying it are skipped.",
+            "default": "name",
+            "example": "name"
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "`false` (default) REPAIRS: add-only and idempotent, so it is safe on every start and\r\nnothing is briefly missing, but keys the elements no longer justify are left alone.\r\n`true` REBUILDS exactly: the index is wiped first, so stale keys go, at the cost of a\r\nwindow in which a concurrent scan sees an empty index.",
+            "default": false,
+            "example": false
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional label restriction, for when the property only occurs on one kind of element.\r\nOmit to scan every live element.",
+            "example": "person"
+          }
+        },
+        "description": "Body of `POST /index/backfill/{indexId}` (feature platform-integrity-audit W4): which\r\nproperty supplies the index keys, and whether to rebuild exactly or merely repair.",
+        "example": {
+          "propertyId": "name",
+          "replace": false
+        }
+      },
       "IndexDescriptionREST": {
         "type": "object",
         "properties": {
@@ -18679,6 +18871,57 @@
           }
         },
         "description": "A registered index: its id and the index plugin type. Appears on\r\nStatusREST (live inventory) and in save-game KPIs (inventory at save time)."
+      },
+      "IndexRebuildREST": {
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The index that was repopulated."
+          },
+          "propertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The property whose values became the keys."
+          },
+          "replaced": {
+            "type": "boolean",
+            "description": "Whether the index was wiped first (an exact rebuild rather than a repair)."
+          },
+          "scannedElements": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Live elements scanned.",
+            "format": "int32"
+          },
+          "indexedElements": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Live elements that carried the property and were indexed.",
+            "format": "int32"
+          },
+          "skippedUnindexableValues": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Elements carrying the property whose value cannot be an index key (not comparable, for\r\nexample a vector written through the raw property surface). Skipped, and counted here so the\r\nskip is not silent.",
+            "format": "int32"
+          }
+        },
+        "description": "Outcome of an index backfill. Reports the numbers rather than a bare boolean so a caller can\r\ntell a no-op from real work, and can spot having named the wrong property (scanned many,\r\nindexed none)."
       },
       "IndexScanSpecification": {
         "required": [

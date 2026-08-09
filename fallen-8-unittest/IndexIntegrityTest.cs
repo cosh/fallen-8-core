@@ -32,6 +32,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
+using NoSQL.GraphDB.App.Services;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
@@ -83,6 +84,13 @@ namespace NoSQL.GraphDB.Tests
         {
             Assert.IsTrue(_fallen8.IndexFactory.TryCreateIndex(out var index, name, type), "index creation");
             return index;
+        }
+
+        private void RunSetProperty(int id, string key, object value)
+        {
+            var info = _fallen8.EnqueueTransaction(new SetPropertiesTransaction().SetProperty(id, key, value));
+            info.WaitUntilFinished();
+            Assert.AreEqual(TransactionState.Finished, info.TransactionState, "error: " + info.Error);
         }
 
         private AGraphElementModel Element(int id)
@@ -196,6 +204,145 @@ namespace NoSQL.GraphDB.Tests
                 "Re-asserting a key after a reload must not duplicate it; the reverse map is rebuilt " +
                 "from the loaded buckets, so the guard has to work off that rebuild.");
         }
+
+        #region repair from element state (W4)
+
+        [TestMethod]
+        public void Repair_RestoresKeysAfterTheIndexLostThem()
+        {
+            // The crash / tabula-rasa / save-game-load / dropped-manifest case: the elements are intact
+            // and the index is empty. Repair must restore exactly what element state justifies.
+            var index = NewIndex("byName");
+            var first = NewVertex();
+            var second = NewVertex();
+            RunSetProperty(first, "name", "alpha");
+            RunSetProperty(second, "name", "beta");
+
+            index.AddOrUpdate("alpha", Element(first));
+            index.AddOrUpdate("beta", Element(second));
+            index.Wipe(); // simulate the loss
+            Assert.AreEqual(0, index.CountOfKeys());
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "byName", "name",
+                out var result, out var error), "repair failed: " + error);
+
+            Assert.AreEqual(2, result.IndexedElements);
+            Assert.AreEqual(0, result.SkippedUnindexableValues);
+            Assert.IsFalse(result.Replaced, "the default mode is add-only repair");
+            Assert.AreEqual(2, index.CountOfKeys());
+            Assert.IsTrue(index.TryGetValue(out var alpha, "alpha"));
+            Assert.AreEqual(first, alpha.Single().Id);
+        }
+
+        [TestMethod]
+        public void Repair_IsIdempotent_SoItIsSafeOnEveryStart()
+        {
+            var index = NewIndex("byName");
+            var id = NewVertex();
+            RunSetProperty(id, "name", "alpha");
+
+            for (var run = 0; run < 3; run++)
+            {
+                Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "byName", "name",
+                    out _, out var error), "repair failed: " + error);
+            }
+
+            Assert.IsTrue(index.TryGetValue(out var bucket, "alpha"));
+            Assert.AreEqual(1, bucket.Count,
+                "Three repairs must leave ONE entry - this is why the W3 idempotency guard is a hard " +
+                "prerequisite: without it a repair-on-every-start would multiply every bucket and " +
+                "persist the result.");
+        }
+
+        [TestMethod]
+        public void Repair_AddOnly_LeavesAStaleKey_AndReplaceRemovesIt()
+        {
+            // The honest difference between the two modes, pinned so nobody assumes repair is exact.
+            var index = NewIndex("byName");
+            var id = NewVertex();
+            RunSetProperty(id, "name", "old");
+            index.AddOrUpdate("old", Element(id));
+
+            // The element's value changes; the index still carries the previous key.
+            RunSetProperty(id, "name", "new");
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "byName", "name",
+                out _, out _), "repair");
+            Assert.AreEqual(2, index.CountOfKeys(),
+                "add-only repair restores the current key and leaves the stale one - documented, not a bug");
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "byName", "name",
+                out var exact, out _, replace: true), "exact rebuild");
+            Assert.IsTrue(exact.Replaced);
+            Assert.AreEqual(1, index.CountOfKeys(), "an exact rebuild drops what element state no longer justifies");
+            Assert.IsTrue(index.TryGetValue(out _, "new"));
+        }
+
+        [TestMethod]
+        public void Repair_NeverIndexesARemovedElement()
+        {
+            var index = NewIndex("byName");
+            var kept = NewVertex();
+            var removed = NewVertex();
+            RunSetProperty(kept, "name", "kept");
+            RunSetProperty(removed, "name", "gone");
+            _fallen8.EnqueueTransaction(new RemoveGraphElementsTransaction
+            {
+                GraphElementIds = new List<int> { removed }
+            }).WaitUntilFinished();
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "byName", "name",
+                out var result, out _));
+
+            Assert.AreEqual(1, result.IndexedElements, "only the live element is indexed");
+            Assert.IsFalse(index.TryGetValue(out _, "gone"), "a tombstone must never be re-indexed");
+        }
+
+        [TestMethod]
+        public void Repair_RefusesAnUnknownIndex_AndAMissingProperty()
+        {
+            Assert.IsFalse(IndexRepair.TryRepairFromProperty(_fallen8, null, "nope", "name", out _, out var noIndex));
+            StringAssert.Contains(noIndex, "no index");
+
+            NewIndex("byName");
+            Assert.IsFalse(IndexRepair.TryRepairFromProperty(_fallen8, null, "byName", null, out _, out var noProperty));
+            StringAssert.Contains(noProperty, "property id is required");
+        }
+
+        [TestMethod]
+        public void Repair_RefusesAnIndexThatCannotTakeArbitraryKeys()
+        {
+            // A vector index ranks approximate neighbours rather than answering an exact key, so an
+            // arbitrary property value can never be a key in it. It must refuse with a REASON rather
+            // than silently indexing nothing. (The spatial index refuses for the same reason - its keys
+            // are geometries - and reports the same SupportsPointEqualityLookup == false.)
+            Assert.IsTrue(_fallen8.IndexFactory.TryCreateIndex(out _, "vectors", "VectorIndex",
+                new Dictionary<string, object> { { "dimension", 3 }, { "metric", "Cosine" } }),
+                "vector index creation");
+
+            Assert.IsFalse(IndexRepair.TryRepairFromProperty(_fallen8, null, "vectors", "name", out _, out var error));
+            StringAssert.Contains(error, "point-equality");
+        }
+
+        [TestMethod]
+        public void Repair_CountsAnUnindexableValueRatherThanSkippingItSilently()
+        {
+            var index = NewIndex("byVector");
+            var id = NewVertex();
+            // A float[] reaches the store through the engine API; it is not IComparable, so it cannot be
+            // a bucket key. The point is that it is COUNTED.
+            _fallen8.EnqueueTransaction(new SetPropertiesTransaction()
+                .SetProperty(id, "vec", new float[] { 1f, 2f })).WaitUntilFinished();
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "byVector", "vec",
+                out var result, out _));
+
+            Assert.AreEqual(0, result.IndexedElements);
+            Assert.AreEqual(1, result.SkippedUnindexableValues);
+            Assert.AreEqual(0, index.CountOfKeys());
+        }
+
+        #endregion
 
         [TestMethod]
         public void RangeIndex_AddOrUpdate_IsIdempotentToo()

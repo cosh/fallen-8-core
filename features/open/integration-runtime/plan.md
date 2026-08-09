@@ -32,7 +32,9 @@ evidence and rejected alternatives; this is the sequencing only.
   map; `/scan/index/all` and `/scan/index/range` answer 400 for a missing index, matching their own
   published contracts. The write side (documented `200 false`) and the checkpoint manifest drop
   (documented as deliberately non-fatal) are unchanged; the manifest signal moved to W5.
-- [ ] W4 rebuild from element state, plus the prefix-bound index mode.
+- [x] W4 rebuild from element state: `IndexRepair` plus `POST /index/backfill/{indexId}`, and the
+  hand-rolled entity-index sweep in the ingestion service now calls it. The prefix-bound
+  self-maintenance half is deliberately NOT in this commit (the plan's stop-and-review fallback).
 - [ ] W5 durability and recovery-integrity signal.
 - [ ] W6 batch element read, DateTime round-trip, and the claim-set shape written down.
 - [ ] W7 the typed facade (the channel decision, made before any route table exists).

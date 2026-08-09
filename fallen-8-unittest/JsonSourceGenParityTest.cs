@@ -458,6 +458,18 @@ namespace NoSQL.GraphDB.Tests
                     FullQualifiedTypeName = "System.String",
                     Remove = true
                 }, "PropertyWriteSpecification"),
+                // Index repair from element state (feature platform-integrity-audit W4).
+                (new IndexBackfillSpecification { PropertyId = "name", Replace = true, Label = "person" },
+                    "IndexBackfillSpecification"),
+                (new IndexRebuildREST
+                {
+                    IndexId = "byName",
+                    PropertyId = "name",
+                    Replaced = false,
+                    ScannedElements = 1200,
+                    IndexedElements = 1180,
+                    SkippedUnindexableValues = 2
+                }, "IndexRebuildREST"),
                 (new StatusREST
                 {
                     UsedMemory = 1073741824L,
