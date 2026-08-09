@@ -13,9 +13,18 @@
 > [stored-query-library](../../done/stored-query-library/) (skills should teach the
 > register-once/invoke-by-name flow where it fits).
 >
-> **Companion feature:** [mcp-server](../mcp-server/spec.md) gives agents the *tools*;
+> **Companion feature:** [mcp-server](../../done/mcp-server/spec.md) gives agents the *tools*;
 > this library gives them the *procedural knowledge*. Neither blocks the other: the skills
 > ship REST-first and gain an MCP-alignment pass once the MCP server lands.
+>
+> **Revision history:**
+> - *2026-08-09a* - **v2 catalog: integration authoring.** The
+>   [integration-runtime](../integration-runtime/spec.md) feature adds a provider contract an agent is
+>   expected to implement unaided, so the catalog grows by two skills and one existing entry grows a
+>   section (§3.2a), plus one new CI gate (§3.3 item 6) and one plan phase. Recorded as a revision to
+>   this feature rather than a new feature, because the layout, frontmatter contract, voice rules,
+>   distribution path and test harness are all this feature's and are reused unchanged. §3.2b records
+>   the three places this feature's design does **not** stretch to cover integration authoring.
 
 ## 1. Overview / problem
 
@@ -113,6 +122,47 @@ is REST-first in v1; the MCP-alignment pass (§3.4) adds "via MCP use tool `f8_�
 > (kNN scan → traverse from the hits) belongs in `fallen8-graph-modeling` or a sixth
 > `fallen8-graphrag` skill when this catalog is authored.
 
+### 3.2a v2 catalog: integration authoring (revision 2026-08-09a)
+
+The [integration-runtime](../integration-runtime/spec.md) feature's stated bar is that an agent can
+write the fourth integration unaided. That is a procedural-knowledge requirement, so it lands here.
+
+**Two new skills, and one existing entry extended.** The v1 catalog already reserves
+`fallen8-graph-modeling` for index and modelling decisions, so the integration decision table belongs
+**in that skill** rather than in a sibling. A second `fallen8-graph-modeling` under a different
+spelling would fork an existing catalog entry.
+
+| Skill | Teaches | Grounded in |
+|-------|---------|-------------|
+| `fallen8-integration-authoring` | The provider contract, the snapshot schema (incl. `completeness`), the instance lifecycle, the configuration JSON Schema, credential handling and the never-return-a-secret rule, testing, and **how to run the conformance suite**. | [integration-runtime](../integration-runtime/spec.md) + [integration-blueprints](../integration-blueprints/spec.md) |
+| `fallen8-entity-resolution` | Claims, the identifier vocabulary and its three-valued *scope*, strong versus weak, merge candidates, the semantic-layer boundary, and enriching an entity you did not create. **Fronius is the worked example** (no MAC, no serial, so the only overlap is a weak IP claim). | [integration-identity](../integration-identity/spec.md) |
+| `fallen8-graph-modeling` **(extended)** | Gains the service-selection decision table (transactions for all mutation, the claim index for resolution, range for numeric, fulltext for names, spatial for coordinates, path finding for topology, vector when embeddings are on, subgraphs plus bulk export for views, stored queries for shipped queries, the change feed for reacting to other writers, and **never property scans or ad-hoc fragments in the ingest path**), plus embedding opt-in and what the engine is fast and slow at. | [integration-runtime](../integration-runtime/spec.md) §7 |
+
+**Two content rules specific to these skills**, because they are the ones an agent will get wrong:
+
+1. **A provider never resolves identity.** If a draft provider reads the graph, resolves a claim, or
+   handles a vertex id, the skill has failed. State it first, not last.
+2. **Never key on an element id across requests.** `HEAD /trim` renumbers ids in place, so every
+   cross-request handle is a claim key.
+
+### 3.2b What this feature's design does not stretch to (reported, not forked)
+
+Three findings, recorded rather than worked around:
+
+1. **There is no HTTP serving and no MCP bridge to reuse.** §2's non-goals exclude it explicitly
+   ("skills live with the agent, not the database"). So the integration skills inherit copy-install
+   plus plugin packaging and **no third channel is invented**. If serving skills over the MCP bridge
+   ever becomes wanted, that is a change to this feature's non-goals, argued on its own merits.
+2. **The drift-guard has no hook for a non-REST contract.** Its two teeth are the pinned OpenAPI
+   snapshot and the Roslyn compile path, and neither can validate a snapshot document or an
+   identifier vocabulary. §3.3 item 6 adds the one gate that is cheap and real; everything else is
+   deliberately delegated to the conformance suite, which is the authority the skills point at.
+3. **A skill cannot verify the thing these skills teach.** The v1 harness can compile a delegate
+   fragment because the engine is in the solution. It cannot run a candidate integration. That is
+   precisely why [integration-runtime](../integration-runtime/spec.md) §9 makes the conformance
+   verifier the authority and these skills the pointer to it, and why the verifier's own negative
+   fixtures matter more than the skills' prose.
+
 ### 3.3 CI enforcement (`SkillLibraryTest`, fallen-8-unittest)
 
 1. **Frontmatter contract:** every `skills/*/SKILL.md` parses (the frontmatter is a flat
@@ -134,6 +184,13 @@ is REST-first in v1; the MCP-alignment pass (§3.4) adds "via MCP use tool `f8_�
 5. **Plugin manifests:** `plugin.json`/`marketplace.json` parse and point at existing paths
    (v1: JSON well-formedness + path existence; `claude plugin validate` documented as the
    authoritative manual check).
+6. **Identifier-vocabulary drift-guard** (revision *2026-08-09a*): every identifier type named in
+   `fallen8-entity-resolution` exists in the runtime's versioned vocabulary data file **with the
+   stated strength and scope**, and every vocabulary entry is named in the skill. Same drift-guard
+   shape as item 3, over a data file instead of the OpenAPI snapshot. This is the only new gate: the
+   deeper claims these skills make (determinism, idempotence, claim scoping, no weak-only merge, no
+   similarity-influenced merge) are enforced by the conformance suite, which the skills cite rather
+   than restate.
 
 ### 3.4 Distribution & lifecycle
 

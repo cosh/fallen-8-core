@@ -81,6 +81,27 @@ Intent: skills teach the MCP path as the preferred agent access, REST as the fal
   DEFER on the feature branch merge — the library ships REST-first (valid outcome per the
   repo workflow), and this phase becomes a follow-up on the same feature directory.
 
+## Phase 4b — Integration-authoring skills (revision 2026-08-09a)
+
+Depends on the [integration-runtime](../integration-runtime/spec.md) contract having shipped, so the
+skills are verified against reality rather than intent. Sequenced as phase 8 of the shared
+[integration plan](../integration-runtime/plan.md); listed here so this feature's own catalog and
+gates stay in one place. See spec §3.2a and §3.2b.
+
+- [ ] `fallen8-integration-authoring`: provider contract, snapshot schema (incl. `completeness`),
+  instance lifecycle, configuration JSON Schema, credential handling, testing, and how to run the
+  conformance suite.
+- [ ] `fallen8-entity-resolution`: claims, the vocabulary and its three-valued *scope*, strong versus
+  weak, merge candidates, the semantic-layer boundary, enriching an entity you did not create, with
+  Fronius as the worked example.
+- [ ] `fallen8-graph-modeling` **extended** with the service-selection decision table, embedding
+  opt-in, and what the engine is fast and slow at. Extends the existing entry; does **not** fork it.
+- [ ] The two content rules that lead both new skills: a provider never resolves identity, and never
+  key on an element id across requests (`HEAD /trim` renumbers).
+- [ ] `SkillLibraryTest` gate 6: identifier-vocabulary drift-guard against the runtime's data file.
+- [ ] Cross-links resolved per the one-job/no-duplication rule; the conformance suite cited as the
+  authority rather than restated.
+
 ## Phase 5 — Gate
 
 - [ ] Full `dotnet test` green (including all `SkillLibraryTest` gates); build clean; no
@@ -97,6 +118,7 @@ Intent: skills teach the MCP path as the preferred agent access, REST as the fal
 - [ ] Phase 2 — `fallen8-subgraphs`, `fallen8-operations`
 - [ ] Phase 3 — copy-install docs + plugin/marketplace packaging
 - [ ] Phase 4 — MCP alignment (or documented DEFER if mcp-server hasn't landed)
+- [ ] Phase 4b — integration-authoring skills + vocabulary drift-guard (revision 2026-08-09a)
 - [ ] Phase 5 — council gate, merge + move to done/
 
 ## Decision / revisit conditions
