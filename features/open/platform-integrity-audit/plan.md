@@ -119,7 +119,7 @@ kind of change that should not ride along in a commit whose value does not depen
 - [ ] **DEFERRED with it:** verify no embedding behaviour changed (nothing touched those hooks yet,
   so there is nothing to verify in this half).
 
-## Phase 5 - W6: the zero-mutation invariant [M]
+## Phase 5 - W6: the zero-mutation invariant [M] (PLATFORM HALF DONE)
 
 Intent: the invariant is provable, and the claim-set data model is settled in writing before
 anything depends on it.
