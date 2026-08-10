@@ -226,6 +226,56 @@ namespace NoSQL.GraphDB.Tests
                 (await client.GetAsync($"/graphelement/{second}")).StatusCode, "the second is gone");
         }
 
+        [TestMethod]
+        public async Task PostGraphElementsGet_ReadsManyAtOnce_AndNamesTheMissingOnes()
+        {
+            // The read-side mirror of the batch write path. Also pins the two properties a
+            // write-only-if-changed caller depends on: the returned value form is the one that can be
+            // written straight back, and a missing id is NAMED rather than silently absent.
+            using var factory = new VolatileFactory();
+            using var client = factory.CreateClient();
+            var first = await NewVertex(client, "w6-a");
+            var second = await NewVertex(client, "w6-b");
+            await client.PutAsync($"/graphelement/{first}/ip?waitForCompletion=true",
+                Json("{\"propertyId\":\"ip\",\"propertyValue\":\"10.0.0.5\",\"fullQualifiedTypeName\":\"System.String\"}"));
+
+            var response = await client.PostAsync("/graphelements/get",
+                Json("[" + first + "," + second + ",999999," + first + "]"));
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+            var elements = body.RootElement.GetProperty("elements");
+            Assert.AreEqual(2, elements.GetArrayLength(),
+                "two elements exist, and the duplicated id collapses to one entry");
+
+            var notFound = body.RootElement.GetProperty("notFound");
+            Assert.AreEqual(1, notFound.GetArrayLength());
+            Assert.AreEqual(999999, notFound[0].GetInt32());
+
+            // The projection carries the kind (the singular getters are per-kind) and the writable
+            // property form, and deliberately no adjacency.
+            var firstElement = elements[0];
+            Assert.AreEqual("vertex", firstElement.GetProperty("kind").GetString());
+            Assert.IsFalse(firstElement.TryGetProperty("outEdges", out _),
+                "adjacency is deliberately omitted: this route answers what an element HOLDS");
+            var ip = firstElement.GetProperty("properties")[0];
+            Assert.AreEqual("ip", ip.GetProperty("propertyId").GetString());
+            Assert.AreEqual("10.0.0.5", ip.GetProperty("propertyValue").GetString());
+            Assert.AreEqual("System.String", ip.GetProperty("fullQualifiedTypeName").GetString());
+        }
+
+        [TestMethod]
+        public async Task PostGraphElementsGet_RejectsANullList()
+        {
+            using var factory = new VolatileFactory();
+            using var client = factory.CreateClient();
+
+            var response = await client.PostAsync("/graphelements/get", Json("null"));
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
         #endregion
     }
 }

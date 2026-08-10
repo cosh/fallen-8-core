@@ -323,9 +323,7 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 // Invariant parse of the wire value (feature property-ingestion-culture; ingest
                 // home ServiceHelper.CreateObject).
-                property = targetType == null
-                    ? definition.PropertyValue
-                    : Convert.ChangeType(definition.PropertyValue, targetType, CultureInfo.InvariantCulture);
+                property = AllowedLiteralTypes.ConvertInvariant(definition.PropertyValue, targetType);
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
             {
@@ -373,6 +371,80 @@ namespace NoSQL.GraphDB.App.Controllers
 
             return await AwaitAndAccept(_fallen8.EnqueueTransaction(tx), waitForCompletion);
 
+        }
+
+        /// <summary>
+        /// Reads many graph elements by id in ONE request (feature platform-integrity-audit)
+        /// </summary>
+        /// <param name="graphElementIdentifiers">The ids to read</param>
+        /// <remarks>
+        /// The read-side companion to the batch write path. Every scan and every batch write returns IDS
+        /// ONLY, and the only other many-element reads are a whole-namespace dump (GET /graph) and a
+        /// whole-namespace export - so a caller holding several hundred resolved ids that needs their
+        /// current property values, which is what "write only if something actually changed" requires,
+        /// previously had one sequential request per element or a full dump per poll.
+        ///
+        /// Each element is returned WITHOUT its adjacency: this answers "what does it hold now", and
+        /// shipping every edge id of every element would dominate the payload. Ask GET /vertex/{id} for
+        /// one element's adjacency.
+        ///
+        /// Property values use the same invariant string form as every other read, so a value returned
+        /// here can be written straight back unchanged - which is what makes a value-level comparison
+        /// meaningful rather than a source of spurious differences.
+        ///
+        /// Ids that resolve to no live element come back in "notFound" rather than being silently
+        /// absent, because "gone" and "has no properties" are different conclusions.
+        ///
+        /// Sample request:
+        ///
+        ///     POST /graphelements/get
+        ///     [1, 2, 3]
+        /// </remarks>
+        /// <response code="200">The elements that exist, plus the ids that do not</response>
+        /// <response code="400">A null list, or more ids than the page cap allows</response>
+        [HttpPost("/graphelements/get")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(GraphElementBatchREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public ActionResult<GraphElementBatchREST> GetGraphElements([FromBody] List<Int32> graphElementIdentifiers)
+        {
+            if (graphElementIdentifiers == null)
+            {
+                return ProblemResults.BadRequest("A list of graph element ids is required.");
+            }
+
+            if (graphElementIdentifiers.Count > MaxPageSize)
+            {
+                return ProblemResults.BadRequest(String.Format(
+                    "At most {0} ids can be read in one request (asked for {1}).",
+                    MaxPageSize, graphElementIdentifiers.Count));
+            }
+
+            var result = new GraphElementBatchREST();
+            var seen = new HashSet<Int32>();
+
+            foreach (var id in graphElementIdentifiers)
+            {
+                if (!seen.Add(id))
+                {
+                    continue; // a duplicate id is one element, not two
+                }
+
+                // The vertex/edge getters are separate, so resolve through the kind-agnostic one and
+                // report which kind it turned out to be. TryGetGraphElement already excludes removed
+                // elements, so a tombstone is correctly reported as not found.
+                if (!_fallen8.TryGetGraphElement(out var element, id))
+                {
+                    result.NotFound.Add(id);
+                    continue;
+                }
+
+                result.Elements.Add(new GraphElementProjectionREST(element,
+                    element is EdgeModel ? "edge" : "vertex"));
+            }
+
+            return result;
         }
 
         /// <summary>

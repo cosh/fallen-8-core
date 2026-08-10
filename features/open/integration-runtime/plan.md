@@ -39,7 +39,10 @@ evidence and rejected alternatives; this is the sequencing only.
   the `durability` block on `GET /status` (walEnabled, degraded, recoveryRan, lastRecoveryTruncated,
   lastRecoveryReplayedEntries, lastCheckpointDroppedIndices). The per-write `Durable` flag already
   existed and is pinned. The per-write REST signal is a deliberate deferral - see the spec.
-- [ ] W6 batch element read, DateTime round-trip, and the claim-set shape written down.
+- [x] W6 batch element read (`POST /graphelements/get`, projections without adjacency, missing ids
+  named) and DateTime round-trip fidelity (one conversion home, `RoundtripKind`). The claim-set shape
+  is written down in the identity spec. The zero-write-calls invariant is asserted in phase 2, where
+  the client that must satisfy it exists.
 - [ ] W7 the typed facade (the channel decision, made before any route table exists).
 - [ ] Gate: full suite green, snapshot regenerated with a reviewed diff, coverage and contract tests
   moved.

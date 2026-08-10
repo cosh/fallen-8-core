@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace NoSQL.GraphDB.App.Helper
@@ -113,6 +114,67 @@ namespace NoSQL.GraphDB.App.Helper
             throw new ArgumentException(String.Format(
                 "The type name '{0}' is not an allowed literal type. Allowed: {1}.",
                 name, String.Join(", ", AllowedNames)));
+        }
+
+        /// <summary>
+        ///   THE conversion of a wire literal into its stored value. This type already owns "which
+        ///   types are allowed", so it owns "how a string becomes one"; five call sites previously
+        ///   repeated a bare <c>Convert.ChangeType(value, type, InvariantCulture)</c> while their
+        ///   comments named a single ingest home that they did not actually route through.
+        ///
+        ///   <para><b>Culture</b> (feature property-ingestion-culture): always
+        ///   <see cref="CultureInfo.InvariantCulture" />, never the host's, because the wire value is
+        ///   data interchange - a comma-decimal host must not read "0.8" as 8.</para>
+        ///
+        ///   <para><b>Kind</b> (feature platform-integrity-audit W6): date-like types parse with
+        ///   <see cref="DateTimeStyles.RoundtripKind" />, so ingress is the inverse of egress. Without
+        ///   it, <c>Convert.ChangeType</c> parses with default styles and converts a UTC ("...Z") wire
+        ///   value to the host's LOCAL time; egress then renders it with "O" and emits a different
+        ///   string than the one that was sent. The instant was always preserved, so this is a
+        ///   representation asymmetry rather than corruption - but it defeats any client that decides
+        ///   "has anything changed?" by comparing the value it intends to write against the value it
+        ///   just read: every date property would differ on every comparison, forever. It is invisible
+        ///   in CI and in the container (both UTC), which is exactly why it survived. It also made the
+        ///   stored tick value host-timezone-dependent, so a data directory moved between zones shifted
+        ///   the wall-clock reading of every date property. This applies the culture feature's own
+        ///   stated principle - "egress mirrors ingress" - to the dimension it did not cover.</para>
+        /// </summary>
+        /// <param name="value">The wire value.</param>
+        /// <param name="target">The resolved target type; <c>null</c> leaves the value a string.</param>
+        public static Object ConvertInvariant(String value, Type target)
+        {
+            if (target == null)
+            {
+                return value;
+            }
+
+            if (target == typeof(DateTime))
+            {
+                return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            }
+
+            if (target == typeof(DateTimeOffset))
+            {
+                return DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            }
+
+            // TimeSpan and Guid are on the allow-list ABOVE but are not IConvertible, so
+            // Convert.ChangeType throws InvalidCastException for both - meaning this allow-list has
+            // always advertised two types the conversion could not deliver. The failure was loud (the
+            // call sites map it to a 400), so nothing was silently wrong, but the contract was. Parsing
+            // them here is what makes the advertised set the accepted set. Found by a round-trip test
+            // over every allowed type; no call site had ever exercised these two.
+            if (target == typeof(TimeSpan))
+            {
+                return TimeSpan.Parse(value, CultureInfo.InvariantCulture);
+            }
+
+            if (target == typeof(Guid))
+            {
+                return Guid.Parse(value);
+            }
+
+            return Convert.ChangeType(value, target, CultureInfo.InvariantCulture);
         }
     }
 }

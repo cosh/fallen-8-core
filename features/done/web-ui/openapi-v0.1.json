@@ -3675,6 +3675,87 @@
         }
       }
     },
+    "/graphelements/get": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Reads many graph elements by id in ONE request (feature platform-integrity-audit)",
+        "description": "The read-side companion to the batch write path. Every scan and every batch write returns IDS\r\nONLY, and the only other many-element reads are a whole-namespace dump (GET /graph) and a\r\nwhole-namespace export - so a caller holding several hundred resolved ids that needs their\r\ncurrent property values, which is what \"write only if something actually changed\" requires,\r\npreviously had one sequential request per element or a full dump per poll.\r\n\r\nEach element is returned WITHOUT its adjacency: this answers \"what does it hold now\", and\r\nshipping every edge id of every element would dominate the payload. Ask GET /vertex/{id} for\r\none element's adjacency.\r\n\r\nProperty values use the same invariant string form as every other read, so a value returned\r\nhere can be written straight back unchanged - which is what makes a value-level comparison\r\nmeaningful rather than a source of spurious differences.\r\n\r\nIds that resolve to no live element come back in \"notFound\" rather than being silently\r\nabsent, because \"gone\" and \"has no properties\" are different conclusions.\r\n\r\nSample request:\r\n\r\n    POST /graphelements/get\r\n    [1, 2, 3]",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The ids to read",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The elements that exist, plus the ids that do not",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphElementBatchREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, or more ids than the page cap allows",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/graphelements/properties": {
       "put": {
         "tags": [
@@ -8420,6 +8501,95 @@
           },
           "500": {
             "description": "The transaction was rolled back with an internal error (only when waited)"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/graphelements/get": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Reads many graph elements by id in ONE request (feature platform-integrity-audit)",
+        "description": "The read-side companion to the batch write path. Every scan and every batch write returns IDS\r\nONLY, and the only other many-element reads are a whole-namespace dump (GET /graph) and a\r\nwhole-namespace export - so a caller holding several hundred resolved ids that needs their\r\ncurrent property values, which is what \"write only if something actually changed\" requires,\r\npreviously had one sequential request per element or a full dump per poll.\r\n\r\nEach element is returned WITHOUT its adjacency: this answers \"what does it hold now\", and\r\nshipping every edge id of every element would dominate the payload. Ask GET /vertex/{id} for\r\none element's adjacency.\r\n\r\nProperty values use the same invariant string form as every other read, so a value returned\r\nhere can be written straight back unchanged - which is what makes a value-level comparison\r\nmeaningful rather than a source of spurious differences.\r\n\r\nIds that resolve to no live element come back in \"notFound\" rather than being silently\r\nabsent, because \"gone\" and \"has no properties\" are different conclusions.\r\n\r\nSample request:\r\n\r\n    POST /graphelements/get\r\n    [1, 2, 3]",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The ids to read",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The elements that exist, plus the ids that do not",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphElementBatchREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, or more ids than the page cap allows",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
           }
         }
       }
@@ -18630,6 +18800,99 @@
             }
           ]
         }
+      },
+      "GraphElementBatchREST": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/GraphElementProjectionREST"
+            },
+            "description": "The elements that exist, in the order the requested ids were given (duplicates in\r\n    the request collapse to one entry)."
+          },
+          "notFound": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            },
+            "description": "The requested ids that resolve to no live element - removed, never created, or out\r\n    of range. Stated rather than implied."
+          }
+        },
+        "description": "Result of `POST /graphelements/get` (feature platform-integrity-audit W6): the elements\r\nthat exist, plus the ids that do not.\r\n\r\nWhy the route exists. Every scan and every batch write returns IDS ONLY, and the\r\nonly many-element reads were a whole-namespace dump and a whole-namespace export. So a caller\r\nthat had resolved several hundred ids and needed their current property values - which is what\r\n\"write only if something actually changed\" requires - had one sequential request per element,\r\nor a full graph dump per poll. That is the read-side mirror of the batch write path.\r\n\r\nList&lt;int&gt; GraphElementBatchREST.NotFound is explicit rather than left to the caller to infer from a\r\nmissing entry, because \"this id is gone\" and \"this id has no properties\" are different\r\nconclusions and a reconciling caller acts differently on each."
+      },
+      "GraphElementProjectionREST": {
+        "required": [
+          "kind",
+          "id",
+          "creationDate",
+          "modificationDate"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "`vertex` or `edge`. The singular getters are addressed per kind, so a batch read\r\nthat accepts mixed ids has to say which each one turned out to be.",
+            "example": "vertex"
+          },
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The unique identifier of the graph element",
+            "format": "int32",
+            "default": 123,
+            "example": 123
+          },
+          "creationDate": {
+            "type": "string",
+            "description": "The date and time when the element was created",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "modificationDate": {
+            "type": "string",
+            "description": "The date and time when the element was last modified",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The type label of the graph element used for categorization",
+            "default": "person",
+            "example": "person"
+          },
+          "properties": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PropertySpecification"
+            },
+            "description": "The collection of properties (key-value pairs) associated with the graph element"
+          }
+        },
+        "description": "One element in a `POST /graphelements/get` result (feature platform-integrity-audit W6):\r\nits identity, label, stamps and properties - and deliberately NOT its adjacency.\r\n\r\nIt derives from AGraphElement so the property projection goes through the\r\none egress home, which is what makes every value here round-trip back through a write\r\nunchanged. Adjacency is omitted on purpose: this route exists so a caller can compare the\r\nvalues it intends to write against the values already stored, and shipping every edge id of\r\nevery element in a several-hundred-element batch would dominate the payload while answering a\r\nquestion nobody asked. A caller that needs adjacency asks for one element through\r\nGET /vertex/{id}, which already returns it."
       },
       "GraphFunctionInvocation": {
         "type": "object",

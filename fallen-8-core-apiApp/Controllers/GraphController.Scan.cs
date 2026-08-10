@@ -261,8 +261,8 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 // Invariant parse of the wire limits (feature property-ingestion-culture; ingest
                 // home ServiceHelper.CreateObject).
-                left = (IComparable)Convert.ChangeType(definition.LeftLimit, limitType ?? typeof(string), CultureInfo.InvariantCulture);
-                right = (IComparable)Convert.ChangeType(definition.RightLimit, limitType ?? typeof(string), CultureInfo.InvariantCulture);
+                left = (IComparable)AllowedLiteralTypes.ConvertInvariant(definition.LeftLimit, limitType ?? typeof(string));
+                right = (IComparable)AllowedLiteralTypes.ConvertInvariant(definition.RightLimit, limitType ?? typeof(string));
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
             {

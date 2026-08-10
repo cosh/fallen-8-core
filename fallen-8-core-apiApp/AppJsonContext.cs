@@ -63,6 +63,9 @@ namespace NoSQL.GraphDB.App
     // enough: the generator derives the List<T> converter from it, and naming the closed generic
     // here needs a using this file deliberately does not carry.
     [JsonSerializable(typeof(PropertyWriteSpecification))]
+    // The batch element READ (feature platform-integrity-audit W6).
+    [JsonSerializable(typeof(GraphElementProjectionREST))]
+    [JsonSerializable(typeof(GraphElementBatchREST))]
     // Index repair from element state (feature platform-integrity-audit W4).
     [JsonSerializable(typeof(IndexBackfillSpecification))]
     [JsonSerializable(typeof(IndexRebuildREST))]

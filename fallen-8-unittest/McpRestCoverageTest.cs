@@ -58,6 +58,16 @@ namespace NoSQL.GraphDB.Tests
                 "element counts are surfaced by f8_overview"),
             new(op => op == "GET /graph",
                 "a full-graph dump is token-heavy; agents use f8_search / f8_get"),
+            // The batch element read (feature platform-integrity-audit W6) exists so a reconciling
+            // client can diff HUNDREDS of elements before deciding what to write. That is the opposite
+            // of an agent's read pattern, and shipping several hundred projected elements into a tool
+            // result is exactly what the token-economy design forbids (mcp-server spec §3.5: byte
+            // budgets, id-first results, pagination). f8_search plus f8_get's `fields` already answer
+            // the few-element case within the budget. Bridging it as a mode on f8_get was considered and
+            // rejected: f8_get takes a REQUIRED kind+id and has no mode enum, so a batch mode would
+            // restructure a tool agents already depend on, to add a capability they should not use.
+            new(op => op == "POST /graphelements/get",
+                "bulk element reads are for reconciling clients, not agents; several hundred projected elements would blow the token budget f8_search/f8_get are shaped around"),
             new(op => op.Contains("/scan/index/range"),
                 "range scans are deferred; index-equality, fulltext and vector modes cover the agent path"),
             new(op => op.Contains("/scan/index/spatial"),

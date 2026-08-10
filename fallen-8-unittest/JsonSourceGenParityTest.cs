@@ -481,6 +481,22 @@ namespace NoSQL.GraphDB.Tests
                     LastRecoveryReplayedEntries = 17,
                     LastCheckpointDroppedIndices = 1
                 }, "DurabilityStatusREST"),
+                // The batch element READ (feature platform-integrity-audit W6). The projection derives
+                // from AGraphElement, so this also guards that the inherited property projection keeps
+                // its naming under source generation.
+                (new GraphElementProjectionREST(7, 1713862800u, 60u, "device",
+                    System.Collections.Immutable.ImmutableDictionary<string, object>.Empty
+                        .Add("ip", "10.0.0.9"),
+                    "vertex"), "GraphElementProjectionREST"),
+                (new GraphElementBatchREST
+                {
+                    Elements = new List<GraphElementProjectionREST>
+                    {
+                        new GraphElementProjectionREST(7, 1713862800u, 0u, "device",
+                            System.Collections.Immutable.ImmutableDictionary<string, object>.Empty, "vertex")
+                    },
+                    NotFound = new List<int> { 999999 }
+                }, "GraphElementBatchREST"),
                 (new StatusREST
                 {
                     UsedMemory = 1073741824L,
