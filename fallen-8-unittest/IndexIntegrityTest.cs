@@ -205,6 +205,43 @@ namespace NoSQL.GraphDB.Tests
                 "from the loaded buckets, so the guard has to work off that rebuild.");
         }
 
+        [TestMethod]
+        public void AfterAWipe_TheSamePairCanBeAddedAgain()
+        {
+            // REGRESSION GUARD for the interaction between the W3 idempotency guard and the W4 exact
+            // rebuild. The guard answers "is this pair already indexed" from the REVERSE map, so if
+            // Wipe ever cleared the buckets without clearing that map, the guard would refuse every
+            // re-add and an exact rebuild would silently produce an EMPTY index - a repair that
+            // destroys instead of repairing. Wipe does clear both today; this pins it, because the
+            // failure mode is invisible (no error, just no keys).
+            var index = NewIndex("claims");
+            var element = Element(NewVertex());
+            index.AddOrUpdate("mac:44d2", element);
+
+            index.Wipe();
+            index.AddOrUpdate("mac:44d2", element);
+
+            Assert.IsTrue(index.TryGetValue(out var bucket, "mac:44d2"),
+                "the identical pair must be re-addable after a wipe");
+            Assert.AreEqual(1, bucket.Count);
+        }
+
+        [TestMethod]
+        public void AfterRemovingAKey_TheSamePairCanBeAddedAgain()
+        {
+            // The same guard against TryRemoveKey, which maintains the reverse map by a separate code
+            // path from RemoveValue and Wipe.
+            var index = NewIndex("claims");
+            var element = Element(NewVertex());
+            index.AddOrUpdate("mac:44d2", element);
+
+            Assert.IsTrue(index.TryRemoveKey("mac:44d2"));
+            index.AddOrUpdate("mac:44d2", element);
+
+            Assert.IsTrue(index.TryGetValue(out var bucket, "mac:44d2"));
+            Assert.AreEqual(1, bucket.Count);
+        }
+
         #region repair from element state (W4)
 
         [TestMethod]

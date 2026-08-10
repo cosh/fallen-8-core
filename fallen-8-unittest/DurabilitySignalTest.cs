@@ -108,6 +108,22 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void AFreshLogsRecoveryFlags_MeanWhatTheyClaim()
+        {
+            // Pins the MEANING of recoveryRan rather than assuming it. The replay path runs when a log
+            // is unanchored at construction, which a brand-new empty log also is - so this asserts what
+            // a first start actually reports, and that whatever it reports leads a client to the right
+            // conclusion. The safety-relevant field is lastRecoveryTruncated: it must be false, and the
+            // replayed count must be 0, so "nothing was lost" is the only reading available.
+            using var engine = new Fallen8(_loggerFactory, new WriteAheadLogOptions(WalPath));
+
+            var state = engine.Durability;
+
+            Assert.IsFalse(state.LastRecoveryTruncated, "a fresh log has lost nothing");
+            Assert.AreEqual(0, state.LastRecoveryReplayedEntries, "and replayed nothing");
+        }
+
+        [TestMethod]
         public void ACommittedTransactionReportsItsOwnDurability()
         {
             // The per-transaction half of the contract (transaction-retention R3), which the engine

@@ -392,6 +392,14 @@ Two consequences to settle here:
 **Scoped credentials, RBAC, multiple API keys and per-caller quotas are rejected**; see
 section 4.
 
+**Implementation status: the DECISION is done, the CODE is deferred to Phase 2 of the integration
+plan.** The channel choice is what had to be made before any route table existed, and it is made and
+recorded above with both rejected alternatives and their reasons. The facade itself faces a sidecar
+that does not exist yet: building an *IntegrationsClient* plus controllers proxying to nothing would
+be speculative, untestable and unreviewable, and the third *SidecarHttpClient* implementation is a
+few dozen lines once there is something behind it. Nothing else in Phase 0 depends on it, which is
+why it was the one P0 item safe to sequence with its consumer.
+
 ### P1 - ships alongside, all small
 
 - **W8. Index lock-leak containment [S].** *SingleValueIndex* is missing roughly twelve
@@ -490,6 +498,31 @@ lenses, and the first three were rejected unanimously.
 | **A global rate limiter on the graph-mutation and index routes** | Measured adjacency: those routes deliberately carry no *EnableRateLimiting* (the sensitive policy is on 22 actions, none of them the hot path). A global limiter would throttle the hot path this work depends on. | None; keep the current shape deliberately. |
 | **A REST throughput regression gate** | [capacity-bench](../../done/capacity-bench/) deliberately ships no regression gate and that decision is right; a threshold on the noisy REST path would false-alarm. Instead add one opt-in benchmark case recording "240 property updates: 480 single round-trips versus one batch" as a published number. | None. |
 | **New MCP tools for any batch operation** | The tool set is deliberately small and every schema is paid for in every agent's context on every call. Batch operations are already modelled as **ops** inside *f8_mutate*. | The control plane needs more than three verbs an agent should reach, and then it is one tool, not one per verb. |
+
+## 4a. What the implementation review found
+
+The Phase 0 work was reviewed against the code as it was written, not only after. What that pass
+produced, recorded because it changes how much the rest of this document should be trusted:
+
+**Three items shrank on contact with their owning contract.** W1's boot-path change and three of
+W3's four proposed changes turned out to target deliberate, documented decisions. In every case the
+reviewer had read a behaviour as an accident without checking whether the route, the code or the
+owning feature stated a reason for it. The rule that resolved all of them, and that is now the
+standing rule for the remaining items: **make the implementation match the contract the route
+already publishes, rather than making every route behave alike.**
+
+**Two defects were found by writing the tests rather than by reading the code.** A round-trip test
+over every allowed literal type showed that *TimeSpan* and *Guid* are on the allow-list but cannot be
+produced by *Convert.ChangeType* (neither is IConvertible), so both had always failed - the
+advertised set was not the accepted set. And the interaction between W3's idempotency guard and W4's
+exact-rebuild mode is only safe because *Wipe* clears the reverse map as well as the buckets; if it
+ever stopped doing so, an exact rebuild would silently produce an EMPTY index. That is a repair that
+destroys, with no error and no log line, so it now has its own named regression guard.
+
+**One placement was corrected by hitting the plumbing.** W4's primitive was drafted on the engine and
+needed an *IFallen8Admin* member plus changes to the namespace wrapper and two test fakes; that cost
+is what surfaced the better home in the apiApp. W5's genuinely did belong on the interface, and its
+cost was the same six mechanical edits - which is why the two decisions differ despite looking alike.
 
 ## 5. Corrections to the original thirteen
 

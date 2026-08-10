@@ -43,7 +43,10 @@ evidence and rejected alternatives; this is the sequencing only.
   named) and DateTime round-trip fidelity (one conversion home, `RoundtripKind`). The claim-set shape
   is written down in the identity spec. The zero-write-calls invariant is asserted in phase 2, where
   the client that must satisfy it exists.
-- [ ] W7 the typed facade (the channel decision, made before any route table exists).
+- [x] W7 the channel DECISION (typed facade over the existing `SidecarHttpClient`, not a proxy;
+  singular REST resource so the plural Studio route is not shadowed). The facade CODE moves into
+  this plan's phase 2, because it faces a sidecar that does not exist yet - a client and controllers
+  proxying to nothing would be speculative and untestable, and nothing else in phase 0 depends on it.
 - [ ] Gate: full suite green, snapshot regenerated with a reviewed diff, coverage and contract tests
   moved.
 
