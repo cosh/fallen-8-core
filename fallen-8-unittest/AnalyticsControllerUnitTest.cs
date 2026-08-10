@@ -168,6 +168,8 @@ namespace NoSQL.GraphDB.Tests
             public int VertexCount => _inner.VertexCount;
             public int EdgeCount => _inner.EdgeCount;
             public IndexFactory IndexFactory => _inner.IndexFactory;
+
+            public DurabilityState Durability => _inner.Durability;
             public ServiceFactory ServiceFactory => _inner.ServiceFactory;
             public SubGraphFactory SubGraphFactory => _inner.SubGraphFactory;
             public ISubGraphRecipeCompiler SubGraphRecipeCompiler

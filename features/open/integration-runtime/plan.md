@@ -35,7 +35,10 @@ evidence and rejected alternatives; this is the sequencing only.
 - [x] W4 rebuild from element state: `IndexRepair` plus `POST /index/backfill/{indexId}`, and the
   hand-rolled entity-index sweep in the ingestion service now calls it. The prefix-bound
   self-maintenance half is deliberately NOT in this commit (the plan's stop-and-review fallback).
-- [ ] W5 durability and recovery-integrity signal.
+- [x] W5 durability and recovery-integrity signal: `DurabilityState` on `IFallen8Admin`, projected as
+  the `durability` block on `GET /status` (walEnabled, degraded, recoveryRan, lastRecoveryTruncated,
+  lastRecoveryReplayedEntries, lastCheckpointDroppedIndices). The per-write `Durable` flag already
+  existed and is pinned. The per-write REST signal is a deliberate deferral - see the spec.
 - [ ] W6 batch element read, DateTime round-trip, and the claim-set shape written down.
 - [ ] W7 the typed facade (the channel decision, made before any route table exists).
 - [ ] Gate: full suite green, snapshot regenerated with a reviewed diff, coverage and contract tests

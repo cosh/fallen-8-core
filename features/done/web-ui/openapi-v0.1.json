@@ -17801,6 +17801,52 @@
         },
         "description": "One document as reported by the ingest/list/get surfaces (FR-2/FR-7)."
       },
+      "DurabilityStatusREST": {
+        "type": "object",
+        "properties": {
+          "walEnabled": {
+            "type": "boolean",
+            "description": "Whether a write-ahead log is configured. When false, a committed transaction is durable\r\nonly as far as the last checkpoint - the documented volatile/no-WAL posture, not a fault,\r\nwhich is why bool DurabilityStatusREST.Degraded stays false and this flag distinguishes the two.",
+            "example": true
+          },
+          "degraded": {
+            "type": "boolean",
+            "description": "Whether write durability is DEGRADED right now: the sticky failure fence tripped, or an\r\nanchored log is awaiting its paired snapshot load. Transactions still commit in memory and\r\nstill report success, so this is the only signal that they are not reaching disk. A\r\nsuccessful save clears it.",
+            "example": false
+          },
+          "recoveryRan": {
+            "type": "boolean",
+            "description": "Whether a log recovery has run in this engine's lifetime. When false the two\r\n    recovery fields below carry no information.",
+            "example": false
+          },
+          "lastRecoveryTruncated": {
+            "type": "boolean",
+            "description": "Whether the last recovery stopped BEFORE the end of the log. Replay is fail-stop for\r\ncore-data entries, because continuing past a bad one would misapply every later entry\r\nagainst a diverged id space - so the graph is internally consistent but is a PREFIX of the\r\ncommitted history.",
+            "example": false
+          },
+          "lastRecoveryReplayedEntries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many log entries the last recovery replayed.",
+            "format": "int32",
+            "example": 0
+          },
+          "lastCheckpointDroppedIndices": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many indices the last checkpoint could not persist and dropped from its manifest.\r\nDropping is deliberate - one failing index must not cost the whole checkpoint - but the\r\nnext load then comes up with every element intact and those indices gone. Index content is\r\nderived state, so the repair is `POST /index/backfill/{indexId}`; this number is what\r\ntells a client it needs to.",
+            "format": "int32",
+            "example": 0
+          }
+        },
+        "description": "The durability and recovery-integrity block on `GET /status` (feature\r\nplatform-integrity-audit W5).\r\n\r\nEvery fact here was already computed by the engine and reachable nowhere: the\r\ndegraded-log state existed only as an OpenTelemetry gauge, so it existed only if the operator\r\nhad wired a collector, and a truncated recovery logged one error and became an activity tag.\r\nA client could therefore write into a degraded log, receive success for every write, and lose\r\nall of them on the next kill.\r\n\r\nWho needs it and why. Any writer that DELETES state because \"nothing asserts it\r\nany more\" is reading that conclusion out of graph content. If the content is a\r\npost-truncation prefix, or if an index it reasoned over was dropped from the last checkpoint,\r\nthe conclusion is wrong and the deletion is the one mutation that re-syncing cannot undo.\r\nSuch a client checks this block first and DEFERS the deletion when anything here is set:\r\ndeferring is recoverable, deleting wrongly is not."
+      },
       "Edge": {
         "required": [
           "targetVertex",
@@ -21028,6 +21074,10 @@
           "nlp": {
             "description": "The semantic-layer NLP enrichment state (feature semantic-layer): a config read\r\nplus a cached sidecar probe. Null only when the host wired no NLP options.",
             "$ref": "#/components/schemas/NlpStatsREST"
+          },
+          "durability": {
+            "description": "Whether this namespace's writes are actually reaching disk, and whether the state being\r\nserved is the complete committed history or a prefix of it (feature\r\nplatform-integrity-audit W5). A cheap read of state the engine already publishes.",
+            "$ref": "#/components/schemas/DurabilityStatusREST"
           }
         },
         "description": "Represents the current status of the Fallen-8 database",

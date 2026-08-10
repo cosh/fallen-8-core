@@ -121,6 +121,11 @@ namespace NoSQL.GraphDB.App.Namespaces
 
         public Guid Id => Engine.Id;
 
+        /// <summary>Durability/recovery state of the ADDRESSED namespace's engine (feature
+        /// platform-integrity-audit W5): each namespace owns its own log and its own recovery outcome,
+        /// so this is per-engine and not per-process.</summary>
+        public DurabilityState Durability => Engine.Durability;
+
         public Int32 VertexCount => Engine.VertexCount;
 
         public Int32 EdgeCount => Engine.EdgeCount;

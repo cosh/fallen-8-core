@@ -470,6 +470,17 @@ namespace NoSQL.GraphDB.Tests
                     IndexedElements = 1180,
                     SkippedUnindexableValues = 2
                 }, "IndexRebuildREST"),
+                // The durability / recovery-integrity block on /status (feature platform-integrity-audit
+                // W5). Every flag set, so a naming-policy slip on any of them would show up.
+                (new DurabilityStatusREST
+                {
+                    WalEnabled = true,
+                    Degraded = true,
+                    RecoveryRan = true,
+                    LastRecoveryTruncated = true,
+                    LastRecoveryReplayedEntries = 17,
+                    LastCheckpointDroppedIndices = 1
+                }, "DurabilityStatusREST"),
                 (new StatusREST
                 {
                     UsedMemory = 1073741824L,

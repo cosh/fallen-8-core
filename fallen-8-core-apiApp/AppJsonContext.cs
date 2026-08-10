@@ -67,6 +67,8 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(IndexBackfillSpecification))]
     [JsonSerializable(typeof(IndexRebuildREST))]
     [JsonSerializable(typeof(StatusREST))]
+    // The durability / recovery-integrity block on /status (feature platform-integrity-audit W5).
+    [JsonSerializable(typeof(DurabilityStatusREST))]
     [JsonSerializable(typeof(SampleStats))]
     [JsonSerializable(typeof(SubGraphSpecification))]
     [JsonSerializable(typeof(SubGraphSummary))]

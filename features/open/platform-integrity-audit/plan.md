@@ -27,7 +27,9 @@ cannot be argued about later.
 - [x] W3: a lookup against a deleted index answers `200 []` (asserted, then inverted to 400 for the
   two routes whose own docs promise it). The WRITE side and the manifest drop are NOT changed - both
   are documented decisions; see the spec's W3 correction.
-- [ ] W5: a write into a degraded WAL is indistinguishable from a durable one.
+- [x] W5: the degraded state and a truncated recovery are reachable nowhere outside the engine
+  (asserted, then exposed). The per-write signal already existed on `TransactionInformation`; what was
+  missing was the instance-level block, plus the dropped-index count moved here from W3.
 - [ ] W6: a DateTime property does not round-trip under a non-UTC host timezone (the test sets
   the timezone, since CI and the container are both UTC).
 - [ ] W8: a throw inside a *SingleValueIndex* guarded region leaks the lock.
