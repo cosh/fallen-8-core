@@ -30,8 +30,9 @@ cannot be argued about later.
 - [x] W5: the degraded state and a truncated recovery are reachable nowhere outside the engine
   (asserted, then exposed). The per-write signal already existed on `TransactionInformation`; what was
   missing was the instance-level block, plus the dropped-index count moved here from W3.
-- [ ] W6: a DateTime property does not round-trip under a non-UTC host timezone (the test sets
-  the timezone, since CI and the container are both UTC).
+- [x] W6: a DateTime property does not round-trip under a non-UTC host timezone (asserted, then
+  inverted; the test forces the zone, since CI and the container are both UTC). The zero-write-calls
+  invariant belongs to the runtime rather than the platform and is asserted in the integration plan.
 - [ ] W8: a throw inside a *SingleValueIndex* guarded region leaks the lock.
 - [ ] Record each as a named test so the phase-by-phase inversions are traceable.
 
@@ -184,7 +185,7 @@ the spec with their triggers; W17 belongs to
 - [ ] Phase 2 - W2 property replace and remove
 - [ ] Phase 3 - W3, W8, W5 make the rest loud
 - [ ] Phase 4 - W4 rebuild from element state
-- [ ] Phase 5 - W6 zero-mutation invariant
+- [x] Phase 5 - W6 platform half (batch read + DateTime); the zero-write-calls invariant is the runtime's
 - [ ] Phase 6 - W7 control plane
 - [ ] Phase 7 - P1 remainder
 - [ ] Phase 8 - P2 (optional)
