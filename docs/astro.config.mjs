@@ -74,6 +74,7 @@ export default defineConfig({
 						{ label: 'Semantic traversal', slug: 'semantic-traversal' },
 						{ label: 'Semantic layer', slug: 'unstructured-ingestion' },
 						{ label: 'Bulk import/export', slug: 'bulk-import-export' },
+						{ label: 'Integrations', slug: 'integrations' },
 						{ label: 'Change feed', slug: 'change-feed' },
 						{ label: 'Save games', slug: 'save-games' },
 						{ label: 'Namespaces', slug: 'namespaces' },

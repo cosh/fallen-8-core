@@ -95,11 +95,11 @@ namespace NoSQL.GraphDB.Integrations.Conformance
 
         protected override void Dispose(Boolean disposing)
         {
-            if (disposing)
-            {
-                _invoker?.Dispose();
-            }
-
+            // Deliberately does NOT dispose what it borrowed. The suite hands the SAME recorder to both runs,
+            // and the runner rightly disposes the client it was given after each one - which disposes the host
+            // guard, which disposes its inner handler. Passing that on would leave the second run unable to
+            // send, and the second run is the whole point: determinism and idempotence are statements about a
+            // repeat. The source double belongs to the caller, so nothing here owns it either.
             base.Dispose(disposing);
         }
 
@@ -184,7 +184,7 @@ namespace NoSQL.GraphDB.Integrations.Conformance
                 _inner = inner;
             }
 
-            public Boolean IssuedMutations => _inner.IssuedMutations;
+            public Int32 IssuedMutationCount => _inner.IssuedMutationCount;
 
             public Task<Boolean> EnsureIndicesAsync(CancellationToken cancellationToken)
             {

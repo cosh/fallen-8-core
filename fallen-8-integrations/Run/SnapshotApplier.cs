@@ -102,6 +102,10 @@ namespace NoSQL.GraphDB.Integrations.Run
                 throw new ArgumentNullException(nameof(report));
             }
 
+            // What THIS run issued, so the invariant is a statement about the run rather than about the
+            // target's whole lifetime.
+            var mutationsBefore = target.IssuedMutationCount;
+
             // "It existed when I started" is not a fact that stays true, so this runs before EVERY job. An
             // index it had to create is empty, and empty is indistinguishable from "no element carries this
             // claim", which obliges the repair before any lookup is trusted.
@@ -291,7 +295,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                     .ConfigureAwait(false);
             }
 
-            report.IssuedMutations = target.IssuedMutations;
+            report.IssuedMutations = target.IssuedMutationCount > mutationsBefore;
         }
 
         /// <summary>

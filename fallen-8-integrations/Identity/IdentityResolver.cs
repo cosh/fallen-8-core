@@ -120,6 +120,10 @@ namespace NoSQL.GraphDB.Integrations.Identity
             // run. Nothing is unified here either: the element not chosen keeps its own claims, stops being
             // asserted, and this same run's reconciliation withdraws this instance's claim from it, so the
             // graph converges within the run.
+            // Ascending element id, because firstKeyByElement is sorted: with two elements found by ONE key
+            // content cannot separate them, and taking the first of an ascending walk IS the documented
+            // "ties to the lower id". A second clause comparing ids would read as the rule while never
+            // executing, which is worse than no clause at all.
             var chosen = 0;
             String? chosenKey = null;
             var all = ImmutableArray.CreateBuilder<Int32>(firstKeyByElement.Count);
@@ -135,8 +139,7 @@ namespace NoSQL.GraphDB.Integrations.Identity
                     continue;
                 }
 
-                var comparison = String.CompareOrdinal(candidate.Value, chosenKey);
-                if (comparison < 0 || (comparison == 0 && candidate.Key < chosen))
+                if (String.CompareOrdinal(candidate.Value, chosenKey) < 0)
                 {
                     chosen = candidate.Key;
                     chosenKey = candidate.Value;

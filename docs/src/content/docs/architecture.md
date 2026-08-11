@@ -1,13 +1,15 @@
 ---
 title: "Architecture"
-description: "How the engine, REST app, F8 Studio, and model sidecar fit together."
+description: "How the engine, REST app, F8 Studio, the MCP server, the integrations runtime and the model sidecar fit together."
 ---
 
 Fallen-8 is an in-memory graph engine with a thin REST app wrapped around it. The engine
 holds the graph in RAM and runs the algorithms; the app exposes it over HTTP (and, in the
 all-in-one image, serves the browser UI too). Three kinds of client reach it: **AI agents**
 through the [MCP server](/fallen-8-core/mcp-server/),
-and **F8 Studio** (the browser UI) plus **your own services** straight over the REST API. This
+and **F8 Studio** (the browser UI) plus **your own services** straight over the REST API. Data
+also arrives on its own: the [integrations runtime](/fallen-8-core/integrations/) reads systems on
+your own network and writes what it saw in through the same REST API. This
 doc is the map of how the pieces fit; each piece's contract lives in its own doc, linked below.
 
 ```mermaid
@@ -41,6 +43,10 @@ flowchart TB
     sidecar["Model sidecar (Ollama)<br/>embeddings + delegate assist"]:::ext
     docling["Document sidecar (docling-serve)<br/>binary-to-structured conversion"]:::ext
     nlp["NLP sidecar (spaCy)<br/>named entities + key terms"]:::ext
+    integrations["Integrations runtime · fallen-8-integrations<br/>separate deployable · no host port · writes via REST"]:::mcp
+    creds["Credential mount<br/>/run/secrets · read only"]:::ext
+    files["Files mount<br/>/files · read only"]:::ext
+    sources["Your network<br/>CSV · UniFi console · Fronius inverter"]:::ext
 
     subgraph obs["Observability · one Grafana pane"]
         direction TB
@@ -69,11 +75,17 @@ flowchart TB
     rest --> semantic
     rest --> ingestion
     rest --> savegames
+    rest -->|proxy /integrations/*| integrations
     semantic -.->|embeddings + chat| sidecar
     ingestion -.->|document conversion| docling
     ingestion -.->|entity + term enrichment| nlp
     rest -.->|OTLP metrics/traces/logs| collector
     mcp -.->|OTLP| collector
+    integrations -->|HTTP · REST · own API key| rest
+    integrations -.->|reads| sources
+    creds -.-> integrations
+    files -.-> integrations
+    integrations -.->|OTLP| collector
     ns --> writer --> model
     model --- plugins
     model --- durab
@@ -166,6 +178,16 @@ REST surface over HTTP: it references neither the engine nor the app. It is a sm
 token-frugal tool surface, read-only by default, with opt-in write, admin, and code tiers and
 three auth modes. The full story is in [MCP server](/fallen-8-core/mcp-server/).
 
+## Data from your own network: the integrations runtime
+
+**`fallen-8-integrations`** is a separate deployable that runs one integration job at a time: it
+reads a system on your own network, describes what it saw as a snapshot, and writes that
+description into one namespace over the REST API. Like the MCP server it references neither the
+engine nor the app, and for a sharper reason: it reads credentials belonging to your controllers,
+so it holds **no host port at all**. The browser reaches it only through the app's authenticated
+proxy at `/integrations/*`, and its credential and files directories are read-only mounts. The
+full story is in [Integrations](/fallen-8-core/integrations/).
+
 ## F8 Studio and the model sidecar
 
 [F8 Studio](/fallen-8-core/studio/) is a React single-page app. It talks to the REST API like any other
@@ -193,8 +215,9 @@ cross-origin calls need the data plane's `AllowedCorsOrigins` to include the UI'
 
 ## Observability
 
-The engine and app emit metrics, traces, and logs through BCL instruments; the app and the
-[MCP server](/fallen-8-core/mcp-server/) push them over OTLP to a small consumer stack that ships with the
+The engine and app emit metrics, traces, and logs through BCL instruments; the app, the
+[MCP server](/fallen-8-core/mcp-server/) and the [integrations runtime](/fallen-8-core/integrations/)
+push them over OTLP to a small consumer stack that ships with the
 environment: an OpenTelemetry Collector ingests the push and derives per-action metrics from
 spans, Prometheus stores metrics, Tempo stores traces, Loki stores logs, and Grafana is the
 single pane. Each process stamps a tenant/instance/namespace identity on every signal so one
@@ -213,7 +236,8 @@ and UI both on `:8080`) is still built and is what a bare `docker compose up` ru
 Around the data plane the same environment brings up the Ollama model sidecar, the docling
 document-conversion sidecar (`F8_INGESTION=false` skips it), the spaCy NLP sidecar
 (`F8_NLP=false` skips it), the `f8-mcp` bridge on `:8090` (anonymous and read-only in this local-dev
-posture), and the observability containers above. The data plane is durable by default: checkpoints,
+posture), the `f8-integrations` runtime on the `integrations` profile with no published port
+(`F8_INTEGRATIONS=false` skips it), and the observability containers above. The data plane is durable by default: checkpoints,
 the WAL, and the save-game registry share one mounted named volume.
 
 ## See also

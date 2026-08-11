@@ -59,7 +59,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
             new TargetEmbedding(true, 1024, "Cosine", "fixture-embedding-model", null);
 
         /// <inheritdoc />
-        public Boolean IssuedMutations { get; private set; }
+        public Int32 IssuedMutationCount => MutationCalls.Count;
 
         /// <summary>
         ///   Every mutation call this target was asked to make, in order, so a test can assert on the CALL
@@ -524,7 +524,6 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
         private void RecordMutation(String call, Int32 count)
         {
-            IssuedMutations = true;
             MutationCalls.Add(call + "(" + count.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")");
         }
 

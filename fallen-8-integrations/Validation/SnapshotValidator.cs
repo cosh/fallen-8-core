@@ -103,7 +103,7 @@ namespace NoSQL.GraphDB.Integrations.Validation
                 // shape that could compose another identity's key is refused at the envelope, exactly as
                 // the job's own id is refused before a provider runs.
                 envelopeAccepted = false;
-                diagnostics.Add(new DiagnosticDto(DiagnosticCodes.MissingInstanceId,
+                diagnostics.Add(new DiagnosticDto(DiagnosticCodes.MalformedInstanceId,
                     String.Format(
                         "'{0}' is not a valid integration instance id: letters, digits, dot, dash and " +
                         "underscore only, at most {1} characters.",
@@ -329,20 +329,24 @@ namespace NoSQL.GraphDB.Integrations.Validation
                         continue;
                     }
 
-                    if (!WireValues.TryRender(property.Value, out var typeName, out var text))
+                    var rendered = WireValues.TryRender(property.Value, out var typeName, out var text);
+                    if (rendered == WireValues.Outcome.Unsupported)
                     {
-                        if (property.Value != null)
-                        {
-                            // An absent value is silently absent, which is the contract. A value of a shape
-                            // the property surface cannot carry is reported and dropped: dropping one
-                            // property loses less than skipping the entity, and the diagnostic names it.
-                            diagnostics.Add(new DiagnosticDto(DiagnosticCodes.UnsupportedPropertyValue,
-                                String.Format(
-                                    "Property '{0}' holds a value of a shape the property surface does not " +
-                                    "carry, so it was dropped. Properties are scalars.", property.Key),
-                                subject));
-                        }
+                        // A value of a shape the property surface cannot carry is reported and dropped:
+                        // dropping one property loses less than skipping the entity, and the diagnostic names
+                        // it. An ABSENT value is silently absent, whether it arrived as a CLR null or as JSON
+                        // null, so a pasted document gets the same verdict as the provider that would have
+                        // produced it.
+                        diagnostics.Add(new DiagnosticDto(DiagnosticCodes.UnsupportedPropertyValue,
+                            String.Format(
+                                "Property '{0}' holds a value of a shape the property surface does not " +
+                                "carry, so it was dropped. Properties are scalars.", property.Key),
+                            subject));
+                        continue;
+                    }
 
+                    if (rendered == WireValues.Outcome.Absent)
+                    {
                         continue;
                     }
 
@@ -372,9 +376,12 @@ namespace NoSQL.GraphDB.Integrations.Validation
 
                 if (!_vocabulary.TryGet(target.Type, out var targetType))
                 {
-                    Reject(DiagnosticCodes.UnknownIdentifierType, String.Format(
+                    // The entity goes, because the provider's CODE named a type that cannot address anything:
+                    // it is the same class of fault as declaring a weak target, and its own code so a reader
+                    // grouping by code is not told two different consequences under one name.
+                    Reject(DiagnosticCodes.UnknownRelationTargetType, String.Format(
                         "Relation '{0}' addresses its target by '{1}', which is not an identifier type this " +
-                        "runtime knows.", relation.Type, target.Type));
+                        "runtime knows, so nothing could ever be found by it.", relation.Type, target.Type));
                     continue;
                 }
 
@@ -390,9 +397,15 @@ namespace NoSQL.GraphDB.Integrations.Validation
                 if (!ClaimKeyComposer.TryCompose(targetType, target.Value, providerId, instanceId,
                         out var targetKey, out _))
                 {
-                    Reject(DiagnosticCodes.InvalidIdentifierValue, String.Format(
+                    // THE RELATION goes and the entity stays, by the same datum-versus-statement rule the claim
+                    // level follows: a mangled address in ONE cell of a topology column would otherwise skip a
+                    // device whose own identity is perfectly good, and a skipped entity in a complete snapshot
+                    // is withdrawn and then deleted. The edge is missing until the source says it better, which
+                    // is a gap rather than a loss.
+                    Drop(DiagnosticCodes.InvalidRelationTargetValue, String.Format(
                         "Relation '{0}' addresses target value '{1}', which does not canonicalise to " +
-                        "something '{2}' accepts.", relation.Type, target.Value, target.Type));
+                        "something '{2}' accepts, so the relation was dropped and the entity kept.",
+                        relation.Type, target.Value, target.Type));
                     continue;
                 }
 

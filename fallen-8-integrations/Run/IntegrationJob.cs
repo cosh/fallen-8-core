@@ -125,7 +125,14 @@ namespace NoSQL.GraphDB.Integrations.Run
                     continue;
                 }
 
-                if (!WireValues.TryRender(pair.Value, out _, out var text) || text == null)
+                var rendered = WireValues.TryRender(pair.Value, out _, out var text);
+                if (rendered == WireValues.Outcome.Absent)
+                {
+                    // A setting the caller sent as null is a setting the caller did not send.
+                    continue;
+                }
+
+                if (rendered != WireValues.Outcome.Rendered || text == null)
                 {
                     failure = String.Format(
                         "Setting '{0}' is not a value a setting can carry; settings are scalars.", pair.Key);

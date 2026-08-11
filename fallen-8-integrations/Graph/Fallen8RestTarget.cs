@@ -76,8 +76,10 @@ namespace NoSQL.GraphDB.Integrations.Graph
             _prefix = BuildPrefix(namespaceName);
         }
 
+        private Int32 _mutations;
+
         /// <inheritdoc />
-        public Boolean IssuedMutations { get; private set; }
+        public Int32 IssuedMutationCount => _mutations;
 
         /// <inheritdoc />
         public async Task<Boolean> EnsureIndicesAsync(CancellationToken cancellationToken)
@@ -230,7 +232,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 });
             }
 
-            IssuedMutations = true;
+            _mutations++;
 
             // waitForCompletion is what makes the ids come back: without it the route answers 202 with no
             // body, and a run that cannot learn the ids it just created cannot index or claim them.
@@ -261,7 +263,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 });
             }
 
-            IssuedMutations = true;
+            _mutations++;
 
             var ids = await SendAsync<List<Int32>>(HttpMethod.Put, "edges?waitForCompletion=true", body,
                 cancellationToken).ConfigureAwait(false);
@@ -300,7 +302,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 });
             }
 
-            IssuedMutations = true;
+            _mutations++;
 
             await SendVoidAsync(HttpMethod.Put, "graphelements/properties?waitForCompletion=true", body,
                 cancellationToken).ConfigureAwait(false);
@@ -314,7 +316,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 return;
             }
 
-            IssuedMutations = true;
+            _mutations++;
 
             await SendVoidAsync(HttpMethod.Delete, "graphelements?waitForCompletion=true",
                 new List<Int32>(ids), cancellationToken).ConfigureAwait(false);
@@ -329,7 +331,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 return IndexWriteOutcome.Empty;
             }
 
-            IssuedMutations = true;
+            _mutations++;
 
             var accepted = 0;
             var declined = ImmutableArray.CreateBuilder<IndexEntry>();
@@ -436,7 +438,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 items.Add(new { graphElementId = summary.ElementId, text = summary.Text });
             }
 
-            IssuedMutations = true;
+            _mutations++;
 
             using var request = new HttpRequestMessage(HttpMethod.Post, _prefix + "embedding/elements")
             {
@@ -615,7 +617,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
         private async Task<Int32> BackfillAsync(String indexId, String propertyPrefix,
             CancellationToken cancellationToken)
         {
-            IssuedMutations = true;
+            _mutations++;
 
             using var response = await SendRawAsync(HttpMethod.Post,
                 "index/backfill/" + Uri.EscapeDataString(indexId),

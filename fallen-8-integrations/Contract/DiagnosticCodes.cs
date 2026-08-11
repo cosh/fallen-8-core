@@ -46,6 +46,12 @@ namespace NoSQL.GraphDB.Integrations.Contract
         /// <summary>No integration instance id.</summary>
         public const String MissingInstanceId = "missingInstanceId";
 
+        /// <summary>
+        ///   An integration instance id whose SHAPE could compose another identity's key. Its own code, because
+        ///   "you sent nothing" and "you sent something dangerous" are different things for a caller to fix.
+        /// </summary>
+        public const String MalformedInstanceId = "malformedInstanceId";
+
         /// <summary>A captured-at that is not an instant.</summary>
         public const String MalformedCapturedAt = "malformedCapturedAt";
 
@@ -126,6 +132,20 @@ namespace NoSQL.GraphDB.Integrations.Contract
         ///   whichever element last held the value.
         /// </summary>
         public const String WeakRelationTarget = "weakRelationTarget";
+
+        /// <summary>
+        ///   A relation addressing its target by an identifier type the vocabulary does not have. The ENTITY is
+        ///   skipped, like every other fault in the provider's own code, and this has its own code so that one
+        ///   code never means two different consequences to a reader grouping by it.
+        /// </summary>
+        public const String UnknownRelationTargetType = "unknownRelationTargetType";
+
+        /// <summary>
+        ///   A relation whose target VALUE does not canonicalise. THE RELATION is dropped and the entity kept,
+        ///   by the same datum-versus-statement rule as <see cref="InvalidIdentifierValue"/>: a mangled address
+        ///   in one topology cell must not delete a device whose own identity is fine.
+        /// </summary>
+        public const String InvalidRelationTargetValue = "invalidRelationTargetValue";
 
         /// <summary>
         ///   A WARNING, not an error: an entity carrying no strong claim is still reported, because

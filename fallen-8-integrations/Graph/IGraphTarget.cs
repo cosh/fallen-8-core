@@ -45,14 +45,18 @@ namespace NoSQL.GraphDB.Integrations.Graph
     public interface IGraphTarget : IDisposable
     {
         /// <summary>
-        ///   Whether this target has issued any MUTATION call at all. The zero-mutation invariant is
-        ///   asserted on the CALL CHANNEL rather than on stored values, because the platform already treats
-        ///   an equal-value write as a true no-op: a runtime that wrote unconditionally would still leave the
-        ///   graph correct while churning the change feed on every run, growing a write-ahead log that
-        ///   nothing here bounds, and making the invariant unobservable. An invariant nobody can observe
-        ///   decays without a failing test.
+        ///   How many MUTATION calls this target has issued. The zero-mutation invariant is asserted on the CALL
+        ///   CHANNEL rather than on stored values, because the platform already treats an equal-value write as a
+        ///   true no-op: a runtime that wrote unconditionally would still leave the graph correct while churning
+        ///   the change feed on every run, growing a write-ahead log that nothing here bounds, and making the
+        ///   invariant unobservable. An invariant nobody can observe decays without a failing test.
+        ///
+        ///   <para>A COUNT rather than a flag, because a run must be able to say what IT issued. A live target is
+        ///   created per job and would answer either way, but the conformance suite runs a candidate twice
+        ///   against ONE graph, and against a flag its idempotence check could never pass: it would read the
+        ///   first run's create forever. A check that cannot pass is as useless as one that cannot fail.</para>
         /// </summary>
-        Boolean IssuedMutations { get; }
+        Int32 IssuedMutationCount { get; }
 
         /// <summary>
         ///   Creates the two claim indices if they are absent, and returns TRUE when it had to create one -

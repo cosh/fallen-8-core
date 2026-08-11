@@ -118,7 +118,8 @@ namespace NoSQL.GraphDB.Integrations.Identity
 
                 if (!root.TryGetProperty("schemaVersion", out var version) ||
                     version.ValueKind != JsonValueKind.Number ||
-                    version.GetInt32() != CurrentSchemaVersion)
+                    !version.TryGetInt32(out var declaredVersion) ||
+                    declaredVersion != CurrentSchemaVersion)
                 {
                     throw new InvalidOperationException(String.Format(
                         "The identifier vocabulary must declare schemaVersion {0}.", CurrentSchemaVersion));
@@ -173,6 +174,20 @@ namespace NoSQL.GraphDB.Integrations.Identity
                         throw new InvalidOperationException(String.Format(
                             "Identifier '{0}' carries an accept pattern that is not a valid regular expression: {1}",
                             type, ex.Message), ex);
+                    }
+
+                    // ANCHORED, not merely compilable: the pattern is applied with IsMatch, which is a
+                    // substring search, so an unanchored one silently accepts a superstring. An unanchored
+                    // serial pattern would match on the "ST" inside "ST 1234" and key the whole value as a
+                    // strong identity, which is the wrong-element-attribution failure the strength field
+                    // exists to prevent.
+                    if (!accept.StartsWith("^", StringComparison.Ordinal) ||
+                        !accept.EndsWith("$", StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(String.Format(
+                            "Identifier '{0}' carries the accept pattern '{1}', which is not anchored. The " +
+                            "pattern is matched as a substring search, so an unanchored one accepts a value " +
+                            "that merely CONTAINS an acceptable one.", type, accept));
                     }
 
                     var identifier = new IdentifierType(type, strength, scope, canonicalName, canonicaliser!,

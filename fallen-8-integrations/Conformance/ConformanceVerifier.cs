@@ -141,8 +141,15 @@ namespace NoSQL.GraphDB.Integrations.Conformance
                 new RecordingHttpFactory(handler, runtimeOptions),
                 fileStore, active, new RunGate(), metrics, loggers);
 
+            // Which elements are OUT OF SCOPE, captured before each run rather than inferred afterwards. It
+            // has to be before: a run that wrongly adopts another instance's element ends up carrying its own
+            // claim on it too, so the final state alone cannot tell adoption from the legitimate case of
+            // withdrawing this instance's own claim from an element somebody unified by hand.
+            var forbidden = new HashSet<Int32>();
+            CollectOutOfScope(graph, job.IntegrationInstanceId ?? String.Empty, forbidden);
             var first = await RunOnceAsync(runner, job, candidate, cancellationToken).ConfigureAwait(false);
             var mutationsAfterFirst = graph.MutationCalls.Count;
+            CollectOutOfScope(graph, job.IntegrationInstanceId ?? String.Empty, forbidden);
             var second = await RunOnceAsync(runner, job, candidate, cancellationToken).ConfigureAwait(false);
 
             var findings = ImmutableArray.CreateBuilder<ConformanceFinding>(12);
@@ -155,7 +162,7 @@ namespace NoSQL.GraphDB.Integrations.Conformance
             findings.Add(StrengthHonest(observed, validation));
             findings.Add(Deterministic(observed, first, second));
             findings.Add(Idempotent(graph, mutationsAfterFirst, second));
-            findings.Add(ClaimScoped(graph, job));
+            findings.Add(ClaimScoped(graph, forbidden));
             findings.Add(NoSimilarityIdentity(observed, first));
             findings.Add(RunsOffline(handler, fileStore, first, credentials));
             findings.Add(NoCredentialLeak(credentials, attemptedSink, reachedSink, graph, first, second));
@@ -292,25 +299,28 @@ namespace NoSQL.GraphDB.Integrations.Conformance
                 "A second run over an unchanged source issued no write call at all.");
         }
 
-        private static ConformanceFinding ClaimScoped(InMemoryGraphTarget graph, IntegrationJob job)
+        private static void CollectOutOfScope(InMemoryGraphTarget graph, String instanceId,
+            HashSet<Int32> forbidden)
         {
-            var instanceId = job.IntegrationInstanceId ?? String.Empty;
+            foreach (var element in graph.AllElements())
+            {
+                if (!ElementScope.IsInScope(element, instanceId))
+                {
+                    forbidden.Add(element.Id);
+                }
+            }
+        }
+
+        private static ConformanceFinding ClaimScoped(InMemoryGraphTarget graph, HashSet<Int32> forbidden)
+        {
             var offenders = new List<String>();
 
             foreach (var id in graph.TouchedElements)
             {
-                if (!graph.TryReadElement(id, out var state) || state == null)
+                if (forbidden.Contains(id))
                 {
-                    // Deleted, which is a legitimate outcome of a withdrawal it owned.
-                    continue;
+                    offenders.Add(id.ToString(CultureInfo.InvariantCulture));
                 }
-
-                if (state.IsClaimedBy(instanceId) || !state.HasAnyClaim())
-                {
-                    continue;
-                }
-
-                offenders.Add(id.ToString(CultureInfo.InvariantCulture));
             }
 
             return offenders.Count == 0

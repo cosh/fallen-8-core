@@ -50,17 +50,37 @@ namespace NoSQL.GraphDB.Integrations.Graph
         public const String StringTypeName = "System.String";
 
         /// <summary>
+        ///   What a value turned out to be. THREE states rather than a boolean, because "the source did not
+        ///   answer" and "the source answered with something a property cannot hold" are different facts and a
+        ///   caller reports them differently: the first is silent, the second names the property. A boolean
+        ///   forced the caller to tell them apart by null-checking the value, which cannot work for a boxed
+        ///   <see cref="JsonElement"/> holding JSON null - so a pasted document got one diagnostic per
+        ///   unanswered column while the same provider in process got none.
+        /// </summary>
+        public enum Outcome
+        {
+            /// <summary>The source did not answer. Absent is absent, never an empty string.</summary>
+            Absent = 0,
+
+            /// <summary>Rendered as the platform's (type name, text) pair.</summary>
+            Rendered = 1,
+
+            /// <summary>A shape the property surface does not carry.</summary>
+            Unsupported = 2,
+        }
+
+        /// <summary>
         ///   Renders a provider-supplied value as the platform's (type name, text) pair.
         /// </summary>
         /// <param name="value">A CLR scalar, or a <see cref="JsonElement"/> when the snapshot arrived as JSON.</param>
-        /// <param name="typeName">The platform literal type name, when this returns true.</param>
-        /// <param name="text">The invariant text form, when this returns true.</param>
+        /// <param name="typeName">The platform literal type name, when this renders.</param>
+        /// <param name="text">The invariant text form, when this renders.</param>
         /// <returns>
-        ///   False for null (an absent value is absent, never an empty string: writing empty makes the
-        ///   property exist and overwrites what another integration knows) and for a value this contract
-        ///   does not carry.
+        ///   <see cref="Outcome.Absent"/> when the source did not answer (an absent value is absent, never
+        ///   an empty string: writing empty makes the property exist and overwrites what another integration
+        ///   knows), and <see cref="Outcome.Unsupported"/> for a shape this contract does not carry.
         /// </returns>
-        public static Boolean TryRender(Object? value, out String? typeName, out String? text)
+        public static Outcome TryRender(Object? value, out String? typeName, out String? text)
         {
             typeName = null;
             text = null;
@@ -68,56 +88,56 @@ namespace NoSQL.GraphDB.Integrations.Graph
             switch (value)
             {
                 case null:
-                    return false;
+                    return Outcome.Absent;
 
                 case String s:
                     typeName = StringTypeName;
                     text = s;
-                    return true;
+                    return Outcome.Rendered;
 
                 case Boolean b:
                     typeName = "System.Boolean";
                     // Boolean is not IFormattable, so the platform's egress renders it with ToString():
                     // "True"/"False". Matching that exactly is what makes a read-back comparison equal.
                     text = b.ToString();
-                    return true;
+                    return Outcome.Rendered;
 
                 case Byte or SByte or Int16 or UInt16 or Int32 or UInt32 or Int64 or UInt64
                     or Single or Double or Decimal:
                     typeName = "System." + value.GetType().Name;
                     text = ((IFormattable)value).ToString(null, CultureInfo.InvariantCulture);
-                    return true;
+                    return Outcome.Rendered;
 
                 case Char c:
                     typeName = "System.Char";
                     text = c.ToString();
-                    return true;
+                    return Outcome.Rendered;
 
                 case DateTime dateTime:
                     typeName = "System.DateTime";
                     text = dateTime.ToString("O", CultureInfo.InvariantCulture);
-                    return true;
+                    return Outcome.Rendered;
 
                 case DateTimeOffset dateTimeOffset:
                     typeName = "System.DateTimeOffset";
                     text = dateTimeOffset.ToString("O", CultureInfo.InvariantCulture);
-                    return true;
+                    return Outcome.Rendered;
 
                 case TimeSpan timeSpan:
                     typeName = "System.TimeSpan";
                     text = timeSpan.ToString(null, CultureInfo.InvariantCulture);
-                    return true;
+                    return Outcome.Rendered;
 
                 case Guid guid:
                     typeName = "System.Guid";
                     text = guid.ToString();
-                    return true;
+                    return Outcome.Rendered;
 
                 case JsonElement json:
                     return TryRenderJson(json, out typeName, out text);
 
                 default:
-                    return false;
+                    return Outcome.Unsupported;
             }
         }
 
@@ -128,7 +148,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///   guessing the narrowest type - would make one source's value change type between runs and turn
         ///   every run into a write.
         /// </summary>
-        private static Boolean TryRenderJson(JsonElement json, out String? typeName, out String? text)
+        private static Outcome TryRenderJson(JsonElement json, out String? typeName, out String? text)
         {
             typeName = null;
             text = null;
@@ -138,35 +158,41 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 case JsonValueKind.String:
                     typeName = StringTypeName;
                     text = json.GetString();
-                    return text != null;
+                    return text == null ? Outcome.Absent : Outcome.Rendered;
 
                 case JsonValueKind.True:
                 case JsonValueKind.False:
                     typeName = "System.Boolean";
                     text = json.GetBoolean().ToString();
-                    return true;
+                    return Outcome.Rendered;
 
                 case JsonValueKind.Number:
                     if (json.TryGetInt64(out var integral))
                     {
                         typeName = "System.Int64";
                         text = integral.ToString(CultureInfo.InvariantCulture);
-                        return true;
+                        return Outcome.Rendered;
                     }
 
                     if (json.TryGetDouble(out var real))
                     {
                         typeName = "System.Double";
                         text = real.ToString(null, CultureInfo.InvariantCulture);
-                        return true;
+                        return Outcome.Rendered;
                     }
 
-                    return false;
+                    return Outcome.Unsupported;
+
+                case JsonValueKind.Null:
+                case JsonValueKind.Undefined:
+                    // The source did not answer, which is the same fact as a CLR null and earns the same
+                    // silence: a document pasted into the validate route must get the same verdict as the
+                    // provider that would have produced it.
+                    return Outcome.Absent;
 
                 default:
-                    // Null, Object, Array, Undefined: an absent value, or a shape the property surface
-                    // does not carry.
-                    return false;
+                    // Object and Array: a shape the property surface does not carry.
+                    return Outcome.Unsupported;
             }
         }
     }

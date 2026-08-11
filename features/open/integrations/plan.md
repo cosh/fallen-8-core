@@ -103,14 +103,31 @@ reading the rule sympathetically. Phase 10 budgets time for it.
 
 ## Progress
 
-- [ ] Phase 0: the deployable, empty but real
-- [ ] Phase 1: the contract and the validator
-- [ ] Phase 2: identity, resolution and the write path
-- [ ] Phase 3: the conformance suite
-- [ ] Phase 4: *csv-device-list*
-- [ ] Phase 5: *unifi-network*
-- [ ] Phase 6: *fronius-solar*
-- [ ] Phase 7: the AI surface
-- [ ] Phase 8: F8 Studio
-- [ ] Phase 9: docs and diagrams
-- [ ] Phase 10: the merge gate
+- [x] Phase 0: the deployable, empty but real
+- [x] Phase 1: the contract and the validator
+- [x] Phase 2: identity, resolution and the write path
+- [x] Phase 3: the conformance suite
+- [x] Phase 4: *csv-device-list*
+- [x] Phase 5: *unifi-network*
+- [x] Phase 6: *fronius-solar*
+- [x] Phase 7: the AI surface
+- [x] Phase 8: F8 Studio
+- [x] Phase 9: docs and diagrams
+- [x] Phase 10: the merge gate
+
+## What the phases found
+
+Each of these is a rule the spec stated and the implementation had to change, and each is rewritten at the row
+that owns it in [spec.md](spec.md) rather than annotated. They are collected here because the ORDER matters:
+every one of them was found by the phase the plan put before the code that depended on it.
+
+| Found by | The finding |
+| --- | --- |
+| Phase 0, reading the platform rather than remembering it | `POST /index/backfill/{indexId}` selects ONE EXACT property key, and the runtime keeps a claim set as dense reserved properties. The prefix mode the spec assumed did not exist, so it is added to the apiApp (not the engine, where index-to-property mapping deliberately does not live) |
+| Phase 3, before the blueprints | the seam's mutation signal has to be a COUNT. The suite runs a candidate TWICE against one graph, and a boolean latched by the first run's create makes the idempotence check unable to PASS, which is as useless as a check that cannot fail |
+| Phase 3 | the claim-scope check has no provider-shaped red path, so the narrowing had to move onto the graph seam, where a substituted target can get it wrong. That is also the more honest home: narrowing is a question about element state, which an index cannot answer |
+| Phases 4 and 5, independently | a claim-level fault must cost THE CLAIM and not the entity. Both blueprints hit it, and the UniFi one had begun pre-validating values itself to avoid it - runtime work leaking across the boundary the feature exists to hold |
+| Phase 5 | the vendor's OpenAPI document is reachable but truncates on fetch: the paging envelope and the device resources were readable, the site schema and the client variants were not. Every field that could not be confirmed is marked as taken from the spec's own record at the site that uses it |
+| Phase 7 | the degradation matrix has TWO honest cells. The runtime's only AI-dependent behaviour is the summary embedding and it depends on the embedding capability alone, so twelve of the sixteen combinations differ in nothing this runtime can observe |
+| Phase 8 | the capability refusal is a 403 only on a secured instance; with no API key configured the standing policy challenges with 401 first. Every client treats either as absent |
+| Phase 9 | the files mount cannot point at `sample-graphs`, which exists on no fresh clone because git cannot track an empty directory |

@@ -30,7 +30,10 @@ namespace NoSQL.GraphDB.Integrations.Identity
 {
     /// <summary>
     ///   THE ONLY PLACE that composes the two reserved property prefixes, and the one home of the instance
-    ///   id's shape rule.
+    ///   id's shape RULE - though not of its enforcement, which is deliberately at the edges where a caller can
+    ///   still be told: the job route refuses a bad id before a provider runs, and the validator refuses one in
+    ///   a snapshot envelope. Composing is too late to reject, so <see cref="ClaimProperty"/> only refuses an
+    ///   empty id.
     ///
     ///   <para><c>$identity:&lt;ordinal&gt;</c> holds one canonical claim key and uses DENSE ordinals from
     ///   zero, because the property surface accepts scalars and no array, and a structured value does not
