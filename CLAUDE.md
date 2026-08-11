@@ -11,7 +11,7 @@ Fallen-8 is an in-memory graph database written in C# (.NET 10). Namespaces are 
   (path finding, subgraph), persistence, serialization, plugins.
 - **`fallen-8-core-apiApp`** — ASP.NET Core Web API exposing the engine over REST.
   OpenAPI via `Microsoft.AspNetCore.OpenApi`; interactive docs via Scalar.
-- **`fallen-8-unittest`** — MSTest test suite covering every project in the solution.
+- **`fallen-8-unittest`** covers every project in the solution (MSTest).
 
 Two more are **separate deployables** that reach the graph over the public REST API only, never in
 process, and reference neither the engine nor the apiApp: **`fallen-8-mcp`** (the agent channel) and
@@ -103,7 +103,7 @@ dotnet run --project fallen-8-core-apiApp
   read its state from `GET /status`. The living docs are
   [features/done/element-embeddings/](features/done/element-embeddings/) and
   [features/done/embedding-provider/](features/done/embedding-provider/).
-- **External systems reach a graph through the integrations runtime — a separate deployable.**
+- **External systems reach a graph through the integrations runtime, a separate deployable.**
   `fallen-8-integrations` runs ONE job per request: it reads a system on the operator's own network
   (a CSV inventory, a UniFi console, a Fronius inverter), describes what it saw as a snapshot, and
   writes that into one namespace over the REST API. It keeps no schedule, no run history and no
