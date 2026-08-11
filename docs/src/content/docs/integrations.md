@@ -32,8 +32,8 @@ npm run env:up
 # f8-integrations is on the compose network; you reach it through the API.
 ```
 
-`F8_INTEGRATIONS=false` skips the sidecar and the API's four routes refuse, which is also what
-makes the Studio screen disappear.
+`F8_INTEGRATIONS=false` skips the sidecar, and the API's four routes then refuse the capability:
+a 403 on an instance with an API key configured, a 401 on an open one.
 
 A **job** is the whole configuration of one run. It names the integration, the identity it
 asserts as, the namespace to write into, the provider's settings, and, for each credential
@@ -52,9 +52,9 @@ curl -sS -X POST http://localhost:8080/integrations/job \
 ```
 
 Ask `GET /integrations/providers` what each integration's settings are; every one carries a
-label, a kind and a sentence saying where to find the value in the source system. F8 Studio's
-**Integrations** screen renders that form for you, and it does so from the descriptor alone,
-which is why a fourth integration needs no change there.
+label, a kind and a sentence saying where to find the value in the source system. That is
+deliberately enough to render a form from, so a fourth integration needs no new UI code when a
+screen for it arrives.
 
 There is deliberately **no schedule, no interval and no run history** anywhere in the runtime.
 Timing belongs to whoever wants the data: run a job from cron, from a CI pipeline, from a

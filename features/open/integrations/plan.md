@@ -111,9 +111,10 @@ reading the rule sympathetically. Phase 10 budgets time for it.
 - [x] Phase 5: *unifi-network*
 - [x] Phase 6: *fronius-solar*
 - [x] Phase 7: the AI surface
-- [x] Phase 8: F8 Studio
-- [x] Phase 9: docs and diagrams
-- [x] Phase 10: the merge gate
+- [ ] Phase 8: F8 Studio. NOT DONE: the runtime, the proxy and the descriptor contract that make the screen
+      possible are all in place, and the four routes answer, but no screen exists yet
+- [x] Phase 9: docs and diagrams, except the screenshots, which wait on phase 8
+- [x] Phase 10: the merge gate, over everything phases 0 to 7 landed
 
 ## What the phases found
 
