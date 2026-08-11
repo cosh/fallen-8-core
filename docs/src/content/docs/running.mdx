@@ -62,8 +62,8 @@ npm run env:status   # health of the whole environment
 ### From the published images
 
 `env:up` builds the first-party images locally. Every release tag also publishes them to
-GHCR (`ghcr.io/cosh/fallen-8-core` plus `-api`, `-studio`, `-mcp`, `-ollama`, `-nlp`), so the
-same environment runs without building anything:
+GHCR (`ghcr.io/cosh/fallen-8-core` plus `-api`, `-studio`, `-mcp`, `-integrations`, `-ollama`,
+`-nlp`), so the same environment runs without building anything:
 
 ```bash
 npm run env:up:published              # newest release (latest)
