@@ -25,9 +25,13 @@
 
 /**
  * The Studio navigation: the single source of truth for the shell's icon rail and for anything
- * keyed by section (e.g. the per-section help in lib/sectionHelp.ts). Connect, Save games and
- * Benchmark are Fallen-8-level (flat routes); the rest operate on the ACTIVE NAMESPACE and live
- * under /q/{ns}/… (feature graph-namespaces).
+ * keyed by section (e.g. the per-section help in lib/sectionHelp.ts). Connect, Save games,
+ * Benchmark and Integrations are Fallen-8-level (flat routes); the rest operate on the ACTIVE
+ * NAMESPACE and live under /q/{ns}/… (feature graph-namespaces).
+ *
+ * An entry may declare a `capability`, which the shell reads to HIDE it rather than disable it. Only
+ * one does: an instance either has an integrations runtime or has nothing to say about integrations,
+ * and a permanently disabled icon would advertise a deployable that is not there.
  */
 export const NAV = [
   { leaf: "/", label: "Connect", icon: "◉", scoped: false },
@@ -46,7 +50,22 @@ export const NAV = [
   // Knowledge (feature semantic-layer): the semantic layer over the graph. Deliberately last,
   // after Benchmark - it is the "documents in, graph out" entry point, not a core-graph screen.
   { leaf: "knowledge", label: "Knowledge", icon: "▤", scoped: true },
+  // Integrations (feature integrations): systems on your own network in, graph out. Last, next to
+  // Knowledge, because both are data-in entry points rather than core-graph screens, and HIDDEN
+  // unless the instance has a runtime to talk to.
+  {
+    leaf: "/integrations",
+    label: "Integrations",
+    icon: "⇄",
+    scoped: false,
+    capability: "integrations",
+  },
 ] as const;
 
 /** One navigation entry. */
 export type NavItem = (typeof NAV)[number];
+
+/** The capability an entry needs, or undefined when it always belongs in the rail. */
+export function navCapability(item: NavItem): "integrations" | undefined {
+  return "capability" in item ? item.capability : undefined;
+}

@@ -945,3 +945,76 @@ export interface DelegateValidationResult {
   valid: boolean;
   diagnostics: DelegateDiagnostic[];
 }
+
+// ---- integrations (feature integrations) ----
+// The runtime is a separate deployable and the API proxies four routes to it, forwarding bodies
+// untouched, so these shapes are the RUNTIME'S contract rather than the API app's. Every field is
+// what the runtime serialises; newer ones stay optional so an instance predating them still parses.
+
+/** What kind of value a provider setting takes, which is all a form needs to render it. */
+export type SettingKind = "Text" | "Number" | "Boolean" | "Url" | "Credential";
+
+/** One setting, as data. `help` says where to find the value in the source system. */
+export interface IntegrationSetting {
+  key: string;
+  label: string;
+  kind: SettingKind;
+  required: boolean;
+  help: string;
+  defaultValue?: string | null;
+}
+
+/**
+ * What an integration IS, as data that is true before any run exists. A form is rendered from
+ * `kind`, `required` and `help` alone, which is what makes "a fourth integration needs no Studio
+ * change" true rather than aspirational.
+ */
+export interface IntegrationProvider {
+  id: string;
+  displayName: string;
+  description: string;
+  settings: IntegrationSetting[];
+  entityKinds: string[];
+  claimTypes: string[];
+  relationTypes: string[];
+  canObserveCompleteState: boolean;
+  readOnly: boolean;
+  entitySummaryTemplate?: string | null;
+}
+
+/** Something a run needs a reader to know, with a stable code to grep for and alert on. */
+export interface IntegrationDiagnostic {
+  code: string;
+  message: string;
+  subject?: string | null;
+}
+
+/** The whole configuration of one run. Credentials are named, never carried. */
+export interface IntegrationJobRequest {
+  providerId: string;
+  integrationInstanceId: string;
+  namespace?: string;
+  settings: Record<string, string>;
+  credentials: Record<string, string>;
+  embedSummaries?: boolean;
+}
+
+/** The only account of a job, because the runtime keeps none. */
+export interface IntegrationJobReport {
+  providerId: string;
+  integrationInstanceId: string;
+  startedUtc: string;
+  durationMilliseconds: number;
+  elementsCreated: number;
+  elementsMatched: number;
+  edgesCreated: number;
+  claimsWithdrawn: number;
+  elementsDeleted: number;
+  deletionsDeferred: number;
+  issuedMutations: boolean;
+  summariesEmbedded?: number;
+  error?: string | null;
+  errorKind?: string | null;
+  credentialFingerprint?: string | null;
+  diagnostics: IntegrationDiagnostic[];
+}

@@ -1,7 +1,7 @@
 # Integrations
 
-**Status:** implemented on `feature/integrations`, except the F8 Studio screen (plan phase 8), which is not
-built yet: the four routes answer and the descriptor carries everything a form needs, but nothing renders it. It replaces the three superseded
+**Status:** implemented on `feature/integrations`. One follow-up is open and named in the plan: the docs
+screenshots, because the Studio rail gained an icon that a fresh capture would show. It replaces the three superseded
 `features/open/integration-*` directories, deleted when this lands (section 18). The plan that sequences it
 is [plan.md](plan.md). Where the implementation found a rule below to be wrong, the rule is REWRITTEN here
 rather than annotated, so this document says what the code does; the rows that changed name the reason.

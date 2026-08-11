@@ -260,6 +260,14 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
   getDocumentBinding: () => endpoints.getDocumentBinding(instance),
   ensureDocumentBinding: () => endpoints.ensureDocumentBinding(instance),
   listEntities: () => endpoints.listEntities(instance),
+  listIntegrationProviders: () => endpoints.listIntegrationProviders(instance),
+  submitIntegrationJob: () =>
+    endpoints.submitIntegrationJob(instance, {
+      providerId: "csv-device-list",
+      integrationInstanceId: "office-inventory",
+      settings: { file: "devices.csv" },
+      credentials: {},
+    }),
 };
 
 describe("API client route correctness vs openapi-v0.1.json", () => {

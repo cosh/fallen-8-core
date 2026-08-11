@@ -111,10 +111,13 @@ reading the rule sympathetically. Phase 10 budgets time for it.
 - [x] Phase 5: *unifi-network*
 - [x] Phase 6: *fronius-solar*
 - [x] Phase 7: the AI surface
-- [ ] Phase 8: F8 Studio. NOT DONE: the runtime, the proxy and the descriptor contract that make the screen
-      possible are all in place, and the four routes answer, but no screen exists yet
-- [x] Phase 9: docs and diagrams, except the screenshots, which wait on phase 8
-- [x] Phase 10: the merge gate, over everything phases 0 to 7 landed
+- [x] Phase 8: F8 Studio
+- [x] Phase 9: docs and diagrams. NOT DONE: the screenshots. The new page carries none, and the standing rule
+      that a UI change recreates the captures it affects is outstanding for one reason: the rail gained an icon
+      that renders whenever an instance HAS a runtime, which the compose environment does by default, so every
+      existing `screen-*.png` is one icon short of what a fresh capture would show. Recapturing needs the app and
+      the browser driver running (`e2e/screenshot-*.spec.ts`), which is a separate pass
+- [x] Phase 10: the merge gate
 
 ## What the phases found
 

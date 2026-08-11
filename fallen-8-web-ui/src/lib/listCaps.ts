@@ -55,6 +55,10 @@ export const SCROLL_ROWS = {
   namespaces: 12,
   /** Ingested documents (KnowledgeScreen). */
   documents: 12,
+  /** Integrations this instance's runtime ships (IntegrationsScreen): a short, curated list. */
+  integrations: 8,
+  /** One run's diagnostics (IntegrationsScreen): a CSV with many bad rows can be long. */
+  diagnostics: 10,
 } as const;
 
 /**
